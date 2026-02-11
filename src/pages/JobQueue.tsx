@@ -25,12 +25,13 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
 } from "@mui/material";
 import { Add } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { useJobStore } from "../stores/jobStore";
-import { createJob } from "../api/client";
-import type { JobCreate, JobStatus } from "../api/types";
+import { createJob, getFileUrl } from "../api/client";
+import type { JobCreate, JobResponse, JobStatus } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
 const ALL_STATUSES: JobStatus[] = [
@@ -38,6 +39,7 @@ const ALL_STATUSES: JobStatus[] = [
   "processing",
   "pending",
   "paused",
+  "finalizing",
   "finalized",
 ];
 
@@ -46,8 +48,12 @@ const STATUS_PRIORITY: Record<string, number> = {
   processing: 1,
   pending: 2,
   paused: 3,
-  finalized: 4,
+  finalizing: 4,
+  finalized: 5,
 };
+
+type SortKey = "name" | "status" | "fps" | "created_at" | "updated_at";
+type SortDir = "asc" | "desc";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -63,6 +69,8 @@ export default function JobQueue() {
   const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("updated_at");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   useEffect(() => {
     fetchJobs();
@@ -70,14 +78,39 @@ export default function JobQueue() {
     return () => clearInterval(interval);
   }, [fetchJobs]);
 
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  };
+
+  const comparator = (a: JobResponse, b: JobResponse): number => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    switch (sortKey) {
+      case "name":
+        return dir * a.name.localeCompare(b.name);
+      case "status": {
+        const pa = STATUS_PRIORITY[a.status] ?? 99;
+        const pb = STATUS_PRIORITY[b.status] ?? 99;
+        return dir * (pa - pb);
+      }
+      case "fps":
+        return dir * (a.fps - b.fps);
+      case "created_at":
+        return dir * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      case "updated_at":
+        return dir * (new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
+      default:
+        return 0;
+    }
+  };
+
   const filteredJobs = jobs
     .filter((j) => statusFilter.length === 0 || statusFilter.includes(j.status))
-    .sort((a, b) => {
-      const pa = STATUS_PRIORITY[a.status] ?? 99;
-      const pb = STATUS_PRIORITY[b.status] ?? 99;
-      if (pa !== pb) return pa - pb;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
+    .sort(comparator);
 
   return (
     <Box>
@@ -141,11 +174,13 @@ export default function JobQueue() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Status</TableCell>
+                  <TableCell sx={{ width: 60 }}>Image</TableCell>
+                  <SortableCell id="name" label="Name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableCell id="status" label="Status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 120 }} />
                   <TableCell>Dimensions</TableCell>
-                  <TableCell>FPS</TableCell>
-                  <TableCell>Created</TableCell>
+                  <SortableCell id="fps" label="FPS" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 80 }} />
+                  <SortableCell id="created_at" label="Created" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 150 }} />
+                  <SortableCell id="updated_at" label="Updated" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 150 }} />
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -156,6 +191,32 @@ export default function JobQueue() {
                     sx={{ cursor: "pointer" }}
                     onClick={() => navigate(`/jobs/${job.id}`)}
                   >
+                    <TableCell>
+                      {job.starting_image ? (
+                        <Box
+                          component="img"
+                          src={getFileUrl(job.starting_image)}
+                          alt=""
+                          sx={{
+                            width: 48,
+                            height: 48,
+                            objectFit: "cover",
+                            borderRadius: 1,
+                            bgcolor: "#f5f5f5",
+                            display: "block",
+                          }}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: 1,
+                            bgcolor: "#f5f5f5",
+                          }}
+                        />
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
                         {job.name}
@@ -169,6 +230,7 @@ export default function JobQueue() {
                     </TableCell>
                     <TableCell>{job.fps}</TableCell>
                     <TableCell>{formatDate(job.created_at)}</TableCell>
+                    <TableCell>{formatDate(job.updated_at)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -196,6 +258,34 @@ export default function JobQueue() {
         }}
       />
     </Box>
+  );
+}
+
+function SortableCell({
+  id,
+  label,
+  sortKey,
+  sortDir,
+  onSort,
+  sx,
+}: {
+  id: SortKey;
+  label: string;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+  sx?: Record<string, unknown>;
+}) {
+  return (
+    <TableCell sx={sx}>
+      <TableSortLabel
+        active={sortKey === id}
+        direction={sortKey === id ? sortDir : "asc"}
+        onClick={() => onSort(id)}
+      >
+        {label}
+      </TableSortLabel>
+    </TableCell>
   );
 }
 

@@ -9,6 +9,7 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   completed: { bg: "#e8f5e9", fg: "#2e7d32" },
   failed: { bg: "#ffebee", fg: "#c62828" },
   paused: { bg: "#f3e5f5", fg: "#6a1b9a" },
+  finalizing: { bg: "#e0f2f1", fg: "#00695c" },
   finalized: { bg: "#e0f2f1", fg: "#00695c" },
 };
 

@@ -105,6 +105,7 @@ export type JobStatus =
   | "processing"
   | "awaiting"
   | "paused"
+  | "finalizing"
   | "finalized";
 
 export type SegmentStatus =

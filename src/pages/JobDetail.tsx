@@ -64,6 +64,7 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [videoModal, setVideoModal] = useState<string | null>(null);
+  const [finalizing, setFinalizing] = useState(false);
 
   const fetchJob = useCallback(async () => {
     if (!id) return;
@@ -93,11 +94,14 @@ export default function JobDetail() {
 
   const handleFinalize = async () => {
     if (!id) return;
+    setFinalizing(true);
     try {
       await updateJob(id, { status: "finalized" });
       fetchJob();
     } catch {
       setError("Failed to finalize job");
+    } finally {
+      setFinalizing(false);
     }
   };
 
@@ -133,22 +137,6 @@ export default function JobDetail() {
         <StatusChip status={job.status} />
       </Box>
 
-      {/* Processing banner at top */}
-      {(job.status === "processing" || job.status === "pending") && (
-        <Card sx={{ mb: 3, bgcolor: "#e3f2fd" }}>
-          <CardContent
-            sx={{ display: "flex", alignItems: "center", gap: 2, py: 1.5, "&:last-child": { pb: 1.5 } }}
-          >
-            <CircularProgress size={20} />
-            <Typography variant="body2">
-              {job.status === "processing"
-                ? "Segment is being processed..."
-                : "Waiting for a worker to pick up this job..."}
-            </Typography>
-          </CardContent>
-        </Card>
-      )}
-
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
@@ -181,25 +169,54 @@ export default function JobDetail() {
             <MetaItem label="Updated" value={formatDate(job.updated_at)} />
           </Box>
 
-          {job.status === "awaiting" && (
-            <Box sx={{ mt: 2 }}>
-              <Button
-                variant="contained"
-                color="secondary"
-                onClick={handleFinalize}
-              >
-                Finalize & Merge
-              </Button>
-            </Box>
-          )}
         </CardContent>
       </Card>
 
       {/* Segments table */}
-      <Typography variant="h5" sx={{ mb: 2 }}>
-        Segments
-      </Typography>
       <Card sx={{ mb: 3 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            px: 2,
+            py: 1.5,
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          <Typography variant="h6">Segments</Typography>
+          {(job.status === "processing" || job.status === "pending") && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <CircularProgress size={18} />
+              <Typography variant="body2" color="text.secondary">
+                {job.status === "processing"
+                  ? "Processing segment..."
+                  : "Waiting for worker..."}
+              </Typography>
+            </Box>
+          )}
+          {job.status === "finalizing" && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <CircularProgress size={18} />
+              <Typography variant="body2" color="text.secondary">
+                Finalizing...
+              </Typography>
+            </Box>
+          )}
+          {job.status === "awaiting" && (
+            <Button
+              variant="contained"
+              color="secondary"
+              size="small"
+              onClick={handleFinalize}
+              disabled={finalizing}
+              startIcon={finalizing ? <CircularProgress size={16} color="inherit" /> : undefined}
+            >
+              {finalizing ? "Finalizing..." : "Finalize & Merge"}
+            </Button>
+          )}
+        </Box>
         <TableContainer>
           <Table>
             <TableHead>
