@@ -3,11 +3,8 @@ import {
   Box,
   Typography,
   Card,
-  CardContent,
-  CardActionArea,
   Button,
   Chip,
-  Grid,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -22,6 +19,12 @@ import {
   InputLabel,
   FormControl,
   OutlinedInput,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
 } from "@mui/material";
 import { Add } from "@mui/icons-material";
 import { useNavigate } from "react-router";
@@ -132,42 +135,47 @@ export default function JobQueue() {
         </Box>
       )}
 
-      <Grid container spacing={2}>
-        {filteredJobs.map((job) => (
-          <Grid key={job.id} size={{ xs: 12, sm: 6, md: 4 }}>
-            <Card>
-              <CardActionArea onClick={() => navigate(`/jobs/${job.id}`)}>
-                <CardContent>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "start",
-                      mb: 1,
-                    }}
+      {filteredJobs.length > 0 && (
+        <Card>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Name</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Dimensions</TableCell>
+                  <TableCell>FPS</TableCell>
+                  <TableCell>Created</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredJobs.map((job) => (
+                  <TableRow
+                    key={job.id}
+                    hover
+                    sx={{ cursor: "pointer" }}
+                    onClick={() => navigate(`/jobs/${job.id}`)}
                   >
-                    <Typography variant="h6" noWrap sx={{ flex: 1, mr: 1 }}>
-                      {job.name}
-                    </Typography>
-                    <StatusChip status={job.status} />
-                  </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    {job.width}x{job.height} &middot; {job.fps}fps
-                  </Typography>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    display="block"
-                    sx={{ mt: 1 }}
-                  >
-                    Created {formatDate(job.created_at)}
-                  </Typography>
-                </CardContent>
-              </CardActionArea>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {job.name}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <StatusChip status={job.status} />
+                    </TableCell>
+                    <TableCell>
+                      {job.width}x{job.height}
+                    </TableCell>
+                    <TableCell>{job.fps}</TableCell>
+                    <TableCell>{formatDate(job.created_at)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Card>
+      )}
 
       {!loading && filteredJobs.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8 }}>

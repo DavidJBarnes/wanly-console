@@ -11,16 +11,24 @@ import {
   FormControlLabel,
   Alert,
   CircularProgress,
-  Divider,
   IconButton,
+  Dialog,
+  DialogContent,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
 } from "@mui/material";
-import { ArrowBack, PlayArrow } from "@mui/icons-material";
+import { ArrowBack, PlayArrow, PlayCircleOutline, Close } from "@mui/icons-material";
 import { useParams, useNavigate } from "react-router";
-import { getJob, updateJob, addSegment, getFileUrl } from "../api/client";
+import { getJob, updateJob, addSegment, getFileUrl, getWorkers } from "../api/client";
 import type {
   JobDetailResponse,
   SegmentResponse,
   SegmentCreate,
+  WorkerResponse,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -41,12 +49,21 @@ function formatDuration(seconds: number) {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+function segmentRunTime(seg: SegmentResponse): string {
+  if (!seg.claimed_at || !seg.completed_at) return "-";
+  const ms =
+    new Date(seg.completed_at).getTime() - new Date(seg.claimed_at).getTime();
+  return formatDuration(ms / 1000);
+}
+
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [job, setJob] = useState<JobDetailResponse | null>(null);
+  const [workers, setWorkers] = useState<WorkerResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [videoModal, setVideoModal] = useState<string | null>(null);
 
   const fetchJob = useCallback(async () => {
     if (!id) return;
@@ -63,9 +80,16 @@ export default function JobDetail() {
 
   useEffect(() => {
     fetchJob();
+    getWorkers().then(setWorkers).catch(() => {});
     const interval = setInterval(fetchJob, 5000);
     return () => clearInterval(interval);
   }, [fetchJob]);
+
+  const workerName = (workerId: string | null) => {
+    if (!workerId) return "-";
+    const w = workers.find((w) => w.id === workerId);
+    return w ? w.friendly_name : workerId.slice(0, 8);
+  };
 
   const handleFinalize = async () => {
     if (!id) return;
@@ -109,6 +133,22 @@ export default function JobDetail() {
         <StatusChip status={job.status} />
       </Box>
 
+      {/* Processing banner at top */}
+      {(job.status === "processing" || job.status === "pending") && (
+        <Card sx={{ mb: 3, bgcolor: "#e3f2fd" }}>
+          <CardContent
+            sx={{ display: "flex", alignItems: "center", gap: 2, py: 1.5, "&:last-child": { pb: 1.5 } }}
+          >
+            <CircularProgress size={20} />
+            <Typography variant="body2">
+              {job.status === "processing"
+                ? "Segment is being processed..."
+                : "Waiting for a worker to pick up this job..."}
+            </Typography>
+          </CardContent>
+        </Card>
+      )}
+
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
@@ -141,9 +181,8 @@ export default function JobDetail() {
             <MetaItem label="Updated" value={formatDate(job.updated_at)} />
           </Box>
 
-          {/* Action buttons */}
-          <Box sx={{ mt: 2, display: "flex", gap: 1 }}>
-            {job.status === "awaiting" && (
+          {job.status === "awaiting" && (
+            <Box sx={{ mt: 2 }}>
               <Button
                 variant="contained"
                 color="secondary"
@@ -151,18 +190,123 @@ export default function JobDetail() {
               >
                 Finalize & Merge
               </Button>
-            )}
-          </Box>
+            </Box>
+          )}
         </CardContent>
       </Card>
 
-      {/* Segments timeline */}
+      {/* Segments table */}
       <Typography variant="h5" sx={{ mb: 2 }}>
         Segments
       </Typography>
-      {job.segments.map((seg) => (
-        <SegmentCard key={seg.id} segment={seg} />
-      ))}
+      <Card sx={{ mb: 3 }}>
+        <TableContainer>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ width: 60 }}>#</TableCell>
+                <TableCell sx={{ width: 120 }}>Start Image</TableCell>
+                <TableCell>Prompt</TableCell>
+                <TableCell sx={{ width: 120 }}>Output</TableCell>
+                <TableCell sx={{ width: 100 }}>Status</TableCell>
+                <TableCell sx={{ width: 120 }}>Worker</TableCell>
+                <TableCell sx={{ width: 140 }}>Created</TableCell>
+                <TableCell sx={{ width: 80 }}>Run Time</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {job.segments.map((seg) => (
+                <TableRow key={seg.id}>
+                  <TableCell>{seg.index}</TableCell>
+                  <TableCell>
+                    {seg.start_image ? (
+                      <Box
+                        component="img"
+                        src={getFileUrl(seg.start_image)}
+                        alt="Start"
+                        sx={{
+                          width: 80,
+                          height: 80,
+                          objectFit: "cover",
+                          borderRadius: 1,
+                          bgcolor: "#f5f5f5",
+                          display: "block",
+                        }}
+                      />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">-</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                      {seg.prompt}
+                    </Typography>
+                    {seg.error_message && (
+                      <Alert severity="error" sx={{ mt: 1 }}>
+                        {seg.error_message}
+                      </Alert>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {seg.status === "completed" && seg.last_frame_path ? (
+                      <Box sx={{ position: "relative", cursor: "pointer" }} onClick={() => seg.output_path && setVideoModal(seg.output_path)}>
+                        <Box
+                          component="img"
+                          src={getFileUrl(seg.last_frame_path)}
+                          alt="Last frame"
+                          sx={{
+                            width: 80,
+                            height: 80,
+                            objectFit: "cover",
+                            borderRadius: 1,
+                            bgcolor: "#f5f5f5",
+                            display: "block",
+                          }}
+                        />
+                        {seg.output_path && (
+                          <PlayCircleOutline
+                            sx={{
+                              position: "absolute",
+                              top: "50%",
+                              left: "50%",
+                              transform: "translate(-50%, -50%)",
+                              fontSize: 32,
+                              color: "white",
+                              filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
+                            }}
+                          />
+                        )}
+                      </Box>
+                    ) : seg.status === "pending" || seg.status === "claimed" || seg.status === "processing" ? (
+                      <CircularProgress size={24} />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">-</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <StatusChip status={seg.status} />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption">
+                      {workerName(seg.worker_id)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption">
+                      {formatDate(seg.created_at)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption">
+                      {segmentRunTime(seg)}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Card>
 
       {/* Next segment form */}
       {job.status === "awaiting" && (
@@ -173,21 +317,31 @@ export default function JobDetail() {
         />
       )}
 
-      {/* Processing indicator */}
-      {(job.status === "processing" || job.status === "pending") && (
-        <Card sx={{ mt: 2, bgcolor: "#e3f2fd" }}>
-          <CardContent
-            sx={{ display: "flex", alignItems: "center", gap: 2 }}
+      {/* Video modal */}
+      <Dialog
+        open={!!videoModal}
+        onClose={() => setVideoModal(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
+          <IconButton
+            onClick={() => setVideoModal(null)}
+            sx={{ position: "absolute", top: 8, right: 8, color: "white", zIndex: 1 }}
           >
-            <CircularProgress size={24} />
-            <Typography>
-              {job.status === "processing"
-                ? "Segment is being processed..."
-                : "Waiting for a worker to pick up this job..."}
-            </Typography>
-          </CardContent>
-        </Card>
-      )}
+            <Close />
+          </IconButton>
+          {videoModal && (
+            <Box
+              component="video"
+              controls
+              autoPlay
+              src={getFileUrl(videoModal)}
+              sx={{ width: "100%", display: "block" }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }
@@ -202,130 +356,6 @@ function MetaItem({ label, value }: { label: string; value: string }) {
         {value}
       </Typography>
     </Box>
-  );
-}
-
-function SegmentCard({ segment }: { segment: SegmentResponse }) {
-  return (
-    <Card sx={{ mb: 2 }}>
-      <CardContent>
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "start",
-            mb: 1,
-          }}
-        >
-          <Typography variant="h6">Segment {segment.index}</Typography>
-          <StatusChip status={segment.status} />
-        </Box>
-
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {segment.prompt}
-        </Typography>
-
-        <Box
-          sx={{
-            display: "flex",
-            gap: 2,
-            flexWrap: "wrap",
-            alignItems: "start",
-          }}
-        >
-          {/* Start image thumbnail */}
-          {segment.start_image && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Start Image
-              </Typography>
-              <Box
-                component="img"
-                src={getFileUrl(segment.start_image)}
-                alt="Start"
-                sx={{
-                  display: "block",
-                  width: 160,
-                  height: 90,
-                  objectFit: "cover",
-                  borderRadius: 1,
-                  bgcolor: "#f5f5f5",
-                }}
-              />
-            </Box>
-          )}
-
-          {/* Last frame thumbnail */}
-          {segment.last_frame_path && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Last Frame
-              </Typography>
-              <Box
-                component="img"
-                src={getFileUrl(segment.last_frame_path)}
-                alt="Last frame"
-                sx={{
-                  display: "block",
-                  width: 160,
-                  height: 90,
-                  objectFit: "cover",
-                  borderRadius: 1,
-                  bgcolor: "#f5f5f5",
-                }}
-              />
-            </Box>
-          )}
-
-          {/* Video player */}
-          {segment.output_path && (
-            <Box sx={{ flex: 1, minWidth: 280 }}>
-              <Typography variant="caption" color="text.secondary">
-                Output Video
-              </Typography>
-              <Box
-                component="video"
-                controls
-                src={getFileUrl(segment.output_path)}
-                sx={{
-                  display: "block",
-                  width: "100%",
-                  maxWidth: 480,
-                  borderRadius: 1,
-                  bgcolor: "#000",
-                }}
-              />
-            </Box>
-          )}
-        </Box>
-
-        {segment.error_message && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {segment.error_message}
-          </Alert>
-        )}
-
-        <Divider sx={{ my: 1.5 }} />
-        <Box sx={{ display: "flex", gap: 3 }}>
-          <Typography variant="caption" color="text.secondary">
-            Duration: {segment.duration_seconds}s
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Created: {formatDate(segment.created_at)}
-          </Typography>
-          {segment.claimed_at && (
-            <Typography variant="caption" color="text.secondary">
-              Claimed: {formatDate(segment.claimed_at)}
-            </Typography>
-          )}
-          {segment.completed_at && (
-            <Typography variant="caption" color="text.secondary">
-              Completed: {formatDate(segment.completed_at)}
-            </Typography>
-          )}
-        </Box>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -383,7 +413,7 @@ function NextSegmentForm({
   };
 
   return (
-    <Card sx={{ mt: 3, border: "2px solid", borderColor: "primary.main" }}>
+    <Card sx={{ border: "2px solid", borderColor: "primary.main" }}>
       <CardContent>
         <Typography variant="h6" sx={{ mb: 2 }}>
           <PlayArrow
