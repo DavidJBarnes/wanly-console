@@ -6,9 +6,11 @@ import type {
   JobUpdate,
   SegmentCreate,
   SegmentResponse,
+  WorkerResponse,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "";
+const REGISTRY_URL = import.meta.env.VITE_REGISTRY_URL ?? "";
 
 const api = axios.create({
   baseURL: API_URL,
@@ -83,6 +85,17 @@ export async function addSegment(
 export function getFileUrl(s3Path: string): string {
   const base = API_URL || window.location.origin;
   return `${base}/files?path=${encodeURIComponent(s3Path)}`;
+}
+
+// --- Registry (workers) ---
+
+const registry = axios.create({
+  baseURL: REGISTRY_URL,
+});
+
+export async function getWorkers(): Promise<WorkerResponse[]> {
+  const { data } = await registry.get<WorkerResponse[]>("/workers");
+  return data;
 }
 
 export async function uploadFile(

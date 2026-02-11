@@ -113,3 +113,17 @@ export type SegmentStatus =
   | "processing"
   | "completed"
   | "failed";
+
+export interface WorkerResponse {
+  id: string;
+  friendly_name: string;
+  hostname: string;
+  ip_address: string;
+  status: WorkerStatus;
+  comfyui_running: boolean;
+  last_heartbeat: string;
+  registered_at: string;
+  updated_at: string;
+}
+
+export type WorkerStatus = "online-idle" | "online-busy" | "offline";

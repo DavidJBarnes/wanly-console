@@ -12,6 +12,7 @@ import {
   Dashboard as DashboardIcon,
   VideoLibrary,
   QueueMusic,
+  Dns,
   AutoFixHigh,
   TextSnippet,
   Image,
@@ -24,6 +25,7 @@ export const DRAWER_WIDTH = 220;
 const NAV_ITEMS = [
   { label: "Dashboard", icon: <DashboardIcon />, path: "/" },
   { label: "Job Queue", icon: <QueueMusic />, path: "/jobs" },
+  { label: "Workers", icon: <Dns />, path: "/workers" },
   { label: "Videos", icon: <VideoLibrary />, path: "/videos" },
   { label: "LoRA Library", icon: <AutoFixHigh />, path: "/loras" },
   { label: "Prompts", icon: <TextSnippet />, path: "/prompts" },
