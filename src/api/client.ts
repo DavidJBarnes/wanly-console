@@ -1,0 +1,99 @@
+import axios from "axios";
+import type {
+  TokenResponse,
+  JobResponse,
+  JobDetailResponse,
+  JobUpdate,
+  SegmentCreate,
+  SegmentResponse,
+} from "./types";
+
+const API_URL = import.meta.env.VITE_API_URL ?? "";
+
+const api = axios.create({
+  baseURL: API_URL,
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+    }
+    return Promise.reject(err);
+  },
+);
+
+export async function login(
+  username: string,
+  password: string,
+): Promise<TokenResponse> {
+  const { data } = await api.post<TokenResponse>("/login", {
+    username,
+    password,
+  });
+  return data;
+}
+
+export async function getJobs(): Promise<JobResponse[]> {
+  const { data } = await api.get<JobResponse[]>("/jobs");
+  return data;
+}
+
+export async function getJob(id: string): Promise<JobDetailResponse> {
+  const { data } = await api.get<JobDetailResponse>(`/jobs/${id}`);
+  return data;
+}
+
+export async function createJob(formData: FormData): Promise<JobResponse> {
+  const { data } = await api.post<JobResponse>("/jobs", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+export async function updateJob(
+  id: string,
+  body: JobUpdate,
+): Promise<JobResponse> {
+  const { data } = await api.patch<JobResponse>(`/jobs/${id}`, body);
+  return data;
+}
+
+export async function addSegment(
+  jobId: string,
+  body: SegmentCreate,
+): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(
+    `/jobs/${jobId}/segments`,
+    body,
+  );
+  return data;
+}
+
+export function getFileUrl(s3Path: string): string {
+  const base = API_URL || window.location.origin;
+  return `${base}/files?path=${encodeURIComponent(s3Path)}`;
+}
+
+export async function uploadFile(
+  file: File,
+  jobId?: string,
+): Promise<{ path: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (jobId) formData.append("job_id", jobId);
+  const { data } = await api.post<{ path: string }>("/upload", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
