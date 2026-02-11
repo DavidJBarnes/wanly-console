@@ -9,8 +9,8 @@ import type {
   WorkerResponse,
 } from "./types";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "";
-const REGISTRY_URL = import.meta.env.VITE_REGISTRY_URL ?? "";
+const API_URL = import.meta.env.VITE_API_URL || "/api";
+const REGISTRY_URL = import.meta.env.VITE_REGISTRY_URL || "/registry";
 
 const api = axios.create({
   baseURL: API_URL,
@@ -83,8 +83,7 @@ export async function addSegment(
 }
 
 export function getFileUrl(s3Path: string): string {
-  const base = API_URL || window.location.origin;
-  return `${base}/files?path=${encodeURIComponent(s3Path)}`;
+  return `${API_URL}/files?path=${encodeURIComponent(s3Path)}`;
 }
 
 // --- Registry (workers) ---
