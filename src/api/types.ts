@@ -23,10 +23,65 @@ export interface SegmentCreate {
 }
 
 export interface LoraConfig {
-  high_file: string;
-  low_file: string;
+  lora_id?: string;
+  high_file?: string;
+  low_file?: string;
+  high_s3_uri?: string;
+  low_s3_uri?: string;
   high_weight: number;
   low_weight: number;
+}
+
+export interface LoraListItem {
+  id: string;
+  name: string;
+  trigger_words: string | null;
+  preview_image: string | null;
+  high_file: string | null;
+  low_file: string | null;
+  default_high_weight: number;
+  default_low_weight: number;
+  default_prompt: string | null;
+}
+
+export interface LoraResponse {
+  id: string;
+  name: string;
+  description: string | null;
+  trigger_words: string | null;
+  default_prompt: string | null;
+  source_url: string | null;
+  preview_image: string | null;
+  high_file: string | null;
+  high_s3_uri: string | null;
+  low_file: string | null;
+  low_s3_uri: string | null;
+  default_high_weight: number;
+  default_low_weight: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoraCreate {
+  name: string;
+  description?: string | null;
+  trigger_words?: string | null;
+  default_prompt?: string | null;
+  source_url?: string | null;
+  high_url?: string | null;
+  low_url?: string | null;
+  default_high_weight?: number;
+  default_low_weight?: number;
+}
+
+export interface LoraUpdate {
+  name?: string;
+  description?: string | null;
+  trigger_words?: string | null;
+  default_prompt?: string | null;
+  source_url?: string | null;
+  default_high_weight?: number;
+  default_low_weight?: number;
 }
 
 export interface JobCreate {

@@ -7,6 +7,10 @@ import type {
   SegmentCreate,
   SegmentResponse,
   WorkerResponse,
+  LoraListItem,
+  LoraResponse,
+  LoraCreate,
+  LoraUpdate,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -84,6 +88,44 @@ export async function addSegment(
 
 export function getFileUrl(s3Path: string): string {
   return `${API_URL}/files?path=${encodeURIComponent(s3Path)}`;
+}
+
+// --- LoRAs ---
+
+export async function getLoras(): Promise<LoraListItem[]> {
+  const { data } = await api.get<LoraListItem[]>("/loras");
+  return data;
+}
+
+export async function getLora(id: string): Promise<LoraResponse> {
+  const { data } = await api.get<LoraResponse>(`/loras/${id}`);
+  return data;
+}
+
+export async function createLora(body: LoraCreate): Promise<LoraResponse> {
+  const { data } = await api.post<LoraResponse>("/loras", body);
+  return data;
+}
+
+export async function createLoraUpload(
+  formData: FormData,
+): Promise<LoraResponse> {
+  const { data } = await api.post<LoraResponse>("/loras/upload", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+export async function updateLora(
+  id: string,
+  body: LoraUpdate,
+): Promise<LoraResponse> {
+  const { data } = await api.patch<LoraResponse>(`/loras/${id}`, body);
+  return data;
+}
+
+export async function deleteLora(id: string): Promise<void> {
+  await api.delete(`/loras/${id}`);
 }
 
 // --- Registry (workers) ---

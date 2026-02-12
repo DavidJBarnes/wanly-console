@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import {
+  Autocomplete,
   Box,
   Typography,
   Card,
@@ -30,8 +31,9 @@ import {
 import { Add } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { useJobStore } from "../stores/jobStore";
+import { useLoraStore } from "../stores/loraStore";
 import { createJob, getFileUrl } from "../api/client";
-import type { JobCreate, JobResponse, JobStatus } from "../api/types";
+import type { JobCreate, JobResponse, JobStatus, LoraListItem } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
 const ALL_STATUSES: JobStatus[] = [
@@ -315,16 +317,31 @@ function CreateJobDialog({
   const [submitting, setSubmitting] = useState(false);
 
   // LoRA state
+  const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [loras, setLoras] = useState<
-    { high_file: string; low_file: string; high_weight: number; low_weight: number }[]
+    { lora_id: string; name: string; high_weight: number; low_weight: number; preview_image: string | null }[]
   >([]);
 
-  const addLora = () => {
-    if (loras.length >= 3) return;
-    setLoras([...loras, { high_file: "", low_file: "", high_weight: 1.0, low_weight: 1.0 }]);
+  useEffect(() => {
+    if (open) fetchLoras();
+  }, [open, fetchLoras]);
+
+  const addLoraFromLibrary = (item: LoraListItem | null) => {
+    if (!item || loras.length >= 3) return;
+    if (loras.some((l) => l.lora_id === item.id)) return;
+    setLoras([
+      ...loras,
+      {
+        lora_id: item.id,
+        name: item.name,
+        high_weight: item.default_high_weight,
+        low_weight: item.default_low_weight,
+        preview_image: item.preview_image,
+      },
+    ]);
   };
 
-  const updateLora = (idx: number, field: string, value: string | number) => {
+  const updateLoraWeight = (idx: number, field: string, value: number) => {
     const updated = [...loras];
     updated[idx] = { ...updated[idx], [field]: value };
     setLoras(updated);
@@ -374,7 +391,14 @@ function CreateJobDialog({
         first_segment: {
           prompt: prompt.trim(),
           duration_seconds: duration,
-          loras: loras.length > 0 ? loras : null,
+          loras:
+            loras.length > 0
+              ? loras.map((l) => ({
+                  lora_id: l.lora_id,
+                  high_weight: l.high_weight,
+                  low_weight: l.low_weight,
+                }))
+              : null,
           faceswap_enabled: faceswapEnabled,
           faceswap_method: faceswapEnabled ? faceswapMethod : null,
           faceswap_faces_index: faceswapEnabled ? faceswapFacesIndex : null,
@@ -490,76 +514,150 @@ function CreateJobDialog({
 
         {/* LoRA section */}
         <Box sx={{ mt: 3 }}>
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <Typography variant="subtitle2">LoRAs</Typography>
-            <Button
-              size="small"
-              onClick={addLora}
-              disabled={loras.length >= 3}
-            >
-              Add LoRA
-            </Button>
-          </Box>
-          {loras.map((lora, idx) => (
-            <Card key={idx} variant="outlined" sx={{ p: 1.5, mt: 1 }}>
-              <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            LoRAs
+          </Typography>
+          {loras.length < 3 && (
+            <Autocomplete
+              options={loraLibrary.filter(
+                (l) => !loras.some((s) => s.lora_id === l.id),
+              )}
+              getOptionLabel={(o) => o.name}
+              onChange={(_, val) => {
+                addLoraFromLibrary(val);
+              }}
+              value={null}
+              renderOption={(props, option) => (
+                <Box
+                  component="li"
+                  {...props}
+                  key={option.id}
+                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                >
+                  {option.preview_image ? (
+                    <Box
+                      component="img"
+                      src={getFileUrl(option.preview_image)}
+                      alt=""
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        objectFit: "cover",
+                        borderRadius: 0.5,
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : (
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        bgcolor: "#eee",
+                        borderRadius: 0.5,
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <Box>
+                    <Typography variant="body2">{option.name}</Typography>
+                    {option.trigger_words && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                      >
+                        {option.trigger_words}
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
+              )}
+              renderInput={(params) => (
                 <TextField
-                  label="High UNET file"
+                  {...params}
                   size="small"
-                  value={lora.high_file}
-                  onChange={(e) =>
-                    updateLora(idx, "high_file", e.target.value)
-                  }
-                  sx={{ flex: 1 }}
+                  placeholder="Search LoRA library..."
                 />
+              )}
+              size="small"
+              blurOnSelect
+              clearOnBlur
+            />
+          )}
+          {loras.map((lora, idx) => (
+            <Card key={lora.lora_id} variant="outlined" sx={{ p: 1.5, mt: 1 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  mb: 1,
+                }}
+              >
+                {lora.preview_image ? (
+                  <Box
+                    component="img"
+                    src={getFileUrl(lora.preview_image)}
+                    alt=""
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      objectFit: "cover",
+                      borderRadius: 0.5,
+                    }}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      bgcolor: "#eee",
+                      borderRadius: 0.5,
+                    }}
+                  />
+                )}
+                <Typography variant="body2" sx={{ fontWeight: 600, flex: 1 }}>
+                  {lora.name}
+                </Typography>
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={() => removeLora(idx)}
+                >
+                  Remove
+                </Button>
+              </Box>
+              <Box sx={{ display: "flex", gap: 1 }}>
                 <TextField
-                  label="Weight"
+                  label="High Weight"
                   size="small"
                   type="number"
                   value={lora.high_weight}
                   onChange={(e) =>
-                    updateLora(idx, "high_weight", parseFloat(e.target.value))
+                    updateLoraWeight(
+                      idx,
+                      "high_weight",
+                      parseFloat(e.target.value),
+                    )
                   }
-                  sx={{ width: 80 }}
+                  sx={{ width: 120 }}
                   slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
                 />
-              </Box>
-              <Box sx={{ display: "flex", gap: 1 }}>
                 <TextField
-                  label="Low UNET file"
-                  size="small"
-                  value={lora.low_file}
-                  onChange={(e) =>
-                    updateLora(idx, "low_file", e.target.value)
-                  }
-                  sx={{ flex: 1 }}
-                />
-                <TextField
-                  label="Weight"
+                  label="Low Weight"
                   size="small"
                   type="number"
                   value={lora.low_weight}
                   onChange={(e) =>
-                    updateLora(idx, "low_weight", parseFloat(e.target.value))
+                    updateLoraWeight(
+                      idx,
+                      "low_weight",
+                      parseFloat(e.target.value),
+                    )
                   }
-                  sx={{ width: 80 }}
+                  sx={{ width: 120 }}
                   slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
                 />
               </Box>
-              <Button
-                size="small"
-                color="error"
-                onClick={() => removeLora(idx)}
-                sx={{ mt: 0.5 }}
-              >
-                Remove
-              </Button>
             </Card>
           ))}
         </Box>

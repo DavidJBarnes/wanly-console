@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import {
+  Autocomplete,
   Box,
+  Chip,
   Typography,
   Card,
   CardContent,
@@ -24,10 +26,13 @@ import {
 import { ArrowBack, PlayArrow, PlayCircleOutline, Close } from "@mui/icons-material";
 import { useParams, useNavigate } from "react-router";
 import { getJob, updateJob, addSegment, getFileUrl, getWorkers } from "../api/client";
+import { useLoraStore } from "../stores/loraStore";
 import type {
   JobDetailResponse,
   SegmentResponse,
   SegmentCreate,
+  LoraConfig,
+  LoraListItem,
   WorkerResponse,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
@@ -376,6 +381,33 @@ function MetaItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+interface LoraSlot {
+  lora_id: string;
+  name: string;
+  high_weight: number;
+  low_weight: number;
+  preview_image: string | null;
+}
+
+function lorasToSlots(
+  loras: LoraConfig[] | null | undefined,
+  library: LoraListItem[],
+): LoraSlot[] {
+  if (!loras) return [];
+  return loras
+    .filter((l) => l.lora_id)
+    .map((l) => {
+      const lib = library.find((item) => item.id === l.lora_id);
+      return {
+        lora_id: l.lora_id!,
+        name: lib?.name ?? l.lora_id!.slice(0, 8),
+        high_weight: l.high_weight,
+        low_weight: l.low_weight,
+        preview_image: lib?.preview_image ?? null,
+      };
+    });
+}
+
 function NextSegmentForm({
   jobId,
   lastSegment,
@@ -385,6 +417,7 @@ function NextSegmentForm({
   lastSegment?: SegmentResponse;
   onSubmitted: () => void;
 }) {
+  const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [prompt, setPrompt] = useState(lastSegment?.prompt ?? "");
   const [duration, setDuration] = useState(lastSegment?.duration_seconds ?? 5.0);
   const [faceswapEnabled, setFaceswapEnabled] = useState(
@@ -393,8 +426,44 @@ function NextSegmentForm({
   const [faceswapMethod, setFaceswapMethod] = useState(
     lastSegment?.faceswap_method ?? "reactor",
   );
+  const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetchLoras();
+  }, [fetchLoras]);
+
+  useEffect(() => {
+    if (loraLibrary.length > 0 && lastSegment?.loras) {
+      setLoraSlots(lorasToSlots(lastSegment.loras, loraLibrary));
+    }
+  }, [loraLibrary, lastSegment]);
+
+  const addLoraFromLibrary = (item: LoraListItem | null) => {
+    if (!item || loraSlots.length >= 3) return;
+    if (loraSlots.some((l) => l.lora_id === item.id)) return;
+    setLoraSlots([
+      ...loraSlots,
+      {
+        lora_id: item.id,
+        name: item.name,
+        high_weight: item.default_high_weight,
+        low_weight: item.default_low_weight,
+        preview_image: item.preview_image,
+      },
+    ]);
+  };
+
+  const updateLoraWeight = (idx: number, field: string, value: number) => {
+    const updated = [...loraSlots];
+    updated[idx] = { ...updated[idx], [field]: value };
+    setLoraSlots(updated);
+  };
+
+  const removeLora = (idx: number) => {
+    setLoraSlots(loraSlots.filter((_, i) => i !== idx));
+  };
 
   const handleSubmit = async () => {
     if (!prompt.trim()) {
@@ -418,7 +487,14 @@ function NextSegmentForm({
         faceswap_faces_order: faceswapEnabled
           ? lastSegment?.faceswap_faces_order ?? null
           : null,
-        loras: lastSegment?.loras ?? null,
+        loras:
+          loraSlots.length > 0
+            ? loraSlots.map((l) => ({
+                lora_id: l.lora_id,
+                high_weight: l.high_weight,
+                low_weight: l.low_weight,
+              }))
+            : null,
       };
       await addSegment(jobId, body);
       onSubmitted();
@@ -485,6 +561,107 @@ function NextSegmentForm({
             </TextField>
           )}
         </Box>
+
+        {/* LoRA section */}
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            LoRAs
+          </Typography>
+          {loraSlots.length < 3 && (
+            <Autocomplete
+              options={loraLibrary.filter(
+                (l) => !loraSlots.some((s) => s.lora_id === l.id),
+              )}
+              getOptionLabel={(o) => o.name}
+              onChange={(_, val) => addLoraFromLibrary(val)}
+              value={null}
+              renderOption={(props, option) => (
+                <Box
+                  component="li"
+                  {...props}
+                  key={option.id}
+                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                >
+                  {option.preview_image ? (
+                    <Box
+                      component="img"
+                      src={getFileUrl(option.preview_image)}
+                      alt=""
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        objectFit: "cover",
+                        borderRadius: 0.5,
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : (
+                    <Box
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        bgcolor: "#eee",
+                        borderRadius: 0.5,
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <Typography variant="body2">{option.name}</Typography>
+                </Box>
+              )}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  size="small"
+                  placeholder="Add LoRA..."
+                />
+              )}
+              size="small"
+              blurOnSelect
+              clearOnBlur
+            />
+          )}
+          {loraSlots.map((lora, idx) => (
+            <Box
+              key={lora.lora_id}
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                mt: 1,
+              }}
+            >
+              <Chip
+                label={lora.name}
+                onDelete={() => removeLora(idx)}
+                size="small"
+              />
+              <TextField
+                label="H"
+                size="small"
+                type="number"
+                value={lora.high_weight}
+                onChange={(e) =>
+                  updateLoraWeight(idx, "high_weight", parseFloat(e.target.value))
+                }
+                sx={{ width: 80 }}
+                slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
+              />
+              <TextField
+                label="L"
+                size="small"
+                type="number"
+                value={lora.low_weight}
+                onChange={(e) =>
+                  updateLoraWeight(idx, "low_weight", parseFloat(e.target.value))
+                }
+                sx={{ width: 80 }}
+                slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
+              />
+            </Box>
+          ))}
+        </Box>
+
         <Button
           variant="contained"
           onClick={handleSubmit}
