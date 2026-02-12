@@ -241,23 +241,30 @@ export default function JobDetail() {
                 <TableRow key={seg.id}>
                   <TableCell>{seg.index}</TableCell>
                   <TableCell>
-                    {seg.start_image ? (
-                      <Box
-                        component="img"
-                        src={getFileUrl(seg.start_image)}
-                        alt="Start"
-                        sx={{
-                          width: 80,
-                          height: 80,
-                          objectFit: "cover",
-                          borderRadius: 1,
-                          bgcolor: "#f5f5f5",
-                          display: "block",
-                        }}
-                      />
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">-</Typography>
-                    )}
+                    {(() => {
+                      const img = seg.start_image
+                        ?? (seg.index === 0
+                          ? job.starting_image
+                          : job.segments[seg.index - 1]?.last_frame_path)
+                        ?? null;
+                      return img ? (
+                        <Box
+                          component="img"
+                          src={getFileUrl(img)}
+                          alt="Start"
+                          sx={{
+                            width: 80,
+                            height: 80,
+                            objectFit: "cover",
+                            borderRadius: 1,
+                            bgcolor: "#f5f5f5",
+                            display: "block",
+                          }}
+                        />
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">-</Typography>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
@@ -329,6 +336,54 @@ export default function JobDetail() {
           </Table>
         </TableContainer>
       </Card>
+
+      {/* Progress log */}
+      {(() => {
+        const activeSeg = job.segments.find(
+          (s) => s.status === "processing" || s.status === "claimed",
+        );
+        const failedSeg = !activeSeg
+          ? [...job.segments].reverse().find((s) => s.status === "failed")
+          : undefined;
+        const logSeg = activeSeg ?? failedSeg;
+        if (!logSeg?.progress_log) return null;
+        const isActive = logSeg.status === "processing" || logSeg.status === "claimed";
+        return (
+          <Card sx={{ mb: 3 }}>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                px: 2,
+                py: 1.5,
+                borderBottom: "1px solid",
+                borderColor: "divider",
+              }}
+            >
+              <Typography variant="subtitle2" sx={{ flex: 1 }}>
+                {isActive ? "Progress" : "Last Run Log"}
+              </Typography>
+              <StatusChip status={logSeg.status} />
+            </Box>
+            <Box
+              sx={{
+                bgcolor: "#1e1e2e",
+                color: "#cdd6f4",
+                fontFamily: "monospace",
+                fontSize: 13,
+                p: 2,
+                maxHeight: 300,
+                overflow: "auto",
+                whiteSpace: "pre-wrap",
+                lineHeight: 1.6,
+              }}
+            >
+              {logSeg.progress_log}
+            </Box>
+          </Card>
+        );
+      })()}
 
       {/* Next segment form */}
       {job.status === "awaiting" && (

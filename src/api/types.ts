@@ -129,6 +129,7 @@ export interface SegmentResponse {
   claimed_at: string | null;
   completed_at: string | null;
   error_message: string | null;
+  progress_log: string | null;
 }
 
 export interface VideoResponse {
