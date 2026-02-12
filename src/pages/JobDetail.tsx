@@ -386,7 +386,7 @@ export default function JobDetail() {
       })()}
 
       {/* Next segment form */}
-      {job.status === "awaiting" && (
+      {job.status === "awaiting" && !job.segments.some((s) => ["pending", "claimed", "processing"].includes(s.status)) && (
         <NextSegmentForm
           jobId={job.id}
           lastSegment={lastSegment}
