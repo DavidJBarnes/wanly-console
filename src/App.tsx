@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import JobQueue from "./pages/JobQueue";
 import JobDetail from "./pages/JobDetail";
 import Workers from "./pages/Workers";
+import WorkerDetail from "./pages/WorkerDetail";
 import Videos from "./pages/Videos";
 import LoraLibrary from "./pages/LoraLibrary";
 import PromptLibrary from "./pages/PromptLibrary";
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/jobs" element={<JobQueue />} />
             <Route path="/jobs/:id" element={<JobDetail />} />
             <Route path="/workers" element={<Workers />} />
+            <Route path="/workers/:id" element={<WorkerDetail />} />
             <Route path="/videos" element={<Videos />} />
             <Route path="/loras" element={<LoraLibrary />} />
             <Route path="/prompts" element={<PromptLibrary />} />

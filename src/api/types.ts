@@ -123,6 +123,7 @@ export interface SegmentResponse {
   auto_finalize: boolean;
   status: SegmentStatus;
   worker_id: string | null;
+  worker_name: string | null;
   output_path: string | null;
   last_frame_path: string | null;
   created_at: string;

@@ -24,8 +24,8 @@ import {
   TableRow,
 } from "@mui/material";
 import { ArrowBack, PlayArrow, PlayCircleOutline, Close } from "@mui/icons-material";
-import { useParams, useNavigate } from "react-router";
-import { getJob, updateJob, addSegment, getFileUrl, getWorkers } from "../api/client";
+import { useParams, useNavigate, Link as RouterLink } from "react-router";
+import { getJob, updateJob, addSegment, getFileUrl } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
 import type {
   JobDetailResponse,
@@ -33,7 +33,6 @@ import type {
   SegmentCreate,
   LoraConfig,
   LoraListItem,
-  WorkerResponse,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -65,7 +64,6 @@ export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [job, setJob] = useState<JobDetailResponse | null>(null);
-  const [workers, setWorkers] = useState<WorkerResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [videoModal, setVideoModal] = useState<string | null>(null);
@@ -86,16 +84,9 @@ export default function JobDetail() {
 
   useEffect(() => {
     fetchJob();
-    getWorkers().then(setWorkers).catch(() => {});
     const interval = setInterval(fetchJob, 5000);
     return () => clearInterval(interval);
   }, [fetchJob]);
-
-  const workerName = (workerId: string | null) => {
-    if (!workerId) return "-";
-    const w = workers.find((w) => w.id === workerId);
-    return w ? w.friendly_name : workerId.slice(0, 8);
-  };
 
   const handleFinalize = async () => {
     if (!id) return;
@@ -316,9 +307,18 @@ export default function JobDetail() {
                     <StatusChip status={seg.status} />
                   </TableCell>
                   <TableCell>
-                    <Typography variant="caption">
-                      {workerName(seg.worker_id)}
-                    </Typography>
+                    {seg.worker_id ? (
+                      <Typography
+                        variant="caption"
+                        component={RouterLink}
+                        to={`/workers/${seg.worker_id}`}
+                        sx={{ color: "primary.main", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}
+                      >
+                        {seg.worker_name ?? seg.worker_id.slice(0, 8)}
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">-</Typography>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Typography variant="caption">

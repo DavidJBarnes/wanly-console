@@ -139,6 +139,11 @@ export async function getWorkers(): Promise<WorkerResponse[]> {
   return data;
 }
 
+export async function getWorker(id: string): Promise<WorkerResponse> {
+  const { data } = await registry.get<WorkerResponse>(`/workers/${id}`);
+  return data;
+}
+
 export async function uploadFile(
   file: File,
   jobId?: string,
