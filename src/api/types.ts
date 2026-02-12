@@ -161,6 +161,7 @@ export type JobStatus =
   | "pending"
   | "processing"
   | "awaiting"
+  | "failed"
   | "paused"
   | "finalizing"
   | "finalized";

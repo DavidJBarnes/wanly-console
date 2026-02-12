@@ -38,6 +38,7 @@ import StatusChip from "../components/StatusChip";
 
 const ALL_STATUSES: JobStatus[] = [
   "awaiting",
+  "failed",
   "processing",
   "pending",
   "paused",
@@ -47,11 +48,12 @@ const ALL_STATUSES: JobStatus[] = [
 
 const STATUS_PRIORITY: Record<string, number> = {
   awaiting: 0,
-  processing: 1,
-  pending: 2,
-  paused: 3,
-  finalizing: 4,
-  finalized: 5,
+  failed: 1,
+  processing: 2,
+  pending: 3,
+  paused: 4,
+  finalizing: 5,
+  finalized: 6,
 };
 
 type SortKey = "name" | "status" | "fps" | "created_at" | "updated_at";

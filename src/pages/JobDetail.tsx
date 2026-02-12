@@ -15,17 +15,35 @@ import {
   CircularProgress,
   IconButton,
   Dialog,
+  DialogTitle,
   DialogContent,
+  DialogActions,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
 } from "@mui/material";
-import { ArrowBack, PlayArrow, PlayCircleOutline, Close } from "@mui/icons-material";
+import {
+  ArrowBack,
+  PlayArrow,
+  PlayCircleOutline,
+  Close,
+  Replay,
+  DeleteOutline,
+} from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
-import { getJob, updateJob, addSegment, getFileUrl } from "../api/client";
+import {
+  getJob,
+  updateJob,
+  addSegment,
+  uploadFile,
+  retrySegment,
+  deleteSegment,
+  getFileUrl,
+} from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
 import type {
   JobDetailResponse,
@@ -68,6 +86,11 @@ export default function JobDetail() {
   const [error, setError] = useState("");
   const [videoModal, setVideoModal] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
+  const [segmentModalOpen, setSegmentModalOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<SegmentResponse | null>(
+    null,
+  );
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const fetchJob = useCallback(async () => {
     if (!id) return;
@@ -101,6 +124,31 @@ export default function JobDetail() {
     }
   };
 
+  const handleRetry = async (seg: SegmentResponse) => {
+    setActionLoading(seg.id);
+    try {
+      await retrySegment(seg.id);
+      fetchJob();
+    } catch {
+      setError("Failed to retry segment");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDelete = async (seg: SegmentResponse) => {
+    setDeleteConfirm(null);
+    setActionLoading(seg.id);
+    try {
+      await deleteSegment(seg.id);
+      fetchJob();
+    } catch {
+      setError("Failed to delete segment");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ textAlign: "center", py: 8 }}>
@@ -120,6 +168,11 @@ export default function JobDetail() {
   if (!job) return null;
 
   const lastSegment = job.segments[job.segments.length - 1];
+  const canAddSegment =
+    job.status === "awaiting" &&
+    !job.segments.some((s) =>
+      ["pending", "claimed", "processing"].includes(s.status),
+    );
 
   return (
     <Box>
@@ -136,6 +189,12 @@ export default function JobDetail() {
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
+        </Alert>
+      )}
+
+      {job.status === "failed" && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Segment failed — retry or delete it to continue.
         </Alert>
       )}
 
@@ -156,7 +215,10 @@ export default function JobDetail() {
               label="Segments"
               value={`${job.completed_segment_count}/${job.segment_count}`}
             />
-            <MetaItem label="Total Run Time" value={formatDuration(job.total_run_time)} />
+            <MetaItem
+              label="Total Run Time"
+              value={formatDuration(job.total_run_time)}
+            />
             <MetaItem
               label="Total Video Time"
               value={formatDuration(job.total_video_time)}
@@ -164,7 +226,6 @@ export default function JobDetail() {
             <MetaItem label="Created" value={formatDate(job.created_at)} />
             <MetaItem label="Updated" value={formatDate(job.updated_at)} />
           </Box>
-
         </CardContent>
       </Card>
 
@@ -182,36 +243,52 @@ export default function JobDetail() {
           }}
         >
           <Typography variant="h6">Segments</Typography>
-          {(job.status === "processing" || job.status === "pending") && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <CircularProgress size={18} />
-              <Typography variant="body2" color="text.secondary">
-                {job.status === "processing"
-                  ? "Processing segment..."
-                  : "Waiting for worker..."}
-              </Typography>
-            </Box>
-          )}
-          {job.status === "finalizing" && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <CircularProgress size={18} />
-              <Typography variant="body2" color="text.secondary">
-                Finalizing...
-              </Typography>
-            </Box>
-          )}
-          {job.status === "awaiting" && (
-            <Button
-              variant="contained"
-              color="secondary"
-              size="small"
-              onClick={handleFinalize}
-              disabled={finalizing}
-              startIcon={finalizing ? <CircularProgress size={16} color="inherit" /> : undefined}
-            >
-              {finalizing ? "Finalizing..." : "Finalize & Merge"}
-            </Button>
-          )}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            {(job.status === "processing" || job.status === "pending") && (
+              <>
+                <CircularProgress size={18} />
+                <Typography variant="body2" color="text.secondary">
+                  {job.status === "processing"
+                    ? "Processing segment..."
+                    : "Waiting for worker..."}
+                </Typography>
+              </>
+            )}
+            {job.status === "finalizing" && (
+              <>
+                <CircularProgress size={18} />
+                <Typography variant="body2" color="text.secondary">
+                  Finalizing...
+                </Typography>
+              </>
+            )}
+            {canAddSegment && (
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<PlayArrow />}
+                onClick={() => setSegmentModalOpen(true)}
+              >
+                Next Segment
+              </Button>
+            )}
+            {job.status === "awaiting" && (
+              <Button
+                variant="contained"
+                color="secondary"
+                size="small"
+                onClick={handleFinalize}
+                disabled={finalizing}
+                startIcon={
+                  finalizing ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : undefined
+                }
+              >
+                {finalizing ? "Finalizing..." : "Finalize & Merge"}
+              </Button>
+            )}
+          </Box>
         </Box>
         <TableContainer>
           <Table>
@@ -225,6 +302,7 @@ export default function JobDetail() {
                 <TableCell sx={{ width: 120 }}>Worker</TableCell>
                 <TableCell sx={{ width: 140 }}>Created</TableCell>
                 <TableCell sx={{ width: 80 }}>Run Time</TableCell>
+                <TableCell sx={{ width: 80 }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -233,11 +311,12 @@ export default function JobDetail() {
                   <TableCell>{seg.index}</TableCell>
                   <TableCell>
                     {(() => {
-                      const img = seg.start_image
-                        ?? (seg.index === 0
+                      const img =
+                        seg.start_image ??
+                        (seg.index === 0
                           ? job.starting_image
-                          : job.segments[seg.index - 1]?.last_frame_path)
-                        ?? null;
+                          : job.segments[seg.index - 1]?.last_frame_path) ??
+                        null;
                       return img ? (
                         <Box
                           component="img"
@@ -253,12 +332,17 @@ export default function JobDetail() {
                           }}
                         />
                       ) : (
-                        <Typography variant="caption" color="text.secondary">-</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          -
+                        </Typography>
                       );
                     })()}
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                    <Typography
+                      variant="body2"
+                      sx={{ whiteSpace: "pre-wrap" }}
+                    >
                       {seg.prompt}
                     </Typography>
                     {seg.error_message && (
@@ -269,7 +353,12 @@ export default function JobDetail() {
                   </TableCell>
                   <TableCell>
                     {seg.status === "completed" && seg.last_frame_path ? (
-                      <Box sx={{ position: "relative", cursor: "pointer" }} onClick={() => seg.output_path && setVideoModal(seg.output_path)}>
+                      <Box
+                        sx={{ position: "relative", cursor: "pointer" }}
+                        onClick={() =>
+                          seg.output_path && setVideoModal(seg.output_path)
+                        }
+                      >
                         <Box
                           component="img"
                           src={getFileUrl(seg.last_frame_path)}
@@ -292,15 +381,20 @@ export default function JobDetail() {
                               transform: "translate(-50%, -50%)",
                               fontSize: 32,
                               color: "white",
-                              filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
+                              filter:
+                                "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
                             }}
                           />
                         )}
                       </Box>
-                    ) : seg.status === "pending" || seg.status === "claimed" || seg.status === "processing" ? (
+                    ) : seg.status === "pending" ||
+                      seg.status === "claimed" ||
+                      seg.status === "processing" ? (
                       <CircularProgress size={24} />
                     ) : (
-                      <Typography variant="caption" color="text.secondary">-</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        -
+                      </Typography>
                     )}
                   </TableCell>
                   <TableCell>
@@ -312,12 +406,18 @@ export default function JobDetail() {
                         variant="caption"
                         component={RouterLink}
                         to={`/workers/${seg.worker_id}`}
-                        sx={{ color: "primary.main", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}
+                        sx={{
+                          color: "primary.main",
+                          textDecoration: "none",
+                          "&:hover": { textDecoration: "underline" },
+                        }}
                       >
                         {seg.worker_name ?? seg.worker_id.slice(0, 8)}
                       </Typography>
                     ) : (
-                      <Typography variant="caption" color="text.secondary">-</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        -
+                      </Typography>
                     )}
                   </TableCell>
                   <TableCell>
@@ -329,6 +429,40 @@ export default function JobDetail() {
                     <Typography variant="caption">
                       {segmentRunTime(seg)}
                     </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: "flex", gap: 0.5 }}>
+                      {seg.status === "failed" && (
+                        <Tooltip title="Retry">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => handleRetry(seg)}
+                            disabled={actionLoading === seg.id}
+                          >
+                            {actionLoading === seg.id ? (
+                              <CircularProgress size={18} />
+                            ) : (
+                              <Replay fontSize="small" />
+                            )}
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {(seg.status === "failed" ||
+                        seg.status === "completed") &&
+                        job.segments.length > 1 && (
+                          <Tooltip title="Delete">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setDeleteConfirm(seg)}
+                              disabled={actionLoading === seg.id}
+                            >
+                              <DeleteOutline fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}
@@ -347,7 +481,8 @@ export default function JobDetail() {
           : undefined;
         const logSeg = activeSeg ?? failedSeg;
         if (!logSeg?.progress_log) return null;
-        const isActive = logSeg.status === "processing" || logSeg.status === "claimed";
+        const isActive =
+          logSeg.status === "processing" || logSeg.status === "claimed";
         return (
           <Card sx={{ mb: 3 }}>
             <Box
@@ -385,14 +520,43 @@ export default function JobDetail() {
         );
       })()}
 
-      {/* Next segment form */}
-      {job.status === "awaiting" && !job.segments.some((s) => ["pending", "claimed", "processing"].includes(s.status)) && (
-        <NextSegmentForm
-          jobId={job.id}
-          lastSegment={lastSegment}
-          onSubmitted={fetchJob}
-        />
-      )}
+      {/* Segment modal */}
+      <SegmentModal
+        open={segmentModalOpen}
+        jobId={job.id}
+        lastSegment={lastSegment}
+        onClose={() => setSegmentModalOpen(false)}
+        onSubmitted={() => {
+          setSegmentModalOpen(false);
+          fetchJob();
+        }}
+      />
+
+      {/* Delete confirm dialog */}
+      <Dialog
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Segment</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Delete segment #{deleteConfirm?.index}? This will remove the segment
+            and its S3 assets. This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Video modal */}
       <Dialog
@@ -404,7 +568,13 @@ export default function JobDetail() {
         <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
           <IconButton
             onClick={() => setVideoModal(null)}
-            sx={{ position: "absolute", top: 8, right: 8, color: "white", zIndex: 1 }}
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              color: "white",
+              zIndex: 1,
+            }}
           >
             <Close />
           </IconButton>
@@ -463,37 +633,54 @@ function lorasToSlots(
     });
 }
 
-function NextSegmentForm({
+function SegmentModal({
+  open,
   jobId,
   lastSegment,
+  onClose,
   onSubmitted,
 }: {
+  open: boolean;
   jobId: string;
   lastSegment?: SegmentResponse;
+  onClose: () => void;
   onSubmitted: () => void;
 }) {
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
-  const [prompt, setPrompt] = useState(lastSegment?.prompt ?? "");
-  const [duration, setDuration] = useState(lastSegment?.duration_seconds ?? 5.0);
-  const [faceswapEnabled, setFaceswapEnabled] = useState(
-    lastSegment?.faceswap_enabled ?? false,
-  );
-  const [faceswapMethod, setFaceswapMethod] = useState(
-    lastSegment?.faceswap_method ?? "reactor",
-  );
+  const [prompt, setPrompt] = useState("");
+  const [duration, setDuration] = useState(5.0);
+  const [faceswapEnabled, setFaceswapEnabled] = useState(false);
+  const [faceswapMethod, setFaceswapMethod] = useState("reactor");
+  const [faceswapFile, setFaceswapFile] = useState<File | null>(null);
+  const [faceswapFacesIndex, setFaceswapFacesIndex] = useState("0");
+  const [faceswapFacesOrder, setFaceswapFacesOrder] = useState("left-right");
   const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Pre-populate from last segment when modal opens
   useEffect(() => {
-    fetchLoras();
-  }, [fetchLoras]);
+    if (open && lastSegment) {
+      setPrompt(lastSegment.prompt);
+      setDuration(lastSegment.duration_seconds);
+      setFaceswapEnabled(lastSegment.faceswap_enabled);
+      setFaceswapMethod(lastSegment.faceswap_method ?? "reactor");
+      setFaceswapFile(null);
+      setFaceswapFacesIndex(lastSegment.faceswap_faces_index ?? "0");
+      setFaceswapFacesOrder(lastSegment.faceswap_faces_order ?? "left-right");
+      setError("");
+    }
+  }, [open, lastSegment]);
 
   useEffect(() => {
-    if (loraLibrary.length > 0 && lastSegment?.loras) {
+    if (open) fetchLoras();
+  }, [open, fetchLoras]);
+
+  useEffect(() => {
+    if (open && loraLibrary.length > 0 && lastSegment?.loras) {
       setLoraSlots(lorasToSlots(lastSegment.loras, loraLibrary));
     }
-  }, [loraLibrary, lastSegment]);
+  }, [open, loraLibrary, lastSegment]);
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
     if (!item || loraSlots.length >= 3) return;
@@ -520,6 +707,11 @@ function NextSegmentForm({
     setLoraSlots(loraSlots.filter((_, i) => i !== idx));
   };
 
+  // Display name for existing faceswap image
+  const existingFaceswapName = lastSegment?.faceswap_image
+    ? lastSegment.faceswap_image.split("/").pop() ?? "existing image"
+    : null;
+
   const handleSubmit = async () => {
     if (!prompt.trim()) {
       setError("Prompt is required");
@@ -528,20 +720,24 @@ function NextSegmentForm({
     setError("");
     setSubmitting(true);
     try {
+      let faceswapImageUri: string | null = null;
+      if (faceswapEnabled) {
+        if (faceswapFile) {
+          const result = await uploadFile(faceswapFile, jobId);
+          faceswapImageUri = result.path;
+        } else {
+          faceswapImageUri = lastSegment?.faceswap_image ?? null;
+        }
+      }
+
       const body: SegmentCreate = {
         prompt: prompt.trim(),
         duration_seconds: duration,
         faceswap_enabled: faceswapEnabled,
         faceswap_method: faceswapEnabled ? faceswapMethod : null,
-        faceswap_image: faceswapEnabled
-          ? lastSegment?.faceswap_image ?? null
-          : null,
-        faceswap_faces_index: faceswapEnabled
-          ? lastSegment?.faceswap_faces_index ?? null
-          : null,
-        faceswap_faces_order: faceswapEnabled
-          ? lastSegment?.faceswap_faces_order ?? null
-          : null,
+        faceswap_image: faceswapImageUri,
+        faceswap_faces_index: faceswapEnabled ? faceswapFacesIndex : null,
+        faceswap_faces_order: faceswapEnabled ? faceswapFacesOrder : null,
         loras:
           loraSlots.length > 0
             ? loraSlots.map((l) => ({
@@ -561,17 +757,11 @@ function NextSegmentForm({
   };
 
   return (
-    <Card sx={{ border: "2px solid", borderColor: "primary.main" }}>
-      <CardContent>
-        <Typography variant="h6" sx={{ mb: 2 }}>
-          <PlayArrow
-            sx={{ verticalAlign: "middle", mr: 0.5 }}
-            color="primary"
-          />
-          Next Segment
-        </Typography>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Next Segment</DialogTitle>
+      <DialogContent>
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
             {error}
           </Alert>
         )}
@@ -580,19 +770,22 @@ function NextSegmentForm({
           fullWidth
           multiline
           rows={3}
+          margin="normal"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          sx={{ mb: 2 }}
+          autoFocus
         />
-        <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
-          <TextField
-            label="Duration (sec)"
-            type="number"
-            value={duration}
-            onChange={(e) => setDuration(parseFloat(e.target.value) || 5)}
-            slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
-            sx={{ width: 150 }}
-          />
+        <TextField
+          label="Duration (sec)"
+          type="number"
+          value={duration}
+          onChange={(e) => setDuration(parseFloat(e.target.value) || 5)}
+          slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
+          sx={{ mt: 2, width: 150 }}
+        />
+
+        {/* Faceswap section */}
+        <Box sx={{ mt: 3 }}>
           <FormControlLabel
             control={
               <Switch
@@ -600,25 +793,68 @@ function NextSegmentForm({
                 onChange={(e) => setFaceswapEnabled(e.target.checked)}
               />
             }
-            label="Faceswap"
+            label="Enable Faceswap"
           />
           {faceswapEnabled && (
-            <TextField
-              label="Method"
-              select
-              size="small"
-              value={faceswapMethod}
-              onChange={(e) => setFaceswapMethod(e.target.value)}
-              sx={{ width: 150 }}
-            >
-              <MenuItem value="reactor">ReActor</MenuItem>
-              <MenuItem value="facefusion">FaceFusion</MenuItem>
-            </TextField>
+            <Box sx={{ mt: 1 }}>
+              <TextField
+                label="Method"
+                select
+                size="small"
+                fullWidth
+                value={faceswapMethod}
+                onChange={(e) => setFaceswapMethod(e.target.value)}
+                sx={{ mb: 1 }}
+              >
+                <MenuItem value="reactor">ReActor</MenuItem>
+                <MenuItem value="facefusion">FaceFusion</MenuItem>
+              </TextField>
+              <Box sx={{ display: "flex", gap: 2, mb: 1 }}>
+                <TextField
+                  label="Faces Index"
+                  size="small"
+                  value={faceswapFacesIndex}
+                  onChange={(e) => setFaceswapFacesIndex(e.target.value)}
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  label="Faces Order"
+                  size="small"
+                  value={faceswapFacesOrder}
+                  onChange={(e) => setFaceswapFacesOrder(e.target.value)}
+                  sx={{ flex: 1 }}
+                />
+              </Box>
+              <Button variant="outlined" size="small" component="label">
+                {faceswapFile
+                  ? faceswapFile.name
+                  : existingFaceswapName
+                    ? `Re-using: ${existingFaceswapName}`
+                    : "Choose Faceswap Image"}
+                <input
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  onChange={(e) =>
+                    setFaceswapFile(e.target.files?.[0] ?? null)
+                  }
+                />
+              </Button>
+              {faceswapFile && existingFaceswapName && (
+                <Button
+                  size="small"
+                  sx={{ ml: 1 }}
+                  onClick={() => setFaceswapFile(null)}
+                >
+                  Reset to existing
+                </Button>
+              )}
+            </Box>
           )}
         </Box>
 
         {/* LoRA section */}
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ mt: 3 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             LoRAs
           </Typography>
@@ -697,7 +933,11 @@ function NextSegmentForm({
                 type="number"
                 value={lora.high_weight}
                 onChange={(e) =>
-                  updateLoraWeight(idx, "high_weight", parseFloat(e.target.value))
+                  updateLoraWeight(
+                    idx,
+                    "high_weight",
+                    parseFloat(e.target.value),
+                  )
                 }
                 sx={{ width: 80 }}
                 slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
@@ -708,7 +948,11 @@ function NextSegmentForm({
                 type="number"
                 value={lora.low_weight}
                 onChange={(e) =>
-                  updateLoraWeight(idx, "low_weight", parseFloat(e.target.value))
+                  updateLoraWeight(
+                    idx,
+                    "low_weight",
+                    parseFloat(e.target.value),
+                  )
                 }
                 sx={{ width: 80 }}
                 slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
@@ -716,15 +960,13 @@ function NextSegmentForm({
             </Box>
           ))}
         </Box>
-
-        <Button
-          variant="contained"
-          onClick={handleSubmit}
-          disabled={submitting}
-        >
-          {submitting ? "Submitting..." : "Submit Next Segment"}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={handleSubmit} disabled={submitting}>
+          {submitting ? "Submitting..." : "Submit"}
         </Button>
-      </CardContent>
-    </Card>
+      </DialogActions>
+    </Dialog>
   );
 }

@@ -87,6 +87,19 @@ export async function addSegment(
   return data;
 }
 
+export async function retrySegment(
+  segmentId: string,
+): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(
+    `/segments/${segmentId}/retry`,
+  );
+  return data;
+}
+
+export async function deleteSegment(segmentId: string): Promise<void> {
+  await api.delete(`/segments/${segmentId}`);
+}
+
 export function getFileUrl(s3Path: string): string {
   return `${API_URL}/files?path=${encodeURIComponent(s3Path)}`;
 }
