@@ -507,7 +507,21 @@ function CreateJobDialog({
               type="file"
               hidden
               accept="image/*"
-              onChange={(e) => setStartingImage(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                setStartingImage(file);
+                if (file) {
+                  const url = URL.createObjectURL(file);
+                  const img = new Image();
+                  img.onload = () => {
+                    setWidth(img.naturalWidth);
+                    setHeight(img.naturalHeight);
+                    URL.revokeObjectURL(url);
+                  };
+                  img.onerror = () => URL.revokeObjectURL(url);
+                  img.src = url;
+                }
+              }}
             />
           </Button>
         </Box>

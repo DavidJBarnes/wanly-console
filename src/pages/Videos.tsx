@@ -3,23 +3,26 @@ import {
   Box,
   Typography,
   Card,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
+  CardActionArea,
+  CardContent,
+  Grid,
   CircularProgress,
   Dialog,
   DialogContent,
   IconButton,
+  Button,
 } from "@mui/material";
 import { Close, PlayCircleOutline, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { useJobStore } from "../stores/jobStore";
 import { getJob, getFileUrl } from "../api/client";
 import type { JobDetailResponse } from "../api/types";
-import StatusChip from "../components/StatusChip";
+
+function formatDuration(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -30,16 +33,10 @@ function formatDate(iso: string) {
   });
 }
 
-function formatDuration(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
 export default function Videos() {
   const { jobs, loading, fetchJobs } = useJobStore();
   const navigate = useNavigate();
-  const [videoModal, setVideoModal] = useState<string | null>(null);
+  const [videoModal, setVideoModal] = useState<{ path: string; jobId: string } | null>(null);
   const [jobDetails, setJobDetails] = useState<Record<string, JobDetailResponse>>({});
 
   useEffect(() => {
@@ -64,17 +61,17 @@ export default function Videos() {
   const getVideoPath = (jobId: string): string | null => {
     const detail = jobDetails[jobId];
     if (!detail) return null;
-    // Check for finalized video in videos array
     const video = detail.videos?.find((v) => v.output_path);
     if (video?.output_path) return video.output_path;
     return null;
   };
 
-  const getLastFrame = (jobId: string): string | null => {
+  const getHeroImage = (jobId: string): string | null => {
     const detail = jobDetails[jobId];
     if (!detail?.segments?.length) return null;
-    const lastSeg = detail.segments[detail.segments.length - 1];
-    return lastSeg?.last_frame_path ?? null;
+    // Use first segment's last_frame_path (segment index 0)
+    const firstSeg = detail.segments.find((s) => s.index === 0);
+    return firstSeg?.last_frame_path ?? null;
   };
 
   return (
@@ -90,115 +87,93 @@ export default function Videos() {
       )}
 
       {finalizedJobs.length > 0 ? (
-        <Card>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ width: 80 }}>Preview</TableCell>
-                  <TableCell>Name</TableCell>
-                  <TableCell sx={{ width: 100 }}>Status</TableCell>
-                  <TableCell sx={{ width: 120 }}>Dimensions</TableCell>
-                  <TableCell sx={{ width: 80 }}>Segments</TableCell>
-                  <TableCell sx={{ width: 120 }}>Duration</TableCell>
-                  <TableCell sx={{ width: 140 }}>Finalized</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {finalizedJobs.map((job) => {
-                  const videoPath = getVideoPath(job.id);
-                  const lastFrame = getLastFrame(job.id);
-                  const detail = jobDetails[job.id];
-                  return (
-                    <TableRow key={job.id} hover sx={{ cursor: "pointer" }}>
-                      <TableCell
-                        onClick={() => {
-                          if (videoPath) {
-                            setVideoModal(videoPath);
-                          } else {
-                            navigate(`/jobs/${job.id}`);
-                          }
-                        }}
-                      >
-                        {lastFrame ? (
-                          <Box sx={{ position: "relative" }}>
-                            <Box
-                              component="img"
-                              src={getFileUrl(lastFrame)}
-                              alt=""
-                              sx={{
-                                width: 64,
-                                height: 64,
-                                objectFit: "cover",
-                                borderRadius: 1,
-                                bgcolor: "#f5f5f5",
-                                display: "block",
-                              }}
-                            />
-                            {videoPath && (
-                              <PlayCircleOutline
-                                sx={{
-                                  position: "absolute",
-                                  top: "50%",
-                                  left: "50%",
-                                  transform: "translate(-50%, -50%)",
-                                  fontSize: 28,
-                                  color: "white",
-                                  filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
-                                }}
-                              />
-                            )}
-                          </Box>
-                        ) : job.starting_image ? (
-                          <Box
-                            component="img"
-                            src={getFileUrl(job.starting_image)}
-                            alt=""
-                            sx={{
-                              width: 64,
-                              height: 64,
-                              objectFit: "cover",
-                              borderRadius: 1,
-                              bgcolor: "#f5f5f5",
-                              display: "block",
-                            }}
-                          />
-                        ) : (
-                          <Box
-                            sx={{
-                              width: 64,
-                              height: 64,
-                              borderRadius: 1,
-                              bgcolor: "#f5f5f5",
-                            }}
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell onClick={() => navigate(`/jobs/${job.id}`)}>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {job.name}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <StatusChip status={job.status} />
-                      </TableCell>
-                      <TableCell>
-                        {job.width}x{job.height}
-                      </TableCell>
-                      <TableCell>
-                        {detail ? detail.completed_segment_count : "-"}
-                      </TableCell>
-                      <TableCell>
-                        {detail ? formatDuration(detail.total_video_time) : "-"}
-                      </TableCell>
-                      <TableCell>{formatDate(job.updated_at)}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Card>
+        <Grid container spacing={3}>
+          {finalizedJobs.map((job) => {
+            const videoPath = getVideoPath(job.id);
+            const heroImage = getHeroImage(job.id);
+            const detail = jobDetails[job.id];
+            return (
+              <Grid key={job.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+                <Card sx={{ height: "100%" }}>
+                  <CardActionArea
+                    onClick={() => {
+                      if (videoPath) {
+                        setVideoModal({ path: videoPath, jobId: job.id });
+                      } else {
+                        navigate(`/jobs/${job.id}`);
+                      }
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        position: "relative",
+                        paddingTop: "56.25%", // 16:9 aspect ratio
+                        bgcolor: "#1a1a2e",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {heroImage ? (
+                        <Box
+                          component="img"
+                          src={getFileUrl(heroImage)}
+                          alt={job.name}
+                          sx={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                          }}
+                        />
+                      ) : job.starting_image ? (
+                        <Box
+                          component="img"
+                          src={getFileUrl(job.starting_image)}
+                          alt={job.name}
+                          sx={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                          }}
+                        />
+                      ) : null}
+                      {videoPath && (
+                        <PlayCircleOutline
+                          sx={{
+                            position: "absolute",
+                            top: "50%",
+                            left: "50%",
+                            transform: "translate(-50%, -50%)",
+                            fontSize: 56,
+                            color: "rgba(255,255,255,0.85)",
+                            filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+                          }}
+                        />
+                      )}
+                    </Box>
+                  </CardActionArea>
+                  <CardContent sx={{ pb: "12px !important" }}>
+                    <Typography variant="subtitle2" noWrap sx={{ mb: 0.5 }}>
+                      {job.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" component="div">
+                      {detail ? `${detail.completed_segment_count} segments` : "..."} &middot;{" "}
+                      {detail ? formatDuration(detail.total_video_time) : "..."} &middot;{" "}
+                      {job.width}x{job.height}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" component="div">
+                      {formatDate(job.updated_at)}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            );
+          })}
+        </Grid>
       ) : (
         !loading && (
           <Card>
@@ -223,18 +198,33 @@ export default function Videos() {
         fullWidth
       >
         <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
-          <IconButton
-            onClick={() => setVideoModal(null)}
-            sx={{ position: "absolute", top: 8, right: 8, color: "white", zIndex: 1 }}
-          >
-            <Close />
-          </IconButton>
+          <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1, display: "flex", gap: 1 }}>
+            {videoModal && (
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => {
+                  navigate(`/jobs/${videoModal.jobId}`);
+                  setVideoModal(null);
+                }}
+                sx={{ textTransform: "none" }}
+              >
+                View Job
+              </Button>
+            )}
+            <IconButton
+              onClick={() => setVideoModal(null)}
+              sx={{ color: "white" }}
+            >
+              <Close />
+            </IconButton>
+          </Box>
           {videoModal && (
             <Box
               component="video"
               controls
               autoPlay
-              src={getFileUrl(videoModal)}
+              src={getFileUrl(videoModal.path)}
               sx={{ width: "100%", display: "block" }}
             />
           )}

@@ -11,6 +11,7 @@ import type {
   LoraResponse,
   LoraCreate,
   LoraUpdate,
+  StatsResponse,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -88,6 +89,11 @@ export async function addSegment(
 
 export function getFileUrl(s3Path: string): string {
   return `${API_URL}/files?path=${encodeURIComponent(s3Path)}`;
+}
+
+export async function getStats(): Promise<StatsResponse> {
+  const { data } = await api.get<StatsResponse>("/stats");
+  return data;
 }
 
 // --- LoRAs ---

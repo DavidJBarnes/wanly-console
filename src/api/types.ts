@@ -185,3 +185,19 @@ export interface WorkerResponse {
 }
 
 export type WorkerStatus = "online-idle" | "online-busy" | "offline";
+
+export interface WorkerStatsItem {
+  worker_name: string;
+  segments_completed: number;
+  avg_run_time: number;
+  last_seen: string | null;
+}
+
+export interface StatsResponse {
+  jobs_by_status: Record<string, number>;
+  segments_by_status: Record<string, number>;
+  avg_segment_run_time: number | null;
+  total_segments_completed: number;
+  total_video_time: number;
+  worker_stats: WorkerStatsItem[];
+}
