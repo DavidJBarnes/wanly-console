@@ -287,12 +287,18 @@ function AddLoraDialog({
       resetForm();
       onAdded();
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? (e as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail
-          : undefined;
-      setError(msg || "Failed to create LoRA");
+      let msg = "Failed to create LoRA";
+      if (e && typeof e === "object" && "response" in e) {
+        const resp = (e as { response?: { status?: number; data?: { detail?: string } } }).response;
+        if (resp?.data?.detail) {
+          msg = resp.data.detail;
+        } else if (resp?.status) {
+          msg = `Server error (${resp.status}). The download may have timed out — try again.`;
+        }
+      } else if (e && typeof e === "object" && "message" in e) {
+        msg = `Network error: ${(e as { message: string }).message}`;
+      }
+      setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -323,8 +329,17 @@ function AddLoraDialog({
       await createLoraUpload(formData);
       resetForm();
       onAdded();
-    } catch {
-      setError("Failed to upload LoRA");
+    } catch (e: unknown) {
+      let msg = "Failed to upload LoRA";
+      if (e && typeof e === "object" && "response" in e) {
+        const resp = (e as { response?: { status?: number; data?: { detail?: string } } }).response;
+        if (resp?.data?.detail) {
+          msg = resp.data.detail;
+        } else if (resp?.status) {
+          msg = `Server error (${resp.status})`;
+        }
+      }
+      setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -480,7 +495,11 @@ function AddLoraDialog({
           onClick={tab === 0 ? handleSubmitUrl : handleSubmitUpload}
           disabled={submitting}
         >
-          {submitting ? "Adding..." : "Add LoRA"}
+          {submitting
+            ? tab === 0
+              ? "Downloading files..."
+              : "Uploading..."
+            : "Add LoRA"}
         </Button>
       </DialogActions>
     </Dialog>
