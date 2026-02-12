@@ -346,9 +346,30 @@ function AddLoraDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Add LoRA</DialogTitle>
       <DialogContent>
+        {submitting && (
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              py: 4,
+              gap: 2,
+            }}
+          >
+            <CircularProgress size={48} />
+            <Typography color="text.secondary">
+              {tab === 0
+                ? "Downloading .safetensors from URL and uploading to S3... This may take a few minutes."
+                : "Uploading files to S3..."}
+            </Typography>
+          </Box>
+        )}
+
+        {!submitting && (
+          <>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
           <Tab label="From URL" />
           <Tab label="Upload File" />
@@ -487,9 +508,11 @@ function AddLoraDialog({
             sx={{ flex: 1 }}
           />
         </Box>
+          </>
+        )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button
           variant="contained"
           onClick={tab === 0 ? handleSubmitUrl : handleSubmitUpload}
