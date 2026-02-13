@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Box,
   Typography,
@@ -6,17 +6,18 @@ import {
   CardActionArea,
   CardContent,
   Grid,
+  Chip,
   CircularProgress,
   Dialog,
   DialogContent,
   IconButton,
   Button,
+  Alert,
 } from "@mui/material";
-import { Close, PlayCircleOutline, VideoLibrary } from "@mui/icons-material";
+import { Close, Error as ErrorIcon, PlayCircleOutline, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
-import { useJobStore } from "../stores/jobStore";
-import { getJob, getFileUrl } from "../api/client";
-import type { JobDetailResponse } from "../api/types";
+import { getJobs, getJob, getFileUrl } from "../api/client";
+import type { JobDetailResponse, JobResponse } from "../api/types";
 
 function formatDuration(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -34,45 +35,62 @@ function formatDate(iso: string) {
 }
 
 export default function Videos() {
-  const { jobs, loading, fetchJobs } = useJobStore();
   const navigate = useNavigate();
-  const [videoModal, setVideoModal] = useState<{ path: string | null; jobId: string } | null>(null);
+  const [jobs, setJobs] = useState<JobResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [videoModal, setVideoModal] = useState<{ jobId: string } | null>(null);
   const [jobDetails, setJobDetails] = useState<Record<string, JobDetailResponse>>({});
 
+  const fetchVideos = useCallback(async () => {
+    try {
+      const res = await getJobs({ status: "finalized,finalizing", limit: 200 });
+      setJobs(res.items);
+    } catch {
+      // silently retry on next interval
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+    fetchVideos();
+    const interval = setInterval(fetchVideos, 5000);
+    return () => clearInterval(interval);
+  }, [fetchVideos]);
 
-  const finalizedJobs = jobs
-    .filter((j) => j.status === "finalized" || j.status === "finalizing")
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const finalizedJobs = [...jobs].sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+  );
 
-  // Fetch details for finalized jobs to get video info
+  // Fetch details for jobs to get video info
   useEffect(() => {
     for (const job of finalizedJobs) {
       if (!jobDetails[job.id]) {
-        getJob(job.id).then((detail) => {
-          setJobDetails((prev) => ({ ...prev, [job.id]: detail }));
-        }).catch(() => {});
+        getJob(job.id)
+          .then((detail) => {
+            setJobDetails((prev) => ({ ...prev, [job.id]: detail }));
+          })
+          .catch(() => {});
       }
     }
   }, [finalizedJobs.map((j) => j.id).join(",")]);
 
-  const getVideoPath = (jobId: string): string | null => {
+  const getVideoInfo = (jobId: string) => {
     const detail = jobDetails[jobId];
-    if (!detail) return null;
-    const video = detail.videos?.find((v) => v.output_path);
-    if (video?.output_path) return video.output_path;
-    return null;
+    if (!detail?.videos?.length) return null;
+    return detail.videos[0];
   };
 
   const getHeroImage = (jobId: string): string | null => {
     const detail = jobDetails[jobId];
     if (!detail?.segments?.length) return null;
-    // Use first segment's last_frame_path (segment index 0)
     const firstSeg = detail.segments.find((s) => s.index === 0);
     return firstSeg?.last_frame_path ?? null;
   };
+
+  const modalJob = videoModal ? finalizedJobs.find((j) => j.id === videoModal.jobId) : null;
+  const modalDetail = videoModal ? jobDetails[videoModal.jobId] : null;
+  const modalVideo = modalDetail?.videos?.[0] ?? null;
 
   return (
     <Box>
@@ -89,19 +107,22 @@ export default function Videos() {
       {finalizedJobs.length > 0 ? (
         <Grid container spacing={3}>
           {finalizedJobs.map((job) => {
-            const videoPath = getVideoPath(job.id);
+            const videoInfo = getVideoInfo(job.id);
             const heroImage = getHeroImage(job.id);
             const detail = jobDetails[job.id];
+            const isStitching = job.status === "finalizing" || videoInfo?.status === "pending";
+            const isFailed = videoInfo?.status === "failed";
+            const isCompleted = videoInfo?.status === "completed" && videoInfo.output_path;
             return (
               <Grid key={job.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
                 <Card sx={{ height: "100%" }}>
                   <CardActionArea
-                    onClick={() => setVideoModal({ path: videoPath, jobId: job.id })}
+                    onClick={() => setVideoModal({ jobId: job.id })}
                   >
                     <Box
                       sx={{
                         position: "relative",
-                        paddingTop: "56.25%", // 16:9 aspect ratio
+                        paddingTop: "56.25%",
                         bgcolor: "#1a1a2e",
                         overflow: "hidden",
                       }}
@@ -135,7 +156,7 @@ export default function Videos() {
                           }}
                         />
                       ) : null}
-                      {videoPath && (
+                      {isCompleted && (
                         <PlayCircleOutline
                           sx={{
                             position: "absolute",
@@ -145,6 +166,49 @@ export default function Videos() {
                             fontSize: 56,
                             color: "rgba(255,255,255,0.85)",
                             filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+                          }}
+                        />
+                      )}
+                      {isStitching && (
+                        <Box
+                          sx={{
+                            position: "absolute",
+                            top: "50%",
+                            left: "50%",
+                            transform: "translate(-50%, -50%)",
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                          }}
+                        >
+                          <CircularProgress size={40} sx={{ color: "white", mb: 1 }} />
+                        </Box>
+                      )}
+                      {isFailed && (
+                        <ErrorIcon
+                          sx={{
+                            position: "absolute",
+                            top: "50%",
+                            left: "50%",
+                            transform: "translate(-50%, -50%)",
+                            fontSize: 56,
+                            color: "rgba(244,67,54,0.85)",
+                            filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+                          }}
+                        />
+                      )}
+                      {/* Status chip overlay */}
+                      {(isStitching || isFailed) && (
+                        <Chip
+                          label={isStitching ? "Stitching..." : "Failed"}
+                          size="small"
+                          color={isFailed ? "error" : "default"}
+                          sx={{
+                            position: "absolute",
+                            top: 8,
+                            right: 8,
+                            bgcolor: isStitching ? "rgba(0,0,0,0.6)" : undefined,
+                            color: isStitching ? "white" : undefined,
                           }}
                         />
                       )}
@@ -200,19 +264,33 @@ export default function Videos() {
               <Close />
             </IconButton>
           </Box>
-          {videoModal?.path ? (
+          {modalVideo?.status === "completed" && modalVideo.output_path ? (
             <Box
               component="video"
               controls
               autoPlay
-              src={getFileUrl(videoModal.path)}
+              src={getFileUrl(modalVideo.output_path)}
               sx={{ width: "100%", display: "block" }}
             />
+          ) : modalVideo?.status === "failed" ? (
+            <Box sx={{ p: 4 }}>
+              <Alert severity="error" sx={{ mb: 2 }}>
+                Video stitching failed
+              </Alert>
+              {modalVideo.error_message && (
+                <Typography
+                  variant="body2"
+                  sx={{ color: "rgba(255,255,255,0.7)", whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12 }}
+                >
+                  {modalVideo.error_message}
+                </Typography>
+              )}
+            </Box>
           ) : videoModal ? (
             <Box sx={{ textAlign: "center", py: 8 }}>
               <CircularProgress sx={{ color: "white", mb: 2 }} />
               <Typography color="white" variant="body2">
-                Loading video...
+                Stitching video...
               </Typography>
             </Box>
           ) : null}

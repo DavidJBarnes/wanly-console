@@ -42,8 +42,6 @@ const ALL_STATUSES: JobStatus[] = [
   "processing",
   "pending",
   "paused",
-  "finalizing",
-  "finalized",
 ];
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -52,8 +50,6 @@ const STATUS_PRIORITY: Record<string, number> = {
   processing: 2,
   pending: 3,
   paused: 4,
-  finalizing: 5,
-  finalized: 6,
 };
 
 type SortKey = "name" | "status" | "fps" | "created_at" | "updated_at";

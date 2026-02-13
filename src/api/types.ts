@@ -153,6 +153,7 @@ export interface VideoResponse {
   output_path: string | null;
   duration_seconds: number | null;
   status: string;
+  error_message: string | null;
   created_at: string;
   completed_at: string | null;
 }
