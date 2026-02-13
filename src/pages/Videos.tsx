@@ -88,7 +88,6 @@ export default function Videos() {
     return firstSeg?.last_frame_path ?? null;
   };
 
-  const modalJob = videoModal ? finalizedJobs.find((j) => j.id === videoModal.jobId) : null;
   const modalDetail = videoModal ? jobDetails[videoModal.jobId] : null;
   const modalVideo = modalDetail?.videos?.[0] ?? null;
 
