@@ -711,6 +711,7 @@ function SegmentModal({
   const [submitting, setSubmitting] = useState(false);
 
   // Pre-populate from last segment when modal opens (use template if available)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on open, not on poll refetch
   useEffect(() => {
     if (open && lastSegment) {
       setPrompt(lastSegment.prompt_template ?? lastSegment.prompt);
@@ -722,17 +723,18 @@ function SegmentModal({
       setFaceswapFacesOrder(lastSegment.faceswap_faces_order ?? "left-right");
       setError("");
     }
-  }, [open, lastSegment]);
+  }, [open]);
 
   useEffect(() => {
     if (open) fetchLoras();
   }, [open, fetchLoras]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on open + library load
   useEffect(() => {
     if (open && loraLibrary.length > 0 && lastSegment?.loras) {
       setLoraSlots(lorasToSlots(lastSegment.loras, loraLibrary));
     }
-  }, [open, loraLibrary, lastSegment]);
+  }, [open, loraLibrary]);
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
     if (!item || loraSlots.length >= 3) return;
