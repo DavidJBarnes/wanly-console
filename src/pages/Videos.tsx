@@ -36,7 +36,7 @@ function formatDate(iso: string) {
 export default function Videos() {
   const { jobs, loading, fetchJobs } = useJobStore();
   const navigate = useNavigate();
-  const [videoModal, setVideoModal] = useState<{ path: string; jobId: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<{ path: string | null; jobId: string } | null>(null);
   const [jobDetails, setJobDetails] = useState<Record<string, JobDetailResponse>>({});
 
   useEffect(() => {
@@ -96,13 +96,7 @@ export default function Videos() {
               <Grid key={job.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
                 <Card sx={{ height: "100%" }}>
                   <CardActionArea
-                    onClick={() => {
-                      if (videoPath) {
-                        setVideoModal({ path: videoPath, jobId: job.id });
-                      } else {
-                        navigate(`/jobs/${job.id}`);
-                      }
-                    }}
+                    onClick={() => setVideoModal({ path: videoPath, jobId: job.id })}
                   >
                     <Box
                       sx={{
@@ -198,8 +192,32 @@ export default function Videos() {
         fullWidth
       >
         <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
-          <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1, display: "flex", gap: 1 }}>
-            {videoModal && (
+          <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
+            <IconButton
+              onClick={() => setVideoModal(null)}
+              sx={{ color: "white" }}
+            >
+              <Close />
+            </IconButton>
+          </Box>
+          {videoModal?.path ? (
+            <Box
+              component="video"
+              controls
+              autoPlay
+              src={getFileUrl(videoModal.path)}
+              sx={{ width: "100%", display: "block" }}
+            />
+          ) : videoModal ? (
+            <Box sx={{ textAlign: "center", py: 8 }}>
+              <CircularProgress sx={{ color: "white", mb: 2 }} />
+              <Typography color="white" variant="body2">
+                Loading video...
+              </Typography>
+            </Box>
+          ) : null}
+          {videoModal && (
+            <Box sx={{ p: 1.5, display: "flex", justifyContent: "flex-end", bgcolor: "rgba(0,0,0,0.8)" }}>
               <Button
                 size="small"
                 variant="contained"
@@ -211,22 +229,7 @@ export default function Videos() {
               >
                 View Job
               </Button>
-            )}
-            <IconButton
-              onClick={() => setVideoModal(null)}
-              sx={{ color: "white" }}
-            >
-              <Close />
-            </IconButton>
-          </Box>
-          {videoModal && (
-            <Box
-              component="video"
-              controls
-              autoPlay
-              src={getFileUrl(videoModal.path)}
-              sx={{ width: "100%", display: "block" }}
-            />
+            </Box>
           )}
         </DialogContent>
       </Dialog>
