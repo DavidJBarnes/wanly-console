@@ -7,13 +7,21 @@ import {
   Grid,
   CircularProgress,
   Alert,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Tooltip,
 } from "@mui/material";
 import {
   Circle,
   Computer,
   Timer,
+  DeleteOutline,
 } from "@mui/icons-material";
-import { getWorkers } from "../api/client";
+import { getWorkers, deleteWorker } from "../api/client";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
@@ -47,6 +55,8 @@ export default function Workers() {
   const [workers, setWorkers] = useState<WorkerResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState<WorkerResponse | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchWorkers = useCallback(async () => {
     try {
@@ -65,6 +75,19 @@ export default function Workers() {
     const interval = setInterval(fetchWorkers, 10000);
     return () => clearInterval(interval);
   }, [fetchWorkers]);
+
+  const handleDelete = async (worker: WorkerResponse) => {
+    setDeleting(true);
+    try {
+      await deleteWorker(worker.id);
+      setDeleteConfirm(null);
+      fetchWorkers();
+    } catch {
+      setError("Failed to delete worker");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const sorted = [...workers].sort((a, b) => {
     const order: Record<string, number> = {
@@ -101,7 +124,7 @@ export default function Workers() {
       <Grid container spacing={2}>
         {sorted.map((worker) => (
           <Grid key={worker.id} size={{ xs: 12, sm: 6, md: 4 }}>
-            <WorkerCard worker={worker} />
+            <WorkerCard worker={worker} onDelete={setDeleteConfirm} />
           </Grid>
         ))}
       </Grid>
@@ -113,11 +136,43 @@ export default function Workers() {
           </Typography>
         </Box>
       )}
+
+      <Dialog
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Worker</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Remove <strong>{deleteConfirm?.friendly_name}</strong> from the
+            registry? It will re-register on next heartbeat if still running.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
 
-function WorkerCard({ worker }: { worker: WorkerResponse }) {
+function WorkerCard({
+  worker,
+  onDelete,
+}: {
+  worker: WorkerResponse;
+  onDelete: (w: WorkerResponse) => void;
+}) {
   const cfg = STATUS_CONFIG[worker.status];
 
   return (
@@ -142,6 +197,16 @@ function WorkerCard({ worker }: { worker: WorkerResponse }) {
             >
               {cfg.label}
             </Typography>
+            <Tooltip title="Delete worker">
+              <IconButton
+                size="small"
+                color="error"
+                onClick={() => onDelete(worker)}
+                sx={{ ml: 0.5 }}
+              >
+                <DeleteOutline fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Box>
         </Box>
 

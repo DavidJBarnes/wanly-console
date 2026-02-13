@@ -17,8 +17,8 @@ export const useJobStore = create<JobState>((set) => ({
   fetchJobs: async () => {
     set({ loading: true, error: null });
     try {
-      const jobs = await getJobs();
-      set({ jobs, loading: false });
+      const res = await getJobs({ limit: 200 });
+      set({ jobs: res.items, loading: false });
     } catch (e) {
       set({
         loading: false,

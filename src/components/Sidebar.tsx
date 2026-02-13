@@ -28,7 +28,7 @@ const NAV_ITEMS = [
   { label: "Workers", icon: <Dns />, path: "/workers" },
   { label: "Videos", icon: <VideoLibrary />, path: "/videos" },
   { label: "LoRA Library", icon: <AutoFixHigh />, path: "/loras" },
-  { label: "Prompts", icon: <TextSnippet />, path: "/prompts" },
+  { label: "Wildcards", icon: <TextSnippet />, path: "/prompts" },
   { label: "Image Repo", icon: <Image />, path: "/images" },
   { label: "Settings", icon: <Settings />, path: "/settings" },
 ];

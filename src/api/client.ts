@@ -2,6 +2,7 @@ import axios from "axios";
 import type {
   TokenResponse,
   JobResponse,
+  JobListResponse,
   JobDetailResponse,
   JobUpdate,
   SegmentCreate,
@@ -12,6 +13,10 @@ import type {
   LoraCreate,
   LoraUpdate,
   StatsResponse,
+  WorkerSegmentResponse,
+  WildcardResponse,
+  WildcardCreate,
+  WildcardUpdate,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -51,8 +56,12 @@ export async function login(
   return data;
 }
 
-export async function getJobs(): Promise<JobResponse[]> {
-  const { data } = await api.get<JobResponse[]>("/jobs");
+export async function getJobs(params?: {
+  limit?: number;
+  offset?: number;
+  status?: string;
+}): Promise<JobListResponse> {
+  const { data } = await api.get<JobListResponse>("/jobs", { params });
   return data;
 }
 
@@ -98,6 +107,13 @@ export async function retrySegment(
 
 export async function deleteSegment(segmentId: string): Promise<void> {
   await api.delete(`/segments/${segmentId}`);
+}
+
+export async function getWorkerSegments(workerId: string): Promise<WorkerSegmentResponse[]> {
+  const { data } = await api.get<WorkerSegmentResponse[]>("/segments", {
+    params: { worker_id: workerId },
+  });
+  return data;
 }
 
 export function getFileUrl(s3Path: string): string {
@@ -147,6 +163,30 @@ export async function deleteLora(id: string): Promise<void> {
   await api.delete(`/loras/${id}`);
 }
 
+// --- Wildcards ---
+
+export async function getWildcards(): Promise<WildcardResponse[]> {
+  const { data } = await api.get<WildcardResponse[]>("/wildcards");
+  return data;
+}
+
+export async function createWildcard(body: WildcardCreate): Promise<WildcardResponse> {
+  const { data } = await api.post<WildcardResponse>("/wildcards", body);
+  return data;
+}
+
+export async function updateWildcard(
+  id: string,
+  body: WildcardUpdate,
+): Promise<WildcardResponse> {
+  const { data } = await api.patch<WildcardResponse>(`/wildcards/${id}`, body);
+  return data;
+}
+
+export async function deleteWildcard(id: string): Promise<void> {
+  await api.delete(`/wildcards/${id}`);
+}
+
 // --- Registry (workers) ---
 
 const registry = axios.create({
@@ -161,6 +201,10 @@ export async function getWorkers(): Promise<WorkerResponse[]> {
 export async function getWorker(id: string): Promise<WorkerResponse> {
   const { data } = await registry.get<WorkerResponse>(`/workers/${id}`);
   return data;
+}
+
+export async function deleteWorker(id: string): Promise<void> {
+  await registry.delete(`/workers/${id}`);
 }
 
 export async function uploadFile(

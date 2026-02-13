@@ -7,11 +7,18 @@ import {
   CircularProgress,
   Alert,
   IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
 } from "@mui/material";
 import { ArrowBack, Circle } from "@mui/icons-material";
-import { useParams, useNavigate } from "react-router";
-import { getWorker } from "../api/client";
-import type { WorkerResponse, WorkerStatus } from "../api/types";
+import { useParams, useNavigate, Link as RouterLink } from "react-router";
+import { getWorker, getWorkerSegments } from "../api/client";
+import StatusChip from "../components/StatusChip";
+import type { WorkerResponse, WorkerStatus, WorkerSegmentResponse } from "../api/types";
 
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
   "online-idle": { color: "#4caf50", label: "Idle" },
@@ -41,10 +48,23 @@ function timeAgo(iso: string) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function formatDuration(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function segRunTime(seg: WorkerSegmentResponse): string {
+  if (!seg.claimed_at || !seg.completed_at) return "-";
+  const ms = new Date(seg.completed_at).getTime() - new Date(seg.claimed_at).getTime();
+  return formatDuration(ms / 1000);
+}
+
 export default function WorkerDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [worker, setWorker] = useState<WorkerResponse | null>(null);
+  const [segments, setSegments] = useState<WorkerSegmentResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -61,11 +81,22 @@ export default function WorkerDetail() {
     }
   }, [id]);
 
+  const fetchSegments = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await getWorkerSegments(id);
+      setSegments(data);
+    } catch {
+      // non-critical
+    }
+  }, [id]);
+
   useEffect(() => {
     fetchWorker();
+    fetchSegments();
     const interval = setInterval(fetchWorker, 10000);
     return () => clearInterval(interval);
-  }, [fetchWorker]);
+  }, [fetchWorker, fetchSegments]);
 
   if (loading) {
     return (
@@ -139,6 +170,65 @@ export default function WorkerDetail() {
           </Typography>
         </CardContent>
       </Card>
+
+      {segments.length > 0 && (
+        <Card sx={{ mt: 3 }}>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
+            <Typography variant="h6">Work History</Typography>
+          </Box>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Job</TableCell>
+                  <TableCell sx={{ width: 60 }}>Seg</TableCell>
+                  <TableCell>Prompt</TableCell>
+                  <TableCell sx={{ width: 100 }}>Status</TableCell>
+                  <TableCell sx={{ width: 100 }}>Run Time</TableCell>
+                  <TableCell sx={{ width: 140 }}>Completed</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {segments.map((seg) => (
+                  <TableRow key={seg.id}>
+                    <TableCell>
+                      <Typography
+                        variant="body2"
+                        component={RouterLink}
+                        to={`/jobs/${seg.job_id}`}
+                        sx={{
+                          color: "primary.main",
+                          textDecoration: "none",
+                          "&:hover": { textDecoration: "underline" },
+                        }}
+                      >
+                        {seg.job_name}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{seg.index}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 300 }}>
+                        {seg.prompt}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <StatusChip status={seg.status} />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption">{segRunTime(seg)}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption">
+                        {seg.completed_at ? formatDate(seg.completed_at) : "-"}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Card>
+      )}
     </Box>
   );
 }

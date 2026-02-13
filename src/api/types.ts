@@ -111,6 +111,7 @@ export interface SegmentResponse {
   job_id: string;
   index: number;
   prompt: string;
+  prompt_template: string | null;
   duration_seconds: number;
   start_image: string | null;
   loras: LoraConfig[] | null;
@@ -133,6 +134,19 @@ export interface SegmentResponse {
   progress_log: string | null;
 }
 
+export interface WorkerSegmentResponse {
+  id: string;
+  job_id: string;
+  job_name: string;
+  index: number;
+  prompt: string;
+  status: string;
+  duration_seconds: number;
+  created_at: string;
+  claimed_at: string | null;
+  completed_at: string | null;
+}
+
 export interface VideoResponse {
   id: string;
   job_id: string;
@@ -141,6 +155,13 @@ export interface VideoResponse {
   status: string;
   created_at: string;
   completed_at: string | null;
+}
+
+export interface JobListResponse {
+  items: JobResponse[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface JobDetailResponse extends JobResponse {
@@ -192,6 +213,24 @@ export interface WorkerStatsItem {
   segments_completed: number;
   avg_run_time: number;
   last_seen: string | null;
+}
+
+export interface WildcardResponse {
+  id: string;
+  name: string;
+  options: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WildcardCreate {
+  name: string;
+  options: string[];
+}
+
+export interface WildcardUpdate {
+  name?: string;
+  options?: string[];
 }
 
 export interface StatsResponse {

@@ -78,6 +78,23 @@ function segmentRunTime(seg: SegmentResponse): string {
   return formatDuration(ms / 1000);
 }
 
+function LiveTimer({ since }: { since: string }) {
+  const [elapsed, setElapsed] = useState(() =>
+    Math.floor((Date.now() - new Date(since).getTime()) / 1000),
+  );
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - new Date(since).getTime()) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [since]);
+  return (
+    <Typography variant="caption" sx={{ color: "warning.main", fontWeight: 600 }}>
+      {formatDuration(elapsed)}
+    </Typography>
+  );
+}
+
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -298,6 +315,7 @@ export default function JobDetail() {
                 <TableCell sx={{ width: 120 }}>Start Image</TableCell>
                 <TableCell>Prompt</TableCell>
                 <TableCell sx={{ width: 120 }}>Output</TableCell>
+                <TableCell sx={{ width: 80 }}>Swapped</TableCell>
                 <TableCell sx={{ width: 100 }}>Status</TableCell>
                 <TableCell sx={{ width: 120 }}>Worker</TableCell>
                 <TableCell sx={{ width: 140 }}>Created</TableCell>
@@ -343,8 +361,17 @@ export default function JobDetail() {
                       variant="body2"
                       sx={{ whiteSpace: "pre-wrap" }}
                     >
-                      {seg.prompt}
+                      {seg.prompt_template ?? seg.prompt}
                     </Typography>
+                    {seg.prompt_template && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}
+                      >
+                        Resolved: {seg.prompt}
+                      </Typography>
+                    )}
                     {seg.error_message && (
                       <Alert severity="error" sx={{ mt: 1 }}>
                         {seg.error_message}
@@ -398,6 +425,27 @@ export default function JobDetail() {
                     )}
                   </TableCell>
                   <TableCell>
+                    {seg.faceswap_enabled && seg.faceswap_image ? (
+                      <Box
+                        component="img"
+                        src={getFileUrl(seg.faceswap_image)}
+                        alt="Faceswap"
+                        sx={{
+                          width: 40,
+                          height: 40,
+                          objectFit: "cover",
+                          borderRadius: 1,
+                          bgcolor: "#f5f5f5",
+                          display: "block",
+                        }}
+                      />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        -
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <StatusChip status={seg.status} />
                   </TableCell>
                   <TableCell>
@@ -426,9 +474,13 @@ export default function JobDetail() {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="caption">
-                      {segmentRunTime(seg)}
-                    </Typography>
+                    {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at ? (
+                      <LiveTimer since={seg.claimed_at} />
+                    ) : (
+                      <Typography variant="caption">
+                        {segmentRunTime(seg)}
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Box sx={{ display: "flex", gap: 0.5 }}>
@@ -658,10 +710,10 @@ function SegmentModal({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Pre-populate from last segment when modal opens
+  // Pre-populate from last segment when modal opens (use template if available)
   useEffect(() => {
     if (open && lastSegment) {
-      setPrompt(lastSegment.prompt);
+      setPrompt(lastSegment.prompt_template ?? lastSegment.prompt);
       setDuration(lastSegment.duration_seconds);
       setFaceswapEnabled(lastSegment.faceswap_enabled);
       setFaceswapMethod(lastSegment.faceswap_method ?? "reactor");
@@ -695,6 +747,11 @@ function SegmentModal({
         preview_image: item.preview_image,
       },
     ]);
+    if (item.default_prompt) {
+      setPrompt((prev) =>
+        prev.trim() ? `${prev.trim()}, ${item.default_prompt}` : item.default_prompt!,
+      );
+    }
   };
 
   const updateLoraWeight = (idx: number, field: string, value: number) => {

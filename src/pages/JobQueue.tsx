@@ -27,12 +27,12 @@ import {
   TableHead,
   TableRow,
   TableSortLabel,
+  TablePagination,
 } from "@mui/material";
 import { Add } from "@mui/icons-material";
 import { useNavigate } from "react-router";
-import { useJobStore } from "../stores/jobStore";
 import { useLoraStore } from "../stores/loraStore";
-import { createJob, getFileUrl } from "../api/client";
+import { createJob, getJobs, getFileUrl } from "../api/client";
 import type { JobCreate, JobResponse, JobStatus, LoraListItem } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -69,18 +69,45 @@ function formatDate(iso: string) {
 }
 
 export default function JobQueue() {
-  const { jobs, loading, fetchJobs } = useJobStore();
   const navigate = useNavigate();
+  const [jobs, setJobs] = useState<JobResponse[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("updated_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+
+  const fetchPage = useCallback(async () => {
+    try {
+      const res = await getJobs({
+        limit: rowsPerPage,
+        offset: page * rowsPerPage,
+        status: statusFilter.length > 0 ? statusFilter.join(",") : undefined,
+      });
+      setJobs(res.items);
+      setTotal(res.total);
+    } catch {
+      // silently retry on next interval
+    } finally {
+      setLoading(false);
+    }
+  }, [page, rowsPerPage, statusFilter]);
 
   useEffect(() => {
-    fetchJobs();
-    const interval = setInterval(fetchJobs, 5000);
+    setLoading(true);
+    fetchPage();
+    const interval = setInterval(fetchPage, 5000);
     return () => clearInterval(interval);
-  }, [fetchJobs]);
+  }, [fetchPage]);
+
+  // Reset to first page when filter changes
+  const handleFilterChange = (newFilter: string[]) => {
+    setStatusFilter(newFilter);
+    setPage(0);
+  };
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -112,9 +139,7 @@ export default function JobQueue() {
     }
   };
 
-  const filteredJobs = jobs
-    .filter((j) => statusFilter.length === 0 || statusFilter.includes(j.status))
-    .sort(comparator);
+  const sortedJobs = [...jobs].sort(comparator);
 
   return (
     <Box>
@@ -144,7 +169,7 @@ export default function JobQueue() {
             value={statusFilter}
             onChange={(e) => {
               const val = e.target.value;
-              setStatusFilter(
+              handleFilterChange(
                 typeof val === "string" ? val.split(",") : val,
               );
             }}
@@ -172,7 +197,7 @@ export default function JobQueue() {
         </Box>
       )}
 
-      {filteredJobs.length > 0 && (
+      {sortedJobs.length > 0 && (
         <Card>
           <TableContainer>
             <Table>
@@ -188,7 +213,7 @@ export default function JobQueue() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredJobs.map((job) => (
+                {sortedJobs.map((job) => (
                   <TableRow
                     key={job.id}
                     hover
@@ -240,13 +265,25 @@ export default function JobQueue() {
               </TableBody>
             </Table>
           </TableContainer>
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            onPageChange={(_, p) => setPage(p)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+          />
         </Card>
       )}
 
-      {!loading && filteredJobs.length === 0 && (
+      {!loading && sortedJobs.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8 }}>
           <Typography color="text.secondary">
-            {jobs.length === 0
+            {total === 0 && statusFilter.length === 0
               ? "No jobs yet. Create your first one!"
               : "No jobs match the selected filters."}
           </Typography>
@@ -258,7 +295,7 @@ export default function JobQueue() {
         onClose={() => setDialogOpen(false)}
         onCreated={() => {
           setDialogOpen(false);
-          fetchJobs();
+          fetchPage();
         }}
       />
     </Box>
@@ -341,6 +378,11 @@ function CreateJobDialog({
         preview_image: item.preview_image,
       },
     ]);
+    if (item.default_prompt) {
+      setPrompt((prev) =>
+        prev.trim() ? `${prev.trim()}, ${item.default_prompt}` : item.default_prompt!,
+      );
+    }
   };
 
   const updateLoraWeight = (idx: number, field: string, value: number) => {
