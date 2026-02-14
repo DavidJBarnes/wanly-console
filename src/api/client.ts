@@ -85,6 +85,10 @@ export async function updateJob(
   return data;
 }
 
+export async function deleteJob(id: string): Promise<void> {
+  await api.delete(`/jobs/${id}`);
+}
+
 export async function addSegment(
   jobId: string,
   body: SegmentCreate,

@@ -28,11 +28,13 @@ import {
   TableRow,
   TableSortLabel,
   TablePagination,
+  IconButton,
+  Tooltip,
 } from "@mui/material";
-import { Add } from "@mui/icons-material";
+import { Add, DeleteOutline } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { useLoraStore } from "../stores/loraStore";
-import { createJob, getJobs, getFileUrl } from "../api/client";
+import { createJob, deleteJob, getJobs, getFileUrl } from "../api/client";
 import type { JobCreate, JobResponse, JobStatus, LoraListItem } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -75,6 +77,8 @@ export default function JobQueue() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [deleteConfirm, setDeleteConfirm] = useState<JobResponse | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchPage = useCallback(async () => {
     try {
@@ -111,6 +115,20 @@ export default function JobQueue() {
     } else {
       setSortKey(key);
       setSortDir(key === "name" ? "asc" : "desc");
+    }
+  };
+
+  const handleDeleteJob = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      await deleteJob(deleteConfirm.id);
+      setDeleteConfirm(null);
+      fetchPage();
+    } catch {
+      // keep dialog open on failure
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -206,6 +224,7 @@ export default function JobQueue() {
                   <SortableCell id="fps" label="FPS" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 80 }} />
                   <SortableCell id="created_at" label="Created" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 150 }} />
                   <SortableCell id="updated_at" label="Updated" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 150 }} />
+                  <TableCell sx={{ width: 60 }} />
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -256,6 +275,20 @@ export default function JobQueue() {
                     <TableCell>{job.fps}</TableCell>
                     <TableCell>{formatDate(job.created_at)}</TableCell>
                     <TableCell>{formatDate(job.updated_at)}</TableCell>
+                    <TableCell>
+                      <Tooltip title="Delete job">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirm(job);
+                          }}
+                        >
+                          <DeleteOutline fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -285,6 +318,34 @@ export default function JobQueue() {
           </Typography>
         </Box>
       )}
+
+      {/* Delete job confirm dialog */}
+      <Dialog
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Job</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Delete <strong>{deleteConfirm?.name}</strong>? This will permanently
+            remove the job, all its segments, videos, and S3 assets. This cannot
+            be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDeleteJob}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <CreateJobDialog
         open={dialogOpen}

@@ -42,6 +42,7 @@ import {
   uploadFile,
   retrySegment,
   deleteSegment,
+  deleteJob,
   getFileUrl,
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
@@ -108,6 +109,8 @@ export default function JobDetail() {
     null,
   );
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [deleteJobConfirm, setDeleteJobConfirm] = useState(false);
+  const [deletingJob, setDeletingJob] = useState(false);
 
   const fetchJob = useCallback(async () => {
     if (!id) return;
@@ -166,6 +169,19 @@ export default function JobDetail() {
     }
   };
 
+  const handleDeleteJob = async () => {
+    if (!id) return;
+    setDeletingJob(true);
+    try {
+      await deleteJob(id);
+      navigate("/jobs");
+    } catch {
+      setError("Failed to delete job");
+      setDeletingJob(false);
+      setDeleteJobConfirm(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ textAlign: "center", py: 8 }}>
@@ -200,6 +216,15 @@ export default function JobDetail() {
         <Typography variant="h4" sx={{ flex: 1 }}>
           {job.name}
         </Typography>
+        <Tooltip title="Delete job">
+          <IconButton
+            color="error"
+            onClick={() => setDeleteJobConfirm(true)}
+            disabled={deletingJob}
+          >
+            {deletingJob ? <CircularProgress size={20} /> : <DeleteOutline />}
+          </IconButton>
+        </Tooltip>
         <StatusChip status={job.status} />
       </Box>
 
@@ -606,6 +631,33 @@ export default function JobDetail() {
             onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
           >
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete job confirm dialog */}
+      <Dialog
+        open={deleteJobConfirm}
+        onClose={() => setDeleteJobConfirm(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Job</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Delete <strong>{job.name}</strong>? This will permanently remove the
+            job, all its segments, videos, and S3 assets. This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteJobConfirm(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDeleteJob}
+            disabled={deletingJob}
+          >
+            {deletingJob ? "Deleting..." : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>
