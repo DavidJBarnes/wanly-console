@@ -5,7 +5,6 @@ import {
   Chip,
   Typography,
   Card,
-  CardActionArea,
   CardContent,
   Button,
   TextField,
@@ -114,6 +113,8 @@ export default function JobDetail() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deleteJobConfirm, setDeleteJobConfirm] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const fetchJob = useCallback(async () => {
     if (!id) return;
@@ -200,9 +201,6 @@ export default function JobDetail() {
       </Alert>
     );
   }
-
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   if (!job) return null;
 
