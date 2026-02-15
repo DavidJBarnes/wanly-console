@@ -5,6 +5,7 @@ import {
   Chip,
   Typography,
   Card,
+  CardActionArea,
   CardContent,
   Button,
   TextField,
@@ -201,6 +202,9 @@ export default function JobDetail() {
       </Alert>
     );
   }
+
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   if (!job) return null;
 
