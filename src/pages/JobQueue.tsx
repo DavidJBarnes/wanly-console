@@ -4,6 +4,7 @@ import {
   Box,
   Typography,
   Card,
+  CardActionArea,
   Button,
   Chip,
   Dialog,
@@ -30,6 +31,8 @@ import {
   TablePagination,
   IconButton,
   Tooltip,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { Add, DeleteOutline } from "@mui/icons-material";
 import { useNavigate } from "react-router";
@@ -155,6 +158,9 @@ export default function JobQueue() {
 
   const sortedJobs = [...jobs].sort(comparator);
 
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   return (
     <Box>
       <Box
@@ -211,7 +217,7 @@ export default function JobQueue() {
         </Box>
       )}
 
-      {sortedJobs.length > 0 && (
+      {sortedJobs.length > 0 && !isMobile && (
         <Card>
           <TableContainer>
             <Table>
@@ -309,6 +315,82 @@ export default function JobQueue() {
         </Card>
       )}
 
+      {/* Mobile card layout */}
+      {sortedJobs.length > 0 && isMobile && (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+          {sortedJobs.map((job) => (
+            <Card key={job.id} variant="outlined">
+              <CardActionArea
+                onClick={() => navigate(`/jobs/${job.id}`)}
+                sx={{ p: 1.5 }}
+              >
+                <Box sx={{ display: "flex", gap: 1.5 }}>
+                  {job.starting_image ? (
+                    <Box
+                      component="img"
+                      src={getFileUrl(job.starting_image)}
+                      alt=""
+                      sx={{
+                        width: 56,
+                        height: 56,
+                        objectFit: "cover",
+                        borderRadius: 1,
+                        bgcolor: "#f5f5f5",
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : (
+                    <Box
+                      sx={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 1,
+                        bgcolor: "#f5f5f5",
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                        {job.name}
+                      </Typography>
+                      <StatusChip status={job.status} />
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {job.width}x{job.height} &middot; {job.fps}fps &middot; {formatDate(job.updated_at)}
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirm(job);
+                    }}
+                    sx={{ alignSelf: "center", flexShrink: 0 }}
+                  >
+                    <DeleteOutline fontSize="small" />
+                  </IconButton>
+                </Box>
+              </CardActionArea>
+            </Card>
+          ))}
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            onPageChange={(_, p) => setPage(p)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50]}
+          />
+        </Box>
+      )}
+
       {!loading && sortedJobs.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8 }}>
           <Typography color="text.secondary">
@@ -396,6 +478,8 @@ function CreateJobDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [width, setWidth] = useState(640);
@@ -527,7 +611,7 @@ function CreateJobDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       <DialogTitle>Create New Job</DialogTitle>
       <DialogContent>
         {error && (
@@ -553,30 +637,30 @@ function CreateJobDialog({
           onChange={(e) => setPrompt(e.target.value)}
         />
 
-        <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1 }}>
           <TextField
             label="Width"
             type="number"
             value={width}
             onChange={(e) => setWidth(parseInt(e.target.value) || 0)}
-            sx={{ flex: 1 }}
+            sx={{ flex: 1, minWidth: 120 }}
           />
           <TextField
             label="Height"
             type="number"
             value={height}
             onChange={(e) => setHeight(parseInt(e.target.value) || 0)}
-            sx={{ flex: 1 }}
+            sx={{ flex: 1, minWidth: 120 }}
           />
         </Box>
 
-        <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 2 }}>
           <TextField
             label="FPS"
             select
             value={fps}
             onChange={(e) => setFps(parseInt(e.target.value))}
-            sx={{ flex: 1 }}
+            sx={{ flex: 1, minWidth: 100 }}
           >
             <MenuItem value={30}>30 fps</MenuItem>
             <MenuItem value={60}>60 fps</MenuItem>
@@ -586,7 +670,7 @@ function CreateJobDialog({
             type="number"
             value={duration}
             onChange={(e) => setDuration(parseFloat(e.target.value) || 0)}
-            sx={{ flex: 1 }}
+            sx={{ flex: 1, minWidth: 120 }}
             slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
           />
           <TextField
@@ -594,7 +678,7 @@ function CreateJobDialog({
             type="number"
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
-            sx={{ flex: 1 }}
+            sx={{ flex: 1, minWidth: 120 }}
           />
         </Box>
 
@@ -741,7 +825,7 @@ function CreateJobDialog({
                   Remove
                 </Button>
               </Box>
-              <Box sx={{ display: "flex", gap: 1 }}>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
                 <TextField
                   label="High Weight"
                   size="small"
@@ -754,7 +838,7 @@ function CreateJobDialog({
                       parseFloat(e.target.value),
                     )
                   }
-                  sx={{ width: 120 }}
+                  sx={{ flex: 1, minWidth: 100 }}
                   slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
                 />
                 <TextField
@@ -769,7 +853,7 @@ function CreateJobDialog({
                       parseFloat(e.target.value),
                     )
                   }
-                  sx={{ width: 120 }}
+                  sx={{ flex: 1, minWidth: 100 }}
                   slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
                 />
               </Box>
@@ -802,20 +886,20 @@ function CreateJobDialog({
                 <MenuItem value="reactor">ReActor</MenuItem>
                 <MenuItem value="facefusion">FaceFusion</MenuItem>
               </TextField>
-              <Box sx={{ display: "flex", gap: 2, mb: 1 }}>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
                 <TextField
                   label="Faces Index"
                   size="small"
                   value={faceswapFacesIndex}
                   onChange={(e) => setFaceswapFacesIndex(e.target.value)}
-                  sx={{ flex: 1 }}
+                  sx={{ flex: 1, minWidth: 120 }}
                 />
                 <TextField
                   label="Faces Order"
                   size="small"
                   value={faceswapFacesOrder}
                   onChange={(e) => setFaceswapFacesOrder(e.target.value)}
-                  sx={{ flex: 1 }}
+                  sx={{ flex: 1, minWidth: 120 }}
                 />
               </Box>
               <Button variant="outlined" size="small" component="label">
