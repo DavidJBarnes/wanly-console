@@ -37,8 +37,8 @@ import {
 import { Add, DeleteOutline } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { useLoraStore } from "../stores/loraStore";
-import { createJob, deleteJob, getJobs, getFileUrl } from "../api/client";
-import type { JobCreate, JobResponse, JobStatus, LoraListItem } from "../api/types";
+import { createJob, deleteJob, getJobs, getFileUrl, getFaceswapPresets } from "../api/client";
+import type { JobCreate, JobResponse, JobStatus, LoraListItem, FaceswapPreset } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
 const ALL_STATUSES: JobStatus[] = [
@@ -489,7 +489,10 @@ function CreateJobDialog({
   const [seed, setSeed] = useState("");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [faceswapEnabled, setFaceswapEnabled] = useState(false);
+  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset">("upload");
   const [faceswapImage, setFaceswapImage] = useState<File | null>(null);
+  const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
+  const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
   const [faceswapMethod, setFaceswapMethod] = useState("reactor");
   const [faceswapFacesIndex, setFaceswapFacesIndex] = useState("0");
   const [faceswapFacesOrder, setFaceswapFacesOrder] = useState("left-right");
@@ -503,7 +506,10 @@ function CreateJobDialog({
   >([]);
 
   useEffect(() => {
-    if (open) fetchLoras();
+    if (open) {
+      fetchLoras();
+      getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
+    }
   }, [open, fetchLoras]);
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
@@ -546,7 +552,9 @@ function CreateJobDialog({
     setSeed("");
     setStartingImage(null);
     setFaceswapEnabled(false);
+    setFaceswapSourceType("upload");
     setFaceswapImage(null);
+    setFaceswapPresetUri(null);
     setFaceswapMethod("reactor");
     setFaceswapFacesIndex("0");
     setFaceswapFacesOrder("left-right");
@@ -586,6 +594,8 @@ function CreateJobDialog({
               : null,
           faceswap_enabled: faceswapEnabled,
           faceswap_method: faceswapEnabled ? faceswapMethod : null,
+          faceswap_source_type: faceswapEnabled ? faceswapSourceType : null,
+          faceswap_image: faceswapEnabled && faceswapSourceType === "preset" ? faceswapPresetUri : null,
           faceswap_faces_index: faceswapEnabled ? faceswapFacesIndex : null,
           faceswap_faces_order: faceswapEnabled ? faceswapFacesOrder : null,
         },
@@ -594,7 +604,7 @@ function CreateJobDialog({
       const formData = new FormData();
       formData.append("data", JSON.stringify(jobData));
       formData.append("starting_image", startingImage);
-      if (faceswapEnabled && faceswapImage) {
+      if (faceswapEnabled && faceswapSourceType === "upload" && faceswapImage) {
         formData.append("faceswap_image", faceswapImage);
       }
 
@@ -902,17 +912,65 @@ function CreateJobDialog({
                   sx={{ flex: 1, minWidth: 120 }}
                 />
               </Box>
-              <Button variant="outlined" size="small" component="label">
-                {faceswapImage ? faceswapImage.name : "Choose Faceswap Image"}
-                <input
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  onChange={(e) =>
-                    setFaceswapImage(e.target.files?.[0] ?? null)
-                  }
-                />
-              </Button>
+              <TextField
+                label="Source Type"
+                select
+                size="small"
+                fullWidth
+                value={faceswapSourceType}
+                onChange={(e) => {
+                  const v = e.target.value as "upload" | "preset";
+                  setFaceswapSourceType(v);
+                  if (v === "upload") setFaceswapPresetUri(null);
+                  if (v === "preset") setFaceswapImage(null);
+                }}
+                sx={{ mb: 1 }}
+              >
+                <MenuItem value="upload">Upload Image</MenuItem>
+                <MenuItem value="preset">Preset</MenuItem>
+              </TextField>
+              {faceswapSourceType === "upload" && (
+                <Button variant="outlined" size="small" component="label">
+                  {faceswapImage ? faceswapImage.name : "Choose Faceswap Image"}
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    onChange={(e) =>
+                      setFaceswapImage(e.target.files?.[0] ?? null)
+                    }
+                  />
+                </Button>
+              )}
+              {faceswapSourceType === "preset" && (
+                <TextField
+                  label="Preset Face"
+                  select
+                  size="small"
+                  fullWidth
+                  value={faceswapPresetUri ?? ""}
+                  onChange={(e) => setFaceswapPresetUri(e.target.value || null)}
+                >
+                  {faceswapPresets.map((p) => (
+                    <MenuItem key={p.key} value={p.url}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Box
+                          component="img"
+                          src={getFileUrl(p.url)}
+                          alt={p.name}
+                          sx={{
+                            width: 32,
+                            height: 32,
+                            objectFit: "cover",
+                            borderRadius: 0.5,
+                          }}
+                        />
+                        <Typography variant="body2">{p.name}</Typography>
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
             </Box>
           )}
         </Box>

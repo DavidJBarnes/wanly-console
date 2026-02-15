@@ -46,6 +46,7 @@ import {
   deleteSegment,
   deleteJob,
   getFileUrl,
+  getFaceswapPresets,
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
 import type {
@@ -54,6 +55,7 @@ import type {
   SegmentCreate,
   LoraConfig,
   LoraListItem,
+  FaceswapPreset,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -927,8 +929,11 @@ function SegmentModal({
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(5.0);
   const [faceswapEnabled, setFaceswapEnabled] = useState(false);
+  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset">("upload");
   const [faceswapMethod, setFaceswapMethod] = useState("reactor");
   const [faceswapFile, setFaceswapFile] = useState<File | null>(null);
+  const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
+  const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
   const [faceswapFacesIndex, setFaceswapFacesIndex] = useState("0");
   const [faceswapFacesOrder, setFaceswapFacesOrder] = useState("left-right");
   const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
@@ -942,8 +947,11 @@ function SegmentModal({
       setPrompt(lastSegment.prompt_template ?? lastSegment.prompt);
       setDuration(lastSegment.duration_seconds);
       setFaceswapEnabled(lastSegment.faceswap_enabled);
+      const srcType = lastSegment.faceswap_source_type === "preset" ? "preset" : "upload";
+      setFaceswapSourceType(srcType);
       setFaceswapMethod(lastSegment.faceswap_method ?? "reactor");
       setFaceswapFile(null);
+      setFaceswapPresetUri(srcType === "preset" ? lastSegment.faceswap_image ?? null : null);
       setFaceswapFacesIndex(lastSegment.faceswap_faces_index ?? "0");
       setFaceswapFacesOrder(lastSegment.faceswap_faces_order ?? "left-right");
       setError("");
@@ -951,7 +959,10 @@ function SegmentModal({
   }, [open]);
 
   useEffect(() => {
-    if (open) fetchLoras();
+    if (open) {
+      fetchLoras();
+      getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
+    }
   }, [open, fetchLoras]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on open + library load
@@ -1006,7 +1017,9 @@ function SegmentModal({
     try {
       let faceswapImageUri: string | null = null;
       if (faceswapEnabled) {
-        if (faceswapFile) {
+        if (faceswapSourceType === "preset") {
+          faceswapImageUri = faceswapPresetUri;
+        } else if (faceswapFile) {
           const result = await uploadFile(faceswapFile, jobId);
           faceswapImageUri = result.path;
         } else {
@@ -1019,6 +1032,7 @@ function SegmentModal({
         duration_seconds: duration,
         faceswap_enabled: faceswapEnabled,
         faceswap_method: faceswapEnabled ? faceswapMethod : null,
+        faceswap_source_type: faceswapEnabled ? faceswapSourceType : null,
         faceswap_image: faceswapImageUri,
         faceswap_faces_index: faceswapEnabled ? faceswapFacesIndex : null,
         faceswap_faces_order: faceswapEnabled ? faceswapFacesOrder : null,
@@ -1109,29 +1123,79 @@ function SegmentModal({
                   sx={{ flex: 1, minWidth: 120 }}
                 />
               </Box>
-              <Button variant="outlined" size="small" component="label">
-                {faceswapFile
-                  ? faceswapFile.name
-                  : existingFaceswapName
-                    ? `Re-using: ${existingFaceswapName}`
-                    : "Choose Faceswap Image"}
-                <input
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  onChange={(e) =>
-                    setFaceswapFile(e.target.files?.[0] ?? null)
-                  }
-                />
-              </Button>
-              {faceswapFile && existingFaceswapName && (
-                <Button
+              <TextField
+                label="Source Type"
+                select
+                size="small"
+                fullWidth
+                value={faceswapSourceType}
+                onChange={(e) => {
+                  const v = e.target.value as "upload" | "preset";
+                  setFaceswapSourceType(v);
+                  if (v === "upload") setFaceswapPresetUri(null);
+                  if (v === "preset") setFaceswapFile(null);
+                }}
+                sx={{ mb: 1 }}
+              >
+                <MenuItem value="upload">Upload Image</MenuItem>
+                <MenuItem value="preset">Preset</MenuItem>
+              </TextField>
+              {faceswapSourceType === "upload" && (
+                <>
+                  <Button variant="outlined" size="small" component="label">
+                    {faceswapFile
+                      ? faceswapFile.name
+                      : existingFaceswapName && lastSegment?.faceswap_source_type !== "preset"
+                        ? `Re-using: ${existingFaceswapName}`
+                        : "Choose Faceswap Image"}
+                    <input
+                      type="file"
+                      hidden
+                      accept="image/*"
+                      onChange={(e) =>
+                        setFaceswapFile(e.target.files?.[0] ?? null)
+                      }
+                    />
+                  </Button>
+                  {faceswapFile && existingFaceswapName && lastSegment?.faceswap_source_type !== "preset" && (
+                    <Button
+                      size="small"
+                      sx={{ ml: 1 }}
+                      onClick={() => setFaceswapFile(null)}
+                    >
+                      Reset to existing
+                    </Button>
+                  )}
+                </>
+              )}
+              {faceswapSourceType === "preset" && (
+                <TextField
+                  label="Preset Face"
+                  select
                   size="small"
-                  sx={{ ml: 1 }}
-                  onClick={() => setFaceswapFile(null)}
+                  fullWidth
+                  value={faceswapPresetUri ?? ""}
+                  onChange={(e) => setFaceswapPresetUri(e.target.value || null)}
                 >
-                  Reset to existing
-                </Button>
+                  {faceswapPresets.map((p) => (
+                    <MenuItem key={p.key} value={p.url}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Box
+                          component="img"
+                          src={getFileUrl(p.url)}
+                          alt={p.name}
+                          sx={{
+                            width: 32,
+                            height: 32,
+                            objectFit: "cover",
+                            borderRadius: 0.5,
+                          }}
+                        />
+                        <Typography variant="body2">{p.name}</Typography>
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </TextField>
               )}
             </Box>
           )}
