@@ -5,6 +5,7 @@ import {
   Chip,
   Typography,
   Card,
+  CardActionArea,
   CardContent,
   Button,
   TextField,
@@ -25,6 +26,8 @@ import {
   TableHead,
   TableRow,
   Tooltip,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   ArrowBack,
@@ -198,6 +201,9 @@ export default function JobDetail() {
     );
   }
 
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   if (!job) return null;
 
   const lastSegment = job.segments[job.segments.length - 1];
@@ -332,42 +338,134 @@ export default function JobDetail() {
             )}
           </Box>
         </Box>
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ width: 60 }}>#</TableCell>
-                <TableCell sx={{ width: 120 }}>Start Image</TableCell>
-                <TableCell>Prompt</TableCell>
-                <TableCell sx={{ width: 120 }}>Output</TableCell>
-                <TableCell sx={{ width: 80 }}>Swapped</TableCell>
-                <TableCell sx={{ width: 100 }}>Status</TableCell>
-                <TableCell sx={{ width: 120 }}>Worker</TableCell>
-                <TableCell sx={{ width: 140 }}>Created</TableCell>
-                <TableCell sx={{ width: 80 }}>Run Time</TableCell>
-                <TableCell sx={{ width: 80 }}>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {job.segments.map((seg) => (
-                <TableRow key={seg.id}>
-                  <TableCell>{seg.index}</TableCell>
-                  <TableCell>
-                    {(() => {
-                      const img =
-                        seg.start_image ??
-                        (seg.index === 0
-                          ? job.starting_image
-                          : job.segments[seg.index - 1]?.last_frame_path) ??
-                        null;
-                      return img ? (
+        {/* Desktop table */}
+        {!isMobile && (
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ width: 60 }}>#</TableCell>
+                  <TableCell sx={{ width: 120 }}>Start Image</TableCell>
+                  <TableCell>Prompt</TableCell>
+                  <TableCell sx={{ width: 120 }}>Output</TableCell>
+                  <TableCell sx={{ width: 80 }}>Swapped</TableCell>
+                  <TableCell sx={{ width: 100 }}>Status</TableCell>
+                  <TableCell sx={{ width: 120 }}>Worker</TableCell>
+                  <TableCell sx={{ width: 140 }}>Created</TableCell>
+                  <TableCell sx={{ width: 80 }}>Run Time</TableCell>
+                  <TableCell sx={{ width: 80 }}>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {job.segments.map((seg) => (
+                  <TableRow key={seg.id}>
+                    <TableCell>{seg.index}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const img =
+                          seg.start_image ??
+                          (seg.index === 0
+                            ? job.starting_image
+                            : job.segments[seg.index - 1]?.last_frame_path) ??
+                          null;
+                        return img ? (
+                          <Box
+                            component="img"
+                            src={getFileUrl(img)}
+                            alt="Start"
+                            sx={{
+                              width: 80,
+                              height: 80,
+                              objectFit: "cover",
+                              borderRadius: 1,
+                              bgcolor: "#f5f5f5",
+                              display: "block",
+                            }}
+                          />
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">
+                            -
+                          </Typography>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      <Typography
+                        variant="body2"
+                        sx={{ whiteSpace: "pre-wrap" }}
+                      >
+                        {seg.prompt_template ?? seg.prompt}
+                      </Typography>
+                      {seg.prompt_template && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}
+                        >
+                          Resolved: {seg.prompt}
+                        </Typography>
+                      )}
+                      {seg.error_message && (
+                        <Alert severity="error" sx={{ mt: 1 }}>
+                          {seg.error_message}
+                        </Alert>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {seg.status === "completed" && seg.last_frame_path ? (
+                        <Box
+                          sx={{ position: "relative", cursor: "pointer" }}
+                          onClick={() =>
+                            seg.output_path && setVideoModal(seg.output_path)
+                          }
+                        >
+                          <Box
+                            component="img"
+                            src={getFileUrl(seg.last_frame_path)}
+                            alt="Last frame"
+                            sx={{
+                              width: 80,
+                              height: 80,
+                              objectFit: "cover",
+                              borderRadius: 1,
+                              bgcolor: "#f5f5f5",
+                              display: "block",
+                            }}
+                          />
+                          {seg.output_path && (
+                            <PlayCircleOutline
+                              sx={{
+                                position: "absolute",
+                                top: "50%",
+                                left: "50%",
+                                transform: "translate(-50%, -50%)",
+                                fontSize: 32,
+                                color: "white",
+                                filter:
+                                  "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
+                              }}
+                            />
+                          )}
+                        </Box>
+                      ) : seg.status === "pending" ||
+                        seg.status === "claimed" ||
+                        seg.status === "processing" ? (
+                        <CircularProgress size={24} />
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          -
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {seg.faceswap_enabled && seg.faceswap_image ? (
                         <Box
                           component="img"
-                          src={getFileUrl(img)}
-                          alt="Start"
+                          src={getFileUrl(seg.faceswap_image)}
+                          alt="Faceswap"
                           sx={{
-                            width: 80,
-                            height: 80,
+                            width: 40,
+                            height: 40,
                             objectFit: "cover",
                             borderRadius: 1,
                             bgcolor: "#f5f5f5",
@@ -378,139 +476,115 @@ export default function JobDetail() {
                         <Typography variant="caption" color="text.secondary">
                           -
                         </Typography>
-                      );
-                    })()}
-                  </TableCell>
-                  <TableCell>
-                    <Typography
-                      variant="body2"
-                      sx={{ whiteSpace: "pre-wrap" }}
-                    >
-                      {seg.prompt_template ?? seg.prompt}
-                    </Typography>
-                    {seg.prompt_template && (
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}
-                      >
-                        Resolved: {seg.prompt}
-                      </Typography>
-                    )}
-                    {seg.error_message && (
-                      <Alert severity="error" sx={{ mt: 1 }}>
-                        {seg.error_message}
-                      </Alert>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {seg.status === "completed" && seg.last_frame_path ? (
-                      <Box
-                        sx={{ position: "relative", cursor: "pointer" }}
-                        onClick={() =>
-                          seg.output_path && setVideoModal(seg.output_path)
-                        }
-                      >
-                        <Box
-                          component="img"
-                          src={getFileUrl(seg.last_frame_path)}
-                          alt="Last frame"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <StatusChip status={seg.status} />
+                    </TableCell>
+                    <TableCell>
+                      {seg.worker_id ? (
+                        <Typography
+                          variant="caption"
+                          component={RouterLink}
+                          to={`/workers/${seg.worker_id}`}
                           sx={{
-                            width: 80,
-                            height: 80,
-                            objectFit: "cover",
-                            borderRadius: 1,
-                            bgcolor: "#f5f5f5",
-                            display: "block",
+                            color: "primary.main",
+                            textDecoration: "none",
+                            "&:hover": { textDecoration: "underline" },
                           }}
-                        />
-                        {seg.output_path && (
-                          <PlayCircleOutline
-                            sx={{
-                              position: "absolute",
-                              top: "50%",
-                              left: "50%",
-                              transform: "translate(-50%, -50%)",
-                              fontSize: 32,
-                              color: "white",
-                              filter:
-                                "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
-                            }}
-                          />
-                        )}
-                      </Box>
-                    ) : seg.status === "pending" ||
-                      seg.status === "claimed" ||
-                      seg.status === "processing" ? (
-                      <CircularProgress size={24} />
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        -
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {seg.faceswap_enabled && seg.faceswap_image ? (
-                      <Box
-                        component="img"
-                        src={getFileUrl(seg.faceswap_image)}
-                        alt="Faceswap"
-                        sx={{
-                          width: 40,
-                          height: 40,
-                          objectFit: "cover",
-                          borderRadius: 1,
-                          bgcolor: "#f5f5f5",
-                          display: "block",
-                        }}
-                      />
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        -
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <StatusChip status={seg.status} />
-                  </TableCell>
-                  <TableCell>
-                    {seg.worker_id ? (
-                      <Typography
-                        variant="caption"
-                        component={RouterLink}
-                        to={`/workers/${seg.worker_id}`}
-                        sx={{
-                          color: "primary.main",
-                          textDecoration: "none",
-                          "&:hover": { textDecoration: "underline" },
-                        }}
-                      >
-                        {seg.worker_name ?? seg.worker_id.slice(0, 8)}
-                      </Typography>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        -
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption">
-                      {formatDate(seg.created_at)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at ? (
-                      <LiveTimer since={seg.claimed_at} />
-                    ) : (
+                        >
+                          {seg.worker_name ?? seg.worker_id.slice(0, 8)}
+                        </Typography>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          -
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <Typography variant="caption">
-                        {segmentRunTime(seg)}
+                        {formatDate(seg.created_at)}
                       </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: "flex", gap: 0.5 }}>
-                      {seg.status === "failed" && (
-                        <Tooltip title="Retry">
+                    </TableCell>
+                    <TableCell>
+                      {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at ? (
+                        <LiveTimer since={seg.claimed_at} />
+                      ) : (
+                        <Typography variant="caption">
+                          {segmentRunTime(seg)}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: "flex", gap: 0.5 }}>
+                        {seg.status === "failed" && (
+                          <Tooltip title="Retry">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handleRetry(seg)}
+                              disabled={actionLoading === seg.id}
+                            >
+                              {actionLoading === seg.id ? (
+                                <CircularProgress size={18} />
+                              ) : (
+                                <Replay fontSize="small" />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {(seg.status === "failed" ||
+                          seg.status === "completed") &&
+                          job.segments.length > 1 && (
+                            <Tooltip title="Delete">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => setDeleteConfirm(seg)}
+                                disabled={actionLoading === seg.id}
+                              >
+                                <DeleteOutline fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+
+        {/* Mobile card layout */}
+        {isMobile && (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, p: 1.5 }}>
+            {job.segments.map((seg) => {
+              const startImg =
+                seg.start_image ??
+                (seg.index === 0
+                  ? job.starting_image
+                  : job.segments[seg.index - 1]?.last_frame_path) ??
+                null;
+              return (
+                <Card key={seg.id} variant="outlined">
+                  <Box sx={{ p: 1.5 }}>
+                    {/* Header row: index, status, actions */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        #{seg.index}
+                      </Typography>
+                      <StatusChip status={seg.status} />
+                      <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
+                        {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at && (
+                          <LiveTimer since={seg.claimed_at} />
+                        )}
+                        {seg.status !== "claimed" && seg.status !== "processing" && segmentRunTime(seg) !== "-" && (
+                          <Typography variant="caption" color="text.secondary">
+                            {segmentRunTime(seg)}
+                          </Typography>
+                        )}
+                        {seg.status === "failed" && (
                           <IconButton
                             size="small"
                             color="primary"
@@ -523,12 +597,9 @@ export default function JobDetail() {
                               <Replay fontSize="small" />
                             )}
                           </IconButton>
-                        </Tooltip>
-                      )}
-                      {(seg.status === "failed" ||
-                        seg.status === "completed") &&
-                        job.segments.length > 1 && (
-                          <Tooltip title="Delete">
+                        )}
+                        {(seg.status === "failed" || seg.status === "completed") &&
+                          job.segments.length > 1 && (
                             <IconButton
                               size="small"
                               color="error"
@@ -537,15 +608,117 @@ export default function JobDetail() {
                             >
                               <DeleteOutline fontSize="small" />
                             </IconButton>
-                          </Tooltip>
-                        )}
+                          )}
+                      </Box>
                     </Box>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+
+                    {/* Thumbnails row */}
+                    <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
+                      {startImg ? (
+                        <Box
+                          component="img"
+                          src={getFileUrl(startImg)}
+                          alt="Start"
+                          sx={{
+                            width: 64,
+                            height: 64,
+                            objectFit: "cover",
+                            borderRadius: 1,
+                            bgcolor: "#f5f5f5",
+                          }}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            width: 64,
+                            height: 64,
+                            borderRadius: 1,
+                            bgcolor: "#f5f5f5",
+                          }}
+                        />
+                      )}
+                      {seg.status === "completed" && seg.last_frame_path ? (
+                        <Box
+                          sx={{ position: "relative", cursor: "pointer" }}
+                          onClick={() =>
+                            seg.output_path && setVideoModal(seg.output_path)
+                          }
+                        >
+                          <Box
+                            component="img"
+                            src={getFileUrl(seg.last_frame_path)}
+                            alt="Output"
+                            sx={{
+                              width: 64,
+                              height: 64,
+                              objectFit: "cover",
+                              borderRadius: 1,
+                              bgcolor: "#f5f5f5",
+                            }}
+                          />
+                          {seg.output_path && (
+                            <PlayCircleOutline
+                              sx={{
+                                position: "absolute",
+                                top: "50%",
+                                left: "50%",
+                                transform: "translate(-50%, -50%)",
+                                fontSize: 28,
+                                color: "white",
+                                filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
+                              }}
+                            />
+                          )}
+                        </Box>
+                      ) : (seg.status === "pending" || seg.status === "claimed" || seg.status === "processing") ? (
+                        <Box sx={{ width: 64, height: 64, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <CircularProgress size={24} />
+                        </Box>
+                      ) : null}
+                      {seg.faceswap_enabled && seg.faceswap_image && (
+                        <Box
+                          component="img"
+                          src={getFileUrl(seg.faceswap_image)}
+                          alt="Faceswap"
+                          sx={{
+                            width: 64,
+                            height: 64,
+                            objectFit: "cover",
+                            borderRadius: 1,
+                            bgcolor: "#f5f5f5",
+                          }}
+                        />
+                      )}
+                    </Box>
+
+                    {/* Prompt */}
+                    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mb: 0.5 }}>
+                      {seg.prompt_template ?? seg.prompt}
+                    </Typography>
+                    {seg.prompt_template && (
+                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic", display: "block" }}>
+                        Resolved: {seg.prompt}
+                      </Typography>
+                    )}
+                    {seg.error_message && (
+                      <Alert severity="error" sx={{ mt: 1 }}>
+                        {seg.error_message}
+                      </Alert>
+                    )}
+
+                    {/* Meta line */}
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                      {seg.worker_id
+                        ? seg.worker_name ?? seg.worker_id.slice(0, 8)
+                        : "No worker"}{" "}
+                      &middot; {formatDate(seg.created_at)}
+                    </Typography>
+                  </Box>
+                </Card>
+              );
+            })}
+          </Box>
+        )}
       </Card>
 
       {/* Progress log */}
@@ -750,6 +923,8 @@ function SegmentModal({
   onClose: () => void;
   onSubmitted: () => void;
 }) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(5.0);
@@ -868,7 +1043,7 @@ function SegmentModal({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       <DialogTitle>Next Segment</DialogTitle>
       <DialogContent>
         {error && (
@@ -920,20 +1095,20 @@ function SegmentModal({
                 <MenuItem value="reactor">ReActor</MenuItem>
                 <MenuItem value="facefusion">FaceFusion</MenuItem>
               </TextField>
-              <Box sx={{ display: "flex", gap: 2, mb: 1 }}>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
                 <TextField
                   label="Faces Index"
                   size="small"
                   value={faceswapFacesIndex}
                   onChange={(e) => setFaceswapFacesIndex(e.target.value)}
-                  sx={{ flex: 1 }}
+                  sx={{ flex: 1, minWidth: 120 }}
                 />
                 <TextField
                   label="Faces Order"
                   size="small"
                   value={faceswapFacesOrder}
                   onChange={(e) => setFaceswapFacesOrder(e.target.value)}
-                  sx={{ flex: 1 }}
+                  sx={{ flex: 1, minWidth: 120 }}
                 />
               </Box>
               <Button variant="outlined" size="small" component="label">
