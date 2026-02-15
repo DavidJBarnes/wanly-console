@@ -242,3 +242,9 @@ export interface StatsResponse {
   total_video_time: number;
   worker_stats: WorkerStatsItem[];
 }
+
+export interface FaceswapPreset {
+  key: string;
+  name: string;
+  url: string;
+}

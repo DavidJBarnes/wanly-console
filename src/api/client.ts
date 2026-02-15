@@ -17,6 +17,7 @@ import type {
   WildcardResponse,
   WildcardCreate,
   WildcardUpdate,
+  FaceswapPreset,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -189,6 +190,13 @@ export async function updateWildcard(
 
 export async function deleteWildcard(id: string): Promise<void> {
   await api.delete(`/wildcards/${id}`);
+}
+
+// --- Faceswap Presets ---
+
+export async function getFaceswapPresets(): Promise<FaceswapPreset[]> {
+  const { data } = await api.get<FaceswapPreset[]>("/faceswap/presets");
+  return data;
 }
 
 // --- Registry (workers) ---
