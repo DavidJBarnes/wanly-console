@@ -491,7 +491,7 @@ function CreateJobDialog({
   const [seed, setSeed] = useState("");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [faceswapEnabled, setFaceswapEnabled] = useState(false);
-  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset">("upload");
+  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("upload");
   const [faceswapImage, setFaceswapImage] = useState<File | null>(null);
   const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
   const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
@@ -608,6 +608,9 @@ function CreateJobDialog({
       formData.append("starting_image", startingImage);
       if (faceswapEnabled && faceswapSourceType === "upload" && faceswapImage) {
         formData.append("faceswap_image", faceswapImage);
+      }
+      if (faceswapEnabled && faceswapSourceType === "start_frame" && startingImage) {
+        formData.append("faceswap_image", startingImage);
       }
 
       await createJob(formData);
@@ -920,8 +923,8 @@ function CreateJobDialog({
                 onChange={(_e, v) => {
                   if (v === null) return;
                   setFaceswapSourceType(v);
-                  if (v === "upload") setFaceswapPresetUri(null);
-                  if (v === "preset") setFaceswapImage(null);
+                  if (v !== "upload") setFaceswapImage(null);
+                  if (v !== "preset") setFaceswapPresetUri(null);
                 }}
                 size="small"
                 fullWidth
@@ -929,6 +932,9 @@ function CreateJobDialog({
               >
                 <ToggleButton value="upload">Upload</ToggleButton>
                 <ToggleButton value="preset">Preset</ToggleButton>
+                <ToggleButton value="start_frame" disabled={!startingImage}>
+                  Start Frame
+                </ToggleButton>
               </ToggleButtonGroup>
               {faceswapSourceType === "upload" && (
                 <Button variant="outlined" size="small" component="label">
