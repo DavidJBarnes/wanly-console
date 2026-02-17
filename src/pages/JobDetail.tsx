@@ -776,6 +776,7 @@ export default function JobDetail() {
       <SegmentModal
         open={segmentModalOpen}
         jobId={job.id}
+        job={job}
         lastSegment={lastSegment}
         onClose={() => setSegmentModalOpen(false)}
         onSubmitted={() => {
@@ -915,12 +916,14 @@ function lorasToSlots(
 function SegmentModal({
   open,
   jobId,
+  job,
   lastSegment,
   onClose,
   onSubmitted,
 }: {
   open: boolean;
   jobId: string;
+  job: JobDetailResponse;
   lastSegment?: SegmentResponse;
   onClose: () => void;
   onSubmitted: () => void;
@@ -931,7 +934,7 @@ function SegmentModal({
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(5.0);
   const [faceswapEnabled, setFaceswapEnabled] = useState(false);
-  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset">("upload");
+  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("upload");
   const [faceswapMethod, setFaceswapMethod] = useState("reactor");
   const [faceswapFile, setFaceswapFile] = useState<File | null>(null);
   const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
@@ -949,7 +952,11 @@ function SegmentModal({
       setPrompt(lastSegment.prompt_template ?? lastSegment.prompt);
       setDuration(lastSegment.duration_seconds);
       setFaceswapEnabled(lastSegment.faceswap_enabled);
-      const srcType = lastSegment.faceswap_source_type === "preset" ? "preset" : "upload";
+      const srcType = lastSegment.faceswap_source_type === "preset"
+        ? "preset"
+        : lastSegment.faceswap_source_type === "start_frame"
+          ? "start_frame"
+          : "upload";
       setFaceswapSourceType(srcType);
       setFaceswapMethod(lastSegment.faceswap_method ?? "reactor");
       setFaceswapFile(null);
@@ -1021,6 +1028,9 @@ function SegmentModal({
       if (faceswapEnabled) {
         if (faceswapSourceType === "preset") {
           faceswapImageUri = faceswapPresetUri;
+        } else if (faceswapSourceType === "start_frame") {
+          // Use the effective start image for the next segment
+          faceswapImageUri = lastSegment?.last_frame_path ?? job.starting_image ?? null;
         } else if (faceswapFile) {
           const result = await uploadFile(faceswapFile, jobId);
           faceswapImageUri = result.path;
@@ -1131,8 +1141,8 @@ function SegmentModal({
                 onChange={(_e, v) => {
                   if (v === null) return;
                   setFaceswapSourceType(v);
-                  if (v === "upload") setFaceswapPresetUri(null);
-                  if (v === "preset") setFaceswapFile(null);
+                  if (v !== "upload") setFaceswapFile(null);
+                  if (v !== "preset") setFaceswapPresetUri(null);
                 }}
                 size="small"
                 fullWidth
@@ -1140,6 +1150,7 @@ function SegmentModal({
               >
                 <ToggleButton value="upload">Upload</ToggleButton>
                 <ToggleButton value="preset">Preset</ToggleButton>
+                <ToggleButton value="start_frame">Start Frame</ToggleButton>
               </ToggleButtonGroup>
               {faceswapSourceType === "upload" && (
                 <>
