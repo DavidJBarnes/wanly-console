@@ -24,6 +24,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   useMediaQuery,
   useTheme,
@@ -1123,23 +1125,22 @@ function SegmentModal({
                   sx={{ flex: 1, minWidth: 120 }}
                 />
               </Box>
-              <TextField
-                label="Source Type"
-                select
-                size="small"
-                fullWidth
+              <ToggleButtonGroup
                 value={faceswapSourceType}
-                onChange={(e) => {
-                  const v = e.target.value as "upload" | "preset";
+                exclusive
+                onChange={(_e, v) => {
+                  if (v === null) return;
                   setFaceswapSourceType(v);
                   if (v === "upload") setFaceswapPresetUri(null);
                   if (v === "preset") setFaceswapFile(null);
                 }}
+                size="small"
+                fullWidth
                 sx={{ mb: 1 }}
               >
-                <MenuItem value="upload">Upload Image</MenuItem>
-                <MenuItem value="preset">Preset</MenuItem>
-              </TextField>
+                <ToggleButton value="upload">Upload</ToggleButton>
+                <ToggleButton value="preset">Preset</ToggleButton>
+              </ToggleButtonGroup>
               {faceswapSourceType === "upload" && (
                 <>
                   <Button variant="outlined" size="small" component="label">
