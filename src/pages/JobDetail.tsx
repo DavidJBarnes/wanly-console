@@ -1220,18 +1220,25 @@ function SegmentModal({
           </Typography>
           {loraSlots.length < 3 && (
             <Autocomplete
-              options={loraLibrary.filter(
-                (l) => !loraSlots.some((s) => s.lora_id === l.id),
-              )}
+              options={loraLibrary
+                .filter((l) => !loraSlots.some((s) => s.lora_id === l.id))
+                .sort((a, b) => a.name.localeCompare(b.name))}
               getOptionLabel={(o) => o.name}
               onChange={(_, val) => addLoraFromLibrary(val)}
               value={null}
-              renderOption={(props, option) => (
+              renderOption={(props, option) => {
+                const idx = (props as React.HTMLAttributes<HTMLLIElement> & { "data-option-index": number })["data-option-index"];
+                return (
                 <Box
                   component="li"
                   {...props}
                   key={option.id}
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    bgcolor: idx % 2 === 0 ? "#f5f5f5" : "#ffffff",
+                  }}
                 >
                   {option.preview_image ? (
                     <Box
@@ -1259,7 +1266,8 @@ function SegmentModal({
                   )}
                   <Typography variant="body2">{option.name}</Typography>
                 </Box>
-              )}
+                );
+              }}
               renderInput={(params) => (
                 <TextField
                   {...params}
