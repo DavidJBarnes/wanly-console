@@ -17,6 +17,8 @@ import {
   IconButton,
   Tabs,
   Tab,
+  useTheme,
+  useMediaQuery,
 } from "@mui/material";
 import {
   Add,
@@ -63,6 +65,9 @@ export default function LoraLibrary() {
     fetchLoras();
   };
 
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   return (
     <Box>
       <Box
@@ -73,13 +78,14 @@ export default function LoraLibrary() {
           mb: 3,
         }}
       >
-        <Typography variant="h4">LoRA Library</Typography>
+        <Typography variant={isMobile ? "h5" : "h4"}>LoRA Library</Typography>
         <Button
           variant="contained"
-          startIcon={<Add />}
+          startIcon={isMobile ? undefined : <Add />}
+          size={isMobile ? "small" : "medium"}
           onClick={() => setAddOpen(true)}
         >
-          Add LoRA
+          {isMobile ? "Add" : "Add LoRA"}
         </Button>
       </Box>
 
@@ -345,8 +351,11 @@ function AddLoraDialog({
     }
   };
 
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+
   return (
-    <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       <DialogTitle>Add LoRA</DialogTitle>
       <DialogContent>
         {submitting && (
@@ -429,7 +438,7 @@ function AddLoraDialog({
               value={sourceUrl}
               onChange={(e) => setSourceUrl(e.target.value)}
             />
-            <Box sx={{ mt: 2, display: "flex", gap: 2 }}>
+            <Box sx={{ mt: 2, display: "flex", flexWrap: "wrap", gap: 1 }}>
               <Button variant="outlined" component="label" size="small">
                 {highFile ? highFile.name : "High Noise File"}
                 <input
@@ -589,8 +598,11 @@ function EditLoraDialog({
     }
   };
 
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+
   return (
-    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       <DialogTitle sx={{ display: "flex", alignItems: "center" }}>
         <Edit sx={{ mr: 1 }} />
         Edit LoRA

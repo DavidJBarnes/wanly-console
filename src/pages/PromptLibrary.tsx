@@ -3,6 +3,7 @@ import {
   Box,
   Typography,
   Card,
+  CardContent,
   Button,
   TextField,
   IconButton,
@@ -20,6 +21,8 @@ import {
   TableHead,
   TableRow,
   Tooltip,
+  useTheme,
+  useMediaQuery,
 } from "@mui/material";
 import { Add, DeleteOutline, Edit } from "@mui/icons-material";
 import {
@@ -68,6 +71,9 @@ export default function PromptLibrary() {
     }
   };
 
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   return (
     <Box>
       <Box
@@ -79,20 +85,23 @@ export default function PromptLibrary() {
         }}
       >
         <Box>
-          <Typography variant="h4">Prompt Wildcards</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Use <code>&lt;name&gt;</code> in prompts to insert a random value
-          </Typography>
+          <Typography variant={isMobile ? "h5" : "h4"}>Prompt Wildcards</Typography>
+          {!isMobile && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Use <code>&lt;name&gt;</code> in prompts to insert a random value
+            </Typography>
+          )}
         </Box>
         <Button
           variant="contained"
-          startIcon={<Add />}
+          startIcon={isMobile ? undefined : <Add />}
+          size={isMobile ? "small" : "medium"}
           onClick={() => {
             setEditingWildcard(null);
             setDialogOpen(true);
           }}
         >
-          New Wildcard
+          {isMobile ? "New" : "New Wildcard"}
         </Button>
       </Box>
 
@@ -109,71 +118,127 @@ export default function PromptLibrary() {
       )}
 
       {wildcards.length > 0 ? (
-        <Card>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ width: 200 }}>Name</TableCell>
-                  <TableCell>Options</TableCell>
-                  <TableCell sx={{ width: 80 }}>Count</TableCell>
-                  <TableCell sx={{ width: 100 }}>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {wildcards.map((wc) => (
-                  <TableRow key={wc.id}>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+        <>
+          {/* Desktop table layout */}
+          {!isMobile && (
+            <Card>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ width: 200 }}>Name</TableCell>
+                      <TableCell>Options</TableCell>
+                      <TableCell sx={{ width: 80 }}>Count</TableCell>
+                      <TableCell sx={{ width: 100 }}>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {wildcards.map((wc) => (
+                      <TableRow key={wc.id}>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            &lt;{wc.name}&gt;
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                            {wc.options.slice(0, 10).map((opt, i) => (
+                              <Chip key={i} label={opt} size="small" variant="outlined" />
+                            ))}
+                            {wc.options.length > 10 && (
+                              <Chip
+                                label={`+${wc.options.length - 10} more`}
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                              />
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell>{wc.options.length}</TableCell>
+                        <TableCell>
+                          <Box sx={{ display: "flex", gap: 0.5 }}>
+                            <Tooltip title="Edit">
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  setEditingWildcard(wc);
+                                  setDialogOpen(true);
+                                }}
+                              >
+                                <Edit fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => setDeleteConfirm(wc)}
+                              >
+                                <DeleteOutline fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Card>
+          )}
+
+          {/* Mobile card layout */}
+          {isMobile && (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+              {wildcards.map((wc) => (
+                <Card key={wc.id}>
+                  <CardContent sx={{ pb: "12px !important" }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                         &lt;{wc.name}&gt;
                       </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                        {wc.options.slice(0, 10).map((opt, i) => (
-                          <Chip key={i} label={opt} size="small" variant="outlined" />
-                        ))}
-                        {wc.options.length > 10 && (
-                          <Chip
-                            label={`+${wc.options.length - 10} more`}
-                            size="small"
-                            color="primary"
-                            variant="outlined"
-                          />
-                        )}
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          {wc.options.length} options
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setEditingWildcard(wc);
+                            setDialogOpen(true);
+                          }}
+                        >
+                          <Edit fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => setDeleteConfirm(wc)}
+                        >
+                          <DeleteOutline fontSize="small" />
+                        </IconButton>
                       </Box>
-                    </TableCell>
-                    <TableCell>{wc.options.length}</TableCell>
-                    <TableCell>
-                      <Box sx={{ display: "flex", gap: 0.5 }}>
-                        <Tooltip title="Edit">
-                          <IconButton
-                            size="small"
-                            onClick={() => {
-                              setEditingWildcard(wc);
-                              setDialogOpen(true);
-                            }}
-                          >
-                            <Edit fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => setDeleteConfirm(wc)}
-                          >
-                            <DeleteOutline fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Card>
+                    </Box>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                      {wc.options.slice(0, 6).map((opt, i) => (
+                        <Chip key={i} label={opt} size="small" variant="outlined" />
+                      ))}
+                      {wc.options.length > 6 && (
+                        <Chip
+                          label={`+${wc.options.length - 6} more`}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                        />
+                      )}
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          )}
+        </>
       ) : (
         !loading && (
           <Card sx={{ textAlign: "center", py: 8 }}>
@@ -289,8 +354,11 @@ function WildcardDialog({
     }
   };
 
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       <DialogTitle>{editing ? "Edit Wildcard" : "New Wildcard"}</DialogTitle>
       <DialogContent>
         {error && (
