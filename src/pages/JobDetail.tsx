@@ -1239,7 +1239,7 @@ function SegmentModal({
               onChange={(_, val) => addLoraFromLibrary(val)}
               value={null}
               renderOption={(props, option) => {
-                const idx = (props as React.HTMLAttributes<HTMLLIElement> & { "data-option-index": number })["data-option-index"];
+                const idx = (props as unknown as { "data-option-index": number })["data-option-index"];
                 return (
                 <Box
                   component="li"
