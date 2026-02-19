@@ -37,6 +37,7 @@ import {
   Close,
   Replay,
   DeleteOutline,
+  ClearOutlined,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -1085,6 +1086,17 @@ function SegmentModal({
           onChange={(e) => setPrompt(e.target.value)}
           autoFocus
         />
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: -1 }}>
+          <IconButton
+            size="small"
+            onClick={() => setPrompt("")}
+            disabled={!prompt}
+            sx={{ color: "text.disabled", p: 0.25 }}
+            title="Clear prompt"
+          >
+            <ClearOutlined sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
         <TextField
           label="Duration (sec)"
           type="number"
@@ -1220,18 +1232,25 @@ function SegmentModal({
           </Typography>
           {loraSlots.length < 3 && (
             <Autocomplete
-              options={loraLibrary.filter(
-                (l) => !loraSlots.some((s) => s.lora_id === l.id),
-              )}
+              options={loraLibrary
+                .filter((l) => !loraSlots.some((s) => s.lora_id === l.id))
+                .sort((a, b) => a.name.localeCompare(b.name))}
               getOptionLabel={(o) => o.name}
               onChange={(_, val) => addLoraFromLibrary(val)}
               value={null}
-              renderOption={(props, option) => (
+              renderOption={(props, option) => {
+                const idx = (props as React.HTMLAttributes<HTMLLIElement> & { "data-option-index": number })["data-option-index"];
+                return (
                 <Box
                   component="li"
                   {...props}
                   key={option.id}
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    bgcolor: idx % 2 === 0 ? "#f5f5f5" : "#ffffff",
+                  }}
                 >
                   {option.preview_image ? (
                     <Box
@@ -1259,7 +1278,8 @@ function SegmentModal({
                   )}
                   <Typography variant="body2">{option.name}</Typography>
                 </Box>
-              )}
+                );
+              }}
               renderInput={(params) => (
                 <TextField
                   {...params}

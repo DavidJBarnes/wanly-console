@@ -36,7 +36,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Add, DeleteOutline } from "@mui/icons-material";
+import { Add, DeleteOutline, ClearOutlined } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { useLoraStore } from "../stores/loraStore";
 import { createJob, deleteJob, getJobs, getFileUrl, getFaceswapPresets } from "../api/client";
@@ -651,6 +651,17 @@ function CreateJobDialog({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: -1 }}>
+          <IconButton
+            size="small"
+            onClick={() => setPrompt("")}
+            disabled={!prompt}
+            sx={{ color: "text.disabled", p: 0.25 }}
+            title="Clear prompt"
+          >
+            <ClearOutlined sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
 
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1 }}>
           <TextField
@@ -733,20 +744,27 @@ function CreateJobDialog({
           </Typography>
           {loras.length < 3 && (
             <Autocomplete
-              options={loraLibrary.filter(
-                (l) => !loras.some((s) => s.lora_id === l.id),
-              )}
+              options={loraLibrary
+                .filter((l) => !loras.some((s) => s.lora_id === l.id))
+                .sort((a, b) => a.name.localeCompare(b.name))}
               getOptionLabel={(o) => o.name}
               onChange={(_, val) => {
                 addLoraFromLibrary(val);
               }}
               value={null}
-              renderOption={(props, option) => (
+              renderOption={(props, option) => {
+                const idx = (props as React.HTMLAttributes<HTMLLIElement> & { "data-option-index": number })["data-option-index"];
+                return (
                 <Box
                   component="li"
                   {...props}
                   key={option.id}
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    bgcolor: idx % 2 === 0 ? "#f5f5f5" : "#ffffff",
+                  }}
                 >
                   {option.preview_image ? (
                     <Box
@@ -784,7 +802,8 @@ function CreateJobDialog({
                     )}
                   </Box>
                 </Box>
-              )}
+                );
+              }}
               renderInput={(params) => (
                 <TextField
                   {...params}
