@@ -36,7 +36,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Add, DeleteOutline } from "@mui/icons-material";
+import { Add, DeleteOutline, ClearOutlined } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { useLoraStore } from "../stores/loraStore";
 import { createJob, deleteJob, getJobs, getFileUrl, getFaceswapPresets } from "../api/client";
@@ -651,6 +651,17 @@ function CreateJobDialog({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: -1 }}>
+          <IconButton
+            size="small"
+            onClick={() => setPrompt("")}
+            disabled={!prompt}
+            sx={{ color: "text.disabled", p: 0.25 }}
+            title="Clear prompt"
+          >
+            <ClearOutlined sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
 
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1 }}>
           <TextField

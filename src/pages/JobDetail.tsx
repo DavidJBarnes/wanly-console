@@ -37,6 +37,7 @@ import {
   Close,
   Replay,
   DeleteOutline,
+  ClearOutlined,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -1085,6 +1086,17 @@ function SegmentModal({
           onChange={(e) => setPrompt(e.target.value)}
           autoFocus
         />
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: -1 }}>
+          <IconButton
+            size="small"
+            onClick={() => setPrompt("")}
+            disabled={!prompt}
+            sx={{ color: "text.disabled", p: 0.25 }}
+            title="Clear prompt"
+          >
+            <ClearOutlined sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
         <TextField
           label="Duration (sec)"
           type="number"
