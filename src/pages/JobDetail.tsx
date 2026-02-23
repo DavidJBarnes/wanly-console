@@ -865,7 +865,7 @@ export default function JobDetail() {
               controls
               autoPlay
               src={getFileUrl(videoModal.path, videoModal.v)}
-              sx={{ width: "100%", display: "block" }}
+              sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
             />
           )}
         </DialogContent>
