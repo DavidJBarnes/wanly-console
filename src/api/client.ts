@@ -121,8 +121,10 @@ export async function getWorkerSegments(workerId: string): Promise<WorkerSegment
   return data;
 }
 
-export function getFileUrl(s3Path: string): string {
-  return `${API_URL}/files?path=${encodeURIComponent(s3Path)}`;
+export function getFileUrl(s3Path: string, version?: string): string {
+  let url = `${API_URL}/files?path=${encodeURIComponent(s3Path)}`;
+  if (version) url += `&v=${encodeURIComponent(version)}`;
+  return url;
 }
 
 export async function getStats(): Promise<StatsResponse> {

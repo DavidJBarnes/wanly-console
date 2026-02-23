@@ -109,7 +109,7 @@ export default function JobDetail() {
   const [job, setJob] = useState<JobDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [videoModal, setVideoModal] = useState<string | null>(null);
+  const [videoModal, setVideoModal] = useState<{ path: string; v?: string } | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [segmentModalOpen, setSegmentModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<SegmentResponse | null>(
@@ -419,12 +419,12 @@ export default function JobDetail() {
                         <Box
                           sx={{ position: "relative", cursor: "pointer" }}
                           onClick={() =>
-                            seg.output_path && setVideoModal(seg.output_path)
+                            seg.output_path && setVideoModal({ path: seg.output_path, v: seg.completed_at ?? undefined })
                           }
                         >
                           <Box
                             component="img"
-                            src={getFileUrl(seg.last_frame_path)}
+                            src={getFileUrl(seg.last_frame_path, seg.completed_at ?? undefined)}
                             alt="Last frame"
                             sx={{
                               width: 80,
@@ -644,12 +644,12 @@ export default function JobDetail() {
                         <Box
                           sx={{ position: "relative", cursor: "pointer" }}
                           onClick={() =>
-                            seg.output_path && setVideoModal(seg.output_path)
+                            seg.output_path && setVideoModal({ path: seg.output_path, v: seg.completed_at ?? undefined })
                           }
                         >
                           <Box
                             component="img"
-                            src={getFileUrl(seg.last_frame_path)}
+                            src={getFileUrl(seg.last_frame_path, seg.completed_at ?? undefined)}
                             alt="Output"
                             sx={{
                               width: 64,
@@ -864,7 +864,7 @@ export default function JobDetail() {
               component="video"
               controls
               autoPlay
-              src={getFileUrl(videoModal)}
+              src={getFileUrl(videoModal.path, videoModal.v)}
               sx={{ width: "100%", display: "block" }}
             />
           )}
