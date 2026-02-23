@@ -18,7 +18,7 @@ export default function MainLayout() {
   };
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh" }}>
+    <Box sx={{ display: "flex", height: "100dvh" }}>
       <Sidebar mobileOpen={mobileOpen} onClose={handleDrawerToggle} />
       <TopBar onMenuClick={handleDrawerToggle} />
       <Box
@@ -28,6 +28,7 @@ export default function MainLayout() {
           bgcolor: "background.default",
           p: { xs: 1.5, sm: 2, md: 3 },
           width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          overflow: "auto",
         }}
       >
         <Toolbar />
