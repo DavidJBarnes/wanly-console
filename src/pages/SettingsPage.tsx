@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Box,
   Button,
   Card,
   CardContent,
   Chip,
+  CircularProgress,
   TextField,
   Typography,
   useMediaQuery,
@@ -15,18 +16,22 @@ import { useTagStore } from "../stores/tagStore";
 export default function SettingsPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const { titleTags1, titleTags2, addTag1, removeTag1, addTag2, removeTag2 } =
+  const { titleTags1, titleTags2, loading, fetchTags, addTag, removeTag } =
     useTagStore();
   const [input1, setInput1] = useState("");
   const [input2, setInput2] = useState("");
 
+  useEffect(() => {
+    fetchTags();
+  }, [fetchTags]);
+
   const handleAdd1 = () => {
-    addTag1(input1);
+    addTag(input1, 1);
     setInput1("");
   };
 
   const handleAdd2 = () => {
-    addTag2(input2);
+    addTag(input2, 2);
     setInput2("");
   };
 
@@ -40,6 +45,11 @@ export default function SettingsPage() {
           <Typography variant="h6" sx={{ mb: 2 }}>
             Tags
           </Typography>
+          {loading && titleTags1.length === 0 && titleTags2.length === 0 && (
+            <Box sx={{ textAlign: "center", py: 2 }}>
+              <CircularProgress size={24} />
+            </Box>
+          )}
           <Box
             sx={{
               display: "flex",
@@ -78,9 +88,9 @@ export default function SettingsPage() {
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                 {titleTags1.map((tag) => (
                   <Chip
-                    key={tag}
-                    label={tag}
-                    onDelete={() => removeTag1(tag)}
+                    key={tag.id}
+                    label={tag.name}
+                    onDelete={() => removeTag(tag.id)}
                     size="small"
                   />
                 ))}
@@ -118,9 +128,9 @@ export default function SettingsPage() {
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                 {titleTags2.map((tag) => (
                   <Chip
-                    key={tag}
-                    label={tag}
-                    onDelete={() => removeTag2(tag)}
+                    key={tag.id}
+                    label={tag.name}
+                    onDelete={() => removeTag(tag.id)}
                     size="small"
                   />
                 ))}
