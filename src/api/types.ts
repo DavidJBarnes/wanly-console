@@ -249,3 +249,16 @@ export interface FaceswapPreset {
   name: string;
   url: string;
 }
+
+export interface TitleTagResponse {
+  id: string;
+  name: string;
+  group: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TitleTagCreate {
+  name: string;
+  group: number;
+}

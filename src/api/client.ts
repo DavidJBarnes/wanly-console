@@ -18,6 +18,8 @@ import type {
   WildcardCreate,
   WildcardUpdate,
   FaceswapPreset,
+  TitleTagResponse,
+  TitleTagCreate,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -200,6 +202,24 @@ export async function updateWildcard(
 
 export async function deleteWildcard(id: string): Promise<void> {
   await api.delete(`/wildcards/${id}`);
+}
+
+// --- Title Tags ---
+
+export async function getTags(group?: number): Promise<TitleTagResponse[]> {
+  const { data } = await api.get<TitleTagResponse[]>("/tags", {
+    params: group !== undefined ? { group } : undefined,
+  });
+  return data;
+}
+
+export async function createTag(body: TitleTagCreate): Promise<TitleTagResponse> {
+  const { data } = await api.post<TitleTagResponse>("/tags", body);
+  return data;
+}
+
+export async function deleteTag(id: string): Promise<void> {
+  await api.delete(`/tags/${id}`);
 }
 
 // --- Faceswap Presets ---

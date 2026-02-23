@@ -705,7 +705,7 @@ function CreateJobDialog({
   const [submitting, setSubmitting] = useState(false);
 
   // Tag state
-  const { titleTags1, titleTags2 } = useTagStore();
+  const { titleTags1, titleTags2, fetchTags } = useTagStore();
   const [selectedTag1, setSelectedTag1] = useState("");
   const [selectedTag2, setSelectedTag2] = useState("");
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
@@ -728,9 +728,10 @@ function CreateJobDialog({
   useEffect(() => {
     if (open) {
       fetchLoras();
+      fetchTags();
       getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
     }
-  }, [open, fetchLoras]);
+  }, [open, fetchLoras, fetchTags]);
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
     if (!item || loras.length >= 3) return;
@@ -875,8 +876,8 @@ function CreateJobDialog({
                   <em>None</em>
                 </MenuItem>
                 {titleTags1.map((tag) => (
-                  <MenuItem key={tag} value={tag}>
-                    {tag}
+                  <MenuItem key={tag.id} value={tag.name}>
+                    {tag.name}
                   </MenuItem>
                 ))}
               </TextField>
@@ -897,8 +898,8 @@ function CreateJobDialog({
                   <em>None</em>
                 </MenuItem>
                 {titleTags2.map((tag) => (
-                  <MenuItem key={tag} value={tag}>
-                    {tag}
+                  <MenuItem key={tag.id} value={tag.name}>
+                    {tag.name}
                   </MenuItem>
                 ))}
               </TextField>
