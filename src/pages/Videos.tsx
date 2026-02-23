@@ -269,7 +269,7 @@ export default function Videos() {
               controls
               autoPlay
               src={getFileUrl(modalVideo.output_path)}
-              sx={{ width: "100%", display: "block" }}
+              sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
             />
           ) : modalVideo?.status === "failed" ? (
             <Box sx={{ p: 4 }}>
