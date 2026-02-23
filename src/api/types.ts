@@ -101,6 +101,7 @@ export interface JobResponse {
   fps: number;
   seed: number;
   starting_image: string | null;
+  priority: number;
   status: JobStatus;
   created_at: string;
   updated_at: string;

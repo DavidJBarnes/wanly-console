@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Autocomplete,
   Box,
@@ -36,10 +36,12 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Add, DeleteOutline, ClearOutlined } from "@mui/icons-material";
+import { Add, DeleteOutline, ClearOutlined, DragIndicator } from "@mui/icons-material";
 import { useNavigate } from "react-router";
+import { DragDropProvider, DragOverlay } from "@dnd-kit/react";
+import { useSortable } from "@dnd-kit/react/sortable";
 import { useLoraStore } from "../stores/loraStore";
-import { createJob, deleteJob, getJobs, getFileUrl, getFaceswapPresets } from "../api/client";
+import { createJob, deleteJob, getJobs, getFileUrl, getFaceswapPresets, reorderJobs } from "../api/client";
 import type { JobCreate, JobResponse, JobStatus, LoraListItem, FaceswapPreset } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -71,6 +73,13 @@ function formatDate(iso: string) {
   });
 }
 
+function arrayMove<T>(arr: T[], from: number, to: number): T[] {
+  const result = [...arr];
+  const [item] = result.splice(from, 1);
+  result.splice(to, 0, item);
+  return result;
+}
+
 export default function JobQueue() {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobResponse[]>([]);
@@ -78,19 +87,24 @@ export default function JobQueue() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isPriorityMode, setIsPriorityMode] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("updated_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [deleteConfirm, setDeleteConfirm] = useState<JobResponse | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [activeJob, setActiveJob] = useState<JobResponse | null>(null);
+  const isDraggingRef = useRef(false);
 
   const fetchPage = useCallback(async () => {
+    if (isDraggingRef.current) return;
     try {
       const res = await getJobs({
-        limit: rowsPerPage,
-        offset: page * rowsPerPage,
+        limit: isPriorityMode ? 200 : rowsPerPage,
+        offset: isPriorityMode ? 0 : page * rowsPerPage,
         status: statusFilter.length > 0 ? statusFilter.join(",") : undefined,
+        sort: isPriorityMode ? "priority_asc" : undefined,
       });
       setJobs(res.items);
       setTotal(res.total);
@@ -99,7 +113,7 @@ export default function JobQueue() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, statusFilter]);
+  }, [isPriorityMode, page, rowsPerPage, statusFilter]);
 
   useEffect(() => {
     setLoading(true);
@@ -115,12 +129,38 @@ export default function JobQueue() {
   };
 
   const handleSort = (key: SortKey) => {
-    if (sortKey === key) {
+    if (isPriorityMode) {
+      setIsPriorityMode(false);
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+      setPage(0);
+    } else if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
       setSortDir(key === "name" ? "asc" : "desc");
     }
+  };
+
+  const handleDragEnd = (event: { canceled: boolean; operation: { source: { id: string | number } | null; target: { id: string | number } | null } }) => {
+    isDraggingRef.current = false;
+    setActiveJob(null);
+
+    if (event.canceled) return;
+    const { source, target } = event.operation;
+    if (!source || !target || source.id === target.id) return;
+
+    const fromIndex = jobs.findIndex((j) => j.id === source.id);
+    const toIndex = jobs.findIndex((j) => j.id === target.id);
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const reordered = arrayMove(jobs, fromIndex, toIndex);
+    const prev = [...jobs];
+    setJobs(reordered);
+
+    reorderJobs(reordered.map((j) => j.id)).catch(() => {
+      setJobs(prev);
+    });
   };
 
   const handleDeleteJob = async () => {
@@ -158,7 +198,7 @@ export default function JobQueue() {
     }
   };
 
-  const sortedJobs = [...jobs].sort(comparator);
+  const sortedJobs = isPriorityMode ? jobs : [...jobs].sort(comparator);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -183,7 +223,7 @@ export default function JobQueue() {
         </Button>
       </Box>
 
-      <Box sx={{ mb: 3 }}>
+      <Box sx={{ mb: 3, display: "flex", gap: 2, alignItems: "center" }}>
         <FormControl size="small" sx={{ minWidth: 250 }}>
           <InputLabel>Filter by Status</InputLabel>
           <Select<string[]>
@@ -211,6 +251,17 @@ export default function JobQueue() {
             ))}
           </Select>
         </FormControl>
+        {!isPriorityMode && (
+          <Button
+            size="small"
+            onClick={() => {
+              setIsPriorityMode(true);
+              setPage(0);
+            }}
+          >
+            Reset to priority order
+          </Button>
+        )}
       </Box>
 
       {loading && jobs.length === 0 && (
@@ -219,179 +270,102 @@ export default function JobQueue() {
         </Box>
       )}
 
+      <DragDropProvider
+        onDragStart={(event) => {
+          isDraggingRef.current = true;
+          const job = jobs.find((j) => j.id === event.operation.source?.id);
+          setActiveJob(job || null);
+        }}
+        onDragEnd={handleDragEnd}
+      >
       {sortedJobs.length > 0 && !isMobile && (
         <Card>
           <TableContainer>
             <Table>
               <TableHead>
                 <TableRow>
+                  {isPriorityMode && <TableCell sx={{ width: 32, px: 0.5 }} />}
                   <TableCell sx={{ width: 60 }}>Image</TableCell>
-                  <SortableCell id="name" label="Name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortableCell id="status" label="Status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 120 }} />
+                  <SortableHeader id="name" label="Name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} />
+                  <SortableHeader id="status" label="Status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 120 }} />
                   <TableCell>Dimensions</TableCell>
-                  <SortableCell id="fps" label="FPS" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 80 }} />
-                  <SortableCell id="created_at" label="Created" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 150 }} />
-                  <SortableCell id="updated_at" label="Updated" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} sx={{ width: 150 }} />
+                  <SortableHeader id="fps" label="FPS" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 80 }} />
+                  <SortableHeader id="created_at" label="Created" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 150 }} />
+                  <SortableHeader id="updated_at" label="Updated" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 150 }} />
                   <TableCell sx={{ width: 60 }} />
                 </TableRow>
               </TableHead>
               <TableBody>
-                {sortedJobs.map((job) => (
-                  <TableRow
+                {sortedJobs.map((job, index) => (
+                  <SortableTableRow
                     key={job.id}
-                    hover
-                    sx={{ cursor: "pointer" }}
-                    onClick={() => navigate(`/jobs/${job.id}`)}
-                  >
-                    <TableCell>
-                      {job.starting_image ? (
-                        <Box
-                          component="img"
-                          src={getFileUrl(job.starting_image)}
-                          alt=""
-                          sx={{
-                            width: 48,
-                            height: 48,
-                            objectFit: "cover",
-                            borderRadius: 1,
-                            bgcolor: "#f5f5f5",
-                            display: "block",
-                          }}
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            width: 48,
-                            height: 48,
-                            borderRadius: 1,
-                            bgcolor: "#f5f5f5",
-                          }}
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {job.name}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <StatusChip status={job.status} />
-                    </TableCell>
-                    <TableCell>
-                      {job.width}x{job.height}
-                    </TableCell>
-                    <TableCell>{job.fps}</TableCell>
-                    <TableCell>{formatDate(job.created_at)}</TableCell>
-                    <TableCell>{formatDate(job.updated_at)}</TableCell>
-                    <TableCell>
-                      <Tooltip title="Delete job">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirm(job);
-                          }}
-                        >
-                          <DeleteOutline fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
+                    job={job}
+                    index={index}
+                    showHandle={isPriorityMode}
+                    onNavigate={(id) => navigate(`/jobs/${id}`)}
+                    onDelete={setDeleteConfirm}
+                  />
                 ))}
               </TableBody>
             </Table>
           </TableContainer>
-          <TablePagination
-            component="div"
-            count={total}
-            page={page}
-            onPageChange={(_, p) => setPage(p)}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={(e) => {
-              setRowsPerPage(parseInt(e.target.value, 10));
-              setPage(0);
-            }}
-            rowsPerPageOptions={[10, 25, 50, 100]}
-          />
+          {!isPriorityMode && (
+            <TablePagination
+              component="div"
+              count={total}
+              page={page}
+              onPageChange={(_, p) => setPage(p)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(e) => {
+                setRowsPerPage(parseInt(e.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[10, 25, 50, 100]}
+            />
+          )}
         </Card>
       )}
 
       {/* Mobile card layout */}
       {sortedJobs.length > 0 && isMobile && (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-          {sortedJobs.map((job) => (
-            <Card key={job.id} variant="outlined">
-              <CardActionArea
-                onClick={() => navigate(`/jobs/${job.id}`)}
-                sx={{ p: 1.5 }}
-              >
-                <Box sx={{ display: "flex", gap: 1.5 }}>
-                  {job.starting_image ? (
-                    <Box
-                      component="img"
-                      src={getFileUrl(job.starting_image)}
-                      alt=""
-                      sx={{
-                        width: 56,
-                        height: 56,
-                        objectFit: "cover",
-                        borderRadius: 1,
-                        bgcolor: "#f5f5f5",
-                        flexShrink: 0,
-                      }}
-                    />
-                  ) : (
-                    <Box
-                      sx={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: 1,
-                        bgcolor: "#f5f5f5",
-                        flexShrink: 0,
-                      }}
-                    />
-                  )}
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-                        {job.name}
-                      </Typography>
-                      <StatusChip status={job.status} />
-                    </Box>
-                    <Typography variant="caption" color="text.secondary">
-                      {job.width}x{job.height} &middot; {job.fps}fps &middot; {formatDate(job.updated_at)}
-                    </Typography>
-                  </Box>
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteConfirm(job);
-                    }}
-                    sx={{ alignSelf: "center", flexShrink: 0 }}
-                  >
-                    <DeleteOutline fontSize="small" />
-                  </IconButton>
-                </Box>
-              </CardActionArea>
-            </Card>
+          {sortedJobs.map((job, index) => (
+            <SortableMobileCard
+              key={job.id}
+              job={job}
+              index={index}
+              showHandle={isPriorityMode}
+              onNavigate={(id) => navigate(`/jobs/${id}`)}
+              onDelete={setDeleteConfirm}
+            />
           ))}
-          <TablePagination
-            component="div"
-            count={total}
-            page={page}
-            onPageChange={(_, p) => setPage(p)}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={(e) => {
-              setRowsPerPage(parseInt(e.target.value, 10));
-              setPage(0);
-            }}
-            rowsPerPageOptions={[10, 25, 50]}
-          />
+          {!isPriorityMode && (
+            <TablePagination
+              component="div"
+              count={total}
+              page={page}
+              onPageChange={(_, p) => setPage(p)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(e) => {
+                setRowsPerPage(parseInt(e.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[10, 25, 50]}
+            />
+          )}
         </Box>
       )}
+
+      <DragOverlay>
+        {activeJob && (
+          <Card sx={{ p: 1.5, display: "flex", gap: 1.5, alignItems: "center", boxShadow: 4, minWidth: 250 }}>
+            <DragIndicator sx={{ color: "text.disabled" }} />
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>{activeJob.name}</Typography>
+            <StatusChip status={activeJob.status} />
+          </Card>
+        )}
+      </DragOverlay>
+      </DragDropProvider>
 
       {!loading && sortedJobs.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8 }}>
@@ -443,12 +417,13 @@ export default function JobQueue() {
   );
 }
 
-function SortableCell({
+function SortableHeader({
   id,
   label,
   sortKey,
   sortDir,
   onSort,
+  isPriorityMode,
   sx,
 }: {
   id: SortKey;
@@ -456,18 +431,226 @@ function SortableCell({
   sortKey: SortKey;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
+  isPriorityMode: boolean;
   sx?: Record<string, unknown>;
 }) {
   return (
     <TableCell sx={sx}>
       <TableSortLabel
-        active={sortKey === id}
-        direction={sortKey === id ? sortDir : "asc"}
+        active={!isPriorityMode && sortKey === id}
+        direction={!isPriorityMode && sortKey === id ? sortDir : "asc"}
         onClick={() => onSort(id)}
       >
         {label}
       </TableSortLabel>
     </TableCell>
+  );
+}
+
+function SortableTableRow({
+  job,
+  index,
+  showHandle,
+  onNavigate,
+  onDelete,
+}: {
+  job: JobResponse;
+  index: number;
+  showHandle: boolean;
+  onNavigate: (id: string) => void;
+  onDelete: (job: JobResponse) => void;
+}) {
+  const { ref, handleRef, isDragging } = useSortable({
+    id: job.id,
+    index,
+    disabled: !showHandle,
+  });
+
+  return (
+    <TableRow
+      ref={ref}
+      hover
+      sx={{
+        cursor: "pointer",
+        opacity: isDragging ? 0.4 : 1,
+      }}
+      onClick={() => onNavigate(job.id)}
+    >
+      {showHandle && (
+        <TableCell sx={{ width: 32, px: 0.5 }}>
+          <Box
+            ref={handleRef}
+            sx={{
+              cursor: "grab",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "text.disabled",
+              "&:hover": { color: "text.secondary" },
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <DragIndicator fontSize="small" />
+          </Box>
+        </TableCell>
+      )}
+      <TableCell>
+        {job.starting_image ? (
+          <Box
+            component="img"
+            src={getFileUrl(job.starting_image)}
+            alt=""
+            sx={{
+              width: 48,
+              height: 48,
+              objectFit: "cover",
+              borderRadius: 1,
+              bgcolor: "#f5f5f5",
+              display: "block",
+            }}
+          />
+        ) : (
+          <Box
+            sx={{
+              width: 48,
+              height: 48,
+              borderRadius: 1,
+              bgcolor: "#f5f5f5",
+            }}
+          />
+        )}
+      </TableCell>
+      <TableCell>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+          {job.name}
+        </Typography>
+      </TableCell>
+      <TableCell>
+        <StatusChip status={job.status} />
+      </TableCell>
+      <TableCell>
+        {job.width}x{job.height}
+      </TableCell>
+      <TableCell>{job.fps}</TableCell>
+      <TableCell>{formatDate(job.created_at)}</TableCell>
+      <TableCell>{formatDate(job.updated_at)}</TableCell>
+      <TableCell>
+        <Tooltip title="Delete job">
+          <IconButton
+            size="small"
+            color="error"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(job);
+            }}
+          >
+            <DeleteOutline fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function SortableMobileCard({
+  job,
+  index,
+  showHandle,
+  onNavigate,
+  onDelete,
+}: {
+  job: JobResponse;
+  index: number;
+  showHandle: boolean;
+  onNavigate: (id: string) => void;
+  onDelete: (job: JobResponse) => void;
+}) {
+  const { ref, handleRef, isDragging } = useSortable({
+    id: job.id,
+    index,
+    disabled: !showHandle,
+  });
+
+  return (
+    <Card
+      ref={ref}
+      variant="outlined"
+      sx={{
+        opacity: isDragging ? 0.4 : 1,
+      }}
+    >
+      <CardActionArea
+        onClick={() => onNavigate(job.id)}
+        sx={{ p: 1.5 }}
+      >
+        <Box sx={{ display: "flex", gap: 1.5 }}>
+          {showHandle && (
+            <Box
+              ref={handleRef}
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                cursor: "grab",
+                color: "text.disabled",
+                flexShrink: 0,
+                mr: -0.5,
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <DragIndicator fontSize="small" />
+            </Box>
+          )}
+          {job.starting_image ? (
+            <Box
+              component="img"
+              src={getFileUrl(job.starting_image)}
+              alt=""
+              sx={{
+                width: 56,
+                height: 56,
+                objectFit: "cover",
+                borderRadius: 1,
+                bgcolor: "#f5f5f5",
+                flexShrink: 0,
+              }}
+            />
+          ) : (
+            <Box
+              sx={{
+                width: 56,
+                height: 56,
+                borderRadius: 1,
+                bgcolor: "#f5f5f5",
+                flexShrink: 0,
+              }}
+            />
+          )}
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                {job.name}
+              </Typography>
+              <StatusChip status={job.status} />
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              {job.width}x{job.height} &middot; {job.fps}fps &middot; {formatDate(job.updated_at)}
+            </Typography>
+          </Box>
+          <IconButton
+            size="small"
+            color="error"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(job);
+            }}
+            sx={{ alignSelf: "center", flexShrink: 0 }}
+          >
+            <DeleteOutline fontSize="small" />
+          </IconButton>
+        </Box>
+      </CardActionArea>
+    </Card>
   );
 }
 
