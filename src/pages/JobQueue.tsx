@@ -73,6 +73,8 @@ function formatDate(iso: string) {
   });
 }
 
+const DRAG_LOCKED_STATUSES = new Set(["processing", "finalizing"]);
+
 function arrayMove<T>(arr: T[], from: number, to: number): T[] {
   const result = [...arr];
   const [item] = result.splice(from, 1);
@@ -158,7 +160,13 @@ export default function JobQueue() {
     const prev = [...jobs];
     setJobs(reordered);
 
-    reorderJobs(reordered.map((j) => j.id)).catch(() => {
+    // Only send reorderable job IDs — processing/finalizing are locked
+    const reorderableIds = reordered
+      .filter((j) => !DRAG_LOCKED_STATUSES.has(j.status))
+      .map((j) => j.id);
+    if (reorderableIds.length === 0) return;
+
+    reorderJobs(reorderableIds).catch(() => {
       setJobs(prev);
     });
   };
@@ -460,10 +468,11 @@ function SortableTableRow({
   onNavigate: (id: string) => void;
   onDelete: (job: JobResponse) => void;
 }) {
+  const isLocked = DRAG_LOCKED_STATUSES.has(job.status);
   const { ref, handleRef, isDragging } = useSortable({
     id: job.id,
     index,
-    disabled: !showHandle,
+    disabled: !showHandle || isLocked,
   });
 
   return (
@@ -478,20 +487,24 @@ function SortableTableRow({
     >
       {showHandle && (
         <TableCell sx={{ width: 32, px: 0.5 }}>
-          <Box
-            ref={handleRef}
-            sx={{
-              cursor: "grab",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "text.disabled",
-              "&:hover": { color: "text.secondary" },
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <DragIndicator fontSize="small" />
-          </Box>
+          {isLocked ? (
+            <Box sx={{ width: 24, height: 24 }} />
+          ) : (
+            <Box
+              ref={handleRef}
+              sx={{
+                cursor: "grab",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "text.disabled",
+                "&:hover": { color: "text.secondary" },
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <DragIndicator fontSize="small" />
+            </Box>
+          )}
         </TableCell>
       )}
       <TableCell>
@@ -565,10 +578,11 @@ function SortableMobileCard({
   onNavigate: (id: string) => void;
   onDelete: (job: JobResponse) => void;
 }) {
+  const isLocked = DRAG_LOCKED_STATUSES.has(job.status);
   const { ref, handleRef, isDragging } = useSortable({
     id: job.id,
     index,
-    disabled: !showHandle,
+    disabled: !showHandle || isLocked,
   });
 
   return (
@@ -584,7 +598,7 @@ function SortableMobileCard({
         sx={{ p: 1.5 }}
       >
         <Box sx={{ display: "flex", gap: 1.5 }}>
-          {showHandle && (
+          {showHandle && !isLocked && (
             <Box
               ref={handleRef}
               sx={{
