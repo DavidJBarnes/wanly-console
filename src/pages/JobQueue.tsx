@@ -41,6 +41,7 @@ import { useNavigate } from "react-router";
 import { DragDropProvider, DragOverlay } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { useLoraStore } from "../stores/loraStore";
+import { useTagStore } from "../stores/tagStore";
 import { createJob, deleteJob, getJobs, getFileUrl, getFaceswapPresets, reorderJobs } from "../api/client";
 import type { JobCreate, JobResponse, JobStatus, LoraListItem, FaceswapPreset } from "../api/types";
 import StatusChip from "../components/StatusChip";
@@ -703,6 +704,21 @@ function CreateJobDialog({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Tag state
+  const { titleTags1, titleTags2 } = useTagStore();
+  const [selectedTag1, setSelectedTag1] = useState("");
+  const [selectedTag2, setSelectedTag2] = useState("");
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
+
+  // Auto-generate name from tags + fps
+  useEffect(() => {
+    if (nameManuallyEdited) return;
+    const parts = [selectedTag1, selectedTag2, `${fps}fps`].filter(Boolean);
+    if (selectedTag1 || selectedTag2) {
+      setName(parts.join("_"));
+    }
+  }, [selectedTag1, selectedTag2, fps, nameManuallyEdited]);
+
   // LoRA state
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [loras, setLoras] = useState<
@@ -765,6 +781,9 @@ function CreateJobDialog({
     setFaceswapFacesIndex("0");
     setFaceswapFacesOrder("left-right");
     setLoras([]);
+    setSelectedTag1("");
+    setSelectedTag2("");
+    setNameManuallyEdited(false);
     setError("");
   }, [imagePreview]);
 
@@ -838,12 +857,63 @@ function CreateJobDialog({
             {error}
           </Alert>
         )}
+        {(titleTags1.length > 0 || titleTags2.length > 0) && (
+          <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+            {titleTags1.length > 0 && (
+              <TextField
+                label="Title Tag 1"
+                select
+                value={selectedTag1}
+                onChange={(e) => {
+                  setSelectedTag1(e.target.value);
+                  setNameManuallyEdited(false);
+                }}
+                sx={{ flex: 1 }}
+                size="small"
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {titleTags1.map((tag) => (
+                  <MenuItem key={tag} value={tag}>
+                    {tag}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+            {titleTags2.length > 0 && (
+              <TextField
+                label="Title Tag 2"
+                select
+                value={selectedTag2}
+                onChange={(e) => {
+                  setSelectedTag2(e.target.value);
+                  setNameManuallyEdited(false);
+                }}
+                sx={{ flex: 1 }}
+                size="small"
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {titleTags2.map((tag) => (
+                  <MenuItem key={tag} value={tag}>
+                    {tag}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          </Box>
+        )}
         <TextField
           label="Job Name"
           fullWidth
           margin="normal"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            setNameManuallyEdited(true);
+          }}
           autoFocus
         />
         <TextField
