@@ -18,6 +18,7 @@ export const useLoraStore = create<LoraState>((set) => ({
     set({ loading: true, error: null });
     try {
       const loras = await getLoras();
+      loras.sort((a, b) => a.name.localeCompare(b.name));
       set({ loras, loading: false });
     } catch (e) {
       set({
