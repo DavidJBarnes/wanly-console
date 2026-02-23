@@ -548,18 +548,20 @@ function SortableTableRow({
       <TableCell>{formatDate(job.created_at)}</TableCell>
       <TableCell>{formatDate(job.updated_at)}</TableCell>
       <TableCell>
-        <Tooltip title="Delete job">
-          <IconButton
-            size="small"
-            color="error"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(job);
-            }}
-          >
-            <DeleteOutline fontSize="small" />
-          </IconButton>
-        </Tooltip>
+        {job.status !== "processing" && job.status !== "finalizing" && (
+          <Tooltip title="Delete job">
+            <IconButton
+              size="small"
+              color="error"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(job);
+              }}
+            >
+              <DeleteOutline fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
       </TableCell>
     </TableRow>
   );
@@ -651,17 +653,19 @@ function SortableMobileCard({
               {job.width}x{job.height} &middot; {job.fps}fps &middot; {formatDate(job.updated_at)}
             </Typography>
           </Box>
-          <IconButton
-            size="small"
-            color="error"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(job);
-            }}
-            sx={{ alignSelf: "center", flexShrink: 0 }}
-          >
-            <DeleteOutline fontSize="small" />
-          </IconButton>
+          {job.status !== "processing" && job.status !== "finalizing" && (
+            <IconButton
+              size="small"
+              color="error"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(job);
+              }}
+              sx={{ alignSelf: "center", flexShrink: 0 }}
+            >
+              <DeleteOutline fontSize="small" />
+            </IconButton>
+          )}
         </Box>
       </CardActionArea>
     </Card>
@@ -687,6 +691,7 @@ function CreateJobDialog({
   const [duration, setDuration] = useState(5.0);
   const [seed, setSeed] = useState("");
   const [startingImage, setStartingImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [faceswapEnabled, setFaceswapEnabled] = useState(false);
   const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("upload");
   const [faceswapImage, setFaceswapImage] = useState<File | null>(null);
@@ -750,6 +755,8 @@ function CreateJobDialog({
     setDuration(5.0);
     setSeed("");
     setStartingImage(null);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(null);
     setFaceswapEnabled(false);
     setFaceswapSourceType("upload");
     setFaceswapImage(null);
@@ -759,7 +766,7 @@ function CreateJobDialog({
     setFaceswapFacesOrder("left-right");
     setLoras([]);
     setError("");
-  }, []);
+  }, [imagePreview]);
 
   const handleSubmit = async () => {
     if (!name.trim() || !prompt.trim()) {
@@ -918,20 +925,25 @@ function CreateJobDialog({
               onChange={(e) => {
                 const file = e.target.files?.[0] ?? null;
                 setStartingImage(file);
+                if (imagePreview) URL.revokeObjectURL(imagePreview);
                 if (file) {
                   const url = URL.createObjectURL(file);
-                  const img = new Image();
+                  setImagePreview(url);
+                  const img = new window.Image();
                   img.onload = () => {
                     setWidth(img.naturalWidth);
                     setHeight(img.naturalHeight);
-                    URL.revokeObjectURL(url);
                   };
-                  img.onerror = () => URL.revokeObjectURL(url);
                   img.src = url;
+                } else {
+                  setImagePreview(null);
                 }
               }}
             />
           </Button>
+          {imagePreview && (
+            <Box component="img" src={imagePreview} alt="Starting image preview" sx={{ mt: 1, maxHeight: 120, borderRadius: 1, objectFit: "cover", display: "block" }} />
+          )}
         </Box>
 
         {/* LoRA section */}
