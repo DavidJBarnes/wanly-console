@@ -61,8 +61,16 @@ export async function getJobs(params?: {
   limit?: number;
   offset?: number;
   status?: string;
+  sort?: string;
 }): Promise<JobListResponse> {
   const { data } = await api.get<JobListResponse>("/jobs", { params });
+  return data;
+}
+
+export async function reorderJobs(jobIds: string[]): Promise<JobResponse[]> {
+  const { data } = await api.put<JobResponse[]>("/jobs/reorder", {
+    job_ids: jobIds,
+  });
   return data;
 }
 
