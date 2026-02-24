@@ -38,6 +38,7 @@ import {
   Replay,
   DeleteOutline,
   ClearOutlined,
+  InfoOutlined,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -118,6 +119,7 @@ export default function JobDetail() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deleteJobConfirm, setDeleteJobConfirm] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
+  const [detailSeg, setDetailSeg] = useState<SegmentResponse | null>(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -520,6 +522,14 @@ export default function JobDetail() {
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: "flex", gap: 0.5 }}>
+                        <Tooltip title="Details">
+                          <IconButton
+                            size="small"
+                            onClick={() => setDetailSeg(seg)}
+                          >
+                            <InfoOutlined fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         {seg.status === "failed" && (
                           <Tooltip title="Retry">
                             <IconButton
@@ -587,6 +597,12 @@ export default function JobDetail() {
                             {segmentRunTime(seg)}
                           </Typography>
                         )}
+                        <IconButton
+                          size="small"
+                          onClick={() => setDetailSeg(seg)}
+                        >
+                          <InfoOutlined fontSize="small" />
+                        </IconButton>
                         {seg.status === "failed" && (
                           <IconButton
                             size="small"
@@ -870,6 +886,13 @@ export default function JobDetail() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Segment detail modal */}
+      <SegmentDetailModal
+        seg={detailSeg}
+        job={job}
+        onClose={() => setDetailSeg(null)}
+      />
     </Box>
   );
 }
@@ -884,6 +907,158 @@ function MetaItem({ label, value }: { label: string; value: string }) {
         {value}
       </Typography>
     </Box>
+  );
+}
+
+function SegmentDetailModal({
+  seg,
+  job,
+  onClose,
+}: {
+  seg: SegmentResponse | null;
+  job: JobDetailResponse;
+  onClose: () => void;
+}) {
+  const { loras: loraLibrary } = useLoraStore();
+
+  if (!seg) return null;
+
+  const startImage =
+    seg.start_image ??
+    (seg.index === 0
+      ? job.starting_image
+      : job.segments[seg.index - 1]?.last_frame_path) ??
+    null;
+
+  const loraNames = (seg.loras ?? []).map((l) => {
+    const lib = loraLibrary.find((item) => item.id === l.lora_id);
+    return {
+      name: lib?.name ?? l.lora_id?.slice(0, 8) ?? "unknown",
+      high_weight: l.high_weight,
+      low_weight: l.low_weight,
+    };
+  });
+
+  return (
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Segment #{seg.index} Details</DialogTitle>
+      <DialogContent dividers>
+        {/* Prompt */}
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Prompt
+        </Typography>
+        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mb: 2 }}>
+          {seg.prompt_template ?? seg.prompt}
+        </Typography>
+        {seg.prompt_template && (
+          <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic", display: "block", mb: 2, mt: -1 }}>
+            Resolved: {seg.prompt}
+          </Typography>
+        )}
+
+        {/* Duration */}
+        <Box sx={{ display: "flex", gap: 4, mb: 2 }}>
+          <Box>
+            <Typography variant="subtitle2" color="text.secondary">Duration</Typography>
+            <Typography variant="body2">{seg.duration_seconds}s</Typography>
+          </Box>
+          <Box>
+            <Typography variant="subtitle2" color="text.secondary">Status</Typography>
+            <StatusChip status={seg.status} />
+          </Box>
+          {seg.worker_name && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary">Worker</Typography>
+              <Typography variant="body2">{seg.worker_name}</Typography>
+            </Box>
+          )}
+        </Box>
+
+        {/* Thumbnails */}
+        <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+          {startImage && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>Start Image</Typography>
+              <Box
+                component="img"
+                src={getFileUrl(startImage)}
+                alt="Start"
+                sx={{ width: 100, height: 100, objectFit: "cover", borderRadius: 1, bgcolor: "#f5f5f5", display: "block" }}
+              />
+            </Box>
+          )}
+          {seg.last_frame_path && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>Output</Typography>
+              <Box
+                component="img"
+                src={getFileUrl(seg.last_frame_path, seg.completed_at ?? undefined)}
+                alt="Output"
+                sx={{ width: 100, height: 100, objectFit: "cover", borderRadius: 1, bgcolor: "#f5f5f5", display: "block" }}
+              />
+            </Box>
+          )}
+        </Box>
+
+        {/* LoRAs */}
+        {loraNames.length > 0 && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>LoRAs</Typography>
+            {loraNames.map((l, i) => (
+              <Typography key={i} variant="body2">
+                {l.name} (H: {l.high_weight}, L: {l.low_weight})
+              </Typography>
+            ))}
+          </Box>
+        )}
+
+        {/* Faceswap */}
+        {seg.faceswap_enabled && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Faceswap</Typography>
+            <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+              {seg.faceswap_image && (
+                <Box
+                  component="img"
+                  src={getFileUrl(seg.faceswap_image)}
+                  alt="Faceswap"
+                  sx={{ width: 48, height: 48, objectFit: "cover", borderRadius: 1, bgcolor: "#f5f5f5" }}
+                />
+              )}
+              <Box>
+                <Typography variant="body2">Method: {seg.faceswap_method ?? "-"}</Typography>
+                <Typography variant="body2">Source: {seg.faceswap_source_type ?? "-"}</Typography>
+                {seg.faceswap_faces_index && (
+                  <Typography variant="body2">Faces: {seg.faceswap_faces_index} ({seg.faceswap_faces_order})</Typography>
+                )}
+              </Box>
+            </Box>
+          </Box>
+        )}
+
+        {/* Timing */}
+        <Box sx={{ display: "flex", gap: 4, mb: 2 }}>
+          <Box>
+            <Typography variant="subtitle2" color="text.secondary">Created</Typography>
+            <Typography variant="body2">{formatDate(seg.created_at)}</Typography>
+          </Box>
+          {seg.claimed_at && seg.completed_at && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary">Run Time</Typography>
+              <Typography variant="body2">{segmentRunTime(seg)}</Typography>
+            </Box>
+          )}
+        </Box>
+
+        {/* Error */}
+        {seg.error_message && (
+          <Alert severity="error">{seg.error_message}</Alert>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 

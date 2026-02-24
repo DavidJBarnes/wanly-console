@@ -32,17 +32,16 @@ import {
   IconButton,
   ToggleButton,
   ToggleButtonGroup,
-  Tooltip,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Add, DeleteOutline, ClearOutlined, DragIndicator } from "@mui/icons-material";
+import { Add, ClearOutlined, DragIndicator } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { DragDropProvider, DragOverlay } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { useLoraStore } from "../stores/loraStore";
 import { useTagStore } from "../stores/tagStore";
-import { createJob, deleteJob, getJobs, getFileUrl, getFaceswapPresets, reorderJobs } from "../api/client";
+import { createJob, getJobs, getFileUrl, getFaceswapPresets, reorderJobs } from "../api/client";
 import type { JobCreate, JobResponse, JobStatus, LoraListItem, FaceswapPreset } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -95,8 +94,6 @@ export default function JobQueue() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
-  const [deleteConfirm, setDeleteConfirm] = useState<JobResponse | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [activeJob, setActiveJob] = useState<JobResponse | null>(null);
   const isDraggingRef = useRef(false);
 
@@ -170,20 +167,6 @@ export default function JobQueue() {
     reorderJobs(reorderableIds).catch(() => {
       setJobs(prev);
     });
-  };
-
-  const handleDeleteJob = async () => {
-    if (!deleteConfirm) return;
-    setDeleting(true);
-    try {
-      await deleteJob(deleteConfirm.id);
-      setDeleteConfirm(null);
-      fetchPage();
-    } catch {
-      // keep dialog open on failure
-    } finally {
-      setDeleting(false);
-    }
   };
 
   const comparator = (a: JobResponse, b: JobResponse): number => {
@@ -297,11 +280,11 @@ export default function JobQueue() {
                   <TableCell sx={{ width: 60 }}>Image</TableCell>
                   <SortableHeader id="name" label="Name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} />
                   <SortableHeader id="status" label="Status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 120 }} />
+                  <TableCell sx={{ width: 80 }}>Segments</TableCell>
                   <TableCell>Dimensions</TableCell>
                   <SortableHeader id="fps" label="FPS" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 80 }} />
                   <SortableHeader id="created_at" label="Created" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 150 }} />
                   <SortableHeader id="updated_at" label="Updated" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 150 }} />
-                  <TableCell sx={{ width: 60 }} />
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -312,7 +295,6 @@ export default function JobQueue() {
                     index={index}
                     showHandle={isPriorityMode}
                     onNavigate={(id) => navigate(`/jobs/${id}`)}
-                    onDelete={setDeleteConfirm}
                   />
                 ))}
               </TableBody>
@@ -345,7 +327,6 @@ export default function JobQueue() {
               index={index}
               showHandle={isPriorityMode}
               onNavigate={(id) => navigate(`/jobs/${id}`)}
-              onDelete={setDeleteConfirm}
             />
           ))}
           {!isPriorityMode && (
@@ -385,34 +366,6 @@ export default function JobQueue() {
           </Typography>
         </Box>
       )}
-
-      {/* Delete job confirm dialog */}
-      <Dialog
-        open={!!deleteConfirm}
-        onClose={() => setDeleteConfirm(null)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Delete Job</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Delete <strong>{deleteConfirm?.name}</strong>? This will permanently
-            remove the job, all its segments, videos, and S3 assets. This cannot
-            be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleDeleteJob}
-            disabled={deleting}
-          >
-            {deleting ? "Deleting..." : "Delete"}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       <CreateJobDialog
         open={dialogOpen}
@@ -461,13 +414,11 @@ function SortableTableRow({
   index,
   showHandle,
   onNavigate,
-  onDelete,
 }: {
   job: JobResponse;
   index: number;
   showHandle: boolean;
   onNavigate: (id: string) => void;
-  onDelete: (job: JobResponse) => void;
 }) {
   const isLocked = DRAG_LOCKED_STATUSES.has(job.status);
   const { ref, handleRef, isDragging } = useSortable({
@@ -543,27 +494,16 @@ function SortableTableRow({
         <StatusChip status={job.status} />
       </TableCell>
       <TableCell>
+        <Typography variant="body2">
+          {job.completed_segment_count}/{job.segment_count}
+        </Typography>
+      </TableCell>
+      <TableCell>
         {job.width}x{job.height}
       </TableCell>
       <TableCell>{job.fps}</TableCell>
       <TableCell>{formatDate(job.created_at)}</TableCell>
       <TableCell>{formatDate(job.updated_at)}</TableCell>
-      <TableCell>
-        {job.status !== "processing" && job.status !== "finalizing" && (
-          <Tooltip title="Delete job">
-            <IconButton
-              size="small"
-              color="error"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(job);
-              }}
-            >
-              <DeleteOutline fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        )}
-      </TableCell>
     </TableRow>
   );
 }
@@ -573,13 +513,11 @@ function SortableMobileCard({
   index,
   showHandle,
   onNavigate,
-  onDelete,
 }: {
   job: JobResponse;
   index: number;
   showHandle: boolean;
   onNavigate: (id: string) => void;
-  onDelete: (job: JobResponse) => void;
 }) {
   const isLocked = DRAG_LOCKED_STATUSES.has(job.status);
   const { ref, handleRef, isDragging } = useSortable({
@@ -651,22 +589,9 @@ function SortableMobileCard({
               <StatusChip status={job.status} />
             </Box>
             <Typography variant="caption" color="text.secondary">
-              {job.width}x{job.height} &middot; {job.fps}fps &middot; {formatDate(job.updated_at)}
+              {job.width}x{job.height} &middot; {job.fps}fps &middot; {job.completed_segment_count}/{job.segment_count} segs &middot; {formatDate(job.updated_at)}
             </Typography>
           </Box>
-          {job.status !== "processing" && job.status !== "finalizing" && (
-            <IconButton
-              size="small"
-              color="error"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(job);
-              }}
-              sx={{ alignSelf: "center", flexShrink: 0 }}
-            >
-              <DeleteOutline fontSize="small" />
-            </IconButton>
-          )}
         </Box>
       </CardActionArea>
     </Card>
