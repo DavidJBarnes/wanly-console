@@ -674,8 +674,8 @@ function CreateJobDialog({
       {
         lora_id: item.id,
         name: item.name,
-        high_weight: item.default_high_weight,
-        low_weight: item.default_low_weight,
+        high_weight: item.high_file ? item.default_high_weight : 0,
+        low_weight: item.low_file ? item.default_low_weight : 0,
         preview_image: item.preview_image,
       },
     ]);
@@ -1085,6 +1085,7 @@ function CreateJobDialog({
                       parseFloat(e.target.value),
                     )
                   }
+                  disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.high_file}
                   sx={{ flex: 1, minWidth: 100 }}
                   slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
                 />
@@ -1100,6 +1101,7 @@ function CreateJobDialog({
                       parseFloat(e.target.value),
                     )
                   }
+                  disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.low_file}
                   sx={{ flex: 1, minWidth: 100 }}
                   slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
                 />

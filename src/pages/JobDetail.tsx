@@ -1146,8 +1146,8 @@ function lorasToSlots(
       return {
         lora_id: l.lora_id!,
         name: lib?.name ?? l.lora_id!.slice(0, 8),
-        high_weight: l.high_weight,
-        low_weight: l.low_weight,
+        high_weight: lib?.high_file ? l.high_weight : 0,
+        low_weight: lib?.low_file ? l.low_weight : 0,
         preview_image: lib?.preview_image ?? null,
       };
     });
@@ -1237,8 +1237,8 @@ function SegmentModal({
       {
         lora_id: item.id,
         name: item.name,
-        high_weight: item.default_high_weight,
-        low_weight: item.default_low_weight,
+        high_weight: item.high_file ? item.default_high_weight : 0,
+        low_weight: item.low_file ? item.default_low_weight : 0,
         preview_image: item.preview_image,
       },
     ]);
@@ -1717,6 +1717,7 @@ function SegmentModal({
                     parseFloat(e.target.value),
                   )
                 }
+                disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.high_file}
                 sx={{ width: 80 }}
                 slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
               />
@@ -1732,6 +1733,7 @@ function SegmentModal({
                     parseFloat(e.target.value),
                   )
                 }
+                disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.low_file}
                 sx={{ width: 80 }}
                 slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
               />
