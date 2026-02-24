@@ -100,6 +100,11 @@ export async function deleteJob(id: string): Promise<void> {
   await api.delete(`/jobs/${id}`);
 }
 
+export async function reopenJob(id: string): Promise<JobDetailResponse> {
+  const { data } = await api.post<JobDetailResponse>(`/jobs/${id}/reopen`);
+  return data;
+}
+
 export async function addSegment(
   jobId: string,
   body: SegmentCreate,

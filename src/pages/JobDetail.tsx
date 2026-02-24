@@ -49,6 +49,7 @@ import {
   retrySegment,
   deleteSegment,
   deleteJob,
+  reopenJob,
   getFileUrl,
   getFaceswapPresets,
 } from "../api/client";
@@ -120,6 +121,8 @@ export default function JobDetail() {
   const [deleteJobConfirm, setDeleteJobConfirm] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
   const [detailSeg, setDetailSeg] = useState<SegmentResponse | null>(null);
+  const [reopening, setReopening] = useState(false);
+  const [reopenConfirm, setReopenConfirm] = useState(false);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -152,6 +155,21 @@ export default function JobDetail() {
       setError("Failed to finalize job");
     } finally {
       setFinalizing(false);
+    }
+  };
+
+  const handleReopen = async () => {
+    if (!id) return;
+    setReopenConfirm(false);
+    setReopening(true);
+    try {
+      const data = await reopenJob(id);
+      setJob(data);
+      setError("");
+    } catch {
+      setError("Failed to re-open job");
+    } finally {
+      setReopening(false);
     }
   };
 
@@ -339,6 +357,24 @@ export default function JobDetail() {
                 }
               >
                 {finalizing ? "Finalizing..." : "Finalize & Merge"}
+              </Button>
+            )}
+            {job.status === "finalized" && (
+              <Button
+                variant="outlined"
+                color="warning"
+                size="small"
+                onClick={() => setReopenConfirm(true)}
+                disabled={reopening}
+                startIcon={
+                  reopening ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : (
+                    <Replay />
+                  )
+                }
+              >
+                {reopening ? "Re-opening..." : "Re-open Job"}
               </Button>
             )}
           </Box>
@@ -851,6 +887,34 @@ export default function JobDetail() {
             disabled={deletingJob}
           >
             {deletingJob ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Re-open job confirm dialog */}
+      <Dialog
+        open={reopenConfirm}
+        onClose={() => setReopenConfirm(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Re-open Job</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Re-open <strong>{job.name}</strong>? This will delete the finalized
+            video and return the job to &ldquo;awaiting&rdquo; status. All
+            segments will be preserved.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReopenConfirm(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleReopen}
+            disabled={reopening}
+          >
+            {reopening ? "Re-opening..." : "Re-open"}
           </Button>
         </DialogActions>
       </Dialog>
