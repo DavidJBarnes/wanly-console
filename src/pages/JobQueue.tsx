@@ -145,7 +145,8 @@ export default function JobQueue() {
   // In @dnd-kit/react, the OptimisticSortingPlugin reorders the DOM during drag,
   // so source and target in onDragEnd are always the same item.
   // Use source.sortable.initialIndex / .index instead (per dnd-kit#1664).
-  const handleDragEnd = (event: { canceled: boolean; operation: { source: unknown } }) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleDragEnd = (event: { canceled: boolean; operation: { source: any } }) => {
     setActiveJob(null);
 
     if (event.canceled) {
