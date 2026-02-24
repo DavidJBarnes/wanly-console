@@ -143,30 +143,33 @@ export default function JobQueue() {
   };
 
   const handleDragEnd = (event: { canceled: boolean; operation: { source: { id: string | number } | null; target: { id: string | number } | null } }) => {
-    isDraggingRef.current = false;
     setActiveJob(null);
 
-    if (event.canceled) return;
+    if (event.canceled) {
+      isDraggingRef.current = false;
+      return;
+    }
     const { source, target } = event.operation;
-    if (!source || !target || source.id === target.id) return;
+    if (!source || !target || source.id === target.id) {
+      isDraggingRef.current = false;
+      return;
+    }
 
     const fromIndex = jobs.findIndex((j) => j.id === source.id);
     const toIndex = jobs.findIndex((j) => j.id === target.id);
-    if (fromIndex === -1 || toIndex === -1) return;
+    if (fromIndex === -1 || toIndex === -1) {
+      isDraggingRef.current = false;
+      return;
+    }
 
     const reordered = arrayMove(jobs, fromIndex, toIndex);
     const prev = [...jobs];
     setJobs(reordered);
 
-    // Only send reorderable job IDs — processing/finalizing are locked
-    const reorderableIds = reordered
-      .filter((j) => !DRAG_LOCKED_STATUSES.has(j.status))
-      .map((j) => j.id);
-    if (reorderableIds.length === 0) return;
-
-    reorderJobs(reorderableIds).catch(() => {
-      setJobs(prev);
-    });
+    const allIds = reordered.map((j) => j.id);
+    reorderJobs(allIds)
+      .catch(() => setJobs(prev))
+      .finally(() => { isDraggingRef.current = false; });
   };
 
   const comparator = (a: JobResponse, b: JobResponse): number => {
