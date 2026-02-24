@@ -103,6 +103,8 @@ export interface JobResponse {
   starting_image: string | null;
   priority: number;
   status: JobStatus;
+  segment_count: number;
+  completed_segment_count: number;
   created_at: string;
   updated_at: string;
 }
