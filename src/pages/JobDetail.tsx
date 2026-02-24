@@ -1118,6 +1118,10 @@ function SegmentModal({
   const [faceswapFacesIndex, setFaceswapFacesIndex] = useState("0");
   const [faceswapFacesOrder, setFaceswapFacesOrder] = useState("left-right");
   const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
+  const [startImageMode, setStartImageMode] = useState<"auto" | "select" | "upload">("auto");
+  const [startImagePath, setStartImagePath] = useState<string | null>(null);
+  const [startImageFile, setStartImageFile] = useState<File | null>(null);
+  const [startImageError, setStartImageError] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -1139,6 +1143,10 @@ function SegmentModal({
       setFaceswapPresetUri(srcType === "preset" ? lastSegment.faceswap_image ?? null : null);
       setFaceswapFacesIndex(lastSegment.faceswap_faces_index ?? "0");
       setFaceswapFacesOrder(lastSegment.faceswap_faces_order ?? "left-right");
+      setStartImageMode("auto");
+      setStartImagePath(null);
+      setStartImageFile(null);
+      setStartImageError("");
       setError("");
     }
   }, [open]);
@@ -1215,9 +1223,18 @@ function SegmentModal({
         }
       }
 
+      let startImageUri: string | null = null;
+      if (startImageMode === "select") {
+        startImageUri = startImagePath;
+      } else if (startImageMode === "upload" && startImageFile) {
+        const uploaded = await uploadFile(startImageFile, jobId);
+        startImageUri = uploaded.path;
+      }
+
       const body: SegmentCreate = {
         prompt: prompt.trim(),
         duration_seconds: duration,
+        start_image: startImageUri,
         faceswap_enabled: faceswapEnabled,
         faceswap_method: faceswapEnabled ? faceswapMethod : null,
         faceswap_source_type: faceswapEnabled ? faceswapSourceType : null,
@@ -1280,6 +1297,148 @@ function SegmentModal({
           slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
           sx={{ mt: 2, width: 150 }}
         />
+
+        {/* Start Image section */}
+        <Box sx={{ mt: 3 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Start Image
+          </Typography>
+          {(() => {
+            const autoImage = lastSegment?.last_frame_path ?? job.starting_image ?? null;
+            const effectiveImage =
+              startImageMode === "select" ? startImagePath :
+              startImageMode === "upload" && startImageFile ? URL.createObjectURL(startImageFile) :
+              autoImage;
+            const isObjectUrl = startImageMode === "upload" && startImageFile;
+            const selectableImages: { path: string; label: string }[] = [];
+            const seen = new Set<string>();
+            if (job.starting_image) {
+              seen.add(job.starting_image);
+              selectableImages.push({ path: job.starting_image, label: "Starting Image" });
+            }
+            for (const seg of job.segments) {
+              if (seg.status === "completed" && seg.last_frame_path && !seen.has(seg.last_frame_path)) {
+                seen.add(seg.last_frame_path);
+                selectableImages.push({ path: seg.last_frame_path, label: `Seg ${seg.index} output` });
+              }
+            }
+            return (
+              <>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
+                  {effectiveImage && (
+                    <Box
+                      component="img"
+                      src={isObjectUrl ? effectiveImage : getFileUrl(effectiveImage!)}
+                      alt="Start image preview"
+                      sx={{
+                        width: 80,
+                        height: 80,
+                        objectFit: "cover",
+                        borderRadius: 1,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <ToggleButtonGroup
+                    value={startImageMode}
+                    exclusive
+                    onChange={(_e, v) => {
+                      if (v === null) return;
+                      setStartImageMode(v);
+                      if (v !== "select") setStartImagePath(null);
+                      if (v !== "upload") {
+                        setStartImageFile(null);
+                        setStartImageError("");
+                      }
+                    }}
+                    size="small"
+                  >
+                    <ToggleButton value="auto">Auto</ToggleButton>
+                    <ToggleButton value="select">Select</ToggleButton>
+                    <ToggleButton value="upload">Upload</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+                {startImageMode === "select" && (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      gap: 1,
+                      overflowX: "auto",
+                      py: 1,
+                      "&::-webkit-scrollbar": { height: 6 },
+                      "&::-webkit-scrollbar-thumb": { bgcolor: "action.disabled", borderRadius: 3 },
+                    }}
+                  >
+                    {selectableImages.map((img) => (
+                      <Tooltip key={img.path} title={img.label} arrow>
+                        <Box
+                          component="img"
+                          src={getFileUrl(img.path)}
+                          alt={img.label}
+                          onClick={() => setStartImagePath(img.path)}
+                          sx={{
+                            width: 64,
+                            height: 64,
+                            objectFit: "cover",
+                            borderRadius: 0.5,
+                            cursor: "pointer",
+                            flexShrink: 0,
+                            border: "2px solid",
+                            borderColor: startImagePath === img.path ? "primary.main" : "transparent",
+                            "&:hover": { borderColor: startImagePath === img.path ? "primary.main" : "action.hover" },
+                          }}
+                        />
+                      </Tooltip>
+                    ))}
+                    {selectableImages.length === 0 && (
+                      <Typography variant="body2" color="text.secondary">
+                        No images available
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+                {startImageMode === "upload" && (
+                  <Box sx={{ mt: 1 }}>
+                    <Button variant="outlined" size="small" component="label">
+                      {startImageFile ? startImageFile.name : "Choose Image"}
+                      <input
+                        type="file"
+                        hidden
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const img = new Image();
+                          img.onload = () => {
+                            if (img.naturalWidth !== job.width || img.naturalHeight !== job.height) {
+                              setStartImageError(
+                                `Image must be ${job.width}x${job.height} (got ${img.naturalWidth}x${img.naturalHeight})`
+                              );
+                              setStartImageFile(null);
+                            } else {
+                              setStartImageError("");
+                              setStartImageFile(file);
+                            }
+                            URL.revokeObjectURL(img.src);
+                          };
+                          img.src = URL.createObjectURL(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </Button>
+                    {startImageError && (
+                      <Alert severity="error" sx={{ mt: 1 }}>
+                        {startImageError}
+                      </Alert>
+                    )}
+                  </Box>
+                )}
+              </>
+            );
+          })()}
+        </Box>
 
         {/* Faceswap section */}
         <Box sx={{ mt: 3 }}>
