@@ -38,7 +38,7 @@ import {
 import { Add, ClearOutlined, DragIndicator } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { DragDropProvider, DragOverlay } from "@dnd-kit/react";
-import { useSortable } from "@dnd-kit/react/sortable";
+import { useSortable, isSortable } from "@dnd-kit/react/sortable";
 import { useLoraStore } from "../stores/loraStore";
 import { useTagStore } from "../stores/tagStore";
 import { createJob, getJobs, getFileUrl, getFaceswapPresets, reorderJobs } from "../api/client";
@@ -142,22 +142,26 @@ export default function JobQueue() {
     }
   };
 
-  const handleDragEnd = (event: { canceled: boolean; operation: { source: { id: string | number } | null; target: { id: string | number } | null } }) => {
+  // In @dnd-kit/react, the OptimisticSortingPlugin reorders the DOM during drag,
+  // so source and target in onDragEnd are always the same item.
+  // Use source.sortable.initialIndex / .index instead (per dnd-kit#1664).
+  const handleDragEnd = (event: { canceled: boolean; operation: { source: unknown } }) => {
     setActiveJob(null);
 
     if (event.canceled) {
       isDraggingRef.current = false;
       return;
     }
-    const { source, target } = event.operation;
-    if (!source || !target || source.id === target.id) {
+
+    const { source } = event.operation;
+    if (!source || !isSortable(source)) {
       isDraggingRef.current = false;
       return;
     }
 
-    const fromIndex = jobs.findIndex((j) => j.id === source.id);
-    const toIndex = jobs.findIndex((j) => j.id === target.id);
-    if (fromIndex === -1 || toIndex === -1) {
+    const fromIndex = source.sortable.initialIndex;
+    const toIndex = source.sortable.index;
+    if (fromIndex === toIndex) {
       isDraggingRef.current = false;
       return;
     }
