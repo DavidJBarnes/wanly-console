@@ -623,6 +623,7 @@ function CreateJobDialog({
   const [height, setHeight] = useState(640);
   const [fps, setFps] = useState(30);
   const [duration, setDuration] = useState(5.0);
+  const [speed, setSpeed] = useState(1.0);
   const [seed, setSeed] = useState("");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -703,6 +704,7 @@ function CreateJobDialog({
     setHeight(640);
     setFps(30);
     setDuration(5.0);
+    setSpeed(1.0);
     setSeed("");
     setStartingImage(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
@@ -743,6 +745,7 @@ function CreateJobDialog({
         first_segment: {
           prompt: prompt.trim(),
           duration_seconds: duration,
+          speed,
           loras:
             loras.length > 0
               ? loras.map((l) => ({
@@ -907,6 +910,18 @@ function CreateJobDialog({
             sx={{ flex: 1, minWidth: 120 }}
             slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
           />
+          <TextField
+            label="Speed"
+            select
+            value={speed}
+            onChange={(e) => setSpeed(parseFloat(e.target.value))}
+            sx={{ flex: 1, minWidth: 100 }}
+          >
+            <MenuItem value={1.0}>1.0x</MenuItem>
+            <MenuItem value={1.25}>1.25x</MenuItem>
+            <MenuItem value={1.5}>1.5x</MenuItem>
+            <MenuItem value={2.0}>2.0x</MenuItem>
+          </TextField>
           <TextField
             label="Seed (optional)"
             type="number"
