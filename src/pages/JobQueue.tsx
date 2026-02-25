@@ -54,8 +54,8 @@ const ALL_STATUSES: JobStatus[] = [
 ];
 
 const STATUS_PRIORITY: Record<string, number> = {
-  awaiting: 0,
-  failed: 1,
+  failed: 0,
+  awaiting: 1,
   processing: 2,
   pending: 3,
   paused: 4,
@@ -73,7 +73,7 @@ function formatDate(iso: string) {
   });
 }
 
-const DRAG_LOCKED_STATUSES = new Set(["processing", "finalizing"]);
+const DRAG_LOCKED_STATUSES = new Set(["failed", "awaiting", "processing", "finalizing", "completed"]);
 
 function arrayMove<T>(arr: T[], from: number, to: number): T[] {
   const result = [...arr];
@@ -161,7 +161,14 @@ export default function JobQueue() {
     }
 
     const fromIndex = source.sortable.initialIndex;
-    const toIndex = source.sortable.index;
+    let toIndex = source.sortable.index;
+
+    // Prevent pending jobs from being dragged above non-pending jobs
+    const firstPendingIndex = jobs.findIndex((j) => j.status === "pending");
+    if (firstPendingIndex >= 0 && toIndex < firstPendingIndex) {
+      toIndex = firstPendingIndex;
+    }
+
     if (fromIndex === toIndex) {
       isDraggingRef.current = false;
       return;
@@ -198,7 +205,16 @@ export default function JobQueue() {
     }
   };
 
-  const sortedJobs = isPriorityMode ? jobs : [...jobs].sort(comparator);
+  const sortedJobs = isPriorityMode
+    ? [...jobs].sort((a, b) => {
+        // Group by status first (failed → awaiting → processing → pending → paused)
+        const sa = STATUS_PRIORITY[a.status] ?? 99;
+        const sb = STATUS_PRIORITY[b.status] ?? 99;
+        if (sa !== sb) return sa - sb;
+        // Within same status group, keep API priority order
+        return 0;
+      })
+    : [...jobs].sort(comparator);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
