@@ -11,6 +11,7 @@ export interface TokenResponse {
 export interface SegmentCreate {
   prompt: string;
   duration_seconds?: number;
+  speed?: number;
   start_image?: string | null;
   loras?: LoraConfig[] | null;
   faceswap_enabled?: boolean;
@@ -116,6 +117,7 @@ export interface SegmentResponse {
   prompt: string;
   prompt_template: string | null;
   duration_seconds: number;
+  speed: number;
   start_image: string | null;
   loras: LoraConfig[] | null;
   faceswap_enabled: boolean;

@@ -1064,11 +1064,15 @@ function SegmentDetailModal({
           </Typography>
         )}
 
-        {/* Duration */}
+        {/* Duration / Speed */}
         <Box sx={{ display: "flex", gap: 4, mb: 2 }}>
           <Box>
             <Typography variant="subtitle2" color="text.secondary">Duration</Typography>
             <Typography variant="body2">{seg.duration_seconds}s</Typography>
+          </Box>
+          <Box>
+            <Typography variant="subtitle2" color="text.secondary">Speed</Typography>
+            <Typography variant="body2">{seg.speed}x</Typography>
           </Box>
           <Box>
             <Typography variant="subtitle2" color="text.secondary">Status</Typography>
@@ -1217,6 +1221,7 @@ function SegmentModal({
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(5.0);
+  const [speed, setSpeed] = useState(1.0);
   const [faceswapEnabled, setFaceswapEnabled] = useState(false);
   const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("upload");
   const [faceswapMethod, setFaceswapMethod] = useState("reactor");
@@ -1239,6 +1244,7 @@ function SegmentModal({
     if (open && lastSegment) {
       setPrompt(lastSegment.prompt_template ?? lastSegment.prompt);
       setDuration(lastSegment.duration_seconds);
+      setSpeed(lastSegment.speed);
       setFaceswapEnabled(lastSegment.faceswap_enabled);
       const srcType = lastSegment.faceswap_source_type === "preset"
         ? "preset"
@@ -1342,6 +1348,7 @@ function SegmentModal({
       const body: SegmentCreate = {
         prompt: prompt.trim(),
         duration_seconds: duration,
+        speed,
         start_image: startImageUri,
         faceswap_enabled: faceswapEnabled,
         faceswap_method: faceswapEnabled ? faceswapMethod : null,
@@ -1397,14 +1404,28 @@ function SegmentModal({
             <ClearOutlined sx={{ fontSize: 14 }} />
           </IconButton>
         </Box>
-        <TextField
-          label="Duration (sec)"
-          type="number"
-          value={duration}
-          onChange={(e) => setDuration(parseFloat(e.target.value) || 5)}
-          slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
-          sx={{ mt: 2, width: 150 }}
-        />
+        <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+          <TextField
+            label="Duration (sec)"
+            type="number"
+            value={duration}
+            onChange={(e) => setDuration(parseFloat(e.target.value) || 5)}
+            slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
+            sx={{ width: 150 }}
+          />
+          <TextField
+            label="Speed"
+            select
+            value={speed}
+            onChange={(e) => setSpeed(parseFloat(e.target.value))}
+            sx={{ width: 120 }}
+          >
+            <MenuItem value={1.0}>1.0x</MenuItem>
+            <MenuItem value={1.25}>1.25x</MenuItem>
+            <MenuItem value={1.5}>1.5x</MenuItem>
+            <MenuItem value={2.0}>2.0x</MenuItem>
+          </TextField>
+        </Box>
 
         {/* Start Image section */}
         <Box sx={{ mt: 3 }}>
