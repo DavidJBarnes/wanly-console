@@ -39,6 +39,7 @@ import {
   DeleteOutline,
   ClearOutlined,
   InfoOutlined,
+  StopCircle,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -47,6 +48,7 @@ import {
   addSegment,
   uploadFile,
   retrySegment,
+  cancelSegment,
   deleteSegment,
   deleteJob,
   reopenJob,
@@ -180,6 +182,18 @@ export default function JobDetail() {
       fetchJob();
     } catch {
       setError("Failed to retry segment");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCancel = async (seg: SegmentResponse) => {
+    setActionLoading(seg.id);
+    try {
+      await cancelSegment(seg.id);
+      fetchJob();
+    } catch {
+      setError("Failed to cancel segment");
     } finally {
       setActionLoading(null);
     }
@@ -566,6 +580,22 @@ export default function JobDetail() {
                             <InfoOutlined fontSize="small" />
                           </IconButton>
                         </Tooltip>
+                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing") && (
+                          <Tooltip title="Cancel">
+                            <IconButton
+                              size="small"
+                              color="warning"
+                              onClick={() => handleCancel(seg)}
+                              disabled={actionLoading === seg.id}
+                            >
+                              {actionLoading === seg.id ? (
+                                <CircularProgress size={18} />
+                              ) : (
+                                <StopCircle fontSize="small" />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {seg.status === "failed" && (
                           <Tooltip title="Retry">
                             <IconButton
@@ -639,6 +669,20 @@ export default function JobDetail() {
                         >
                           <InfoOutlined fontSize="small" />
                         </IconButton>
+                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing") && (
+                          <IconButton
+                            size="small"
+                            color="warning"
+                            onClick={() => handleCancel(seg)}
+                            disabled={actionLoading === seg.id}
+                          >
+                            {actionLoading === seg.id ? (
+                              <CircularProgress size={18} />
+                            ) : (
+                              <StopCircle fontSize="small" />
+                            )}
+                          </IconButton>
+                        )}
                         {seg.status === "failed" && (
                           <IconButton
                             size="small"

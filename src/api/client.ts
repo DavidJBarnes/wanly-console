@@ -125,6 +125,15 @@ export async function retrySegment(
   return data;
 }
 
+export async function cancelSegment(
+  segmentId: string,
+): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(
+    `/segments/${segmentId}/cancel`,
+  );
+  return data;
+}
+
 export async function deleteSegment(segmentId: string): Promise<void> {
   await api.delete(`/segments/${segmentId}`);
 }
