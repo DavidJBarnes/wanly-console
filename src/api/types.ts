@@ -91,6 +91,8 @@ export interface JobCreate {
   height: number;
   fps: number;
   seed?: number | null;
+  lightx2v_strength_high?: number | null;
+  lightx2v_strength_low?: number | null;
   first_segment: SegmentCreate;
 }
 
@@ -102,6 +104,8 @@ export interface JobResponse {
   fps: number;
   seed: number;
   starting_image: string | null;
+  lightx2v_strength_high: number | null;
+  lightx2v_strength_low: number | null;
   priority: number;
   status: JobStatus;
   segment_count: number;

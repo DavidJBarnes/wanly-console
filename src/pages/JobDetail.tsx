@@ -324,6 +324,14 @@ export default function JobDetail() {
             <MetaItem label="FPS" value={`${job.fps}`} />
             <MetaItem label="Seed" value={`${job.seed}`} />
             <MetaItem
+              label="LightX2V High"
+              value={job.lightx2v_strength_high != null ? `${job.lightx2v_strength_high}` : "Default"}
+            />
+            <MetaItem
+              label="LightX2V Low"
+              value={job.lightx2v_strength_low != null ? `${job.lightx2v_strength_low}` : "Default"}
+            />
+            <MetaItem
               label="Segments"
               value={`${job.completed_segment_count}/${job.segment_count}`}
             />
