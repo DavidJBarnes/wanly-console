@@ -24,6 +24,7 @@ const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
   "online-idle": { color: "#4caf50", label: "Idle" },
   "online-busy": { color: "#ff9800", label: "Busy" },
   offline: { color: "#9e9e9e", label: "Offline" },
+  draining: { color: "#f57f17", label: "Draining" },
 };
 
 function formatDate(iso: string) {
