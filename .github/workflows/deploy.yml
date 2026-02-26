@@ -50,12 +50,13 @@ jobs:
             --parameters commands='[
               "set -e",
               "aws ecr get-login-password --region '"${{ env.AWS_REGION }}"' | docker login --username AWS --password-stdin '"${{ steps.login-ecr.outputs.registry }}"'",
+              "docker image prune -af",
               "docker pull '"${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}"':latest",
               "docker stop '"${{ env.CONTAINER_NAME }}"' || true",
               "docker rm '"${{ env.CONTAINER_NAME }}"' || true",
               "docker run -d --name '"${{ env.CONTAINER_NAME }}"' --restart unless-stopped --network host -v /etc/letsencrypt:/etc/letsencrypt:ro '"${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}"':latest",
               "for i in 1 2 3 4 5; do curl -sf -k https://localhost/ && break || sleep 5; done",
-              "docker image prune -af --filter until=48h"
+              "docker image prune -af"
             ]' \
             --query "Command.CommandId" \
             --output text)
