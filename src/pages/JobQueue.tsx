@@ -643,6 +643,8 @@ function CreateJobDialog({
   const [duration, setDuration] = useState(5.0);
   const [speed, setSpeed] = useState(1.0);
   const [seed, setSeed] = useState("");
+  const [lightx2vHigh, setLightx2vHigh] = useState("");
+  const [lightx2vLow, setLightx2vLow] = useState("");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [faceswapEnabled, setFaceswapEnabled] = useState(false);
@@ -724,6 +726,8 @@ function CreateJobDialog({
     setDuration(5.0);
     setSpeed(1.0);
     setSeed("");
+    setLightx2vHigh("");
+    setLightx2vLow("");
     setStartingImage(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
@@ -760,6 +764,8 @@ function CreateJobDialog({
         height,
         fps,
         seed: seed ? parseInt(seed) : null,
+        lightx2v_strength_high: lightx2vHigh ? parseFloat(lightx2vHigh) : null,
+        lightx2v_strength_low: lightx2vLow ? parseFloat(lightx2vLow) : null,
         first_segment: {
           prompt: prompt.trim(),
           duration_seconds: duration,
@@ -946,6 +952,29 @@ function CreateJobDialog({
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
             sx={{ flex: 1, minWidth: 120 }}
+          />
+        </Box>
+
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 2 }}>
+          <TextField
+            label="LightX2V High"
+            type="number"
+            value={lightx2vHigh}
+            onChange={(e) => setLightx2vHigh(e.target.value)}
+            placeholder="2.0"
+            sx={{ flex: 1, minWidth: 120 }}
+            slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+            helperText="Default: 2.0"
+          />
+          <TextField
+            label="LightX2V Low"
+            type="number"
+            value={lightx2vLow}
+            onChange={(e) => setLightx2vLow(e.target.value)}
+            placeholder="1.0"
+            sx={{ flex: 1, minWidth: 120 }}
+            slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+            helperText="Default: 1.0"
           />
         </Box>
 
