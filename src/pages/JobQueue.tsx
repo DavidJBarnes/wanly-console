@@ -686,7 +686,13 @@ function CreateJobDialog({
     if (open) {
       fetchLoras();
       fetchTags();
-      getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
+      getFaceswapPresets().then((presets) => {
+        setFaceswapPresets(presets);
+        if (faceswapPresetUri && !presets.some((p) => p.url === faceswapPresetUri)) {
+          const match = presets.find((p) => p.key === "kelly_young.safetensors");
+          if (match) setFaceswapPresetUri(match.url);
+        }
+      }).catch(() => {});
     }
   }, [open, fetchLoras, fetchTags]);
 
