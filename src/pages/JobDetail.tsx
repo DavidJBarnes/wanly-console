@@ -325,11 +325,11 @@ export default function JobDetail() {
             <MetaItem label="Seed" value={`${job.seed}`} />
             <MetaItem
               label="LightX2V High"
-              value={job.lightx2v_strength_high != null ? `${job.lightx2v_strength_high}` : "Default"}
+              value={`${job.lightx2v_strength_high ?? 2.0}`}
             />
             <MetaItem
               label="LightX2V Low"
-              value={job.lightx2v_strength_low != null ? `${job.lightx2v_strength_low}` : "Default"}
+              value={`${job.lightx2v_strength_low ?? 1.0}`}
             />
             <MetaItem
               label="Segments"
