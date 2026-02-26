@@ -688,7 +688,7 @@ function CreateJobDialog({
       fetchTags();
       getFaceswapPresets().then((presets) => {
         setFaceswapPresets(presets);
-        const kelly = presets.find((p) => p.key === "kelly_young.safetensors");
+        const kelly = presets.find((p) => p.name.toLowerCase() === "kelly_young.safetensors" || p.key.toLowerCase() === "kelly_young.safetensors.png");
         if (kelly && !faceswapPresetUri) setFaceswapPresetUri(kelly.url);
       }).catch(() => {});
     }
