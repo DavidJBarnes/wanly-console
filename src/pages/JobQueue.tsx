@@ -650,10 +650,10 @@ function CreateJobDialog({
   const [lightx2vLow, setLightx2vLow] = useState("1.0");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [faceswapEnabled, setFaceswapEnabled] = useState(false);
-  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("upload");
+  const [faceswapEnabled, setFaceswapEnabled] = useState(true);
+  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("preset");
   const [faceswapImage, setFaceswapImage] = useState<File | null>(null);
-  const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
+  const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>("s3://wanly-faces/kelly_young.safetensors");
   const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
   const [faceswapMethod, setFaceswapMethod] = useState("reactor");
   const [faceswapFacesIndex, setFaceswapFacesIndex] = useState("0");
@@ -734,10 +734,10 @@ function CreateJobDialog({
     setStartingImage(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
-    setFaceswapEnabled(false);
-    setFaceswapSourceType("upload");
+    setFaceswapEnabled(true);
+    setFaceswapSourceType("preset");
     setFaceswapImage(null);
-    setFaceswapPresetUri(null);
+    setFaceswapPresetUri("s3://wanly-faces/kelly_young.safetensors");
     setFaceswapMethod("reactor");
     setFaceswapFacesIndex("0");
     setFaceswapFacesOrder("left-right");
