@@ -98,6 +98,7 @@ export default function JobQueue() {
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [activeJob, setActiveJob] = useState<JobResponse | null>(null);
   const isDraggingRef = useRef(false);
+  const sortedJobsRef = useRef<JobResponse[]>([]);
 
   const fetchPage = useCallback(async () => {
     if (isDraggingRef.current) return;
@@ -166,7 +167,8 @@ export default function JobQueue() {
     let toIndex = source.sortable.index;
 
     // Prevent pending jobs from being dragged above non-pending jobs
-    const firstPendingIndex = jobs.findIndex((j) => j.status === "pending");
+    const displayed = sortedJobsRef.current;
+    const firstPendingIndex = displayed.findIndex((j) => j.status === "pending");
     if (firstPendingIndex >= 0 && toIndex < firstPendingIndex) {
       toIndex = firstPendingIndex;
     }
@@ -176,7 +178,7 @@ export default function JobQueue() {
       return;
     }
 
-    const reordered = arrayMove(jobs, fromIndex, toIndex);
+    const reordered = arrayMove(displayed, fromIndex, toIndex);
     const prev = [...jobs];
     setJobs(reordered);
 
@@ -217,6 +219,7 @@ export default function JobQueue() {
         return 0;
       })
     : [...jobs].sort(comparator);
+  sortedJobsRef.current = sortedJobs;
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
