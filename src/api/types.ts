@@ -212,7 +212,7 @@ export interface WorkerResponse {
   updated_at: string;
 }
 
-export type WorkerStatus = "online-idle" | "online-busy" | "offline";
+export type WorkerStatus = "online-idle" | "online-busy" | "offline" | "draining";
 
 export interface WorkerStatsItem {
   worker_name: string;
