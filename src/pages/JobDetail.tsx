@@ -125,6 +125,7 @@ export default function JobDetail() {
   const [detailSeg, setDetailSeg] = useState<SegmentResponse | null>(null);
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -172,6 +173,32 @@ export default function JobDetail() {
       setError("Failed to re-open job");
     } finally {
       setReopening(false);
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!id) return;
+    setArchiving(true);
+    try {
+      await updateJob(id, { status: "archived" });
+      fetchJob();
+    } catch {
+      setError("Failed to archive job");
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handleUnarchive = async () => {
+    if (!id) return;
+    setArchiving(true);
+    try {
+      await updateJob(id, { status: "awaiting" });
+      fetchJob();
+    } catch {
+      setError("Failed to unarchive job");
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -389,6 +416,28 @@ export default function JobDetail() {
                 }
               >
                 {reopening ? "Re-opening..." : "Re-open Job"}
+              </Button>
+            )}
+            {["awaiting", "failed", "paused"].includes(job.status) && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleArchive}
+                disabled={archiving}
+                sx={{ color: "#616161", borderColor: "#bdbdbd" }}
+              >
+                {archiving ? "Archiving..." : "Archive"}
+              </Button>
+            )}
+            {job.status === "archived" && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleUnarchive}
+                disabled={archiving}
+                sx={{ color: "#616161", borderColor: "#bdbdbd" }}
+              >
+                {archiving ? "Unarchiving..." : "Unarchive"}
               </Button>
             )}
           </Box>

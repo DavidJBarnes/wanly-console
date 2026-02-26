@@ -51,6 +51,7 @@ const ALL_STATUSES: JobStatus[] = [
   "processing",
   "pending",
   "paused",
+  "archived",
 ];
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -59,6 +60,7 @@ const STATUS_PRIORITY: Record<string, number> = {
   processing: 2,
   pending: 3,
   paused: 4,
+  archived: 5,
 };
 
 type SortKey = "name" | "status" | "fps" | "created_at" | "updated_at";
@@ -73,7 +75,7 @@ function formatDate(iso: string) {
   });
 }
 
-const DRAG_LOCKED_STATUSES = new Set(["failed", "awaiting", "processing", "finalizing", "completed"]);
+const DRAG_LOCKED_STATUSES = new Set(["failed", "awaiting", "processing", "finalizing", "completed", "archived"]);
 
 function arrayMove<T>(arr: T[], from: number, to: number): T[] {
   const result = [...arr];

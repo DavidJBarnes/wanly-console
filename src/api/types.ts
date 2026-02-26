@@ -191,7 +191,8 @@ export type JobStatus =
   | "failed"
   | "paused"
   | "finalizing"
-  | "finalized";
+  | "finalized"
+  | "archived";
 
 export type SegmentStatus =
   | "pending"
