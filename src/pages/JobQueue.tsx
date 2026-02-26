@@ -653,7 +653,7 @@ function CreateJobDialog({
   const [faceswapEnabled, setFaceswapEnabled] = useState(true);
   const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("preset");
   const [faceswapImage, setFaceswapImage] = useState<File | null>(null);
-  const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>("s3://wanly-faces/kelly_young.safetensors");
+  const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
   const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
   const [faceswapMethod, setFaceswapMethod] = useState("reactor");
   const [faceswapFacesIndex, setFaceswapFacesIndex] = useState("0");
@@ -688,10 +688,8 @@ function CreateJobDialog({
       fetchTags();
       getFaceswapPresets().then((presets) => {
         setFaceswapPresets(presets);
-        if (faceswapPresetUri && !presets.some((p) => p.url === faceswapPresetUri)) {
-          const match = presets.find((p) => p.key === "kelly_young.safetensors");
-          if (match) setFaceswapPresetUri(match.url);
-        }
+        const kelly = presets.find((p) => p.key === "kelly_young.safetensors");
+        if (kelly && !faceswapPresetUri) setFaceswapPresetUri(kelly.url);
       }).catch(() => {});
     }
   }, [open, fetchLoras, fetchTags]);
@@ -743,7 +741,7 @@ function CreateJobDialog({
     setFaceswapEnabled(true);
     setFaceswapSourceType("preset");
     setFaceswapImage(null);
-    setFaceswapPresetUri("s3://wanly-faces/kelly_young.safetensors");
+    setFaceswapPresetUri(null);
     setFaceswapMethod("reactor");
     setFaceswapFacesIndex("0");
     setFaceswapFacesOrder("left-right");
