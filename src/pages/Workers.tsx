@@ -20,14 +20,16 @@ import {
   Computer,
   Timer,
   DeleteOutline,
+  PowerSettingsNew,
 } from "@mui/icons-material";
-import { getWorkers, deleteWorker } from "../api/client";
+import { getWorkers, deleteWorker, drainWorker } from "../api/client";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
   "online-idle": { color: "#4caf50", label: "Idle" },
   "online-busy": { color: "#ff9800", label: "Busy" },
   offline: { color: "#9e9e9e", label: "Offline" },
+  draining: { color: "#f57f17", label: "Draining" },
 };
 
 function timeAgo(iso: string) {
@@ -57,6 +59,8 @@ export default function Workers() {
   const [error, setError] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<WorkerResponse | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [drainConfirm, setDrainConfirm] = useState<WorkerResponse | null>(null);
+  const [draining, setDraining] = useState(false);
 
   const fetchWorkers = useCallback(async () => {
     try {
@@ -89,16 +93,32 @@ export default function Workers() {
     }
   };
 
+  const handleDrain = async (worker: WorkerResponse) => {
+    setDraining(true);
+    try {
+      await drainWorker(worker.id);
+      setDrainConfirm(null);
+      fetchWorkers();
+    } catch {
+      setError("Failed to drain worker");
+    } finally {
+      setDraining(false);
+    }
+  };
+
   const sorted = [...workers].sort((a, b) => {
     const order: Record<string, number> = {
       "online-busy": 0,
-      "online-idle": 1,
-      offline: 2,
+      draining: 1,
+      "online-idle": 2,
+      offline: 3,
     };
     return (order[a.status] ?? 9) - (order[b.status] ?? 9);
   });
 
-  const onlineCount = workers.filter((w) => w.status !== "offline").length;
+  const onlineCount = workers.filter(
+    (w) => w.status !== "offline",
+  ).length;
 
   return (
     <Box>
@@ -124,7 +144,11 @@ export default function Workers() {
       <Grid container spacing={2}>
         {sorted.map((worker) => (
           <Grid key={worker.id} size={{ xs: 12, sm: 6, md: 4 }}>
-            <WorkerCard worker={worker} onDelete={setDeleteConfirm} />
+            <WorkerCard
+              worker={worker}
+              onDelete={setDeleteConfirm}
+              onDrain={setDrainConfirm}
+            />
           </Grid>
         ))}
       </Grid>
@@ -162,6 +186,32 @@ export default function Workers() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog
+        open={!!drainConfirm}
+        onClose={() => setDrainConfirm(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Drain Worker</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Drain <strong>{drainConfirm?.friendly_name}</strong>? It will finish
+            its current job and then stop accepting new work.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDrainConfirm(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => drainConfirm && handleDrain(drainConfirm)}
+            disabled={draining}
+          >
+            {draining ? "Draining..." : "Drain"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
@@ -169,11 +219,14 @@ export default function Workers() {
 function WorkerCard({
   worker,
   onDelete,
+  onDrain,
 }: {
   worker: WorkerResponse;
   onDelete: (w: WorkerResponse) => void;
+  onDrain: (w: WorkerResponse) => void;
 }) {
   const cfg = STATUS_CONFIG[worker.status];
+  const canDrain = worker.status === "online-idle" || worker.status === "online-busy";
 
   return (
     <Card>
@@ -197,6 +250,17 @@ function WorkerCard({
             >
               {cfg.label}
             </Typography>
+            {canDrain && (
+              <Tooltip title="Drain worker">
+                <IconButton
+                  size="small"
+                  sx={{ ml: 0.5, color: "#f57f17" }}
+                  onClick={() => onDrain(worker)}
+                >
+                  <PowerSettingsNew fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             <Tooltip title="Delete worker">
               <IconButton
                 size="small"

@@ -11,6 +11,7 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   paused: { bg: "#f3e5f5", fg: "#6a1b9a" },
   finalizing: { bg: "#e0f2f1", fg: "#00695c" },
   finalized: { bg: "#e0f2f1", fg: "#00695c" },
+  draining: { bg: "#fff8e1", fg: "#f57f17" },
 };
 
 interface Props {
