@@ -20,6 +20,8 @@ import type {
   FaceswapPreset,
   TitleTagResponse,
   TitleTagCreate,
+  ImageFolder,
+  ImageFile,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -234,6 +236,22 @@ export async function createTag(body: TitleTagCreate): Promise<TitleTagResponse>
 
 export async function deleteTag(id: string): Promise<void> {
   await api.delete(`/tags/${id}`);
+}
+
+// --- Images ---
+
+export async function getImageFolders(): Promise<ImageFolder[]> {
+  const { data } = await api.get<ImageFolder[]>("/images/folders");
+  return data;
+}
+
+export async function getImageFolder(date: string): Promise<ImageFile[]> {
+  const { data } = await api.get<ImageFile[]>(`/images/folder/${date}`);
+  return data;
+}
+
+export async function deleteImage(path: string): Promise<void> {
+  await api.delete("/images", { params: { path } });
 }
 
 // --- Faceswap Presets ---
