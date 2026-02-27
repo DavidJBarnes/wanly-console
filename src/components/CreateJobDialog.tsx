@@ -22,6 +22,7 @@ import {
 } from "@mui/material";
 import { ClearOutlined } from "@mui/icons-material";
 import { useLoraStore } from "../stores/loraStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { useTagStore } from "../stores/tagStore";
 import { createJob, getFileUrl, getFaceswapPresets } from "../api/client";
 import type { JobCreate, LoraListItem, FaceswapPreset } from "../api/types";
@@ -41,6 +42,7 @@ export default function CreateJobDialog({
 }: CreateJobDialogProps) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+  const { defaultLightx2vHigh, defaultLightx2vLow } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [width, setWidth] = useState(640);
@@ -49,8 +51,8 @@ export default function CreateJobDialog({
   const [duration, setDuration] = useState(5.0);
   const [speed, setSpeed] = useState(1.0);
   const [seed, setSeed] = useState("");
-  const [lightx2vHigh, setLightx2vHigh] = useState("2.0");
-  const [lightx2vLow, setLightx2vLow] = useState("1.0");
+  const [lightx2vHigh, setLightx2vHigh] = useState(defaultLightx2vHigh);
+  const [lightx2vLow, setLightx2vLow] = useState(defaultLightx2vLow);
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [faceswapEnabled, setFaceswapEnabled] = useState(true);
@@ -151,8 +153,8 @@ export default function CreateJobDialog({
     setDuration(5.0);
     setSpeed(1.0);
     setSeed("");
-    setLightx2vHigh("2.0");
-    setLightx2vLow("1.0");
+    setLightx2vHigh(defaultLightx2vHigh);
+    setLightx2vLow(defaultLightx2vLow);
     setStartingImage(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
@@ -168,7 +170,7 @@ export default function CreateJobDialog({
     setSelectedTag2("");
     setNameManuallyEdited(false);
     setError("");
-  }, [imagePreview]);
+  }, [imagePreview, defaultLightx2vHigh, defaultLightx2vLow]);
 
   const handleSubmit = async () => {
     if (!name.trim() || !prompt.trim()) {
