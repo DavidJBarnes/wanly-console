@@ -8,6 +8,7 @@ import {
   CircularProgress,
   Alert,
   IconButton,
+  TextField,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -21,8 +22,9 @@ import {
   Timer,
   DeleteOutline,
   PowerSettingsNew,
+  Edit,
 } from "@mui/icons-material";
-import { getWorkers, deleteWorker, drainWorker } from "../api/client";
+import { getWorkers, deleteWorker, drainWorker, renameWorker } from "../api/client";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
@@ -148,6 +150,7 @@ export default function Workers() {
               worker={worker}
               onDelete={setDeleteConfirm}
               onDrain={setDrainConfirm}
+              onRenamed={fetchWorkers}
             />
           </Grid>
         ))}
@@ -220,13 +223,33 @@ function WorkerCard({
   worker,
   onDelete,
   onDrain,
+  onRenamed,
 }: {
   worker: WorkerResponse;
   onDelete: (w: WorkerResponse) => void;
   onDrain: (w: WorkerResponse) => void;
+  onRenamed: () => void;
 }) {
   const cfg = STATUS_CONFIG[worker.status];
   const canDrain = worker.status === "online-idle" || worker.status === "online-busy";
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(worker.friendly_name);
+
+  const handleSave = async () => {
+    const trimmed = editName.trim();
+    if (!trimmed || trimmed === worker.friendly_name) {
+      setEditing(false);
+      setEditName(worker.friendly_name);
+      return;
+    }
+    try {
+      await renameWorker(worker.id, trimmed);
+      onRenamed();
+    } catch {
+      setEditName(worker.friendly_name);
+    }
+    setEditing(false);
+  };
 
   return (
     <Card>
@@ -239,9 +262,42 @@ function WorkerCard({
             mb: 1.5,
           }}
         >
-          <Typography variant="h6" noWrap sx={{ flex: 1, mr: 1 }}>
-            {worker.friendly_name}
-          </Typography>
+          {editing ? (
+            <TextField
+              size="small"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onBlur={handleSave}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSave();
+                if (e.key === "Escape") {
+                  setEditName(worker.friendly_name);
+                  setEditing(false);
+                }
+              }}
+              autoFocus
+              sx={{ flex: 1, mr: 1 }}
+              slotProps={{ htmlInput: { style: { fontSize: "1.25rem", fontWeight: 600 } } }}
+            />
+          ) : (
+            <Box sx={{ display: "flex", alignItems: "center", flex: 1, mr: 1, minWidth: 0 }}>
+              <Typography variant="h6" noWrap sx={{ flex: 1 }}>
+                {worker.friendly_name}
+              </Typography>
+              <Tooltip title="Rename worker">
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setEditName(worker.friendly_name);
+                    setEditing(true);
+                  }}
+                  sx={{ ml: 0.5, color: "text.disabled" }}
+                >
+                  <Edit sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )}
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             <Circle sx={{ fontSize: 10, color: cfg.color }} />
             <Typography
