@@ -271,3 +271,16 @@ export interface TitleTagCreate {
   name: string;
   group: number;
 }
+
+export interface ImageFolder {
+  name: string;
+  thumbnail: string | null;
+}
+
+export interface ImageFile {
+  key: string;
+  path: string;
+  filename: string;
+  size: number;
+  last_modified: string;
+}
