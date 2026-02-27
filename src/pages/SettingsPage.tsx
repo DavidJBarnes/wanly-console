@@ -12,6 +12,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { useTagStore } from "../stores/tagStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
 export default function SettingsPage() {
   const theme = useTheme();
@@ -20,6 +21,12 @@ export default function SettingsPage() {
     useTagStore();
   const [input1, setInput1] = useState("");
   const [input2, setInput2] = useState("");
+  const {
+    defaultLightx2vHigh,
+    defaultLightx2vLow,
+    setDefaultLightx2vHigh,
+    setDefaultLightx2vLow,
+  } = useSettingsStore();
 
   useEffect(() => {
     fetchTags();
@@ -136,6 +143,36 @@ export default function SettingsPage() {
                 ))}
               </Box>
             </Box>
+          </Box>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Job Defaults
+          </Typography>
+          <Box sx={{ display: "flex", gap: 2, maxWidth: 400 }}>
+            <TextField
+              label="LightX2V High"
+              type="number"
+              size="small"
+              value={defaultLightx2vHigh}
+              onChange={(e) => setDefaultLightx2vHigh(e.target.value)}
+              slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+              helperText="Range: 1.0–5.6"
+              sx={{ flex: 1 }}
+            />
+            <TextField
+              label="LightX2V Low"
+              type="number"
+              size="small"
+              value={defaultLightx2vLow}
+              onChange={(e) => setDefaultLightx2vLow(e.target.value)}
+              slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+              helperText="Range: 1.0–2.0"
+              sx={{ flex: 1 }}
+            />
           </Box>
         </CardContent>
       </Card>
