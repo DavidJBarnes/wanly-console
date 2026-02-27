@@ -285,6 +285,13 @@ export async function drainWorker(id: string): Promise<void> {
   await registry.post(`/workers/${id}/drain`);
 }
 
+export async function renameWorker(id: string, friendlyName: string): Promise<WorkerResponse> {
+  const { data } = await registry.patch<WorkerResponse>(`/workers/${id}/friendly_name`, {
+    friendly_name: friendlyName,
+  });
+  return data;
+}
+
 export async function uploadFile(
   file: File,
   jobId?: string,
