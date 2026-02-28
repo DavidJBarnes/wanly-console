@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import {
+  Autocomplete,
   Box,
   Typography,
   Card,
@@ -14,6 +15,8 @@ import {
   Alert,
   CircularProgress,
   Chip,
+  Divider,
+  Grid,
   Table,
   TableBody,
   TableCell,
@@ -30,17 +33,30 @@ import {
   createWildcard,
   updateWildcard,
   deleteWildcard,
+  createPromptPreset,
+  updatePromptPreset,
+  deletePromptPreset,
 } from "../api/client";
-import type { WildcardResponse } from "../api/types";
+import { usePromptPresetStore } from "../stores/promptPresetStore";
+import { useLoraStore } from "../stores/loraStore";
+import type { WildcardResponse, PromptPreset, PromptPresetLoraSlot, LoraListItem } from "../api/types";
 
 export default function PromptLibrary() {
   const [wildcards, setWildcards] = useState<WildcardResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [wcDialogOpen, setWcDialogOpen] = useState(false);
   const [editingWildcard, setEditingWildcard] = useState<WildcardResponse | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<WildcardResponse | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Preset state
+  const { presets, loading: presetsLoading, fetchPresets } = usePromptPresetStore();
+  const { loras: loraLibrary, fetchLoras } = useLoraStore();
+  const [presetDialogOpen, setPresetDialogOpen] = useState(false);
+  const [editingPreset, setEditingPreset] = useState<PromptPreset | null>(null);
+  const [deletePresetConfirm, setDeletePresetConfirm] = useState<PromptPreset | null>(null);
+  const [deletingPreset, setDeletingPreset] = useState(false);
 
   const fetchWildcards = useCallback(async () => {
     try {
@@ -56,9 +72,11 @@ export default function PromptLibrary() {
 
   useEffect(() => {
     fetchWildcards();
-  }, [fetchWildcards]);
+    fetchPresets();
+    fetchLoras();
+  }, [fetchWildcards, fetchPresets, fetchLoras]);
 
-  const handleDelete = async (wc: WildcardResponse) => {
+  const handleDeleteWildcard = async (wc: WildcardResponse) => {
     setDeleting(true);
     try {
       await deleteWildcard(wc.id);
@@ -71,11 +89,184 @@ export default function PromptLibrary() {
     }
   };
 
+  const handleDeletePreset = async (preset: PromptPreset) => {
+    setDeletingPreset(true);
+    try {
+      await deletePromptPreset(preset.id);
+      setDeletePresetConfirm(null);
+      fetchPresets();
+    } catch {
+      setError("Failed to delete preset");
+    } finally {
+      setDeletingPreset(false);
+    }
+  };
+
+  const resolveLoraName = (loraId: string) => {
+    const lora = loraLibrary.find((l) => l.id === loraId);
+    return lora?.name ?? loraId.slice(0, 8);
+  };
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   return (
     <Box>
+      {/* ── Prompt Presets Section ── */}
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 3,
+        }}
+      >
+        <Box>
+          <Typography variant={isMobile ? "h5" : "h4"}>Prompt Presets</Typography>
+          {!isMobile && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Saved prompt + LoRA combos for quick re-use
+            </Typography>
+          )}
+        </Box>
+        <Button
+          variant="contained"
+          startIcon={isMobile ? undefined : <Add />}
+          size={isMobile ? "small" : "medium"}
+          onClick={() => {
+            setEditingPreset(null);
+            setPresetDialogOpen(true);
+          }}
+        >
+          {isMobile ? "New" : "New Preset"}
+        </Button>
+      </Box>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      {presetsLoading && presets.length === 0 && (
+        <Box sx={{ textAlign: "center", py: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
+      {presets.length > 0 ? (
+        <Grid container spacing={2} sx={{ mb: 4 }}>
+          {presets.map((preset) => (
+            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={preset.id}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent sx={{ pb: "12px !important" }}>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                      {preset.name}
+                    </Typography>
+                    <Box sx={{ display: "flex", gap: 0.5, flexShrink: 0 }}>
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setEditingPreset(preset);
+                          setPresetDialogOpen(true);
+                        }}
+                      >
+                        <Edit fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => setDeletePresetConfirm(preset)}
+                      >
+                        <DeleteOutline fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  </Box>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{
+                      mb: 1,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 3,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {preset.prompt}
+                  </Typography>
+                  {preset.loras && preset.loras.length > 0 && (
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                      {preset.loras.map((l) => (
+                        <Chip
+                          key={l.lora_id}
+                          label={resolveLoraName(l.lora_id)}
+                          size="small"
+                          variant="outlined"
+                          color="primary"
+                        />
+                      ))}
+                    </Box>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      ) : (
+        !presetsLoading && (
+          <Card sx={{ textAlign: "center", py: 4, mb: 4 }}>
+            <Typography variant="h6" color="text.secondary">
+              No presets yet
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Save a prompt + LoRA combo for quick re-use in job creation.
+            </Typography>
+          </Card>
+        )
+      )}
+
+      <PromptPresetDialog
+        open={presetDialogOpen}
+        editing={editingPreset}
+        onClose={() => setPresetDialogOpen(false)}
+        onSaved={() => {
+          setPresetDialogOpen(false);
+          fetchPresets();
+        }}
+      />
+
+      <Dialog
+        open={!!deletePresetConfirm}
+        onClose={() => setDeletePresetConfirm(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Preset</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Delete preset <strong>{deletePresetConfirm?.name}</strong>?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeletePresetConfirm(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => deletePresetConfirm && handleDeletePreset(deletePresetConfirm)}
+            disabled={deletingPreset}
+          >
+            {deletingPreset ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Divider ── */}
+      <Divider sx={{ my: 4 }} />
+
+      {/* ── Wildcards Section ── */}
       <Box
         sx={{
           display: "flex",
@@ -98,18 +289,12 @@ export default function PromptLibrary() {
           size={isMobile ? "small" : "medium"}
           onClick={() => {
             setEditingWildcard(null);
-            setDialogOpen(true);
+            setWcDialogOpen(true);
           }}
         >
           {isMobile ? "New" : "New Wildcard"}
         </Button>
       </Box>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
 
       {loading && wildcards.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8 }}>
@@ -163,7 +348,7 @@ export default function PromptLibrary() {
                                 size="small"
                                 onClick={() => {
                                   setEditingWildcard(wc);
-                                  setDialogOpen(true);
+                                  setWcDialogOpen(true);
                                 }}
                               >
                                 <Edit fontSize="small" />
@@ -206,7 +391,7 @@ export default function PromptLibrary() {
                           size="small"
                           onClick={() => {
                             setEditingWildcard(wc);
-                            setDialogOpen(true);
+                            setWcDialogOpen(true);
                           }}
                         >
                           <Edit fontSize="small" />
@@ -253,11 +438,11 @@ export default function PromptLibrary() {
       )}
 
       <WildcardDialog
-        open={dialogOpen}
+        open={wcDialogOpen}
         editing={editingWildcard}
-        onClose={() => setDialogOpen(false)}
+        onClose={() => setWcDialogOpen(false)}
         onSaved={() => {
-          setDialogOpen(false);
+          setWcDialogOpen(false);
           fetchWildcards();
         }}
       />
@@ -280,7 +465,7 @@ export default function PromptLibrary() {
           <Button
             variant="contained"
             color="error"
-            onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+            onClick={() => deleteConfirm && handleDeleteWildcard(deleteConfirm)}
             disabled={deleting}
           >
             {deleting ? "Deleting..." : "Delete"}
@@ -290,6 +475,234 @@ export default function PromptLibrary() {
     </Box>
   );
 }
+
+/* ── Prompt Preset Dialog ── */
+
+function PromptPresetDialog({
+  open,
+  editing,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  editing: PromptPreset | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { loras: loraLibrary, fetchLoras } = useLoraStore();
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [loraSlots, setLoraSlots] = useState<
+    { lora_id: string; name: string; high_weight: number; low_weight: number }[]
+  >([]);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      fetchLoras();
+      if (editing) {
+        setName(editing.name);
+        setPrompt(editing.prompt);
+        setLoraSlots(
+          (editing.loras ?? []).map((l) => {
+            const lib = loraLibrary.find((item) => item.id === l.lora_id);
+            return {
+              lora_id: l.lora_id,
+              name: lib?.name ?? l.lora_id.slice(0, 8),
+              high_weight: l.high_weight,
+              low_weight: l.low_weight,
+            };
+          }),
+        );
+      } else {
+        setName("");
+        setPrompt("");
+        setLoraSlots([]);
+      }
+      setError("");
+    }
+  }, [open, editing, fetchLoras]);
+
+  // Re-resolve names when loraLibrary loads
+  useEffect(() => {
+    if (open && loraLibrary.length > 0 && loraSlots.length > 0) {
+      setLoraSlots((prev) =>
+        prev.map((s) => {
+          const lib = loraLibrary.find((item) => item.id === s.lora_id);
+          return lib ? { ...s, name: lib.name } : s;
+        }),
+      );
+    }
+  }, [open, loraLibrary]);
+
+  const addLora = (item: LoraListItem | null) => {
+    if (!item || loraSlots.length >= 3) return;
+    if (loraSlots.some((l) => l.lora_id === item.id)) return;
+    setLoraSlots([
+      ...loraSlots,
+      {
+        lora_id: item.id,
+        name: item.name,
+        high_weight: item.default_high_weight,
+        low_weight: item.default_low_weight,
+      },
+    ]);
+  };
+
+  const updateWeight = (idx: number, field: string, value: number) => {
+    const updated = [...loraSlots];
+    updated[idx] = { ...updated[idx], [field]: value };
+    setLoraSlots(updated);
+  };
+
+  const removeLora = (idx: number) => {
+    setLoraSlots(loraSlots.filter((_, i) => i !== idx));
+  };
+
+  const handleSubmit = async () => {
+    if (!name.trim()) {
+      setError("Name is required");
+      return;
+    }
+    if (!prompt.trim()) {
+      setError("Prompt is required");
+      return;
+    }
+
+    setError("");
+    setSubmitting(true);
+    try {
+      const loras: PromptPresetLoraSlot[] | undefined =
+        loraSlots.length > 0
+          ? loraSlots.map((l) => ({
+              lora_id: l.lora_id,
+              high_weight: l.high_weight,
+              low_weight: l.low_weight,
+            }))
+          : undefined;
+
+      if (editing) {
+        await updatePromptPreset(editing.id, {
+          name: name.trim(),
+          prompt: prompt.trim(),
+          loras: loras ?? null,
+        });
+      } else {
+        await createPromptPreset({
+          name: name.trim(),
+          prompt: prompt.trim(),
+          loras: loras ?? null,
+        });
+      }
+      onSaved();
+    } catch (e: unknown) {
+      const detail =
+        e && typeof e === "object" && "response" in e
+          ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          : undefined;
+      setError(detail ?? "Failed to save preset");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+      <DialogTitle>{editing ? "Edit Preset" : "New Preset"}</DialogTitle>
+      <DialogContent>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
+            {error}
+          </Alert>
+        )}
+        <TextField
+          label="Name"
+          fullWidth
+          margin="normal"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+        <TextField
+          label="Prompt"
+          fullWidth
+          multiline
+          rows={4}
+          margin="normal"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+        />
+
+        {/* LoRA slots */}
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            LoRAs
+          </Typography>
+          {loraSlots.length < 3 && (
+            <Autocomplete
+              options={loraLibrary
+                .filter((l) => !loraSlots.some((s) => s.lora_id === l.id))
+                .sort((a, b) => a.name.localeCompare(b.name))}
+              getOptionLabel={(o) => o.name}
+              onChange={(_, val) => addLora(val)}
+              value={null}
+              renderInput={(params) => (
+                <TextField {...params} size="small" placeholder="Search LoRA library..." />
+              )}
+              size="small"
+              blurOnSelect
+              clearOnBlur
+            />
+          )}
+          {loraSlots.map((lora, idx) => (
+            <Card key={lora.lora_id} variant="outlined" sx={{ p: 1.5, mt: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, flex: 1 }}>
+                  {lora.name}
+                </Typography>
+                <Button size="small" color="error" onClick={() => removeLora(idx)}>
+                  Remove
+                </Button>
+              </Box>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                <TextField
+                  label="High Weight"
+                  size="small"
+                  type="number"
+                  value={lora.high_weight}
+                  onChange={(e) => updateWeight(idx, "high_weight", parseFloat(e.target.value))}
+                  sx={{ flex: 1, minWidth: 100 }}
+                  slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
+                />
+                <TextField
+                  label="Low Weight"
+                  size="small"
+                  type="number"
+                  value={lora.low_weight}
+                  onChange={(e) => updateWeight(idx, "low_weight", parseFloat(e.target.value))}
+                  sx={{ flex: 1, minWidth: 100 }}
+                  slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
+                />
+              </Box>
+            </Card>
+          ))}
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={handleSubmit} disabled={submitting}>
+          {submitting ? "Saving..." : editing ? "Save" : "Create"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/* ── Wildcard Dialog ── */
 
 function WildcardDialog({
   open,

@@ -235,6 +235,33 @@ export interface WorkerStatsItem {
   last_seen: string | null;
 }
 
+export interface PromptPresetLoraSlot {
+  lora_id: string;
+  high_weight: number;
+  low_weight: number;
+}
+
+export interface PromptPreset {
+  id: string;
+  name: string;
+  prompt: string;
+  loras: PromptPresetLoraSlot[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PromptPresetCreate {
+  name: string;
+  prompt: string;
+  loras?: PromptPresetLoraSlot[] | null;
+}
+
+export interface PromptPresetUpdate {
+  name?: string;
+  prompt?: string;
+  loras?: PromptPresetLoraSlot[] | null;
+}
+
 export interface WildcardResponse {
   id: string;
   name: string;
