@@ -24,8 +24,9 @@ import { ClearOutlined } from "@mui/icons-material";
 import { useLoraStore } from "../stores/loraStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTagStore } from "../stores/tagStore";
+import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { createJob, getFileUrl, getFaceswapPresets } from "../api/client";
-import type { JobCreate, LoraListItem, FaceswapPreset } from "../api/types";
+import type { JobCreate, LoraListItem, FaceswapPreset, PromptPreset } from "../api/types";
 
 interface CreateJobDialogProps {
   open: boolean;
@@ -81,6 +82,9 @@ export default function CreateJobDialog({
     }
   }, [selectedTag1, selectedTag2, fps, nameManuallyEdited]);
 
+  // Preset state
+  const { presets, fetchPresets } = usePromptPresetStore();
+
   // LoRA state
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [loras, setLoras] = useState<
@@ -90,6 +94,7 @@ export default function CreateJobDialog({
   useEffect(() => {
     if (open) {
       fetchLoras();
+      fetchPresets();
       fetchTags();
       getFaceswapPresets().then((presets) => {
         setFaceswapPresets(presets);
@@ -113,6 +118,27 @@ export default function CreateJobDialog({
       img.src = url;
     }
   }, [open, initialStartingImage]);
+
+  const applyPreset = (preset: PromptPreset | null) => {
+    if (!preset) return;
+    setPrompt(preset.prompt);
+    if (preset.loras && preset.loras.length > 0) {
+      setLoras(
+        preset.loras.map((l) => {
+          const lib = loraLibrary.find((item) => item.id === l.lora_id);
+          return {
+            lora_id: l.lora_id,
+            name: lib?.name ?? l.lora_id.slice(0, 8),
+            high_weight: l.high_weight,
+            low_weight: l.low_weight,
+            preview_image: lib?.preview_image ?? null,
+          };
+        }),
+      );
+    } else {
+      setLoras([]);
+    }
+  };
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
     if (!item || loras.length >= 3) return;
@@ -304,6 +330,20 @@ export default function CreateJobDialog({
           }}
           autoFocus
         />
+        {presets.length > 0 && (
+          <Autocomplete
+            options={presets}
+            getOptionLabel={(o) => o.name}
+            onChange={(_, val) => applyPreset(val)}
+            value={null}
+            renderInput={(params) => (
+              <TextField {...params} label="Load Preset" size="small" margin="normal" />
+            )}
+            size="small"
+            blurOnSelect
+            clearOnBlur
+          />
+        )}
         <TextField
           label="Prompt"
           fullWidth

@@ -56,6 +56,7 @@ import {
   getFaceswapPresets,
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
+import { usePromptPresetStore } from "../stores/promptPresetStore";
 import type {
   JobDetailResponse,
   SegmentResponse,
@@ -63,6 +64,7 @@ import type {
   LoraConfig,
   LoraListItem,
   FaceswapPreset,
+  PromptPreset,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -1276,6 +1278,7 @@ function SegmentModal({
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
+  const { presets: promptPresets, fetchPresets } = usePromptPresetStore();
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(5.0);
   const [speed, setSpeed] = useState(1.0);
@@ -1294,6 +1297,27 @@ function SegmentModal({
   const [startImageError, setStartImageError] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const applyPreset = (preset: PromptPreset | null) => {
+    if (!preset) return;
+    setPrompt(preset.prompt);
+    if (preset.loras && preset.loras.length > 0) {
+      setLoraSlots(
+        preset.loras.map((l) => {
+          const lib = loraLibrary.find((item) => item.id === l.lora_id);
+          return {
+            lora_id: l.lora_id,
+            name: lib?.name ?? l.lora_id.slice(0, 8),
+            high_weight: l.high_weight,
+            low_weight: l.low_weight,
+            preview_image: lib?.preview_image ?? null,
+          };
+        }),
+      );
+    } else {
+      setLoraSlots([]);
+    }
+  };
 
   // Pre-populate from last segment when modal opens (use template if available)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on open, not on poll refetch
@@ -1325,9 +1349,10 @@ function SegmentModal({
   useEffect(() => {
     if (open) {
       fetchLoras();
+      fetchPresets();
       getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
     }
-  }, [open, fetchLoras]);
+  }, [open, fetchLoras, fetchPresets]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on open + library load
   useEffect(() => {
@@ -1439,6 +1464,20 @@ function SegmentModal({
           <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
             {error}
           </Alert>
+        )}
+        {promptPresets.length > 0 && (
+          <Autocomplete
+            options={promptPresets}
+            getOptionLabel={(o) => o.name}
+            onChange={(_, val) => applyPreset(val)}
+            value={null}
+            renderInput={(params) => (
+              <TextField {...params} label="Load Preset" size="small" margin="normal" />
+            )}
+            size="small"
+            blurOnSelect
+            clearOnBlur
+          />
         )}
         <TextField
           label="Prompt"
