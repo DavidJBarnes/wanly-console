@@ -36,6 +36,7 @@ import {
   createPromptPreset,
   updatePromptPreset,
   deletePromptPreset,
+  getFileUrl,
 } from "../api/client";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { useLoraStore } from "../stores/loraStore";
@@ -493,7 +494,7 @@ function PromptPresetDialog({
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [loraSlots, setLoraSlots] = useState<
-    { lora_id: string; name: string; high_weight: number; low_weight: number }[]
+    { lora_id: string; name: string; high_weight: number; low_weight: number; preview_image: string | null }[]
   >([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -512,6 +513,7 @@ function PromptPresetDialog({
               name: lib?.name ?? l.lora_id.slice(0, 8),
               high_weight: l.high_weight,
               low_weight: l.low_weight,
+              preview_image: lib?.preview_image ?? null,
             };
           }),
         );
@@ -530,7 +532,7 @@ function PromptPresetDialog({
       setLoraSlots((prev) =>
         prev.map((s) => {
           const lib = loraLibrary.find((item) => item.id === s.lora_id);
-          return lib ? { ...s, name: lib.name } : s;
+          return lib ? { ...s, name: lib.name, preview_image: lib.preview_image } : s;
         }),
       );
     }
@@ -546,6 +548,7 @@ function PromptPresetDialog({
         name: item.name,
         high_weight: item.default_high_weight,
         low_weight: item.default_low_weight,
+        preview_image: item.preview_image,
       },
     ]);
   };
@@ -650,6 +653,41 @@ function PromptPresetDialog({
               getOptionLabel={(o) => o.name}
               onChange={(_, val) => addLora(val)}
               value={null}
+              renderOption={(props, option) => {
+                const idx = (props as unknown as { "data-option-index": number })["data-option-index"];
+                return (
+                  <Box
+                    component="li"
+                    {...props}
+                    key={option.id}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                      bgcolor: idx % 2 === 0 ? "#f5f5f5" : "#ffffff",
+                    }}
+                  >
+                    {option.preview_image ? (
+                      <Box
+                        component="img"
+                        src={getFileUrl(option.preview_image)}
+                        alt=""
+                        sx={{ width: 40, height: 40, objectFit: "cover", borderRadius: 0.5, flexShrink: 0 }}
+                      />
+                    ) : (
+                      <Box sx={{ width: 40, height: 40, bgcolor: "#eee", borderRadius: 0.5, flexShrink: 0 }} />
+                    )}
+                    <Box>
+                      <Typography variant="body2">{option.name}</Typography>
+                      {option.trigger_words && (
+                        <Typography variant="caption" color="text.secondary">
+                          {option.trigger_words}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                );
+              }}
               renderInput={(params) => (
                 <TextField {...params} size="small" placeholder="Search LoRA library..." />
               )}
@@ -661,6 +699,16 @@ function PromptPresetDialog({
           {loraSlots.map((lora, idx) => (
             <Card key={lora.lora_id} variant="outlined" sx={{ p: 1.5, mt: 1 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                {lora.preview_image ? (
+                  <Box
+                    component="img"
+                    src={getFileUrl(lora.preview_image)}
+                    alt=""
+                    sx={{ width: 36, height: 36, objectFit: "cover", borderRadius: 0.5 }}
+                  />
+                ) : (
+                  <Box sx={{ width: 36, height: 36, bgcolor: "#eee", borderRadius: 0.5 }} />
+                )}
                 <Typography variant="body2" sx={{ fontWeight: 600, flex: 1 }}>
                   {lora.name}
                 </Typography>
