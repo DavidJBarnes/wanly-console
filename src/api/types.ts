@@ -205,6 +205,14 @@ export type SegmentStatus =
   | "completed"
   | "failed";
 
+export interface GpuStats {
+  vram_used_mb: number;
+  vram_total_mb: number;
+  gpu_name: string;
+  torch_vram_used_mb: number;
+  torch_vram_free_mb: number;
+}
+
 export interface WorkerResponse {
   id: string;
   friendly_name: string;
@@ -212,6 +220,7 @@ export interface WorkerResponse {
   ip_address: string;
   status: WorkerStatus;
   comfyui_running: boolean;
+  gpu_stats: GpuStats | null;
   last_heartbeat: string;
   registered_at: string;
   updated_at: string;
