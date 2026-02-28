@@ -13,6 +13,7 @@ import {
   DialogActions,
   CircularProgress,
   Grid,
+  TablePagination,
 } from "@mui/material";
 import {
   ArrowBack,
@@ -44,12 +45,17 @@ export default function ImageRepo() {
   const [jobDialogOpen, setJobDialogOpen] = useState(false);
   const [jobDialogImage, setJobDialogImage] = useState<File | null>(null);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+  const [folderPage, setFolderPage] = useState(0);
+  const [foldersPerPage, setFoldersPerPage] = useState(12);
+  const [imagePage, setImagePage] = useState(0);
+  const [imagesPerPage, setImagesPerPage] = useState(24);
 
   const fetchFolders = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getImageFolders();
       setFolders(data);
+      setFolderPage(0);
     } catch {
       // ignore
     } finally {
@@ -79,6 +85,7 @@ export default function ImageRepo() {
 
   const handleFolderClick = (name: string) => {
     setCurrentFolder(name);
+    setImagePage(0);
   };
 
   const handleBack = () => {
@@ -144,7 +151,9 @@ export default function ImageRepo() {
         )}
 
         <Grid container spacing={2}>
-          {folders.map((folder) => (
+          {folders
+            .slice(folderPage * foldersPerPage, (folderPage + 1) * foldersPerPage)
+            .map((folder) => (
             <Grid key={folder.name} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
               <Card>
                 <CardActionArea onClick={() => handleFolderClick(folder.name)}>
@@ -178,6 +187,20 @@ export default function ImageRepo() {
             </Grid>
           ))}
         </Grid>
+        {folders.length > 0 && (
+          <TablePagination
+            component="div"
+            count={folders.length}
+            page={folderPage}
+            onPageChange={(_, p) => setFolderPage(p)}
+            rowsPerPage={foldersPerPage}
+            onRowsPerPageChange={(e) => {
+              setFoldersPerPage(parseInt(e.target.value, 10));
+              setFolderPage(0);
+            }}
+            rowsPerPageOptions={[12, 24, 48]}
+          />
+        )}
       </Box>
     );
   }
@@ -219,7 +242,9 @@ export default function ImageRepo() {
       )}
 
       <Grid container spacing={2}>
-        {images.map((image) => (
+        {images
+          .slice(imagePage * imagesPerPage, (imagePage + 1) * imagesPerPage)
+          .map((image) => (
           <Grid key={image.key} size={{ xs: 6, sm: 4, md: 3, lg: 2 }}>
             <Card
               sx={{ position: "relative" }}
@@ -262,6 +287,20 @@ export default function ImageRepo() {
           </Grid>
         ))}
       </Grid>
+      {images.length > 0 && (
+        <TablePagination
+          component="div"
+          count={images.length}
+          page={imagePage}
+          onPageChange={(_, p) => setImagePage(p)}
+          rowsPerPage={imagesPerPage}
+          onRowsPerPageChange={(e) => {
+            setImagesPerPage(parseInt(e.target.value, 10));
+            setImagePage(0);
+          }}
+          rowsPerPageOptions={[24, 48, 96]}
+        />
+      )}
 
       {/* Lightbox Modal */}
       <Dialog

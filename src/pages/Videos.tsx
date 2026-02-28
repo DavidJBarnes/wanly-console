@@ -13,6 +13,7 @@ import {
   IconButton,
   Button,
   Alert,
+  TablePagination,
 } from "@mui/material";
 import { Close, Error as ErrorIcon, PlayCircleOutline, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
@@ -37,20 +38,29 @@ function formatDate(iso: string) {
 export default function Videos() {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobResponse[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [videoModal, setVideoModal] = useState<{ jobId: string } | null>(null);
   const [jobDetails, setJobDetails] = useState<Record<string, JobDetailResponse>>({});
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(12);
 
   const fetchVideos = useCallback(async () => {
     try {
-      const res = await getJobs({ status: "finalized,finalizing", limit: 200 });
+      const res = await getJobs({
+        status: "finalized,finalizing",
+        limit: rowsPerPage,
+        offset: page * rowsPerPage,
+        sort: "updated_at_desc",
+      });
       setJobs(res.items);
+      setTotal(res.total);
     } catch {
       // silently retry on next interval
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, rowsPerPage]);
 
   useEffect(() => {
     fetchVideos();
@@ -58,9 +68,7 @@ export default function Videos() {
     return () => clearInterval(interval);
   }, [fetchVideos]);
 
-  const finalizedJobs = [...jobs].sort(
-    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
-  );
+  const finalizedJobs = jobs;
 
   // Fetch details for jobs to get video info
   useEffect(() => {
@@ -104,6 +112,7 @@ export default function Videos() {
       )}
 
       {finalizedJobs.length > 0 ? (
+        <>
         <Grid container spacing={3}>
           {finalizedJobs.map((job) => {
             const videoInfo = getVideoInfo(job.id);
@@ -231,6 +240,21 @@ export default function Videos() {
             );
           })}
         </Grid>
+        {total > 0 && (
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            onPageChange={(_, p) => setPage(p)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[12, 24, 48]}
+          />
+        )}
+        </>
       ) : (
         !loading && (
           <Card>
