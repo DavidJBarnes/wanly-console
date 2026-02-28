@@ -23,6 +23,7 @@ import {
   DeleteOutline,
   PowerSettingsNew,
   Edit,
+  Memory,
 } from "@mui/icons-material";
 import { getWorkers, deleteWorker, drainWorker, renameWorker } from "../api/client";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
@@ -358,6 +359,32 @@ function WorkerCard({
               ComfyUI {worker.comfyui_running ? "running" : "stopped"}
             </Typography>
           </Box>
+          {worker.gpu_stats && (
+            <>
+              <InfoRow
+                icon={<Memory sx={{ fontSize: 16 }} />}
+                label={worker.gpu_stats.gpu_name}
+              />
+              <Box sx={{ ml: 3.25 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
+                  <Box sx={{
+                    flex: 1, height: 6, borderRadius: 3, bgcolor: "action.hover",
+                    overflow: "hidden",
+                  }}>
+                    <Box sx={{
+                      height: "100%", borderRadius: 3,
+                      width: `${Math.round(worker.gpu_stats.vram_used_mb / worker.gpu_stats.vram_total_mb * 100)}%`,
+                      bgcolor: worker.gpu_stats.vram_used_mb / worker.gpu_stats.vram_total_mb > 0.9
+                        ? "error.main" : "primary.main",
+                    }} />
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                    {worker.gpu_stats.vram_used_mb.toLocaleString()} / {worker.gpu_stats.vram_total_mb.toLocaleString()} MiB
+                  </Typography>
+                </Box>
+              </Box>
+            </>
+          )}
         </Box>
 
         <Typography
