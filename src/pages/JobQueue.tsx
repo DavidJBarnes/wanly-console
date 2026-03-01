@@ -62,6 +62,12 @@ function formatDate(iso: string) {
   });
 }
 
+function formatDuration(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
 const DRAG_LOCKED_STATUSES = new Set(["failed", "awaiting", "processing", "finalizing", "completed", "archived"]);
 
 function arrayMove<T>(arr: T[], from: number, to: number): T[] {
@@ -296,6 +302,7 @@ export default function JobQueue() {
                   <TableCell sx={{ width: 60 }}>Image</TableCell>
                   <SortableHeader id="name" label="Name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} />
                   <SortableHeader id="status" label="Status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 120 }} />
+                  <TableCell sx={{ width: 70 }}>ETA</TableCell>
                   <TableCell sx={{ width: 80 }}>Segments</TableCell>
                   <TableCell>Dimensions</TableCell>
                   <SortableHeader id="fps" label="FPS" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 80 }} />
@@ -510,6 +517,11 @@ function SortableTableRow({
         <StatusChip status={job.status} />
       </TableCell>
       <TableCell>
+        <Typography variant="caption" color="text.secondary">
+          {job.estimated_run_time != null ? `~${formatDuration(job.estimated_run_time)}` : "-"}
+        </Typography>
+      </TableCell>
+      <TableCell>
         <Typography variant="body2">
           {job.completed_segment_count}/{job.segment_count}
         </Typography>
@@ -605,7 +617,7 @@ function SortableMobileCard({
               <StatusChip status={job.status} />
             </Box>
             <Typography variant="caption" color="text.secondary">
-              {job.width}x{job.height} &middot; {job.fps}fps &middot; {job.completed_segment_count}/{job.segment_count} segs &middot; {formatDate(job.updated_at)}
+              {job.width}x{job.height} &middot; {job.fps}fps &middot; {job.completed_segment_count}/{job.segment_count} segs{job.estimated_run_time != null ? ` · ~${formatDuration(job.estimated_run_time)}` : ""} &middot; {formatDate(job.updated_at)}
             </Typography>
           </Box>
         </Box>
