@@ -110,6 +110,7 @@ export interface JobResponse {
   status: JobStatus;
   segment_count: number;
   completed_segment_count: number;
+  estimated_run_time: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -141,6 +142,7 @@ export interface SegmentResponse {
   completed_at: string | null;
   error_message: string | null;
   progress_log: string | null;
+  estimated_run_time: number | null;
 }
 
 export interface WorkerSegmentResponse {

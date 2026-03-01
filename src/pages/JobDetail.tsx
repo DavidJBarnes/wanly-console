@@ -622,7 +622,18 @@ export default function JobDetail() {
                     </TableCell>
                     <TableCell>
                       {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at ? (
-                        <LiveTimer since={seg.claimed_at} />
+                        <Box>
+                          <LiveTimer since={seg.claimed_at} />
+                          {seg.estimated_run_time != null && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              ~{formatDuration(seg.estimated_run_time)}
+                            </Typography>
+                          )}
+                        </Box>
+                      ) : seg.status === "pending" && seg.estimated_run_time != null ? (
+                        <Typography variant="caption" color="text.secondary">
+                          ~{formatDuration(seg.estimated_run_time)}
+                        </Typography>
                       ) : (
                         <Typography variant="caption">
                           {segmentRunTime(seg)}
@@ -715,9 +726,21 @@ export default function JobDetail() {
                       <StatusChip status={seg.status} />
                       <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
                         {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at && (
-                          <LiveTimer since={seg.claimed_at} />
+                          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                            <LiveTimer since={seg.claimed_at} />
+                            {seg.estimated_run_time != null && (
+                              <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem" }}>
+                                ~{formatDuration(seg.estimated_run_time)}
+                              </Typography>
+                            )}
+                          </Box>
                         )}
-                        {seg.status !== "claimed" && seg.status !== "processing" && segmentRunTime(seg) !== "-" && (
+                        {seg.status === "pending" && seg.estimated_run_time != null && (
+                          <Typography variant="caption" color="text.secondary">
+                            ~{formatDuration(seg.estimated_run_time)}
+                          </Typography>
+                        )}
+                        {seg.status !== "claimed" && seg.status !== "processing" && seg.status !== "pending" && segmentRunTime(seg) !== "-" && (
                           <Typography variant="caption" color="text.secondary">
                             {segmentRunTime(seg)}
                           </Typography>
