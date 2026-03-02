@@ -1724,10 +1724,18 @@ function SegmentModal({
                 <TextField
                   label="Faces Order"
                   size="small"
+                  select
                   value={faceswapFacesOrder}
                   onChange={(e) => setFaceswapFacesOrder(e.target.value)}
                   sx={{ flex: 1, minWidth: 120 }}
-                />
+                >
+                  <MenuItem value="left-right">Left → Right</MenuItem>
+                  <MenuItem value="right-left">Right → Left</MenuItem>
+                  <MenuItem value="top-bottom">Top → Bottom</MenuItem>
+                  <MenuItem value="bottom-top">Bottom → Top</MenuItem>
+                  <MenuItem value="large-small">Large → Small</MenuItem>
+                  <MenuItem value="small-large">Small → Large</MenuItem>
+                </TextField>
               </Box>
               <ToggleButtonGroup
                 value={faceswapSourceType}
