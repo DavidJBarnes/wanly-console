@@ -390,6 +390,7 @@ export default function CreateJobDialog({
             onChange={(e) => setFps(parseInt(e.target.value))}
             sx={{ flex: 1, minWidth: 100 }}
           >
+            <MenuItem value={16}>16 fps</MenuItem>
             <MenuItem value={30}>30 fps</MenuItem>
             <MenuItem value={60}>60 fps</MenuItem>
           </TextField>
