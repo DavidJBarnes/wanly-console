@@ -40,6 +40,7 @@ import {
   ClearOutlined,
   InfoOutlined,
   StopCircle,
+  Download,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -115,7 +116,7 @@ export default function JobDetail() {
   const [job, setJob] = useState<JobDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [videoModal, setVideoModal] = useState<{ path: string; v?: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<{ path: string; v?: string; segIndex?: number } | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [segmentModalOpen, setSegmentModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<SegmentResponse | null>(
@@ -530,7 +531,7 @@ export default function JobDetail() {
                         <Box
                           sx={{ position: "relative", cursor: "pointer" }}
                           onClick={() =>
-                            seg.output_path && setVideoModal({ path: seg.output_path, v: seg.completed_at ?? undefined })
+                            seg.output_path && setVideoModal({ path: seg.output_path, v: seg.completed_at ?? undefined, segIndex: seg.index })
                           }
                         >
                           <Box
@@ -822,7 +823,7 @@ export default function JobDetail() {
                         <Box
                           sx={{ position: "relative", cursor: "pointer" }}
                           onClick={() =>
-                            seg.output_path && setVideoModal({ path: seg.output_path, v: seg.completed_at ?? undefined })
+                            seg.output_path && setVideoModal({ path: seg.output_path, v: seg.completed_at ?? undefined, segIndex: seg.index })
                           }
                         >
                           <Box
@@ -1053,6 +1054,25 @@ export default function JobDetail() {
         fullWidth
       >
         <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
+          <IconButton
+            onClick={() => {
+              if (!videoModal || !job) return;
+              const url = getFileUrl(videoModal.path, videoModal.v);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${job.name}_segment${videoModal.segIndex ?? 0}.mp4`;
+              a.click();
+            }}
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 48,
+              color: "white",
+              zIndex: 1,
+            }}
+          >
+            <Download />
+          </IconButton>
           <IconButton
             onClick={() => setVideoModal(null)}
             sx={{
