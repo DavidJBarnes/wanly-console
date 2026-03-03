@@ -93,6 +93,7 @@ export interface JobCreate {
   seed?: number | null;
   lightx2v_strength_high?: number | null;
   lightx2v_strength_low?: number | null;
+  starting_image_uri?: string | null;
   first_segment: SegmentCreate;
 }
 

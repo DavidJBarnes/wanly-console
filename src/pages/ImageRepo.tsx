@@ -43,7 +43,7 @@ export default function ImageRepo() {
   const [lightboxImage, setLightboxImage] = useState<ImageFile | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ImageFile | null>(null);
   const [jobDialogOpen, setJobDialogOpen] = useState(false);
-  const [jobDialogImage, setJobDialogImage] = useState<File | null>(null);
+  const [jobDialogImageUri, setJobDialogImageUri] = useState<string | null>(null);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [folderPage, setFolderPage] = useState(0);
   const [foldersPerPage, setFoldersPerPage] = useState(12);
@@ -107,18 +107,10 @@ export default function ImageRepo() {
     setDeleteConfirm(null);
   };
 
-  const handleUseAsStartingImage = async (image: ImageFile) => {
-    try {
-      const url = getFileUrl(image.path);
-      const resp = await fetch(url);
-      const blob = await resp.blob();
-      const file = new File([blob], image.filename, { type: "image/png" });
-      setJobDialogImage(file);
-      setLightboxImage(null);
-      setJobDialogOpen(true);
-    } catch {
-      // ignore
-    }
+  const handleUseAsStartingImage = (image: ImageFile) => {
+    setJobDialogImageUri(image.path);
+    setLightboxImage(null);
+    setJobDialogOpen(true);
   };
 
   if (loading && folders.length === 0 && images.length === 0) {
@@ -373,13 +365,13 @@ export default function ImageRepo() {
         open={jobDialogOpen}
         onClose={() => {
           setJobDialogOpen(false);
-          setJobDialogImage(null);
+          setJobDialogImageUri(null);
         }}
         onCreated={() => {
           setJobDialogOpen(false);
-          setJobDialogImage(null);
+          setJobDialogImageUri(null);
         }}
-        initialStartingImage={jobDialogImage}
+        initialStartingImageUri={jobDialogImageUri}
       />
     </Box>
   );

@@ -33,6 +33,7 @@ interface CreateJobDialogProps {
   onClose: () => void;
   onCreated: () => void;
   initialStartingImage?: File | null;
+  initialStartingImageUri?: string | null;
 }
 
 export default function CreateJobDialog({
@@ -40,6 +41,7 @@ export default function CreateJobDialog({
   onClose,
   onCreated,
   initialStartingImage,
+  initialStartingImageUri,
 }: CreateJobDialogProps) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
@@ -56,6 +58,7 @@ export default function CreateJobDialog({
   const [lightx2vLow, setLightx2vLow] = useState(defaultLightx2vLow);
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
   const [faceswapEnabled, setFaceswapEnabled] = useState(true);
   const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("preset");
   const [faceswapImage, setFaceswapImage] = useState<File | null>(null);
@@ -104,7 +107,7 @@ export default function CreateJobDialog({
     }
   }, [open, fetchLoras, fetchTags]);
 
-  // Apply initialStartingImage when dialog opens
+  // Apply initialStartingImage (File) when dialog opens
   useEffect(() => {
     if (open && initialStartingImage) {
       setStartingImage(initialStartingImage);
@@ -118,6 +121,21 @@ export default function CreateJobDialog({
       img.src = url;
     }
   }, [open, initialStartingImage]);
+
+  // Apply initialStartingImageUri (S3 URI pass-through) when dialog opens
+  useEffect(() => {
+    if (open && initialStartingImageUri) {
+      setStartingImageUri(initialStartingImageUri);
+      const previewUrl = getFileUrl(initialStartingImageUri);
+      setImagePreview(previewUrl);
+      const img = new window.Image();
+      img.onload = () => {
+        setWidth(img.naturalWidth);
+        setHeight(img.naturalHeight);
+      };
+      img.src = previewUrl;
+    }
+  }, [open, initialStartingImageUri]);
 
   const applyPreset = (preset: PromptPreset | null) => {
     if (!preset) return;
@@ -184,6 +202,7 @@ export default function CreateJobDialog({
     setStartingImage(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
+    setStartingImageUri(null);
     setFaceswapEnabled(true);
     setFaceswapSourceType("preset");
     setFaceswapImage(null);
@@ -203,7 +222,7 @@ export default function CreateJobDialog({
       setError("Name and prompt are required");
       return;
     }
-    if (!startingImage) {
+    if (!startingImage && !startingImageUri) {
       setError("Starting image is required");
       return;
     }
@@ -219,6 +238,7 @@ export default function CreateJobDialog({
         seed: seed ? parseInt(seed) : null,
         lightx2v_strength_high: lightx2vHigh && parseFloat(lightx2vHigh) !== 2.0 ? parseFloat(lightx2vHigh) : null,
         lightx2v_strength_low: lightx2vLow && parseFloat(lightx2vLow) !== 1.0 ? parseFloat(lightx2vLow) : null,
+        starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         first_segment: {
           prompt: prompt.trim(),
           duration_seconds: duration,
@@ -242,7 +262,9 @@ export default function CreateJobDialog({
 
       const formData = new FormData();
       formData.append("data", JSON.stringify(jobData));
-      formData.append("starting_image", startingImage);
+      if (startingImage) {
+        formData.append("starting_image", startingImage);
+      }
       if (faceswapEnabled && faceswapSourceType === "upload" && faceswapImage) {
         formData.append("faceswap_image", faceswapImage);
       }
@@ -449,7 +471,7 @@ export default function CreateJobDialog({
             Starting Image *
           </Typography>
           <Button variant="outlined" component="label">
-            {startingImage ? startingImage.name : "Choose Image"}
+            {startingImage ? startingImage.name : startingImageUri ? "Image from repo" : "Choose Image"}
             <input
               type="file"
               hidden
@@ -457,6 +479,7 @@ export default function CreateJobDialog({
               onChange={(e) => {
                 const file = e.target.files?.[0] ?? null;
                 setStartingImage(file);
+                setStartingImageUri(null);
                 if (imagePreview) URL.revokeObjectURL(imagePreview);
                 if (file) {
                   const url = URL.createObjectURL(file);
@@ -702,7 +725,7 @@ export default function CreateJobDialog({
               >
                 <ToggleButton value="upload">Upload</ToggleButton>
                 <ToggleButton value="preset">Preset</ToggleButton>
-                <ToggleButton value="start_frame" disabled={!startingImage}>
+                <ToggleButton value="start_frame" disabled={!startingImage && !startingImageUri}>
                   Start Frame
                 </ToggleButton>
               </ToggleButtonGroup>
