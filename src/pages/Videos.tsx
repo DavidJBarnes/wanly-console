@@ -15,7 +15,7 @@ import {
   Alert,
   TablePagination,
 } from "@mui/material";
-import { Close, Error as ErrorIcon, PlayCircleOutline, VideoLibrary } from "@mui/icons-material";
+import { Close, Error as ErrorIcon, NavigateBefore, NavigateNext, PlayCircleOutline, Shuffle, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { getJobs, getJob, getFileUrl } from "../api/client";
 import type { JobDetailResponse, JobResponse } from "../api/types";
@@ -44,6 +44,9 @@ export default function Videos() {
   const [jobDetails, setJobDetails] = useState<Record<string, JobDetailResponse>>({});
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(12);
+  const [playlist, setPlaylist] = useState<{ jobId: string; videoPath: string; jobName: string }[]>([]);
+  const [playlistIndex, setPlaylistIndex] = useState(0);
+  const [loadingRandom, setLoadingRandom] = useState(false);
 
   const fetchVideos = useCallback(async () => {
     try {
@@ -96,14 +99,76 @@ export default function Videos() {
     return firstSeg?.last_frame_path ?? null;
   };
 
+  const handlePlayRandom = async () => {
+    setLoadingRandom(true);
+    try {
+      // Fetch all finalized jobs
+      const res = await getJobs({ status: "finalized", limit: 200, offset: 0 });
+      const allJobs = res.items;
+
+      // Fetch details for any we don't already have
+      const details = await Promise.all(
+        allJobs.map(async (job) => {
+          if (jobDetails[job.id]) return { job, detail: jobDetails[job.id] };
+          try {
+            const detail = await getJob(job.id);
+            setJobDetails((prev) => ({ ...prev, [job.id]: detail }));
+            return { job, detail };
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      // Build playlist from completed videos
+      const items: { jobId: string; videoPath: string; jobName: string }[] = [];
+      for (const entry of details) {
+        if (!entry) continue;
+        const video = entry.detail.videos?.[0];
+        if (video?.status === "completed" && video.output_path) {
+          items.push({ jobId: entry.job.id, videoPath: video.output_path, jobName: entry.job.name });
+        }
+      }
+
+      if (items.length === 0) return;
+
+      // Shuffle (Fisher-Yates)
+      for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+      }
+
+      setPlaylist(items);
+      setPlaylistIndex(0);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingRandom(false);
+    }
+  };
+
+  const isPlaylistMode = playlist.length > 0;
+  const currentPlaylistItem = isPlaylistMode ? playlist[playlistIndex] : null;
+
   const modalDetail = videoModal ? jobDetails[videoModal.jobId] : null;
   const modalVideo = modalDetail?.videos?.[0] ?? null;
 
   return (
     <Box>
-      <Typography variant="h4" sx={{ mb: 3 }}>
-        Videos
-      </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
+        <Typography variant="h4">Videos</Typography>
+        {finalizedJobs.length > 0 && (
+          <Button
+            variant="contained"
+            startIcon={loadingRandom ? <CircularProgress size={18} color="inherit" /> : <Shuffle />}
+            onClick={handlePlayRandom}
+            disabled={loadingRandom}
+            sx={{ textTransform: "none" }}
+          >
+            Play Random
+          </Button>
+        )}
+      </Box>
 
       {loading && finalizedJobs.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8 }}>
@@ -271,7 +336,7 @@ export default function Videos() {
         )
       )}
 
-      {/* Video modal */}
+      {/* Video modal — single video */}
       <Dialog
         open={!!videoModal}
         onClose={() => setVideoModal(null)}
@@ -327,6 +392,77 @@ export default function Videos() {
                   setVideoModal(null);
                 }}
                 sx={{ textTransform: "none" }}
+              >
+                View Job
+              </Button>
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Playlist modal — Play Random */}
+      <Dialog
+        open={isPlaylistMode}
+        onClose={() => setPlaylist([])}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
+          <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
+            <IconButton
+              onClick={() => setPlaylist([])}
+              sx={{ color: "white" }}
+            >
+              <Close />
+            </IconButton>
+          </Box>
+          {currentPlaylistItem && (
+            <Box
+              component="video"
+              key={playlistIndex}
+              controls
+              autoPlay
+              src={getFileUrl(currentPlaylistItem.videoPath)}
+              onEnded={() => {
+                if (playlistIndex < playlist.length - 1) {
+                  setPlaylistIndex((i) => i + 1);
+                }
+              }}
+              sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
+            />
+          )}
+          {currentPlaylistItem && (
+            <Box sx={{ p: 1.5, display: "flex", alignItems: "center", gap: 1, bgcolor: "rgba(0,0,0,0.8)" }}>
+              <IconButton
+                size="small"
+                disabled={playlistIndex === 0}
+                onClick={() => setPlaylistIndex((i) => i - 1)}
+                sx={{ color: "white" }}
+              >
+                <NavigateBefore />
+              </IconButton>
+              <Typography variant="body2" sx={{ color: "white", minWidth: 50, textAlign: "center" }}>
+                {playlistIndex + 1} / {playlist.length}
+              </Typography>
+              <IconButton
+                size="small"
+                disabled={playlistIndex === playlist.length - 1}
+                onClick={() => setPlaylistIndex((i) => i + 1)}
+                sx={{ color: "white" }}
+              >
+                <NavigateNext />
+              </IconButton>
+              <Typography variant="body2" noWrap sx={{ color: "rgba(255,255,255,0.7)", flex: 1, ml: 1 }}>
+                {currentPlaylistItem.jobName}
+              </Typography>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => {
+                  navigate(`/jobs/${currentPlaylistItem.jobId}`);
+                  setPlaylist([]);
+                }}
+                sx={{ textTransform: "none", ml: "auto" }}
               >
                 View Job
               </Button>
