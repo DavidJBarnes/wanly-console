@@ -1,5 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import {
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
   Autocomplete,
   Box,
   Chip,
@@ -42,6 +45,7 @@ import {
   StopCircle,
   Download,
   AutoAwesome,
+  ExpandMore,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -1354,6 +1358,8 @@ function SegmentModal({
   // Prompt generation
   const { promptPrefix, setPromptPrefix, generating, genError, setGenError, generate } = usePromptGenerator();
 
+  const accordionSx = { "&:before": { display: "none" }, boxShadow: "none", border: "1px solid", borderColor: "divider", borderRadius: "8px !important", mb: 1 };
+
   const applyPreset = (preset: PromptPreset | null) => {
     if (!preset) return;
     setPrompt(preset.prompt);
@@ -1521,101 +1527,9 @@ function SegmentModal({
             {error}
           </Alert>
         )}
-        {promptPresets.length > 0 && (
-          <Autocomplete
-            options={promptPresets}
-            getOptionLabel={(o) => o.name}
-            onChange={(_, val) => applyPreset(val)}
-            value={null}
-            renderInput={(params) => (
-              <TextField {...params} label="Load Preset" size="small" margin="normal" />
-            )}
-            size="small"
-            blurOnSelect
-            clearOnBlur
-          />
-        )}
-        <TextField
-          label="Prompt Prefix"
-          fullWidth
-          size="small"
-          margin="normal"
-          value={promptPrefix}
-          onChange={(e) => setPromptPrefix(e.target.value)}
-          placeholder="e.g. a woman in a red dress"
-        />
-        <TextField
-          label="Prompt"
-          fullWidth
-          multiline
-          rows={3}
-          margin="normal"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          autoFocus
-        />
-        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -1 }}>
-          <Button
-            size="small"
-            startIcon={generating ? <CircularProgress size={14} /> : <AutoAwesome sx={{ fontSize: 14 }} />}
-            disabled={generating}
-            onClick={() => {
-              const autoImage = lastSegment?.last_frame_path ?? job.starting_image ?? null;
-              if (startImageMode === "upload" && startImageFile) {
-                generate({ imageFile: startImageFile }, (p) => setPrompt(p));
-              } else if (startImageMode === "select" && startImagePath) {
-                generate({ imageS3Uri: startImagePath }, (p) => setPrompt(p));
-              } else if (autoImage) {
-                generate({ imageS3Uri: autoImage }, (p) => setPrompt(p));
-              }
-            }}
-            sx={{ textTransform: "none", fontSize: 12 }}
-          >
-            {generating ? "Generating..." : "Auto-generate"}
-          </Button>
-          <IconButton
-            size="small"
-            onClick={() => setPrompt("")}
-            disabled={!prompt}
-            sx={{ color: "text.disabled", p: 0.25 }}
-            title="Clear prompt"
-          >
-            <ClearOutlined sx={{ fontSize: 14 }} />
-          </IconButton>
-        </Box>
-        {genError && (
-          <Alert severity="error" sx={{ mt: 1 }} onClose={() => setGenError("")}>
-            {genError}
-          </Alert>
-        )}
-        <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
-          <TextField
-            label="Duration (sec)"
-            type="number"
-            value={duration}
-            onChange={(e) => setDuration(parseFloat(e.target.value) || 5)}
-            slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
-            sx={{ width: 150 }}
-          />
-          <TextField
-            label="Speed"
-            select
-            value={speed}
-            onChange={(e) => setSpeed(parseFloat(e.target.value))}
-            sx={{ width: 120 }}
-          >
-            <MenuItem value={1.0}>1.0x</MenuItem>
-            <MenuItem value={1.25}>1.25x</MenuItem>
-            <MenuItem value={1.5}>1.5x</MenuItem>
-            <MenuItem value={2.0}>2.0x</MenuItem>
-          </TextField>
-        </Box>
 
-        {/* Start Image section */}
-        <Box sx={{ mt: 3 }}>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Start Image
-          </Typography>
+        {/* ── Start Image (top, matching CreateJobDialog) ── */}
+        <Box sx={{ mt: 1, mb: 1 }}>
           {(() => {
             const autoImage = lastSegment?.last_frame_path ?? job.starting_image ?? null;
             const effectiveImage =
@@ -1644,13 +1558,9 @@ function SegmentModal({
                       src={isObjectUrl ? effectiveImage : getFileUrl(effectiveImage!)}
                       alt="Start image preview"
                       sx={{
-                        width: 80,
-                        height: 80,
-                        objectFit: "cover",
+                        height: 64,
                         borderRadius: 1,
-                        border: "1px solid",
-                        borderColor: "divider",
-                        flexShrink: 0,
+                        objectFit: "cover",
                       }}
                     />
                   )}
@@ -1753,250 +1663,416 @@ function SegmentModal({
           })()}
         </Box>
 
-        {/* Faceswap section */}
-        <Box sx={{ mt: 3 }}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={faceswapEnabled}
-                onChange={(e) => setFaceswapEnabled(e.target.checked)}
-              />
-            }
-            label="Enable Faceswap"
+        {/* ── Prompt ── */}
+        {promptPresets.length > 0 && (
+          <Autocomplete
+            options={promptPresets}
+            getOptionLabel={(o) => o.name}
+            onChange={(_, val) => applyPreset(val)}
+            value={null}
+            renderInput={(params) => (
+              <TextField {...params} label="Load Preset" size="small" margin="dense" />
+            )}
+            size="small"
+            blurOnSelect
+            clearOnBlur
           />
-          {faceswapEnabled && (
-            <Box sx={{ mt: 1 }}>
+        )}
+        <TextField
+          label="Prompt Prefix"
+          fullWidth
+          size="small"
+          margin="dense"
+          value={promptPrefix}
+          onChange={(e) => setPromptPrefix(e.target.value)}
+          placeholder="e.g. a woman in a red dress"
+        />
+        <TextField
+          label="Prompt"
+          fullWidth
+          multiline
+          rows={3}
+          margin="dense"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          autoFocus
+        />
+        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
+          <Button
+            size="small"
+            startIcon={generating ? <CircularProgress size={14} /> : <AutoAwesome sx={{ fontSize: 14 }} />}
+            disabled={generating}
+            onClick={() => {
+              const autoImage = lastSegment?.last_frame_path ?? job.starting_image ?? null;
+              if (startImageMode === "upload" && startImageFile) {
+                generate({ imageFile: startImageFile }, (p) => setPrompt(p));
+              } else if (startImageMode === "select" && startImagePath) {
+                generate({ imageS3Uri: startImagePath }, (p) => setPrompt(p));
+              } else if (autoImage) {
+                generate({ imageS3Uri: autoImage }, (p) => setPrompt(p));
+              }
+            }}
+            sx={{ textTransform: "none", fontSize: 12 }}
+          >
+            {generating ? "Generating..." : "Auto-generate"}
+          </Button>
+          <IconButton
+            size="small"
+            onClick={() => setPrompt("")}
+            disabled={!prompt}
+            sx={{ color: "text.disabled", p: 0.25 }}
+            title="Clear prompt"
+          >
+            <ClearOutlined sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+        {genError && (
+          <Alert severity="error" sx={{ mt: 0.5, mb: 0.5 }} onClose={() => setGenError("")}>
+            {genError}
+          </Alert>
+        )}
+
+        {/* ── Video Settings (accordion) ── */}
+        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
+          <AccordionSummary expandIcon={<ExpandMore />}>
+            <Typography variant="subtitle2">
+              Video Settings
+              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                {duration}s / {speed}x
+              </Typography>
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails sx={{ pt: 0 }}>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
               <TextField
-                label="Method"
+                label="Duration"
+                type="number"
+                size="small"
+                value={duration}
+                onChange={(e) => setDuration(parseFloat(e.target.value) || 5)}
+                sx={{ flex: 1, minWidth: 80 }}
+                slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
+              />
+              <TextField
+                label="Speed"
                 select
                 size="small"
-                fullWidth
-                value={faceswapMethod}
-                onChange={(e) => setFaceswapMethod(e.target.value)}
-                sx={{ mb: 1 }}
+                value={speed}
+                onChange={(e) => setSpeed(parseFloat(e.target.value))}
+                sx={{ flex: 1, minWidth: 80 }}
               >
-                <MenuItem value="reactor">ReActor</MenuItem>
-                <MenuItem value="facefusion">FaceFusion</MenuItem>
+                <MenuItem value={1.0}>1.0x</MenuItem>
+                <MenuItem value={1.25}>1.25x</MenuItem>
+                <MenuItem value={1.5}>1.5x</MenuItem>
+                <MenuItem value={2.0}>2.0x</MenuItem>
               </TextField>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
-                <TextField
-                  label="Faces Index"
-                  size="small"
-                  value={faceswapFacesIndex}
-                  onChange={(e) => setFaceswapFacesIndex(e.target.value)}
-                  sx={{ flex: 1, minWidth: 120 }}
-                />
-                <TextField
-                  label="Faces Order"
-                  size="small"
-                  select
-                  value={faceswapFacesOrder}
-                  onChange={(e) => setFaceswapFacesOrder(e.target.value)}
-                  sx={{ flex: 1, minWidth: 120 }}
-                >
-                  <MenuItem value="left-right">Left → Right</MenuItem>
-                  <MenuItem value="right-left">Right → Left</MenuItem>
-                  <MenuItem value="top-bottom">Top → Bottom</MenuItem>
-                  <MenuItem value="bottom-top">Bottom → Top</MenuItem>
-                  <MenuItem value="large-small">Large → Small</MenuItem>
-                  <MenuItem value="small-large">Small → Large</MenuItem>
-                </TextField>
-              </Box>
-              <ToggleButtonGroup
-                value={faceswapSourceType}
-                exclusive
-                onChange={(_e, v) => {
-                  if (v === null) return;
-                  setFaceswapSourceType(v);
-                  if (v !== "upload") setFaceswapFile(null);
-                  if (v !== "preset") setFaceswapPresetUri(null);
-                }}
-                size="small"
-                fullWidth
-                sx={{ mb: 1 }}
-              >
-                <ToggleButton value="upload">Upload</ToggleButton>
-                <ToggleButton value="preset">Preset</ToggleButton>
-                <ToggleButton value="start_frame">Start Frame</ToggleButton>
-              </ToggleButtonGroup>
-              {faceswapSourceType === "upload" && (
-                <>
-                  <Button variant="outlined" size="small" component="label">
-                    {faceswapFile
-                      ? faceswapFile.name
-                      : existingFaceswapName && lastSegment?.faceswap_source_type !== "preset"
-                        ? `Re-using: ${existingFaceswapName}`
-                        : "Choose Faceswap Image"}
-                    <input
-                      type="file"
-                      hidden
-                      accept="image/*"
-                      onChange={(e) =>
-                        setFaceswapFile(e.target.files?.[0] ?? null)
-                      }
-                    />
-                  </Button>
-                  {faceswapFile && existingFaceswapName && lastSegment?.faceswap_source_type !== "preset" && (
-                    <Button
-                      size="small"
-                      sx={{ ml: 1 }}
-                      onClick={() => setFaceswapFile(null)}
-                    >
-                      Reset to existing
-                    </Button>
-                  )}
-                </>
-              )}
-              {faceswapSourceType === "preset" && (
-                <TextField
-                  label="Preset Face"
-                  select
-                  size="small"
-                  fullWidth
-                  value={faceswapPresetUri ?? ""}
-                  onChange={(e) => setFaceswapPresetUri(e.target.value || null)}
-                >
-                  {faceswapPresets.map((p) => (
-                    <MenuItem key={p.key} value={p.url}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <Box
-                          component="img"
-                          src={getFileUrl(p.url)}
-                          alt={p.name}
-                          sx={{
-                            width: 32,
-                            height: 32,
-                            objectFit: "cover",
-                            borderRadius: 0.5,
-                          }}
-                        />
-                        <Typography variant="body2">{p.name}</Typography>
-                      </Box>
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
             </Box>
-          )}
-        </Box>
+          </AccordionDetails>
+        </Accordion>
 
-        {/* LoRA section */}
-        <Box sx={{ mt: 3 }}>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            LoRAs
-          </Typography>
-          {loraSlots.length < 3 && (
-            <Autocomplete
-              options={loraLibrary
-                .filter((l) => !loraSlots.some((s) => s.lora_id === l.id))
-                .sort((a, b) => a.name.localeCompare(b.name))}
-              getOptionLabel={(o) => o.name}
-              onChange={(_, val) => addLoraFromLibrary(val)}
-              value={null}
-              renderOption={(props, option) => {
-                const idx = (props as unknown as { "data-option-index": number })["data-option-index"];
-                return (
+        {/* ── LoRAs (accordion) ── */}
+        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
+          <AccordionSummary expandIcon={<ExpandMore />}>
+            <Typography variant="subtitle2">
+              LoRAs
+              {loraSlots.length > 0 && (
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  {loraSlots.map((l) => l.name).join(", ")}
+                </Typography>
+              )}
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails sx={{ pt: 0 }}>
+            {loraSlots.length < 3 && (
+              <Autocomplete
+                options={loraLibrary
+                  .filter((l) => !loraSlots.some((s) => s.lora_id === l.id))
+                  .sort((a, b) => a.name.localeCompare(b.name))}
+                getOptionLabel={(o) => o.name}
+                onChange={(_, val) => addLoraFromLibrary(val)}
+                value={null}
+                renderOption={(props, option) => {
+                  const idx = (props as unknown as { "data-option-index": number })["data-option-index"];
+                  return (
+                  <Box
+                    component="li"
+                    {...props}
+                    key={option.id}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                      bgcolor: idx % 2 === 0 ? "#f5f5f5" : "#ffffff",
+                    }}
+                  >
+                    {option.preview_image ? (
+                      <Box
+                        component="img"
+                        src={getFileUrl(option.preview_image)}
+                        alt=""
+                        sx={{
+                          width: 40,
+                          height: 40,
+                          objectFit: "cover",
+                          borderRadius: 0.5,
+                          flexShrink: 0,
+                        }}
+                      />
+                    ) : (
+                      <Box
+                        sx={{
+                          width: 40,
+                          height: 40,
+                          bgcolor: "#eee",
+                          borderRadius: 0.5,
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
+                    <Box>
+                      <Typography variant="body2">{option.name}</Typography>
+                      {option.trigger_words && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                        >
+                          {option.trigger_words}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                  );
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    size="small"
+                    placeholder="Search LoRA library..."
+                  />
+                )}
+                size="small"
+                blurOnSelect
+                clearOnBlur
+              />
+            )}
+            {loraSlots.map((lora, idx) => (
+              <Card key={lora.lora_id} variant="outlined" sx={{ p: 1.5, mt: 1 }}>
                 <Box
-                  component="li"
-                  {...props}
-                  key={option.id}
                   sx={{
                     display: "flex",
                     alignItems: "center",
                     gap: 1,
-                    bgcolor: idx % 2 === 0 ? "#f5f5f5" : "#ffffff",
+                    mb: 1,
                   }}
                 >
-                  {option.preview_image ? (
+                  {lora.preview_image ? (
                     <Box
                       component="img"
-                      src={getFileUrl(option.preview_image)}
+                      src={getFileUrl(lora.preview_image)}
                       alt=""
                       sx={{
-                        width: 32,
-                        height: 32,
+                        width: 36,
+                        height: 36,
                         objectFit: "cover",
                         borderRadius: 0.5,
-                        flexShrink: 0,
                       }}
                     />
                   ) : (
                     <Box
                       sx={{
-                        width: 32,
-                        height: 32,
+                        width: 36,
+                        height: 36,
                         bgcolor: "#eee",
                         borderRadius: 0.5,
-                        flexShrink: 0,
                       }}
                     />
                   )}
-                  <Typography variant="body2">{option.name}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600, flex: 1 }}>
+                    {lora.name}
+                  </Typography>
+                  <Button
+                    size="small"
+                    color="error"
+                    onClick={() => removeLora(idx)}
+                  >
+                    Remove
+                  </Button>
                 </Box>
-                );
-              }}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  size="small"
-                  placeholder="Add LoRA..."
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                  <TextField
+                    label="High Weight"
+                    size="small"
+                    type="number"
+                    value={lora.high_weight}
+                    onChange={(e) =>
+                      updateLoraWeight(
+                        idx,
+                        "high_weight",
+                        parseFloat(e.target.value),
+                      )
+                    }
+                    disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.high_file}
+                    sx={{ flex: 1, minWidth: 100 }}
+                    slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
+                  />
+                  <TextField
+                    label="Low Weight"
+                    size="small"
+                    type="number"
+                    value={lora.low_weight}
+                    onChange={(e) =>
+                      updateLoraWeight(
+                        idx,
+                        "low_weight",
+                        parseFloat(e.target.value),
+                      )
+                    }
+                    disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.low_file}
+                    sx={{ flex: 1, minWidth: 100 }}
+                    slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
+                  />
+                </Box>
+              </Card>
+            ))}
+          </AccordionDetails>
+        </Accordion>
+
+        {/* ── Faceswap (accordion) ── */}
+        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
+          <AccordionSummary expandIcon={<ExpandMore />}>
+            <Typography variant="subtitle2">
+              Faceswap
+              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                {faceswapEnabled ? `ON — ${faceswapMethod}` : "OFF"}
+              </Typography>
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails sx={{ pt: 0 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={faceswapEnabled}
+                  onChange={(e) => setFaceswapEnabled(e.target.checked)}
                 />
-              )}
-              size="small"
-              blurOnSelect
-              clearOnBlur
+              }
+              label="Enable Faceswap"
             />
-          )}
-          {loraSlots.map((lora, idx) => (
-            <Box
-              key={lora.lora_id}
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                mt: 1,
-              }}
-            >
-              <Chip
-                label={lora.name}
-                onDelete={() => removeLora(idx)}
-                size="small"
-              />
-              <TextField
-                label="H"
-                size="small"
-                type="number"
-                value={lora.high_weight}
-                onChange={(e) =>
-                  updateLoraWeight(
-                    idx,
-                    "high_weight",
-                    parseFloat(e.target.value),
-                  )
-                }
-                disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.high_file}
-                sx={{ width: 80 }}
-                slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
-              />
-              <TextField
-                label="L"
-                size="small"
-                type="number"
-                value={lora.low_weight}
-                onChange={(e) =>
-                  updateLoraWeight(
-                    idx,
-                    "low_weight",
-                    parseFloat(e.target.value),
-                  )
-                }
-                disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.low_file}
-                sx={{ width: 80 }}
-                slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
-              />
-            </Box>
-          ))}
-        </Box>
+            {faceswapEnabled && (
+              <Box sx={{ mt: 1 }}>
+                <TextField
+                  label="Method"
+                  select
+                  size="small"
+                  fullWidth
+                  value={faceswapMethod}
+                  onChange={(e) => setFaceswapMethod(e.target.value)}
+                  sx={{ mb: 1 }}
+                >
+                  <MenuItem value="reactor">ReActor</MenuItem>
+                  <MenuItem value="facefusion">FaceFusion</MenuItem>
+                </TextField>
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
+                  <TextField
+                    label="Faces Index"
+                    size="small"
+                    value={faceswapFacesIndex}
+                    onChange={(e) => setFaceswapFacesIndex(e.target.value)}
+                    sx={{ flex: 1, minWidth: 120 }}
+                  />
+                  <TextField
+                    label="Faces Order"
+                    size="small"
+                    select
+                    value={faceswapFacesOrder}
+                    onChange={(e) => setFaceswapFacesOrder(e.target.value)}
+                    sx={{ flex: 1, minWidth: 120 }}
+                  >
+                    <MenuItem value="left-right">Left → Right</MenuItem>
+                    <MenuItem value="right-left">Right → Left</MenuItem>
+                    <MenuItem value="top-bottom">Top → Bottom</MenuItem>
+                    <MenuItem value="bottom-top">Bottom → Top</MenuItem>
+                    <MenuItem value="large-small">Large → Small</MenuItem>
+                    <MenuItem value="small-large">Small → Large</MenuItem>
+                  </TextField>
+                </Box>
+                <ToggleButtonGroup
+                  value={faceswapSourceType}
+                  exclusive
+                  onChange={(_e, v) => {
+                    if (v === null) return;
+                    setFaceswapSourceType(v);
+                    if (v !== "upload") setFaceswapFile(null);
+                    if (v !== "preset") setFaceswapPresetUri(null);
+                  }}
+                  size="small"
+                  fullWidth
+                  sx={{ mb: 1 }}
+                >
+                  <ToggleButton value="upload">Upload</ToggleButton>
+                  <ToggleButton value="preset">Preset</ToggleButton>
+                  <ToggleButton value="start_frame">Start Frame</ToggleButton>
+                </ToggleButtonGroup>
+                {faceswapSourceType === "upload" && (
+                  <>
+                    <Button variant="outlined" size="small" component="label">
+                      {faceswapFile
+                        ? faceswapFile.name
+                        : existingFaceswapName && lastSegment?.faceswap_source_type !== "preset"
+                          ? `Re-using: ${existingFaceswapName}`
+                          : "Choose Faceswap Image"}
+                      <input
+                        type="file"
+                        hidden
+                        accept="image/*"
+                        onChange={(e) =>
+                          setFaceswapFile(e.target.files?.[0] ?? null)
+                        }
+                      />
+                    </Button>
+                    {faceswapFile && existingFaceswapName && lastSegment?.faceswap_source_type !== "preset" && (
+                      <Button
+                        size="small"
+                        sx={{ ml: 1 }}
+                        onClick={() => setFaceswapFile(null)}
+                      >
+                        Reset to existing
+                      </Button>
+                    )}
+                  </>
+                )}
+                {faceswapSourceType === "preset" && (
+                  <TextField
+                    label="Preset Face"
+                    select
+                    size="small"
+                    fullWidth
+                    value={faceswapPresetUri ?? ""}
+                    onChange={(e) => setFaceswapPresetUri(e.target.value || null)}
+                  >
+                    {faceswapPresets.map((p) => (
+                      <MenuItem key={p.key} value={p.url}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <Box
+                            component="img"
+                            src={getFileUrl(p.url)}
+                            alt={p.name}
+                            sx={{
+                              width: 32,
+                              height: 32,
+                              objectFit: "cover",
+                              borderRadius: 0.5,
+                            }}
+                          />
+                          <Typography variant="body2">{p.name}</Typography>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              </Box>
+            )}
+          </AccordionDetails>
+        </Accordion>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
