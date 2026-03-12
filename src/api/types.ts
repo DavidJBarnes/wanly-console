@@ -228,6 +228,7 @@ export interface WorkerResponse {
   status: WorkerStatus;
   comfyui_running: boolean;
   gpu_stats: GpuStats | null;
+  drain_after_jobs: number | null;
   last_heartbeat: string;
   registered_at: string;
   updated_at: string;
