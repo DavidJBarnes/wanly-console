@@ -15,6 +15,10 @@ import {
   DialogActions,
   Button,
   Tooltip,
+  Chip,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
 } from "@mui/material";
 import {
   Circle,
@@ -24,8 +28,9 @@ import {
   PowerSettingsNew,
   Edit,
   Memory,
+  Cancel,
 } from "@mui/icons-material";
-import { getWorkers, deleteWorker, drainWorker, renameWorker } from "../api/client";
+import { getWorkers, deleteWorker, drainWorker, cancelDrain, renameWorker } from "../api/client";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
@@ -64,6 +69,8 @@ export default function Workers() {
   const [deleting, setDeleting] = useState(false);
   const [drainConfirm, setDrainConfirm] = useState<WorkerResponse | null>(null);
   const [draining, setDraining] = useState(false);
+  const [drainMode, setDrainMode] = useState<"immediate" | "after">("immediate");
+  const [drainCount, setDrainCount] = useState(3);
 
   const fetchWorkers = useCallback(async () => {
     try {
@@ -99,13 +106,24 @@ export default function Workers() {
   const handleDrain = async (worker: WorkerResponse) => {
     setDraining(true);
     try {
-      await drainWorker(worker.id);
+      const afterJobs = drainMode === "after" ? drainCount : undefined;
+      await drainWorker(worker.id, afterJobs);
       setDrainConfirm(null);
+      setDrainMode("immediate");
       fetchWorkers();
     } catch {
       setError("Failed to drain worker");
     } finally {
       setDraining(false);
+    }
+  };
+
+  const handleCancelDrain = async (worker: WorkerResponse) => {
+    try {
+      await cancelDrain(worker.id);
+      fetchWorkers();
+    } catch {
+      setError("Failed to cancel drain");
     }
   };
 
@@ -151,6 +169,7 @@ export default function Workers() {
               worker={worker}
               onDelete={setDeleteConfirm}
               onDrain={setDrainConfirm}
+              onCancelDrain={handleCancelDrain}
               onRenamed={fetchWorkers}
             />
           </Grid>
@@ -199,10 +218,37 @@ export default function Workers() {
       >
         <DialogTitle>Drain Worker</DialogTitle>
         <DialogContent>
-          <Typography>
-            Drain <strong>{drainConfirm?.friendly_name}</strong>? It will finish
-            its current job and then stop accepting new work.
+          <Typography sx={{ mb: 2 }}>
+            Drain <strong>{drainConfirm?.friendly_name}</strong>?
           </Typography>
+          <RadioGroup
+            value={drainMode}
+            onChange={(e) => setDrainMode(e.target.value as "immediate" | "after")}
+          >
+            <FormControlLabel
+              value="immediate"
+              control={<Radio size="small" />}
+              label="After current job (immediate)"
+            />
+            <FormControlLabel
+              value="after"
+              control={<Radio size="small" />}
+              label={
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  After
+                  <TextField
+                    size="small"
+                    type="number"
+                    value={drainCount}
+                    onChange={(e) => setDrainCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    onFocus={() => setDrainMode("after")}
+                    slotProps={{ htmlInput: { min: 1, max: 999, style: { width: 50, textAlign: "center" } } }}
+                  />
+                  more jobs
+                </Box>
+              }
+            />
+          </RadioGroup>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDrainConfirm(null)}>Cancel</Button>
@@ -224,15 +270,19 @@ function WorkerCard({
   worker,
   onDelete,
   onDrain,
+  onCancelDrain,
   onRenamed,
 }: {
   worker: WorkerResponse;
   onDelete: (w: WorkerResponse) => void;
   onDrain: (w: WorkerResponse) => void;
+  onCancelDrain: (w: WorkerResponse) => void;
   onRenamed: () => void;
 }) {
   const cfg = STATUS_CONFIG[worker.status];
   const canDrain = worker.status === "online-idle" || worker.status === "online-busy";
+  const hasPendingDrain = worker.drain_after_jobs !== null && worker.drain_after_jobs > 0;
+  const canCancelDrain = hasPendingDrain || worker.status === "draining";
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(worker.friendly_name);
 
@@ -307,7 +357,25 @@ function WorkerCard({
             >
               {cfg.label}
             </Typography>
-            {canDrain && (
+            {hasPendingDrain && (
+              <Chip
+                label={`Drain in ${worker.drain_after_jobs} job${worker.drain_after_jobs === 1 ? "" : "s"}`}
+                size="small"
+                sx={{ bgcolor: "#fff8e1", color: "#f57f17", fontWeight: 600, fontSize: "0.7rem" }}
+              />
+            )}
+            {canCancelDrain && (
+              <Tooltip title="Cancel drain">
+                <IconButton
+                  size="small"
+                  sx={{ ml: 0.5, color: "#f57f17" }}
+                  onClick={() => onCancelDrain(worker)}
+                >
+                  <Cancel fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            {canDrain && !hasPendingDrain && (
               <Tooltip title="Drain worker">
                 <IconButton
                   size="small"

@@ -345,8 +345,13 @@ export async function deleteWorker(id: string): Promise<void> {
   await registry.delete(`/workers/${id}`);
 }
 
-export async function drainWorker(id: string): Promise<void> {
-  await registry.post(`/workers/${id}/drain`);
+export async function drainWorker(id: string, afterJobs?: number): Promise<void> {
+  const body = afterJobs && afterJobs > 0 ? { after_jobs: afterJobs } : undefined;
+  await registry.post(`/workers/${id}/drain`, body);
+}
+
+export async function cancelDrain(id: string): Promise<void> {
+  await registry.delete(`/workers/${id}/drain`);
 }
 
 export async function renameWorker(id: string, friendlyName: string): Promise<WorkerResponse> {
