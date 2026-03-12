@@ -41,6 +41,7 @@ import {
   InfoOutlined,
   StopCircle,
   Download,
+  AutoAwesome,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -56,6 +57,7 @@ import {
   getFileUrl,
   getFaceswapPresets,
 } from "../api/client";
+import { usePromptGenerator } from "../hooks/usePromptGenerator";
 import { useLoraStore } from "../stores/loraStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
 import type {
@@ -1341,6 +1343,9 @@ function SegmentModal({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Prompt generation
+  const { promptPrefix, setPromptPrefix, generating, genError, setGenError, generate } = usePromptGenerator();
+
   const applyPreset = (preset: PromptPreset | null) => {
     if (!preset) return;
     setPrompt(preset.prompt);
@@ -1523,6 +1528,15 @@ function SegmentModal({
           />
         )}
         <TextField
+          label="Prompt Prefix"
+          fullWidth
+          size="small"
+          margin="normal"
+          value={promptPrefix}
+          onChange={(e) => setPromptPrefix(e.target.value)}
+          placeholder="e.g. a woman in a red dress"
+        />
+        <TextField
           label="Prompt"
           fullWidth
           multiline
@@ -1532,7 +1546,25 @@ function SegmentModal({
           onChange={(e) => setPrompt(e.target.value)}
           autoFocus
         />
-        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: -1 }}>
+        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -1 }}>
+          <Button
+            size="small"
+            startIcon={generating ? <CircularProgress size={14} /> : <AutoAwesome sx={{ fontSize: 14 }} />}
+            disabled={generating}
+            onClick={() => {
+              const autoImage = lastSegment?.last_frame_path ?? job.starting_image ?? null;
+              if (startImageMode === "upload" && startImageFile) {
+                generate({ imageFile: startImageFile }, (p) => setPrompt(p));
+              } else if (startImageMode === "select" && startImagePath) {
+                generate({ imageS3Uri: startImagePath }, (p) => setPrompt(p));
+              } else if (autoImage) {
+                generate({ imageS3Uri: autoImage }, (p) => setPrompt(p));
+              }
+            }}
+            sx={{ textTransform: "none", fontSize: 12 }}
+          >
+            {generating ? "Generating..." : "Auto-generate"}
+          </Button>
           <IconButton
             size="small"
             onClick={() => setPrompt("")}
@@ -1543,6 +1575,11 @@ function SegmentModal({
             <ClearOutlined sx={{ fontSize: 14 }} />
           </IconButton>
         </Box>
+        {genError && (
+          <Alert severity="error" sx={{ mt: 1 }} onClose={() => setGenError("")}>
+            {genError}
+          </Alert>
+        )}
         <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
           <TextField
             label="Duration (sec)"
