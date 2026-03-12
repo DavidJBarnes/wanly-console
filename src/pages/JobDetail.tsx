@@ -337,6 +337,14 @@ export default function JobDetail() {
               value={`${job.lightx2v_strength_low ?? 1.0}`}
             />
             <MetaItem
+              label="CFG High"
+              value={`${job.cfg_high ?? 1}`}
+            />
+            <MetaItem
+              label="CFG Low"
+              value={`${job.cfg_low ?? 1}`}
+            />
+            <MetaItem
               label="Segments"
               value={`${job.completed_segment_count}/${job.segment_count}`}
             />

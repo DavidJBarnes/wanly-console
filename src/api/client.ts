@@ -29,6 +29,8 @@ import type {
   TitleTagCreate,
   ImageFolder,
   ImageFile,
+  AppSettingsResponse,
+  AppSettingsUpdate,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -301,6 +303,18 @@ export async function getPromptTemplates(): Promise<PromptTemplatesResponse> {
 
 export async function updatePromptTemplates(body: PromptTemplatesUpdate): Promise<PromptTemplatesResponse> {
   const { data } = await api.put<PromptTemplatesResponse>("/prompt/templates", body);
+  return data;
+}
+
+// --- App Settings ---
+
+export async function getAppSettings(): Promise<AppSettingsResponse> {
+  const { data } = await api.get<AppSettingsResponse>("/settings");
+  return data;
+}
+
+export async function updateAppSettings(body: AppSettingsUpdate): Promise<AppSettingsResponse> {
+  const { data } = await api.put<AppSettingsResponse>("/settings", body);
   return data;
 }
 

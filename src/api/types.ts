@@ -93,6 +93,8 @@ export interface JobCreate {
   seed?: number | null;
   lightx2v_strength_high?: number | null;
   lightx2v_strength_low?: number | null;
+  cfg_high?: number | null;
+  cfg_low?: number | null;
   starting_image_uri?: string | null;
   first_segment: SegmentCreate;
 }
@@ -107,6 +109,8 @@ export interface JobResponse {
   starting_image: string | null;
   lightx2v_strength_high: number | null;
   lightx2v_strength_low: number | null;
+  cfg_high: number | null;
+  cfg_low: number | null;
   priority: number;
   status: JobStatus;
   segment_count: number;
@@ -347,4 +351,18 @@ export interface PromptTemplatesUpdate {
   text_prompt?: string;
   vision_model?: string;
   text_model?: string;
+}
+
+export interface AppSettingsResponse {
+  cfg_high: number;
+  cfg_low: number;
+  lightx2v_strength_high: number;
+  lightx2v_strength_low: number;
+}
+
+export interface AppSettingsUpdate {
+  cfg_high?: number;
+  cfg_low?: number;
+  lightx2v_strength_high?: number;
+  lightx2v_strength_low?: number;
 }

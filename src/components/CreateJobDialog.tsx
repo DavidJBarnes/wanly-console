@@ -50,7 +50,7 @@ export default function CreateJobDialog({
 }: CreateJobDialogProps) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
-  const { defaultLightx2vHigh, defaultLightx2vLow } = useSettingsStore();
+  const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, fetchSettings } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [width, setWidth] = useState(640);
@@ -61,6 +61,8 @@ export default function CreateJobDialog({
   const [seed, setSeed] = useState("");
   const [lightx2vHigh, setLightx2vHigh] = useState(defaultLightx2vHigh);
   const [lightx2vLow, setLightx2vLow] = useState(defaultLightx2vLow);
+  const [cfgHigh, setCfgHigh] = useState(defaultCfgHigh);
+  const [cfgLow, setCfgLow] = useState(defaultCfgLow);
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -107,6 +109,7 @@ export default function CreateJobDialog({
       fetchLoras();
       fetchPresets();
       fetchTags();
+      fetchSettings();
       getFaceswapPresets().then((presets) => {
         setFaceswapPresets(presets);
         const kelly = presets.find((p) => p.name.toLowerCase() === "kelly_young.safetensors" || p.key.toLowerCase() === "kelly_young.safetensors.png");
@@ -207,6 +210,8 @@ export default function CreateJobDialog({
     setSeed("");
     setLightx2vHigh(defaultLightx2vHigh);
     setLightx2vLow(defaultLightx2vLow);
+    setCfgHigh(defaultCfgHigh);
+    setCfgLow(defaultCfgLow);
     setStartingImage(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
@@ -225,7 +230,7 @@ export default function CreateJobDialog({
     setPromptPrefix("");
     setGenError("");
     setError("");
-  }, [imagePreview, defaultLightx2vHigh, defaultLightx2vLow]);
+  }, [imagePreview, defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow]);
 
   const handleSubmit = async () => {
     if (!name.trim() || !prompt.trim()) {
@@ -246,8 +251,10 @@ export default function CreateJobDialog({
         height,
         fps,
         seed: seed ? parseInt(seed) : null,
-        lightx2v_strength_high: lightx2vHigh && parseFloat(lightx2vHigh) !== 2.0 ? parseFloat(lightx2vHigh) : null,
-        lightx2v_strength_low: lightx2vLow && parseFloat(lightx2vLow) !== 1.0 ? parseFloat(lightx2vLow) : null,
+        lightx2v_strength_high: lightx2vHigh ? parseFloat(lightx2vHigh) : null,
+        lightx2v_strength_low: lightx2vLow ? parseFloat(lightx2vLow) : null,
+        cfg_high: cfgHigh ? parseFloat(cfgHigh) : null,
+        cfg_low: cfgLow ? parseFloat(cfgLow) : null,
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         first_segment: {
           prompt: prompt.trim(),
@@ -474,7 +481,7 @@ export default function CreateJobDialog({
             <Typography variant="subtitle2">
               Video Settings
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {width}x{height} / {fps}fps / {duration}s / {speed}x
+                {width}x{height} / {fps}fps / {duration}s / {speed}x / CFG {cfgHigh}/{cfgLow}
               </Typography>
             </Typography>
           </AccordionSummary>
@@ -561,6 +568,28 @@ export default function CreateJobDialog({
                 sx={{ flex: 1, minWidth: 100 }}
                 slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
                 helperText="1.0–2.0"
+              />
+            </Box>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
+              <TextField
+                label="CFG High"
+                type="number"
+                size="small"
+                value={cfgHigh}
+                onChange={(e) => setCfgHigh(e.target.value)}
+                sx={{ flex: 1, minWidth: 100 }}
+                slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
+                helperText="High noise"
+              />
+              <TextField
+                label="CFG Low"
+                type="number"
+                size="small"
+                value={cfgLow}
+                onChange={(e) => setCfgLow(e.target.value)}
+                sx={{ flex: 1, minWidth: 100 }}
+                slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
+                helperText="Low noise"
               />
             </Box>
           </AccordionDetails>
