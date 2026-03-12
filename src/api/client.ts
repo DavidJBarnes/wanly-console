@@ -151,7 +151,9 @@ export async function getWorkerSegments(workerId: string): Promise<WorkerSegment
 }
 
 export function getFileUrl(s3Path: string, version?: string): string {
+  const token = localStorage.getItem("token");
   let url = `${API_URL}/files?path=${encodeURIComponent(s3Path)}`;
+  if (token) url += `&token=${encodeURIComponent(token)}`;
   if (version) url += `&v=${encodeURIComponent(version)}`;
   return url;
 }
