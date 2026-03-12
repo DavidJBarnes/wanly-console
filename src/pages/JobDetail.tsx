@@ -5,7 +5,6 @@ import {
   AccordionDetails,
   Autocomplete,
   Box,
-  Chip,
   Typography,
   Card,
   CardContent,
