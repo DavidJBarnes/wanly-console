@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -24,13 +25,23 @@ export default function SettingsPage() {
   const {
     defaultLightx2vHigh,
     defaultLightx2vLow,
+    defaultCfgHigh,
+    defaultCfgLow,
+    loaded,
+    fetchSettings,
+    saveSettings,
     setDefaultLightx2vHigh,
     setDefaultLightx2vLow,
+    setDefaultCfgHigh,
+    setDefaultCfgLow,
   } = useSettingsStore();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     fetchTags();
-  }, [fetchTags]);
+    fetchSettings();
+  }, [fetchTags, fetchSettings]);
 
   const handleAdd1 = () => {
     addTag(input1, 1);
@@ -40,6 +51,24 @@ export default function SettingsPage() {
   const handleAdd2 = () => {
     addTag(input2, 2);
     setInput2("");
+  };
+
+  const handleSaveDefaults = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await saveSettings({
+        lightx2v_strength_high: parseFloat(defaultLightx2vHigh) || 2.0,
+        lightx2v_strength_low: parseFloat(defaultLightx2vLow) || 1.0,
+        cfg_high: parseFloat(defaultCfgHigh) || 1,
+        cfg_low: parseFloat(defaultCfgLow) || 1,
+      });
+      setSaved(true);
+    } catch {
+      // error handled silently
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -152,28 +181,73 @@ export default function SettingsPage() {
           <Typography variant="h6" sx={{ mb: 2 }}>
             Job Defaults
           </Typography>
-          <Box sx={{ display: "flex", gap: 2, maxWidth: 400 }}>
-            <TextField
-              label="LightX2V High"
-              type="number"
-              size="small"
-              value={defaultLightx2vHigh}
-              onChange={(e) => setDefaultLightx2vHigh(e.target.value)}
-              slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
-              helperText="Range: 1.0–5.6"
-              sx={{ flex: 1 }}
-            />
-            <TextField
-              label="LightX2V Low"
-              type="number"
-              size="small"
-              value={defaultLightx2vLow}
-              onChange={(e) => setDefaultLightx2vLow(e.target.value)}
-              slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
-              helperText="Range: 1.0–2.0"
-              sx={{ flex: 1 }}
-            />
-          </Box>
+          {!loaded ? (
+            <Box sx={{ textAlign: "center", py: 2 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : (
+            <>
+              <Box sx={{ display: "flex", gap: 2, maxWidth: 500, flexWrap: "wrap" }}>
+                <TextField
+                  label="LightX2V High"
+                  type="number"
+                  size="small"
+                  value={defaultLightx2vHigh}
+                  onChange={(e) => setDefaultLightx2vHigh(e.target.value)}
+                  slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+                  helperText="Range: 1.0–5.6"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+                <TextField
+                  label="LightX2V Low"
+                  type="number"
+                  size="small"
+                  value={defaultLightx2vLow}
+                  onChange={(e) => setDefaultLightx2vLow(e.target.value)}
+                  slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+                  helperText="Range: 1.0–2.0"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+              </Box>
+              <Box sx={{ display: "flex", gap: 2, maxWidth: 500, mt: 2, flexWrap: "wrap" }}>
+                <TextField
+                  label="CFG High"
+                  type="number"
+                  size="small"
+                  value={defaultCfgHigh}
+                  onChange={(e) => setDefaultCfgHigh(e.target.value)}
+                  slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
+                  helperText="High noise sampler"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+                <TextField
+                  label="CFG Low"
+                  type="number"
+                  size="small"
+                  value={defaultCfgLow}
+                  onChange={(e) => setDefaultCfgLow(e.target.value)}
+                  slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
+                  helperText="Low noise sampler"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+              </Box>
+              <Box sx={{ mt: 2 }}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={handleSaveDefaults}
+                  disabled={saving}
+                >
+                  {saving ? "Saving..." : "Save Defaults"}
+                </Button>
+                {saved && (
+                  <Alert severity="success" sx={{ mt: 1 }}>
+                    Defaults saved
+                  </Alert>
+                )}
+              </Box>
+            </>
+          )}
         </CardContent>
       </Card>
     </Box>
