@@ -17,6 +17,10 @@ import type {
   PromptPreset,
   PromptPresetCreate,
   PromptPresetUpdate,
+  PromptGenRequest,
+  PromptGenResponse,
+  PromptTemplatesResponse,
+  PromptTemplatesUpdate,
   WildcardResponse,
   WildcardCreate,
   WildcardUpdate,
@@ -281,6 +285,23 @@ export async function getImageFolder(date: string): Promise<ImageFile[]> {
 
 export async function deleteImage(path: string): Promise<void> {
   await api.delete("/images", { params: { path } });
+}
+
+// --- Prompt Generation ---
+
+export async function generatePrompt(body: PromptGenRequest): Promise<PromptGenResponse> {
+  const { data } = await api.post<PromptGenResponse>("/prompt/generate", body);
+  return data;
+}
+
+export async function getPromptTemplates(): Promise<PromptTemplatesResponse> {
+  const { data } = await api.get<PromptTemplatesResponse>("/prompt/templates");
+  return data;
+}
+
+export async function updatePromptTemplates(body: PromptTemplatesUpdate): Promise<PromptTemplatesResponse> {
+  const { data } = await api.put<PromptTemplatesResponse>("/prompt/templates", body);
+  return data;
 }
 
 // --- Faceswap Presets ---

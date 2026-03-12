@@ -28,6 +28,7 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import { Add, DeleteOutline, Edit } from "@mui/icons-material";
+import { Save } from "@mui/icons-material";
 import {
   getWildcards,
   createWildcard,
@@ -37,10 +38,12 @@ import {
   updatePromptPreset,
   deletePromptPreset,
   getFileUrl,
+  getPromptTemplates,
+  updatePromptTemplates,
 } from "../api/client";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { useLoraStore } from "../stores/loraStore";
-import type { WildcardResponse, PromptPreset, PromptPresetLoraSlot, LoraListItem } from "../api/types";
+import type { WildcardResponse, PromptPreset, PromptPresetLoraSlot, LoraListItem, PromptTemplatesResponse } from "../api/types";
 
 export default function PromptLibrary() {
   const [wildcards, setWildcards] = useState<WildcardResponse[]>([]);
@@ -59,6 +62,13 @@ export default function PromptLibrary() {
   const [deletePresetConfirm, setDeletePresetConfirm] = useState<PromptPreset | null>(null);
   const [deletingPreset, setDeletingPreset] = useState(false);
 
+  // Prompt templates state
+  const [templates, setTemplates] = useState<PromptTemplatesResponse | null>(null);
+  const [tplVisionPrompt, setTplVisionPrompt] = useState("");
+  const [tplTextPrompt, setTplTextPrompt] = useState("");
+  const [tplSaving, setTplSaving] = useState(false);
+  const [tplSuccess, setTplSuccess] = useState(false);
+
   const fetchWildcards = useCallback(async () => {
     try {
       const data = await getWildcards();
@@ -75,7 +85,30 @@ export default function PromptLibrary() {
     fetchWildcards();
     fetchPresets();
     fetchLoras();
+    getPromptTemplates().then((t) => {
+      setTemplates(t);
+      setTplVisionPrompt(t.vision_prompt);
+      setTplTextPrompt(t.text_prompt);
+    }).catch(() => {});
   }, [fetchWildcards, fetchPresets, fetchLoras]);
+
+  const handleSaveTemplates = async () => {
+    setTplSaving(true);
+    setTplSuccess(false);
+    try {
+      const updated = await updatePromptTemplates({
+        vision_prompt: tplVisionPrompt,
+        text_prompt: tplTextPrompt,
+      });
+      setTemplates(updated);
+      setTplSuccess(true);
+      setTimeout(() => setTplSuccess(false), 3000);
+    } catch {
+      setError("Failed to save templates");
+    } finally {
+      setTplSaving(false);
+    }
+  };
 
   const handleDeleteWildcard = async (wc: WildcardResponse) => {
     setDeleting(true);
@@ -113,6 +146,51 @@ export default function PromptLibrary() {
 
   return (
     <Box>
+      {/* ── Prompt Templates Section ── */}
+      {templates && (
+        <Card sx={{ mb: 4, p: 2 }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <Box>
+              <Typography variant="h6">AI Prompt Templates</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Configure Ollama prompts for auto-generation. Models: {templates.vision_model} / {templates.text_model}. Resets on API restart.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<Save />}
+              onClick={handleSaveTemplates}
+              disabled={tplSaving}
+            >
+              {tplSaving ? "Saving..." : "Save"}
+            </Button>
+          </Box>
+          {tplSuccess && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Templates saved
+            </Alert>
+          )}
+          <TextField
+            label="Vision Prompt (image description)"
+            fullWidth
+            multiline
+            rows={3}
+            value={tplVisionPrompt}
+            onChange={(e) => setTplVisionPrompt(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            label="Text Prompt (video prompt generation)"
+            fullWidth
+            multiline
+            rows={4}
+            value={tplTextPrompt}
+            onChange={(e) => setTplTextPrompt(e.target.value)}
+          />
+        </Card>
+      )}
+
       {/* ── Prompt Presets Section ── */}
       <Box
         sx={{
