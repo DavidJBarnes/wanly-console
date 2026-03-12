@@ -187,6 +187,7 @@ export default function PromptLibrary() {
             rows={4}
             value={tplTextPrompt}
             onChange={(e) => setTplTextPrompt(e.target.value)}
+            helperText="Placeholders: {prefix} = user's prompt prefix, {description} = vision model output"
           />
         </Card>
       )}
