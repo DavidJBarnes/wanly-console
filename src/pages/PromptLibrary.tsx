@@ -184,9 +184,10 @@ export default function PromptLibrary() {
             label="Text Prompt (video prompt generation)"
             fullWidth
             multiline
-            rows={4}
+            rows={8}
             value={tplTextPrompt}
             onChange={(e) => setTplTextPrompt(e.target.value)}
+            helperText="Placeholders: {prefix} = user's prompt prefix, {description} = vision model output"
           />
         </Card>
       )}
