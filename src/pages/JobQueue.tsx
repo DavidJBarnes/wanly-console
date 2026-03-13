@@ -523,7 +523,7 @@ function SortableTableRow({
       </TableCell>
       <TableCell>
         <Typography variant="body2">
-          {job.completed_segment_count}/{job.segment_count}
+          {job.completed_segment_count}
         </Typography>
       </TableCell>
       <TableCell>
@@ -617,7 +617,7 @@ function SortableMobileCard({
               <StatusChip status={job.status} />
             </Box>
             <Typography variant="caption" color="text.secondary">
-              {job.width}x{job.height} &middot; {job.fps}fps &middot; {job.completed_segment_count}/{job.segment_count} segs{job.estimated_run_time != null ? ` · ~${formatDuration(job.estimated_run_time)}` : ""} &middot; {formatDate(job.updated_at)}
+              {job.width}x{job.height} &middot; {job.fps}fps &middot; {job.completed_segment_count} seg{job.completed_segment_count !== 1 ? "s" : ""}{job.estimated_run_time != null ? ` · ~${formatDuration(job.estimated_run_time)}` : ""} &middot; {formatDate(job.updated_at)}
             </Typography>
           </Box>
         </Box>
