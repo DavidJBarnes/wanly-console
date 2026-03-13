@@ -349,7 +349,7 @@ export default function JobDetail() {
             />
             <MetaItem
               label="Segments"
-              value={job.completed_segment_count}
+              value={`${job.completed_segment_count}`}
             />
             <MetaItem
               label="Total Run Time"
