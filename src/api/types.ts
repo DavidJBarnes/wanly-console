@@ -359,6 +359,7 @@ export interface AppSettingsResponse {
   cfg_low: number;
   lightx2v_strength_high: number;
   lightx2v_strength_low: number;
+  negative_prompt: string;
 }
 
 export interface AppSettingsUpdate {
@@ -366,4 +367,5 @@ export interface AppSettingsUpdate {
   cfg_low?: number;
   lightx2v_strength_high?: number;
   lightx2v_strength_low?: number;
+  negative_prompt?: string;
 }

@@ -7,6 +7,7 @@ interface SettingsState {
   defaultLightx2vLow: string;
   defaultCfgHigh: string;
   defaultCfgLow: string;
+  negativePrompt: string;
   loaded: boolean;
   fetchSettings: () => Promise<void>;
   saveSettings: (updates: AppSettingsUpdate) => Promise<void>;
@@ -14,6 +15,7 @@ interface SettingsState {
   setDefaultLightx2vLow: (value: string) => void;
   setDefaultCfgHigh: (value: string) => void;
   setDefaultCfgLow: (value: string) => void;
+  setNegativePrompt: (value: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()((set) => ({
@@ -21,6 +23,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   defaultLightx2vLow: "1.0",
   defaultCfgHigh: "1",
   defaultCfgLow: "1",
+  negativePrompt: "",
   loaded: false,
   fetchSettings: async () => {
     try {
@@ -30,6 +33,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
         defaultLightx2vLow: String(s.lightx2v_strength_low),
         defaultCfgHigh: String(s.cfg_high),
         defaultCfgLow: String(s.cfg_low),
+        negativePrompt: s.negative_prompt,
         loaded: true,
       });
     } catch {
@@ -44,10 +48,12 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
       defaultLightx2vLow: String(s.lightx2v_strength_low),
       defaultCfgHigh: String(s.cfg_high),
       defaultCfgLow: String(s.cfg_low),
+      negativePrompt: s.negative_prompt,
     });
   },
   setDefaultLightx2vHigh: (value) => set({ defaultLightx2vHigh: value }),
   setDefaultLightx2vLow: (value) => set({ defaultLightx2vLow: value }),
   setDefaultCfgHigh: (value) => set({ defaultCfgHigh: value }),
   setDefaultCfgLow: (value) => set({ defaultCfgLow: value }),
+  setNegativePrompt: (value) => set({ negativePrompt: value }),
 }));

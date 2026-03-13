@@ -27,6 +27,7 @@ export default function SettingsPage() {
     defaultLightx2vLow,
     defaultCfgHigh,
     defaultCfgLow,
+    negativePrompt,
     loaded,
     fetchSettings,
     saveSettings,
@@ -34,6 +35,7 @@ export default function SettingsPage() {
     setDefaultLightx2vLow,
     setDefaultCfgHigh,
     setDefaultCfgLow,
+    setNegativePrompt,
   } = useSettingsStore();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -62,6 +64,7 @@ export default function SettingsPage() {
         lightx2v_strength_low: parseFloat(defaultLightx2vLow) || 1.0,
         cfg_high: parseFloat(defaultCfgHigh) || 1,
         cfg_low: parseFloat(defaultCfgLow) || 1,
+        negative_prompt: negativePrompt,
       });
       setSaved(true);
     } catch {
@@ -231,6 +234,17 @@ export default function SettingsPage() {
                   sx={{ flex: 1, minWidth: 110 }}
                 />
               </Box>
+              <TextField
+                label="Negative Prompt"
+                size="small"
+                multiline
+                minRows={3}
+                maxRows={8}
+                value={negativePrompt}
+                onChange={(e) => setNegativePrompt(e.target.value)}
+                helperText="Sent as negative conditioning to ComfyUI"
+                sx={{ mt: 2, width: "100%", maxWidth: 500 }}
+              />
               <Box sx={{ mt: 2 }}>
                 <Button
                   variant="contained"
