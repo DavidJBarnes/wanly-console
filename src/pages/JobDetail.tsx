@@ -1772,7 +1772,7 @@ function SegmentModal({
             <Typography variant="subtitle2">
               Video Settings
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {duration}s / {speed}x
+                {duration}s / {speed}x{transition ? ` / ${transition}` : ""}
               </Typography>
             </Typography>
           </AccordionSummary>
@@ -1799,6 +1799,17 @@ function SegmentModal({
                 <MenuItem value={1.25}>1.25x</MenuItem>
                 <MenuItem value={1.5}>1.5x</MenuItem>
                 <MenuItem value={2.0}>2.0x</MenuItem>
+              </TextField>
+              <TextField
+                label="End Transition"
+                select
+                size="small"
+                value={transition ?? "none"}
+                onChange={(e) => setTransition(e.target.value === "none" ? null : e.target.value)}
+                sx={{ flex: 1, minWidth: 120 }}
+              >
+                <MenuItem value="none">None</MenuItem>
+                <MenuItem value="fade">Fade (black)</MenuItem>
               </TextField>
             </Box>
           </AccordionDetails>
@@ -2108,19 +2119,6 @@ function SegmentModal({
           </AccordionDetails>
         </Accordion>
 
-        {/* ── End Transition ── */}
-        <TextField
-          label="End Transition"
-          select
-          size="small"
-          fullWidth
-          margin="dense"
-          value={transition ?? "none"}
-          onChange={(e) => setTransition(e.target.value === "none" ? null : e.target.value)}
-        >
-          <MenuItem value="none">None</MenuItem>
-          <MenuItem value="fade">Fade (through black)</MenuItem>
-        </TextField>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
