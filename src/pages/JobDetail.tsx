@@ -319,52 +319,85 @@ export default function JobDetail() {
         </Alert>
       )}
 
-      {/* Job metadata card */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" },
-              gap: 2,
-            }}
-          >
-            <MetaItem label="Dimensions" value={`${job.width}x${job.height}`} />
-            <MetaItem label="FPS" value={`${job.fps}`} />
-            <MetaItem label="Seed" value={`${job.seed}`} />
-            <MetaItem
-              label="LightX2V High"
-              value={`${job.lightx2v_strength_high ?? 2.0}`}
-            />
-            <MetaItem
-              label="LightX2V Low"
-              value={`${job.lightx2v_strength_low ?? 1.0}`}
-            />
-            <MetaItem
-              label="CFG High"
-              value={`${job.cfg_high ?? 1}`}
-            />
-            <MetaItem
-              label="CFG Low"
-              value={`${job.cfg_low ?? 1}`}
-            />
-            <MetaItem
-              label="Segments"
-              value={`${job.completed_segment_count}`}
-            />
-            <MetaItem
-              label="Total Run Time"
-              value={formatDuration(job.total_run_time)}
-            />
-            <MetaItem
-              label="Total Video Time"
-              value={formatDuration(job.total_video_time)}
-            />
-            <MetaItem label="Created" value={formatDate(job.created_at)} />
-            <MetaItem label="Updated" value={formatDate(job.updated_at)} />
-          </Box>
-        </CardContent>
-      </Card>
+      {/* Job metadata + finalized video */}
+      <Box sx={{ display: "flex", gap: 3, mb: 3, flexWrap: { xs: "wrap", md: "nowrap" } }}>
+        <Card sx={{ flex: 1, minWidth: 0 }}>
+          <CardContent>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" },
+                gap: 2,
+              }}
+            >
+              <MetaItem label="Dimensions" value={`${job.width}x${job.height}`} />
+              <MetaItem label="FPS" value={`${job.fps}`} />
+              <MetaItem label="Seed" value={`${job.seed}`} />
+              <MetaItem
+                label="LightX2V High"
+                value={`${job.lightx2v_strength_high ?? 2.0}`}
+              />
+              <MetaItem
+                label="LightX2V Low"
+                value={`${job.lightx2v_strength_low ?? 1.0}`}
+              />
+              <MetaItem
+                label="CFG High"
+                value={`${job.cfg_high ?? 1}`}
+              />
+              <MetaItem
+                label="CFG Low"
+                value={`${job.cfg_low ?? 1}`}
+              />
+              <MetaItem
+                label="Segments"
+                value={`${job.completed_segment_count}`}
+              />
+              <MetaItem
+                label="Total Run Time"
+                value={formatDuration(job.total_run_time)}
+              />
+              <MetaItem
+                label="Total Video Time"
+                value={formatDuration(job.total_video_time)}
+              />
+              <MetaItem label="Created" value={formatDate(job.created_at)} />
+              <MetaItem label="Updated" value={formatDate(job.updated_at)} />
+            </Box>
+          </CardContent>
+        </Card>
+        {(() => {
+          const finalVideo = job.videos?.find((v) => v.status === "completed" && v.output_path);
+          if (!finalVideo?.output_path) return null;
+          return (
+            <Card sx={{ width: { xs: "100%", md: 400 }, flexShrink: 0 }}>
+              <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Finalized Video</Typography>
+                <Box
+                  component="video"
+                  src={getFileUrl(finalVideo.output_path, finalVideo.completed_at ?? undefined)}
+                  controls
+                  sx={{ width: "100%", borderRadius: 1, display: "block" }}
+                />
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {finalVideo.duration_seconds != null ? formatDuration(finalVideo.duration_seconds) : ""}
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    component="a"
+                    href={getFileUrl(finalVideo.output_path, finalVideo.completed_at ?? undefined)}
+                    download
+                    target="_blank"
+                  >
+                    <Download fontSize="small" />
+                  </IconButton>
+                </Box>
+              </CardContent>
+            </Card>
+          );
+        })()}
+      </Box>
 
       {/* Segments table */}
       <Card sx={{ mb: 3 }}>
@@ -698,8 +731,9 @@ export default function JobDetail() {
                             </IconButton>
                           </Tooltip>
                         )}
-                        {(seg.status === "failed" ||
-                          seg.status === "completed") &&
+                        {job.status !== "finalized" &&
+                          (seg.status === "failed" ||
+                            seg.status === "completed") &&
                           job.segments.length > 1 && (
                             <Tooltip title="Delete">
                               <IconButton
@@ -742,6 +776,7 @@ export default function JobDetail() {
                             >
                               <MenuItem value="none">None</MenuItem>
                               <MenuItem value="fade">Fade (black)</MenuItem>
+                              <MenuItem value="flash">Flash (black)</MenuItem>
                             </TextField>
                           </Box>
                         </TableCell>
@@ -829,7 +864,8 @@ export default function JobDetail() {
                             )}
                           </IconButton>
                         )}
-                        {(seg.status === "failed" || seg.status === "completed") &&
+                        {job.status !== "finalized" &&
+                          (seg.status === "failed" || seg.status === "completed") &&
                           job.segments.length > 1 && (
                             <IconButton
                               size="small"
