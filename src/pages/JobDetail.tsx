@@ -538,6 +538,22 @@ export default function JobDetail() {
                           {seg.error_message}
                         </Alert>
                       )}
+                      {seg.transition && (
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            display: "inline-block",
+                            mt: 0.5,
+                            px: 0.75,
+                            py: 0.25,
+                            bgcolor: "action.selected",
+                            borderRadius: 1,
+                            fontSize: 11,
+                          }}
+                        >
+                          Fade
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell>
                       {seg.status === "completed" && seg.last_frame_path ? (
@@ -899,6 +915,22 @@ export default function JobDetail() {
                       <Alert severity="error" sx={{ mt: 1 }}>
                         {seg.error_message}
                       </Alert>
+                    )}
+                    {seg.transition && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          display: "inline-block",
+                          mt: 0.5,
+                          px: 0.75,
+                          py: 0.25,
+                          bgcolor: "action.selected",
+                          borderRadius: 1,
+                          fontSize: 11,
+                        }}
+                      >
+                        Fade
+                      </Typography>
                     )}
 
                     {/* Meta line */}
@@ -1351,6 +1383,7 @@ function SegmentModal({
   const [startImagePath, setStartImagePath] = useState<string | null>(null);
   const [startImageFile, setStartImageFile] = useState<File | null>(null);
   const [startImageError, setStartImageError] = useState("");
+  const [transition, setTransition] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -1399,6 +1432,7 @@ function SegmentModal({
       setFaceswapPresetUri(srcType === "preset" ? lastSegment.faceswap_image ?? null : null);
       setFaceswapFacesIndex(lastSegment.faceswap_faces_index ?? "0");
       setFaceswapFacesOrder(lastSegment.faceswap_faces_order ?? "left-right");
+      setTransition(lastSegment.transition ?? null);
       setStartImageMode("auto");
       setStartImagePath(null);
       setStartImageFile(null);
@@ -1507,6 +1541,7 @@ function SegmentModal({
                 low_weight: l.low_weight,
               }))
             : null,
+        transition,
       };
       await addSegment(jobId, body);
       onSubmitted();
@@ -2072,6 +2107,20 @@ function SegmentModal({
             )}
           </AccordionDetails>
         </Accordion>
+
+        {/* ── End Transition ── */}
+        <TextField
+          label="End Transition"
+          select
+          size="small"
+          fullWidth
+          margin="dense"
+          value={transition ?? "none"}
+          onChange={(e) => setTransition(e.target.value === "none" ? null : e.target.value)}
+        >
+          <MenuItem value="none">None</MenuItem>
+          <MenuItem value="fade">Fade (through black)</MenuItem>
+        </TextField>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>

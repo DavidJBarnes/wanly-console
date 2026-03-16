@@ -21,6 +21,7 @@ export interface SegmentCreate {
   faceswap_faces_order?: string | null;
   faceswap_faces_index?: string | null;
   auto_finalize?: boolean;
+  transition?: string | null;
 }
 
 export interface LoraConfig {
@@ -137,6 +138,7 @@ export interface SegmentResponse {
   faceswap_faces_order: string | null;
   faceswap_faces_index: string | null;
   auto_finalize: boolean;
+  transition: string | null;
   status: SegmentStatus;
   worker_id: string | null;
   worker_name: string | null;
