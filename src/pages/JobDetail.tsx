@@ -587,7 +587,7 @@ export default function JobDetail() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {job.segments.flatMap((seg, idx) => {
+                {job.segments.flatMap((seg) => {
                   const rows = [
                   <TableRow key={seg.id}>
                     <TableCell>{seg.index}</TableCell>
@@ -895,7 +895,7 @@ export default function JobDetail() {
         {/* Mobile card layout */}
         {isMobile && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, p: 1.5 }}>
-            {job.segments.flatMap((seg, idx) => {
+            {job.segments.flatMap((seg) => {
               const startImg =
                 seg.start_image ??
                 (seg.index === 0
