@@ -173,10 +173,11 @@ export async function getSegmentFrames(
   segmentId: string,
   position: "start" | "end",
   count: number = 5,
+  trim: number = 0,
 ): Promise<FramePreviewResponse> {
   const { data } = await api.get<FramePreviewResponse>(
     `/segments/${segmentId}/frames`,
-    { params: { position, count } },
+    { params: { position, count, trim } },
   );
   return data;
 }

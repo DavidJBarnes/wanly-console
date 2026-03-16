@@ -319,7 +319,8 @@ export default function JobDetail() {
   ) => {
     setFramePreview({ anchorEl, segId, position, loading: true, data: null, trimStart, trimEnd });
     try {
-      const data = await getSegmentFrames(segId, position, 5);
+      const trimValue = position === "start" ? trimStart : trimEnd;
+      const data = await getSegmentFrames(segId, position, 5, trimValue);
       setFramePreview((prev) => prev && prev.segId === segId && prev.position === position
         ? { ...prev, loading: false, data }
         : prev);
