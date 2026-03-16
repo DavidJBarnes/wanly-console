@@ -47,6 +47,8 @@ import {
   AutoAwesome,
   ExpandMore,
   Visibility,
+  ChevronLeft,
+  ChevronRight,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -150,6 +152,7 @@ export default function JobDetail() {
     data: FramePreviewResponse | null;
     trimStart: number;
     trimEnd: number;
+    currentTrim: number;
   } | null>(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -310,24 +313,62 @@ export default function JobDetail() {
     }, 500);
   };
 
-  const openFramePreview = async (
+  const loadFramePreview = async (
+    segId: string,
+    position: "start" | "end",
+    trimValue: number,
+    anchorEl?: HTMLElement | null,
+    trimStart?: number,
+    trimEnd?: number,
+  ) => {
+    setFramePreview((prev) => ({
+      anchorEl: anchorEl ?? prev?.anchorEl ?? null,
+      segId,
+      position,
+      loading: true,
+      data: prev?.segId === segId && prev?.position === position ? prev.data : null,
+      trimStart: trimStart ?? prev?.trimStart ?? 0,
+      trimEnd: trimEnd ?? prev?.trimEnd ?? 0,
+      currentTrim: trimValue,
+    }));
+    try {
+      const data = await getSegmentFrames(segId, position, 5, trimValue);
+      setFramePreview((prev) => prev && prev.segId === segId && prev.position === position
+        ? { ...prev, loading: false, data, currentTrim: trimValue }
+        : prev);
+    } catch {
+      setFramePreview(null);
+      setError("Failed to load frame preview");
+    }
+  };
+
+  const openFramePreview = (
     anchorEl: HTMLElement,
     segId: string,
     position: "start" | "end",
     trimStart: number,
     trimEnd: number,
   ) => {
-    setFramePreview({ anchorEl, segId, position, loading: true, data: null, trimStart, trimEnd });
-    try {
-      const trimValue = position === "start" ? trimStart : trimEnd;
-      const data = await getSegmentFrames(segId, position, 5, trimValue);
-      setFramePreview((prev) => prev && prev.segId === segId && prev.position === position
-        ? { ...prev, loading: false, data }
-        : prev);
-    } catch {
-      setFramePreview(null);
-      setError("Failed to load frame preview");
+    const trimValue = position === "start" ? trimStart : trimEnd;
+    loadFramePreview(segId, position, trimValue, anchorEl, trimStart, trimEnd);
+  };
+
+  const navigateFramePreview = (direction: "left" | "right") => {
+    if (!framePreview?.data) return;
+    const frames = framePreview.data.frames;
+    const step = Math.max(1, Math.floor(frames.length / 2));
+    const shift = direction === "left" ? -step : step;
+    // Use the current center frame to compute a new trim value for centering
+    const currentCenter = frames[Math.floor(frames.length / 2)]?.frame_index ?? 0;
+    const newCenter = Math.max(0, Math.min(currentCenter + shift, framePreview.data.total_frames - 1));
+    // Convert newCenter to a "trim" value the API expects
+    let newTrim: number;
+    if (framePreview.position === "start") {
+      newTrim = newCenter;
+    } else {
+      newTrim = Math.max(framePreview.data.total_frames - newCenter, 0);
     }
+    loadFramePreview(framePreview.segId, framePreview.position, newTrim);
   };
 
   if (loading) {
@@ -1366,7 +1407,7 @@ export default function JobDetail() {
         transformOrigin={{ vertical: "top", horizontal: "center" }}
       >
         <Box sx={{ p: 1.5, minWidth: 200 }}>
-          {framePreview?.loading && (
+          {framePreview?.loading && !framePreview.data && (
             <Box sx={{ textAlign: "center", py: 2 }}>
               <CircularProgress size={24} />
             </Box>
@@ -1376,35 +1417,51 @@ export default function JobDetail() {
               <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
                 {framePreview.data.total_frames} frames @ {framePreview.data.fps.toFixed(1)} fps
               </Typography>
-              <Box sx={{ display: "flex", gap: 0.5 }}>
-                {framePreview.data.frames.map((f) => {
-                  const isTrimmed = framePreview.position === "start"
-                    ? f.frame_index < framePreview.trimStart
-                    : f.frame_index >= framePreview.data!.total_frames - framePreview.trimEnd;
-                  return (
-                    <Box key={f.frame_index} sx={{ position: "relative", textAlign: "center" }}>
-                      <Box
-                        component="img"
-                        src={f.data_url}
-                        sx={{ width: 80, height: "auto", display: "block", borderRadius: 0.5 }}
-                      />
-                      {isTrimmed && (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <IconButton
+                  size="small"
+                  onClick={() => navigateFramePreview("left")}
+                  disabled={framePreview.loading || (framePreview.data.frames[0]?.frame_index ?? 0) === 0}
+                >
+                  <ChevronLeft />
+                </IconButton>
+                <Box sx={{ display: "flex", gap: 0.5, opacity: framePreview.loading ? 0.5 : 1 }}>
+                  {framePreview.data.frames.map((f) => {
+                    const isTrimmed = framePreview.position === "start"
+                      ? f.frame_index < framePreview.trimStart
+                      : f.frame_index >= framePreview.data!.total_frames - framePreview.trimEnd;
+                    return (
+                      <Box key={f.frame_index} sx={{ position: "relative", textAlign: "center" }}>
                         <Box
-                          sx={{
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            bgcolor: "rgba(244,67,54,0.4)",
-                            borderRadius: 0.5,
-                          }}
+                          component="img"
+                          src={f.data_url}
+                          sx={{ width: 120, height: "auto", display: "block", borderRadius: 0.5 }}
                         />
-                      )}
-                      <Typography variant="caption" sx={{ fontSize: 10 }}>{f.frame_index}</Typography>
-                    </Box>
-                  );
-                })}
+                        {isTrimmed && (
+                          <Box
+                            sx={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              bgcolor: "rgba(244,67,54,0.4)",
+                              borderRadius: 0.5,
+                            }}
+                          />
+                        )}
+                        <Typography variant="caption" sx={{ fontSize: 10 }}>{f.frame_index}</Typography>
+                      </Box>
+                    );
+                  })}
+                </Box>
+                <IconButton
+                  size="small"
+                  onClick={() => navigateFramePreview("right")}
+                  disabled={framePreview.loading || (framePreview.data.frames[framePreview.data.frames.length - 1]?.frame_index ?? 0) >= framePreview.data.total_frames - 1}
+                >
+                  <ChevronRight />
+                </IconButton>
               </Box>
             </>
           )}
