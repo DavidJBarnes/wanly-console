@@ -139,6 +139,8 @@ export interface SegmentResponse {
   faceswap_faces_index: string | null;
   auto_finalize: boolean;
   transition: string | null;
+  trim_start_frames: number;
+  trim_end_frames: number;
   status: SegmentStatus;
   worker_id: string | null;
   worker_name: string | null;
@@ -340,6 +342,17 @@ export interface PromptGenRequest {
 export interface PromptGenResponse {
   prompt: string;
   description: string;
+}
+
+export interface FramePreview {
+  frame_index: number;
+  data_url: string;
+}
+
+export interface FramePreviewResponse {
+  total_frames: number;
+  fps: number;
+  frames: FramePreview[];
 }
 
 export interface PromptTemplatesResponse {
