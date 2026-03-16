@@ -7,6 +7,7 @@ import type {
   JobUpdate,
   SegmentCreate,
   SegmentResponse,
+  FramePreviewResponse,
   WorkerResponse,
   LoraListItem,
   LoraResponse,
@@ -152,6 +153,30 @@ export async function updateSegmentTransition(
   const { data } = await api.patch<SegmentResponse>(
     `/segments/${segmentId}/transition`,
     { transition },
+  );
+  return data;
+}
+
+export async function updateSegmentTrim(
+  segmentId: string,
+  trimStart: number,
+  trimEnd: number,
+): Promise<SegmentResponse> {
+  const { data } = await api.patch<SegmentResponse>(
+    `/segments/${segmentId}/trim`,
+    { trim_start_frames: trimStart, trim_end_frames: trimEnd },
+  );
+  return data;
+}
+
+export async function getSegmentFrames(
+  segmentId: string,
+  position: "start" | "end",
+  count: number = 5,
+): Promise<FramePreviewResponse> {
+  const { data } = await api.get<FramePreviewResponse>(
+    `/segments/${segmentId}/frames`,
+    { params: { position, count } },
   );
   return data;
 }

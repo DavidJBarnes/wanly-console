@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Accordion,
   AccordionSummary,
@@ -29,6 +29,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
+  Popover,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -45,6 +46,7 @@ import {
   Download,
   AutoAwesome,
   ExpandMore,
+  Visibility,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -60,6 +62,8 @@ import {
   getFileUrl,
   getFaceswapPresets,
   updateSegmentTransition,
+  updateSegmentTrim,
+  getSegmentFrames,
 } from "../api/client";
 import { usePromptGenerator } from "../hooks/usePromptGenerator";
 import { useLoraStore } from "../stores/loraStore";
@@ -72,6 +76,7 @@ import type {
   LoraListItem,
   FaceswapPreset,
   PromptPreset,
+  FramePreviewResponse,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -135,6 +140,17 @@ export default function JobDetail() {
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [trimValues, setTrimValues] = useState<Record<string, { start: number; end: number }>>({});
+  const trimTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [framePreview, setFramePreview] = useState<{
+    anchorEl: HTMLElement | null;
+    segId: string;
+    position: "start" | "end";
+    loading: boolean;
+    data: FramePreviewResponse | null;
+    trimStart: number;
+    trimEnd: number;
+  } | null>(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -258,6 +274,58 @@ export default function JobDetail() {
       setError("Failed to delete job");
       setDeletingJob(false);
       setDeleteJobConfirm(false);
+    }
+  };
+
+  // Initialize trim values from job data when job loads
+  useEffect(() => {
+    if (!job) return;
+    const newTrimValues: Record<string, { start: number; end: number }> = {};
+    for (const seg of job.segments) {
+      newTrimValues[seg.id] = {
+        start: seg.trim_start_frames,
+        end: seg.trim_end_frames,
+      };
+    }
+    setTrimValues(newTrimValues);
+  }, [job]);
+
+  const handleTrimChange = (segId: string, field: "start" | "end", value: number) => {
+    setTrimValues((prev) => ({
+      ...prev,
+      [segId]: { ...prev[segId], [field]: value },
+    }));
+    // Debounce save
+    if (trimTimers.current[segId + field]) {
+      clearTimeout(trimTimers.current[segId + field]);
+    }
+    trimTimers.current[segId + field] = setTimeout(async () => {
+      const vals = { ...trimValues[segId], [field]: value };
+      try {
+        await updateSegmentTrim(segId, vals.start, vals.end);
+        fetchJob();
+      } catch {
+        setError("Failed to update trim");
+      }
+    }, 500);
+  };
+
+  const openFramePreview = async (
+    anchorEl: HTMLElement,
+    segId: string,
+    position: "start" | "end",
+    trimStart: number,
+    trimEnd: number,
+  ) => {
+    setFramePreview({ anchorEl, segId, position, loading: true, data: null, trimStart, trimEnd });
+    try {
+      const data = await getSegmentFrames(segId, position, 5);
+      setFramePreview((prev) => prev && prev.segId === segId && prev.position === position
+        ? { ...prev, loading: false, data }
+        : prev);
+    } catch {
+      setFramePreview(null);
+      setError("Failed to load frame preview");
     }
   };
 
@@ -750,14 +818,30 @@ export default function JobDetail() {
                     </TableCell>
                   </TableRow>
                   ];
-                  if (idx < job.segments.length - 1) {
-                    rows.push(
-                      <TableRow key={`transition-${seg.id}`} sx={{ bgcolor: "action.hover" }}>
-                        <TableCell colSpan={10} sx={{ py: 0.5, textAlign: "center" }}>
-                          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
-                            <Typography variant="caption" color="text.secondary">
-                              Transition:
-                            </Typography>
+                  rows.push(
+                    <TableRow key={`transition-${seg.id}`} sx={{ bgcolor: "action.hover" }}>
+                      <TableCell colSpan={10} sx={{ py: 0.5 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            <Typography variant="caption" color="text.secondary">Trim #{seg.index} Start:</Typography>
+                            <TextField
+                              type="number"
+                              size="small"
+                              value={trimValues[seg.id]?.start ?? 0}
+                              onChange={(e) => handleTrimChange(seg.id, "start", Math.max(0, parseInt(e.target.value) || 0))}
+                              variant="standard"
+                              slotProps={{ htmlInput: { min: 0, style: { width: 50, textAlign: "center", fontSize: 13 } } }}
+                            />
+                            <IconButton
+                              size="small"
+                              onClick={(e) => openFramePreview(e.currentTarget, seg.id, "start", trimValues[seg.id]?.start ?? 0, trimValues[seg.id]?.end ?? 0)}
+                              disabled={!seg.output_path}
+                            >
+                              <Visibility sx={{ fontSize: 16 }} />
+                            </IconButton>
+                          </Box>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            <Typography variant="caption" color="text.secondary">Transition:</Typography>
                             <TextField
                               select
                               size="small"
@@ -779,10 +863,28 @@ export default function JobDetail() {
                               <MenuItem value="flash">Flash (black)</MenuItem>
                             </TextField>
                           </Box>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  }
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            <Typography variant="caption" color="text.secondary">Trim #{seg.index} End:</Typography>
+                            <TextField
+                              type="number"
+                              size="small"
+                              value={trimValues[seg.id]?.end ?? 0}
+                              onChange={(e) => handleTrimChange(seg.id, "end", Math.max(0, parseInt(e.target.value) || 0))}
+                              variant="standard"
+                              slotProps={{ htmlInput: { min: 0, style: { width: 50, textAlign: "center", fontSize: 13 } } }}
+                            />
+                            <IconButton
+                              size="small"
+                              onClick={(e) => openFramePreview(e.currentTarget, seg.id, "end", trimValues[seg.id]?.start ?? 0, trimValues[seg.id]?.end ?? 0)}
+                              disabled={!seg.output_path}
+                            >
+                              <Visibility sx={{ fontSize: 16 }} />
+                            </IconButton>
+                          </Box>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  );
                   return rows;
                 })}
               </TableBody>
@@ -984,12 +1086,28 @@ export default function JobDetail() {
                 </Card>
               );
               const items = [card];
-              if (idx < job.segments.length - 1) {
-                items.push(
-                  <Box key={`transition-${seg.id}`} sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 0.5 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Transition:
-                    </Typography>
+              items.push(
+                <Box key={`transition-${seg.id}`} sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 1, py: 0.5 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary">Trim Start:</Typography>
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={trimValues[seg.id]?.start ?? 0}
+                      onChange={(e) => handleTrimChange(seg.id, "start", Math.max(0, parseInt(e.target.value) || 0))}
+                      variant="standard"
+                      slotProps={{ htmlInput: { min: 0, style: { width: 50, textAlign: "center", fontSize: 13 } } }}
+                    />
+                    <IconButton
+                      size="small"
+                      onClick={(e) => openFramePreview(e.currentTarget, seg.id, "start", trimValues[seg.id]?.start ?? 0, trimValues[seg.id]?.end ?? 0)}
+                      disabled={!seg.output_path}
+                    >
+                      <Visibility sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Box>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary">Transition:</Typography>
                     <TextField
                       select
                       size="small"
@@ -1008,10 +1126,29 @@ export default function JobDetail() {
                     >
                       <MenuItem value="none">None</MenuItem>
                       <MenuItem value="fade">Fade (black)</MenuItem>
+                      <MenuItem value="flash">Flash (black)</MenuItem>
                     </TextField>
                   </Box>
-                );
-              }
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary">Trim End:</Typography>
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={trimValues[seg.id]?.end ?? 0}
+                      onChange={(e) => handleTrimChange(seg.id, "end", Math.max(0, parseInt(e.target.value) || 0))}
+                      variant="standard"
+                      slotProps={{ htmlInput: { min: 0, style: { width: 50, textAlign: "center", fontSize: 13 } } }}
+                    />
+                    <IconButton
+                      size="small"
+                      onClick={(e) => openFramePreview(e.currentTarget, seg.id, "end", trimValues[seg.id]?.start ?? 0, trimValues[seg.id]?.end ?? 0)}
+                      disabled={!seg.output_path}
+                    >
+                      <Visibility sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Box>
+                </Box>
+              );
               return items;
             })}
           </Box>
@@ -1218,6 +1355,60 @@ export default function JobDetail() {
         job={job}
         onClose={() => setDetailSeg(null)}
       />
+
+      {/* Frame preview popover */}
+      <Popover
+        open={!!framePreview}
+        anchorEl={framePreview?.anchorEl}
+        onClose={() => setFramePreview(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        transformOrigin={{ vertical: "top", horizontal: "center" }}
+      >
+        <Box sx={{ p: 1.5, minWidth: 200 }}>
+          {framePreview?.loading && (
+            <Box sx={{ textAlign: "center", py: 2 }}>
+              <CircularProgress size={24} />
+            </Box>
+          )}
+          {framePreview?.data && (
+            <>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
+                {framePreview.data.total_frames} frames @ {framePreview.data.fps.toFixed(1)} fps
+              </Typography>
+              <Box sx={{ display: "flex", gap: 0.5 }}>
+                {framePreview.data.frames.map((f) => {
+                  const isTrimmed = framePreview.position === "start"
+                    ? f.frame_index < framePreview.trimStart
+                    : f.frame_index >= framePreview.data!.total_frames - framePreview.trimEnd;
+                  return (
+                    <Box key={f.frame_index} sx={{ position: "relative", textAlign: "center" }}>
+                      <Box
+                        component="img"
+                        src={f.data_url}
+                        sx={{ width: 80, height: "auto", display: "block", borderRadius: 0.5 }}
+                      />
+                      {isTrimmed && (
+                        <Box
+                          sx={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            bgcolor: "rgba(244,67,54,0.4)",
+                            borderRadius: 0.5,
+                          }}
+                        />
+                      )}
+                      <Typography variant="caption" sx={{ fontSize: 10 }}>{f.frame_index}</Typography>
+                    </Box>
+                  );
+                })}
+              </Box>
+            </>
+          )}
+        </Box>
+      </Popover>
     </Box>
   );
 }
