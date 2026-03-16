@@ -59,6 +59,7 @@ import {
   reopenJob,
   getFileUrl,
   getFaceswapPresets,
+  updateSegmentTransition,
 } from "../api/client";
 import { usePromptGenerator } from "../hooks/usePromptGenerator";
 import { useLoraStore } from "../stores/loraStore";
@@ -485,7 +486,8 @@ export default function JobDetail() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {job.segments.map((seg) => (
+                {job.segments.flatMap((seg, idx) => {
+                  const rows = [
                   <TableRow key={seg.id}>
                     <TableCell>{seg.index}</TableCell>
                     <TableCell>
@@ -537,22 +539,6 @@ export default function JobDetail() {
                         <Alert severity="error" sx={{ mt: 1 }}>
                           {seg.error_message}
                         </Alert>
-                      )}
-                      {seg.transition && (
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            display: "inline-block",
-                            mt: 0.5,
-                            px: 0.75,
-                            py: 0.25,
-                            bgcolor: "action.selected",
-                            borderRadius: 1,
-                            fontSize: 11,
-                          }}
-                        >
-                          Fade
-                        </Typography>
                       )}
                     </TableCell>
                     <TableCell>
@@ -729,7 +715,41 @@ export default function JobDetail() {
                       </Box>
                     </TableCell>
                   </TableRow>
-                ))}
+                  ];
+                  if (idx < job.segments.length - 1) {
+                    rows.push(
+                      <TableRow key={`transition-${seg.id}`} sx={{ bgcolor: "action.hover" }}>
+                        <TableCell colSpan={10} sx={{ py: 0.5, textAlign: "center" }}>
+                          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Transition:
+                            </Typography>
+                            <TextField
+                              select
+                              size="small"
+                              value={seg.transition ?? "none"}
+                              onChange={async (e) => {
+                                const val = e.target.value === "none" ? null : e.target.value;
+                                try {
+                                  await updateSegmentTransition(seg.id, val);
+                                  fetchJob();
+                                } catch {
+                                  setError("Failed to update transition");
+                                }
+                              }}
+                              variant="standard"
+                              sx={{ minWidth: 120, "& .MuiInput-input": { fontSize: 13, py: 0 } }}
+                            >
+                              <MenuItem value="none">None</MenuItem>
+                              <MenuItem value="fade">Fade (black)</MenuItem>
+                            </TextField>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
+                  return rows;
+                })}
               </TableBody>
             </Table>
           </TableContainer>
@@ -738,14 +758,14 @@ export default function JobDetail() {
         {/* Mobile card layout */}
         {isMobile && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, p: 1.5 }}>
-            {job.segments.map((seg) => {
+            {job.segments.flatMap((seg, idx) => {
               const startImg =
                 seg.start_image ??
                 (seg.index === 0
                   ? job.starting_image
                   : job.segments[seg.index - 1]?.last_frame_path) ??
                 null;
-              return (
+              const card = (
                 <Card key={seg.id} variant="outlined">
                   <Box sx={{ p: 1.5 }}>
                     {/* Header row: index, status, actions */}
@@ -916,22 +936,6 @@ export default function JobDetail() {
                         {seg.error_message}
                       </Alert>
                     )}
-                    {seg.transition && (
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          display: "inline-block",
-                          mt: 0.5,
-                          px: 0.75,
-                          py: 0.25,
-                          bgcolor: "action.selected",
-                          borderRadius: 1,
-                          fontSize: 11,
-                        }}
-                      >
-                        Fade
-                      </Typography>
-                    )}
 
                     {/* Meta line */}
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
@@ -943,6 +947,36 @@ export default function JobDetail() {
                   </Box>
                 </Card>
               );
+              const items = [card];
+              if (idx < job.segments.length - 1) {
+                items.push(
+                  <Box key={`transition-${seg.id}`} sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Transition:
+                    </Typography>
+                    <TextField
+                      select
+                      size="small"
+                      value={seg.transition ?? "none"}
+                      onChange={async (e) => {
+                        const val = e.target.value === "none" ? null : e.target.value;
+                        try {
+                          await updateSegmentTransition(seg.id, val);
+                          fetchJob();
+                        } catch {
+                          setError("Failed to update transition");
+                        }
+                      }}
+                      variant="standard"
+                      sx={{ minWidth: 120, "& .MuiInput-input": { fontSize: 13, py: 0 } }}
+                    >
+                      <MenuItem value="none">None</MenuItem>
+                      <MenuItem value="fade">Fade (black)</MenuItem>
+                    </TextField>
+                  </Box>
+                );
+              }
+              return items;
             })}
           </Box>
         )}
@@ -1383,7 +1417,6 @@ function SegmentModal({
   const [startImagePath, setStartImagePath] = useState<string | null>(null);
   const [startImageFile, setStartImageFile] = useState<File | null>(null);
   const [startImageError, setStartImageError] = useState("");
-  const [transition, setTransition] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -1432,7 +1465,6 @@ function SegmentModal({
       setFaceswapPresetUri(srcType === "preset" ? lastSegment.faceswap_image ?? null : null);
       setFaceswapFacesIndex(lastSegment.faceswap_faces_index ?? "0");
       setFaceswapFacesOrder(lastSegment.faceswap_faces_order ?? "left-right");
-      setTransition(lastSegment.transition ?? null);
       setStartImageMode("auto");
       setStartImagePath(null);
       setStartImageFile(null);
@@ -1541,7 +1573,6 @@ function SegmentModal({
                 low_weight: l.low_weight,
               }))
             : null,
-        transition,
       };
       await addSegment(jobId, body);
       onSubmitted();
@@ -1772,7 +1803,7 @@ function SegmentModal({
             <Typography variant="subtitle2">
               Video Settings
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {duration}s / {speed}x{transition ? ` / ${transition}` : ""}
+                {duration}s / {speed}x
               </Typography>
             </Typography>
           </AccordionSummary>
@@ -1799,17 +1830,6 @@ function SegmentModal({
                 <MenuItem value={1.25}>1.25x</MenuItem>
                 <MenuItem value={1.5}>1.5x</MenuItem>
                 <MenuItem value={2.0}>2.0x</MenuItem>
-              </TextField>
-              <TextField
-                label="End Transition"
-                select
-                size="small"
-                value={transition ?? "none"}
-                onChange={(e) => setTransition(e.target.value === "none" ? null : e.target.value)}
-                sx={{ flex: 1, minWidth: 120 }}
-              >
-                <MenuItem value="none">None</MenuItem>
-                <MenuItem value="fade">Fade (black)</MenuItem>
               </TextField>
             </Box>
           </AccordionDetails>

@@ -145,6 +145,17 @@ export async function cancelSegment(
   return data;
 }
 
+export async function updateSegmentTransition(
+  segmentId: string,
+  transition: string | null,
+): Promise<SegmentResponse> {
+  const { data } = await api.patch<SegmentResponse>(
+    `/segments/${segmentId}/transition`,
+    { transition },
+  );
+  return data;
+}
+
 export async function deleteSegment(segmentId: string): Promise<void> {
   await api.delete(`/segments/${segmentId}`);
 }
