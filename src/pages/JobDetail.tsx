@@ -2119,8 +2119,12 @@ function SegmentModal({
                             anchorEl={hoverAnchor}
                             anchorOrigin={{ vertical: "top", horizontal: "center" }}
                             transformOrigin={{ vertical: "bottom", horizontal: "center" }}
-                            sx={{ pointerEvents: "none", mt: -1 }}
                             disableRestoreFocus
+                            disableEnforceFocus
+                            disableAutoFocus
+                            hideBackdrop
+                            sx={{ pointerEvents: "none", mt: -1 }}
+                            slotProps={{ paper: { sx: { pointerEvents: "none" } } }}
                           >
                             <Box
                               component="img"
