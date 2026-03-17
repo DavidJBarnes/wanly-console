@@ -2016,11 +2016,11 @@ function SegmentModal({
                         >
                           {browseFolders.map((folder) => (
                             <Box
-                              key={folder.date}
+                              key={folder.name}
                               onClick={() => {
-                                setBrowseFolder(folder.date);
+                                setBrowseFolder(folder.name);
                                 setBrowseLoading(true);
-                                getImageFolder(folder.date)
+                                getImageFolder(folder.name)
                                   .then(setBrowseImages)
                                   .catch(() => setBrowseImages([]))
                                   .finally(() => setBrowseLoading(false));
@@ -2040,12 +2040,12 @@ function SegmentModal({
                                 <Box
                                   component="img"
                                   src={getFileUrl(folder.thumbnail)}
-                                  alt={folder.date}
+                                  alt={folder.name}
                                   sx={{ width: 100, height: 56, objectFit: "cover" }}
                                 />
                               )}
                               <Typography variant="caption" sx={{ display: "block", textAlign: "center", py: 0.25 }}>
-                                {folder.date}
+                                {folder.name}
                               </Typography>
                             </Box>
                           ))}
