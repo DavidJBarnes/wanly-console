@@ -1710,9 +1710,6 @@ function SegmentModal({
   const [browseFolders, setBrowseFolders] = useState<ImageFolder[]>([]);
   const [browseImages, setBrowseImages] = useState<ImageFile[]>([]);
   const [browseLoading, setBrowseLoading] = useState(false);
-  const [hoverAnchor, setHoverAnchor] = useState<HTMLElement | null>(null);
-  const [hoverImagePath, setHoverImagePath] = useState<string | null>(null);
-  const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -2085,53 +2082,52 @@ function SegmentModal({
                           {browseImages.map((img) => (
                             <Box
                               key={img.path}
-                              component="img"
-                              src={getFileUrl(img.path)}
-                              alt={img.filename}
                               onClick={() => setStartImagePath(img.path)}
-                              onMouseEnter={(e) => {
-                                const el = e.currentTarget as HTMLElement;
-                                hoverTimeout.current = setTimeout(() => {
-                                  setHoverAnchor(el);
-                                  setHoverImagePath(img.path);
-                                }, 300);
-                              }}
-                              onMouseLeave={() => {
-                                if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
-                                setHoverAnchor(null);
-                                setHoverImagePath(null);
-                              }}
                               sx={{
-                                width: 64,
-                                height: 64,
-                                objectFit: "cover",
-                                borderRadius: 0.5,
-                                cursor: "pointer",
+                                position: "relative",
                                 flexShrink: 0,
-                                border: "2px solid",
-                                borderColor: startImagePath === img.path ? "primary.main" : "transparent",
-                                "&:hover": { borderColor: startImagePath === img.path ? "primary.main" : "action.hover" },
+                                cursor: "pointer",
+                                "&:hover .preview-popup": { display: "block" },
                               }}
-                            />
+                            >
+                              <Box
+                                component="img"
+                                src={getFileUrl(img.path)}
+                                alt={img.filename}
+                                sx={{
+                                  width: 64,
+                                  height: 64,
+                                  objectFit: "cover",
+                                  borderRadius: 0.5,
+                                  border: "2px solid",
+                                  borderColor: startImagePath === img.path ? "primary.main" : "transparent",
+                                  "&:hover": { borderColor: startImagePath === img.path ? "primary.main" : "action.hover" },
+                                }}
+                              />
+                              <Box
+                                className="preview-popup"
+                                sx={{
+                                  display: "none",
+                                  position: "absolute",
+                                  bottom: "calc(100% + 8px)",
+                                  left: "50%",
+                                  transform: "translateX(-50%)",
+                                  pointerEvents: "none",
+                                  zIndex: 1300,
+                                  boxShadow: 3,
+                                  borderRadius: 1,
+                                  overflow: "hidden",
+                                  bgcolor: "background.paper",
+                                }}
+                              >
+                                <Box
+                                  component="img"
+                                  src={getFileUrl(img.path)}
+                                  sx={{ display: "block", maxWidth: 320, maxHeight: 320, objectFit: "contain" }}
+                                />
+                              </Box>
+                            </Box>
                           ))}
-                          <Popover
-                            open={!!hoverAnchor && !!hoverImagePath}
-                            anchorEl={hoverAnchor}
-                            anchorOrigin={{ vertical: "top", horizontal: "center" }}
-                            transformOrigin={{ vertical: "bottom", horizontal: "center" }}
-                            disableRestoreFocus
-                            disableEnforceFocus
-                            disableAutoFocus
-                            hideBackdrop
-                            sx={{ pointerEvents: "none", mt: -1 }}
-                            slotProps={{ paper: { sx: { pointerEvents: "none" } } }}
-                          >
-                            <Box
-                              component="img"
-                              src={hoverImagePath ? getFileUrl(hoverImagePath) : undefined}
-                              sx={{ display: "block", maxWidth: 360, maxHeight: 360, objectFit: "contain" }}
-                            />
-                          </Popover>
                           {!browseLoading && browseImages.length === 0 && (
                             <Typography variant="body2" color="text.secondary">
                               No images in this folder
