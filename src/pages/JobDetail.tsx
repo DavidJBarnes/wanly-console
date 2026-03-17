@@ -1710,7 +1710,7 @@ function SegmentModal({
   const [browseFolders, setBrowseFolders] = useState<ImageFolder[]>([]);
   const [browseImages, setBrowseImages] = useState<ImageFile[]>([]);
   const [browseLoading, setBrowseLoading] = useState(false);
-  const [hoverPreview, setHoverPreview] = useState<{ path: string; top: number; left: number } | null>(null);
+  const [hoverPreview, setHoverPreview] = useState<{ path: string; top: number; left: number; below: boolean } | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -2089,10 +2089,16 @@ function SegmentModal({
                               onClick={() => setStartImagePath(img.path)}
                               onMouseEnter={(e) => {
                                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                const previewSize = 320;
+                                const spaceAbove = rect.top;
+                                const showBelow = spaceAbove < previewSize + 16;
+                                const top = showBelow ? rect.bottom + 8 : rect.top - 8;
+                                const left = Math.max(previewSize / 2 + 8, Math.min(rect.left + rect.width / 2, window.innerWidth - previewSize / 2 - 8));
                                 setHoverPreview({
                                   path: img.path,
-                                  top: rect.top - 8,
-                                  left: rect.left + rect.width / 2,
+                                  top,
+                                  left,
+                                  below: showBelow,
                                 });
                               }}
                               onMouseLeave={() => setHoverPreview(null)}
@@ -2121,7 +2127,7 @@ function SegmentModal({
                               position: "fixed",
                               top: hoverPreview.top,
                               left: hoverPreview.left,
-                              transform: "translate(-50%, -100%)",
+                              transform: hoverPreview.below ? "translateX(-50%)" : "translate(-50%, -100%)",
                               pointerEvents: "none",
                               zIndex: 1300,
                               boxShadow: 3,
