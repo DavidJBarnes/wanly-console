@@ -326,6 +326,21 @@ export async function deleteImage(path: string): Promise<void> {
   await api.delete("/images", { params: { path } });
 }
 
+export async function createImageFolder(name: string): Promise<{ name: string }> {
+  const { data } = await api.post<{ name: string }>("/images/folders", { name });
+  return data;
+}
+
+export async function uploadImage(file: File, folder: string): Promise<{ path: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("folder", folder);
+  const { data } = await api.post<{ path: string }>("/images/upload", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
 // --- Prompt Generation ---
 
 export async function generatePrompt(body: PromptGenRequest): Promise<PromptGenResponse> {
