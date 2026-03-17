@@ -331,6 +331,14 @@ export async function createImageFolder(name: string): Promise<{ name: string }>
   return data;
 }
 
+export async function moveImages(keys: string[], targetFolder: string): Promise<{ moved: number }> {
+  const { data } = await api.post<{ moved: number }>("/images/move", {
+    keys,
+    target_folder: targetFolder,
+  });
+  return data;
+}
+
 export async function uploadImage(file: File, folder: string): Promise<{ path: string }> {
   const formData = new FormData();
   formData.append("file", file);

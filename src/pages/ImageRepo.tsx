@@ -15,12 +15,18 @@ import {
   Grid,
   TablePagination,
   TextField,
+  Checkbox,
+  List,
+  ListItemButton,
+  ListItemText,
 } from "@mui/material";
 import {
   ArrowBack,
+  CheckBox as CheckBoxIcon,
   CloudUpload,
   CreateNewFolder,
   Delete,
+  DriveFileMove,
   NavigateNext,
 } from "@mui/icons-material";
 import {
@@ -30,6 +36,7 @@ import {
   deleteImage,
   createImageFolder,
   uploadImage,
+  moveImages,
 } from "../api/client";
 import type { ImageFolder, ImageFile } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
@@ -59,6 +66,11 @@ export default function ImageRepo() {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [selectMode, setSelectMode] = useState(false);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [moveTargetKeys, setMoveTargetKeys] = useState<string[]>([]);
+  const [moving, setMoving] = useState(false);
 
   const fetchFolders = useCallback(async () => {
     setLoading(true);
@@ -150,6 +162,50 @@ export default function ImageRepo() {
       // ignore
     } finally {
       setUploading(false);
+    }
+  };
+
+  const toggleSelect = (key: string) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const handleOpenMoveDialog = async (keys: string[]) => {
+    setMoveTargetKeys(keys);
+    setMoveDialogOpen(true);
+    // Ensure folder list is available (it may not be loaded when inside a folder)
+    if (folders.length === 0) {
+      try {
+        const data = await getImageFolders();
+        setFolders(data);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleMove = async (targetFolder: string) => {
+    if (moveTargetKeys.length === 0) return;
+    setMoving(true);
+    try {
+      await moveImages(moveTargetKeys, targetFolder);
+      setMoveDialogOpen(false);
+      setMoveTargetKeys([]);
+      setSelectedKeys(new Set());
+      setSelectMode(false);
+      // Close lightbox if the moved image was being previewed
+      if (lightboxImage && moveTargetKeys.includes(lightboxImage.key)) {
+        setLightboxImage(null);
+      }
+      if (currentFolder) await fetchImages(currentFolder);
+    } catch {
+      // ignore
+    } finally {
+      setMoving(false);
     }
   };
 
@@ -293,6 +349,25 @@ export default function ImageRepo() {
           {currentFolder}
         </Typography>
         <Box sx={{ flex: 1 }} />
+        {selectMode && selectedKeys.size > 0 && (
+          <Button
+            variant="contained"
+            startIcon={<DriveFileMove />}
+            onClick={() => handleOpenMoveDialog(Array.from(selectedKeys))}
+          >
+            Move {selectedKeys.size} image{selectedKeys.size > 1 ? "s" : ""}
+          </Button>
+        )}
+        <Button
+          variant={selectMode ? "contained" : "outlined"}
+          startIcon={<CheckBoxIcon />}
+          onClick={() => {
+            setSelectMode((prev) => !prev);
+            setSelectedKeys(new Set());
+          }}
+        >
+          {selectMode ? "Cancel" : "Select"}
+        </Button>
         <Button
           variant="outlined"
           startIcon={uploading ? <CircularProgress size={16} /> : <CloudUpload />}
@@ -338,7 +413,11 @@ export default function ImageRepo() {
               onMouseEnter={() => setHoveredCard(image.key)}
               onMouseLeave={() => setHoveredCard(null)}
             >
-              <CardActionArea onClick={() => setLightboxImage(image)}>
+              <CardActionArea
+                onClick={() =>
+                  selectMode ? toggleSelect(image.key) : setLightboxImage(image)
+                }
+              >
                 <CardMedia
                   component="img"
                   image={getFileUrl(image.path)}
@@ -351,7 +430,21 @@ export default function ImageRepo() {
                   </Typography>
                 </Box>
               </CardActionArea>
-              {hoveredCard === image.key && (
+              {selectMode && (
+                <Checkbox
+                  checked={selectedKeys.has(image.key)}
+                  onChange={() => toggleSelect(image.key)}
+                  sx={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    bgcolor: "rgba(255,255,255,0.8)",
+                    borderRadius: "0 0 4px 0",
+                    p: 0.5,
+                  }}
+                />
+              )}
+              {!selectMode && hoveredCard === image.key && (
                 <IconButton
                   size="small"
                   sx={{
@@ -424,6 +517,12 @@ export default function ImageRepo() {
                 Delete
               </Button>
               <Button
+                startIcon={<DriveFileMove />}
+                onClick={() => handleOpenMoveDialog([lightboxImage.key])}
+              >
+                Move to
+              </Button>
+              <Button
                 variant="contained"
                 onClick={() => handleUseAsStartingImage(lightboxImage)}
               >
@@ -451,6 +550,50 @@ export default function ImageRepo() {
           <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
           <Button color="error" variant="contained" onClick={handleDeleteConfirm}>
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Move to Folder Dialog */}
+      <Dialog
+        open={moveDialogOpen}
+        onClose={() => setMoveDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          Move {moveTargetKeys.length} image{moveTargetKeys.length > 1 ? "s" : ""} to...
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {moving ? (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <List>
+              {folders
+                .filter((f) => f.name !== currentFolder)
+                .map((f) => (
+                  <ListItemButton
+                    key={f.name}
+                    onClick={() => handleMove(f.name)}
+                  >
+                    <ListItemText primary={f.name} />
+                  </ListItemButton>
+                ))}
+              {folders.filter((f) => f.name !== currentFolder).length === 0 && (
+                <Box sx={{ textAlign: "center", py: 3 }}>
+                  <Typography color="text.secondary">
+                    No other folders available
+                  </Typography>
+                </Box>
+              )}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMoveDialogOpen(false)} disabled={moving}>
+            Cancel
           </Button>
         </DialogActions>
       </Dialog>
