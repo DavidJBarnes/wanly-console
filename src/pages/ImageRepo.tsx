@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Box,
   Typography,
@@ -14,9 +14,12 @@ import {
   CircularProgress,
   Grid,
   TablePagination,
+  TextField,
 } from "@mui/material";
 import {
   ArrowBack,
+  CloudUpload,
+  CreateNewFolder,
   Delete,
   NavigateNext,
 } from "@mui/icons-material";
@@ -25,6 +28,8 @@ import {
   getImageFolder,
   getFileUrl,
   deleteImage,
+  createImageFolder,
+  uploadImage,
 } from "../api/client";
 import type { ImageFolder, ImageFile } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
@@ -49,6 +54,11 @@ export default function ImageRepo() {
   const [foldersPerPage, setFoldersPerPage] = useState(12);
   const [imagePage, setImagePage] = useState(0);
   const [imagesPerPage, setImagesPerPage] = useState(24);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchFolders = useCallback(async () => {
     setLoading(true);
@@ -113,6 +123,36 @@ export default function ImageRepo() {
     setJobDialogOpen(true);
   };
 
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    setCreatingFolder(true);
+    try {
+      await createImageFolder(newFolderName.trim());
+      setNewFolderOpen(false);
+      setNewFolderName("");
+      await fetchFolders();
+    } catch {
+      // ignore
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const handleUploadFiles = async (files: FileList) => {
+    if (!currentFolder || files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        await uploadImage(file, currentFolder);
+      }
+      await fetchImages(currentFolder);
+    } catch {
+      // ignore
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (loading && folders.length === 0 && images.length === 0) {
     return (
       <Box>
@@ -130,9 +170,16 @@ export default function ImageRepo() {
   if (currentFolder === null) {
     return (
       <Box>
-        <Typography variant="h4" sx={{ mb: 3 }}>
-          Image Repo
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
+          <Typography variant="h4">Image Repo</Typography>
+          <Button
+            variant="outlined"
+            startIcon={<CreateNewFolder />}
+            onClick={() => setNewFolderOpen(true)}
+          >
+            New Folder
+          </Button>
+        </Box>
 
         {folders.length === 0 && !loading && (
           <Box sx={{ textAlign: "center", py: 8 }}>
@@ -193,6 +240,34 @@ export default function ImageRepo() {
             rowsPerPageOptions={[12, 24, 48]}
           />
         )}
+
+        {/* New Folder Dialog */}
+        <Dialog open={newFolderOpen} onClose={() => setNewFolderOpen(false)}>
+          <DialogTitle>Create New Folder</DialogTitle>
+          <DialogContent>
+            <TextField
+              autoFocus
+              fullWidth
+              label="Folder name"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
+              sx={{ mt: 1 }}
+              inputProps={{ maxLength: 100 }}
+              helperText="Letters, numbers, spaces, dashes, underscores"
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setNewFolderOpen(false)}>Cancel</Button>
+            <Button
+              variant="contained"
+              onClick={handleCreateFolder}
+              disabled={creatingFolder || !newFolderName.trim()}
+            >
+              {creatingFolder ? <CircularProgress size={20} /> : "Create"}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     );
   }
@@ -217,6 +292,26 @@ export default function ImageRepo() {
         <Typography variant="h4" component="span">
           {currentFolder}
         </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Button
+          variant="outlined"
+          startIcon={uploading ? <CircularProgress size={16} /> : <CloudUpload />}
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading ? "Uploading..." : "Upload"}
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          hidden
+          onChange={(e) => {
+            if (e.target.files) handleUploadFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
       </Box>
 
       {loading && images.length === 0 && (
