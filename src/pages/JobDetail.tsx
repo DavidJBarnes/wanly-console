@@ -66,6 +66,8 @@ import {
   updateSegmentTransition,
   updateSegmentTrim,
   getSegmentFrames,
+  getImageFolders,
+  getImageFolder,
 } from "../api/client";
 import { usePromptGenerator } from "../hooks/usePromptGenerator";
 import { useLoraStore } from "../stores/loraStore";
@@ -79,6 +81,8 @@ import type {
   FaceswapPreset,
   PromptPreset,
   FramePreviewResponse,
+  ImageFolder,
+  ImageFile,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 
@@ -1698,10 +1702,14 @@ function SegmentModal({
   const [faceswapFacesIndex, setFaceswapFacesIndex] = useState("0");
   const [faceswapFacesOrder, setFaceswapFacesOrder] = useState("left-right");
   const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
-  const [startImageMode, setStartImageMode] = useState<"auto" | "select" | "upload">("auto");
+  const [startImageMode, setStartImageMode] = useState<"auto" | "generated" | "repo" | "upload">("auto");
   const [startImagePath, setStartImagePath] = useState<string | null>(null);
   const [startImageFile, setStartImageFile] = useState<File | null>(null);
   const [startImageError, setStartImageError] = useState("");
+  const [browseFolder, setBrowseFolder] = useState<string | null>(null);
+  const [browseFolders, setBrowseFolders] = useState<ImageFolder[]>([]);
+  const [browseImages, setBrowseImages] = useState<ImageFile[]>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -1754,6 +1762,9 @@ function SegmentModal({
       setStartImagePath(null);
       setStartImageFile(null);
       setStartImageError("");
+      setBrowseFolder(null);
+      setBrowseFolders([]);
+      setBrowseImages([]);
       setError("");
     }
   }, [open]);
@@ -1772,6 +1783,17 @@ function SegmentModal({
       setLoraSlots(lorasToSlots(lastSegment.loras, loraLibrary));
     }
   }, [open, loraLibrary]);
+
+  // Fetch image repo folders when repo mode is first selected
+  useEffect(() => {
+    if (startImageMode === "repo" && browseFolders.length === 0) {
+      setBrowseLoading(true);
+      getImageFolders()
+        .then(setBrowseFolders)
+        .catch(() => setBrowseFolders([]))
+        .finally(() => setBrowseLoading(false));
+    }
+  }, [startImageMode, browseFolders.length]);
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
     if (!item || loraSlots.length >= 3) return;
@@ -1832,7 +1854,7 @@ function SegmentModal({
       }
 
       let startImageUri: string | null = null;
-      if (startImageMode === "select") {
+      if (startImageMode === "generated" || startImageMode === "repo") {
         startImageUri = startImagePath;
       } else if (startImageMode === "upload" && startImageFile) {
         const uploaded = await uploadFile(startImageFile, jobId);
@@ -1883,7 +1905,7 @@ function SegmentModal({
           {(() => {
             const autoImage = lastSegment?.last_frame_path ?? job.starting_image ?? null;
             const effectiveImage =
-              startImageMode === "select" ? startImagePath :
+              (startImageMode === "generated" || startImageMode === "repo") ? startImagePath :
               startImageMode === "upload" && startImageFile ? URL.createObjectURL(startImageFile) :
               autoImage;
             const isObjectUrl = startImageMode === "upload" && startImageFile;
@@ -1920,20 +1942,25 @@ function SegmentModal({
                     onChange={(_e, v) => {
                       if (v === null) return;
                       setStartImageMode(v);
-                      if (v !== "select") setStartImagePath(null);
+                      if (v !== "generated" && v !== "repo") setStartImagePath(null);
                       if (v !== "upload") {
                         setStartImageFile(null);
                         setStartImageError("");
+                      }
+                      if (v !== "repo") {
+                        setBrowseFolder(null);
+                        setBrowseImages([]);
                       }
                     }}
                     size="small"
                   >
                     <ToggleButton value="auto">Auto</ToggleButton>
-                    <ToggleButton value="select">Select</ToggleButton>
+                    <ToggleButton value="generated">Generated</ToggleButton>
+                    <ToggleButton value="repo">From Repo</ToggleButton>
                     <ToggleButton value="upload">Upload</ToggleButton>
                   </ToggleButtonGroup>
                 </Box>
-                {startImageMode === "select" && (
+                {startImageMode === "generated" && (
                   <Box
                     sx={{
                       display: "flex",
@@ -1969,6 +1996,117 @@ function SegmentModal({
                       <Typography variant="body2" color="text.secondary">
                         No images available
                       </Typography>
+                    )}
+                  </Box>
+                )}
+                {startImageMode === "repo" && (
+                  <Box sx={{ py: 1 }}>
+                    {browseFolder === null ? (
+                      // Folder list view
+                      <>
+                        {browseLoading && <CircularProgress size={20} />}
+                        <Box
+                          sx={{
+                            display: "flex",
+                            gap: 1,
+                            overflowX: "auto",
+                            "&::-webkit-scrollbar": { height: 6 },
+                            "&::-webkit-scrollbar-thumb": { bgcolor: "action.disabled", borderRadius: 3 },
+                          }}
+                        >
+                          {browseFolders.map((folder) => (
+                            <Box
+                              key={folder.date}
+                              onClick={() => {
+                                setBrowseFolder(folder.date);
+                                setBrowseLoading(true);
+                                getImageFolder(folder.date)
+                                  .then(setBrowseImages)
+                                  .catch(() => setBrowseImages([]))
+                                  .finally(() => setBrowseLoading(false));
+                              }}
+                              sx={{
+                                flexShrink: 0,
+                                cursor: "pointer",
+                                borderRadius: 1,
+                                overflow: "hidden",
+                                border: "1px solid",
+                                borderColor: "divider",
+                                "&:hover": { borderColor: "primary.main" },
+                                width: 100,
+                              }}
+                            >
+                              {folder.thumbnail && (
+                                <Box
+                                  component="img"
+                                  src={getFileUrl(folder.thumbnail)}
+                                  alt={folder.date}
+                                  sx={{ width: 100, height: 56, objectFit: "cover" }}
+                                />
+                              )}
+                              <Typography variant="caption" sx={{ display: "block", textAlign: "center", py: 0.25 }}>
+                                {folder.date}
+                              </Typography>
+                            </Box>
+                          ))}
+                          {!browseLoading && browseFolders.length === 0 && (
+                            <Typography variant="body2" color="text.secondary">
+                              No image folders found
+                            </Typography>
+                          )}
+                        </Box>
+                      </>
+                    ) : (
+                      // Image grid view inside a folder
+                      <>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                          <Button
+                            size="small"
+                            startIcon={<ChevronLeft />}
+                            onClick={() => { setBrowseFolder(null); setBrowseImages([]); }}
+                            sx={{ textTransform: "none", minWidth: 0 }}
+                          >
+                            {browseFolder}
+                          </Button>
+                          {browseLoading && <CircularProgress size={16} />}
+                        </Box>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            gap: 1,
+                            overflowX: "auto",
+                            "&::-webkit-scrollbar": { height: 6 },
+                            "&::-webkit-scrollbar-thumb": { bgcolor: "action.disabled", borderRadius: 3 },
+                          }}
+                        >
+                          {browseImages.map((img) => (
+                            <Tooltip key={img.path} title={img.filename} arrow>
+                              <Box
+                                component="img"
+                                src={getFileUrl(img.path)}
+                                alt={img.filename}
+                                onClick={() => setStartImagePath(img.path)}
+                                sx={{
+                                  width: 64,
+                                  height: 64,
+                                  objectFit: "cover",
+                                  borderRadius: 0.5,
+                                  cursor: "pointer",
+                                  flexShrink: 0,
+                                  border: "2px solid",
+                                  borderColor: startImagePath === img.path ? "primary.main" : "transparent",
+                                  "&:hover": { borderColor: startImagePath === img.path ? "primary.main" : "action.hover" },
+                                }}
+                              />
+                            </Tooltip>
+                          ))}
+                          {!browseLoading && browseImages.length === 0 && (
+                            <Typography variant="body2" color="text.secondary">
+                              No images in this folder
+                            </Typography>
+                          )}
+                        </Box>
+                      </>
                     )}
                   </Box>
                 )}
@@ -2056,7 +2194,7 @@ function SegmentModal({
               const autoImage = lastSegment?.last_frame_path ?? job.starting_image ?? null;
               if (startImageMode === "upload" && startImageFile) {
                 generate({ imageFile: startImageFile }, (p) => setPrompt(p));
-              } else if (startImageMode === "select" && startImagePath) {
+              } else if ((startImageMode === "generated" || startImageMode === "repo") && startImagePath) {
                 generate({ imageS3Uri: startImagePath }, (p) => setPrompt(p));
               } else if (autoImage) {
                 generate({ imageS3Uri: autoImage }, (p) => setPrompt(p));
