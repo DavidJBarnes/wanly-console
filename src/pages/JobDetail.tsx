@@ -44,7 +44,6 @@ import {
   InfoOutlined,
   StopCircle,
   Download,
-  AutoAwesome,
   ExpandMore,
   Visibility,
   ChevronLeft,
@@ -69,7 +68,6 @@ import {
   getImageFolders,
   getImageFolder,
 } from "../api/client";
-import { usePromptGenerator } from "../hooks/usePromptGenerator";
 import { useLoraStore } from "../stores/loraStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
 import type {
@@ -1714,9 +1712,6 @@ function SegmentModal({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Prompt generation
-  const { promptPrefix, setPromptPrefix, generating, genError, setGenError, generate } = usePromptGenerator();
-
   const accordionSx = { "&:before": { display: "none" }, boxShadow: "none", border: "1px solid", borderColor: "divider", borderRadius: "8px !important", mb: 1 };
 
   const applyPreset = (preset: PromptPreset | null) => {
@@ -2204,15 +2199,6 @@ function SegmentModal({
           />
         )}
         <TextField
-          label="Prompt Prefix"
-          fullWidth
-          size="small"
-          margin="dense"
-          value={promptPrefix}
-          onChange={(e) => setPromptPrefix(e.target.value)}
-          placeholder="e.g. a woman in a red dress"
-        />
-        <TextField
           label="Prompt"
           fullWidth
           multiline
@@ -2223,24 +2209,6 @@ function SegmentModal({
           autoFocus
         />
         <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
-          <Button
-            size="small"
-            startIcon={generating ? <CircularProgress size={14} /> : <AutoAwesome sx={{ fontSize: 14 }} />}
-            disabled={generating}
-            onClick={() => {
-              const autoImage = lastSegment?.last_frame_path ?? job.starting_image ?? null;
-              if (startImageMode === "upload" && startImageFile) {
-                generate({ imageFile: startImageFile }, (p) => setPrompt(p));
-              } else if ((startImageMode === "generated" || startImageMode === "repo") && startImagePath) {
-                generate({ imageS3Uri: startImagePath }, (p) => setPrompt(p));
-              } else if (autoImage) {
-                generate({ imageS3Uri: autoImage }, (p) => setPrompt(p));
-              }
-            }}
-            sx={{ textTransform: "none", fontSize: 12 }}
-          >
-            {generating ? "Generating..." : "Auto-generate"}
-          </Button>
           <IconButton
             size="small"
             onClick={() => setPrompt("")}
@@ -2251,11 +2219,6 @@ function SegmentModal({
             <ClearOutlined sx={{ fontSize: 14 }} />
           </IconButton>
         </Box>
-        {genError && (
-          <Alert severity="error" sx={{ mt: 0.5, mb: 0.5 }} onClose={() => setGenError("")}>
-            {genError}
-          </Alert>
-        )}
 
         {/* ── Video Settings (accordion) ── */}
         <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>

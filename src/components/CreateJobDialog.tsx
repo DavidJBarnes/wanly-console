@@ -20,12 +20,10 @@ import {
   IconButton,
   ToggleButton,
   ToggleButtonGroup,
-  CircularProgress,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { AutoAwesome, ClearOutlined, ExpandMore } from "@mui/icons-material";
-import { usePromptGenerator } from "../hooks/usePromptGenerator";
+import { ClearOutlined, ExpandMore } from "@mui/icons-material";
 import { useLoraStore } from "../stores/loraStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTagStore } from "../stores/tagStore";
@@ -76,9 +74,6 @@ export default function CreateJobDialog({
   const [faceswapFacesOrder, setFaceswapFacesOrder] = useState("left-right");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  // Prompt generation
-  const { promptPrefix, setPromptPrefix, generating, genError, setGenError, generate } = usePromptGenerator();
 
   // Tag state
   const { titleTags1, titleTags2, fetchTags } = useTagStore();
@@ -227,8 +222,6 @@ export default function CreateJobDialog({
     setSelectedTag1("");
     setSelectedTag2("");
     setNameManuallyEdited(false);
-    setPromptPrefix("");
-    setGenError("");
     setError("");
   }, [imagePreview, defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow]);
 
@@ -425,15 +418,6 @@ export default function CreateJobDialog({
           />
         )}
         <TextField
-          label="Prompt Prefix"
-          fullWidth
-          size="small"
-          margin="dense"
-          value={promptPrefix}
-          onChange={(e) => setPromptPrefix(e.target.value)}
-          placeholder="e.g. a woman in a red dress"
-        />
-        <TextField
           label="Prompt"
           fullWidth
           multiline
@@ -443,22 +427,6 @@ export default function CreateJobDialog({
           onChange={(e) => setPrompt(e.target.value)}
         />
         <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
-          <Button
-            size="small"
-            startIcon={generating ? <CircularProgress size={14} /> : <AutoAwesome sx={{ fontSize: 14 }} />}
-            disabled={generating || (!startingImage && !startingImageUri)}
-            onClick={() =>
-              generate(
-                startingImage
-                  ? { imageFile: startingImage }
-                  : { imageS3Uri: startingImageUri! },
-                (p) => setPrompt(p),
-              )
-            }
-            sx={{ textTransform: "none", fontSize: 12 }}
-          >
-            {generating ? "Generating..." : "Auto-generate"}
-          </Button>
           <IconButton
             size="small"
             onClick={() => setPrompt("")}
@@ -469,11 +437,6 @@ export default function CreateJobDialog({
             <ClearOutlined sx={{ fontSize: 14 }} />
           </IconButton>
         </Box>
-        {genError && (
-          <Alert severity="error" sx={{ mt: 0.5, mb: 0.5 }} onClose={() => setGenError("")}>
-            {genError}
-          </Alert>
-        )}
 
         {/* ── Video Settings (accordion) ── */}
         <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
