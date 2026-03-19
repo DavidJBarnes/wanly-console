@@ -18,10 +18,6 @@ import type {
   PromptPreset,
   PromptPresetCreate,
   PromptPresetUpdate,
-  PromptGenRequest,
-  PromptGenResponse,
-  PromptTemplatesResponse,
-  PromptTemplatesUpdate,
   WildcardResponse,
   WildcardCreate,
   WildcardUpdate,
@@ -346,23 +342,6 @@ export async function uploadImage(file: File, folder: string): Promise<{ path: s
   const { data } = await api.post<{ path: string }>("/images/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
-  return data;
-}
-
-// --- Prompt Generation ---
-
-export async function generatePrompt(body: PromptGenRequest): Promise<PromptGenResponse> {
-  const { data } = await api.post<PromptGenResponse>("/prompt/generate", body);
-  return data;
-}
-
-export async function getPromptTemplates(): Promise<PromptTemplatesResponse> {
-  const { data } = await api.get<PromptTemplatesResponse>("/prompt/templates");
-  return data;
-}
-
-export async function updatePromptTemplates(body: PromptTemplatesUpdate): Promise<PromptTemplatesResponse> {
-  const { data } = await api.put<PromptTemplatesResponse>("/prompt/templates", body);
   return data;
 }
 

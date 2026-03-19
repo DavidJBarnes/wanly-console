@@ -333,17 +333,6 @@ export interface ImageFile {
   last_modified: string;
 }
 
-export interface PromptGenRequest {
-  image_base64?: string | null;
-  image_s3_uri?: string | null;
-  prompt_prefix?: string | null;
-}
-
-export interface PromptGenResponse {
-  prompt: string;
-  description: string;
-}
-
 export interface FramePreview {
   frame_index: number;
   data_url: string;
@@ -353,20 +342,6 @@ export interface FramePreviewResponse {
   total_frames: number;
   fps: number;
   frames: FramePreview[];
-}
-
-export interface PromptTemplatesResponse {
-  vision_prompt: string;
-  text_prompt: string;
-  vision_model: string;
-  text_model: string;
-}
-
-export interface PromptTemplatesUpdate {
-  vision_prompt?: string;
-  text_prompt?: string;
-  vision_model?: string;
-  text_model?: string;
 }
 
 export interface AppSettingsResponse {
