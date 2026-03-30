@@ -13,8 +13,9 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  LinearProgress,
 } from "@mui/material";
-import { ArrowBack, Circle } from "@mui/icons-material";
+import { ArrowBack, Circle, LinearScale } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import { getWorker, getWorkerSegments } from "../api/client";
 import StatusChip from "../components/StatusChip";
@@ -183,6 +184,56 @@ export default function WorkerDetail() {
           </Typography>
         </CardContent>
       </Card>
+
+      {worker.sd_scripts?.sd_scripts_training && worker.sd_scripts.sd_scripts_training_info && (
+        <Card sx={{ mt: 3 }}>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid", borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>
+            <LinearScale sx={{ fontSize: 20, color: "#ff9800" }} />
+            <Typography variant="h6">LoRA Training</Typography>
+          </Box>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              {worker.sd_scripts.sd_scripts_training_info.output_name}
+            </Typography>
+
+            {worker.sd_scripts.sd_scripts_training_info.pct_complete != null && (
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">Progress</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {worker.sd_scripts.sd_scripts_training_info.pct_complete.toFixed(1)}%
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={worker.sd_scripts.sd_scripts_training_info.pct_complete}
+                  sx={{ height: 8, borderRadius: 4 }}
+                />
+              </Box>
+            )}
+
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 2 }}>
+              {worker.sd_scripts.sd_scripts_training_info.current_epoch != null && (
+                <MetaItem
+                  label="Epoch"
+                  value={
+                    worker.sd_scripts.sd_scripts_training_info.max_epochs
+                      ? `${worker.sd_scripts.sd_scripts_training_info.current_epoch} / ${worker.sd_scripts.sd_scripts_training_info.max_epochs}`
+                      : `${worker.sd_scripts.sd_scripts_training_info.current_epoch}`
+                  }
+                />
+              )}
+              {worker.sd_scripts.sd_scripts_training_info.current_step != null && (
+                <MetaItem label="Step" value={worker.sd_scripts.sd_scripts_training_info.current_step.toLocaleString()} />
+              )}
+              {worker.sd_scripts.sd_scripts_training_info.current_loss != null && (
+                <MetaItem label="Loss" value={worker.sd_scripts.sd_scripts_training_info.current_loss.toFixed(4)} />
+              )}
+              <MetaItem label="PID" value={String(worker.sd_scripts.sd_scripts_training_info.pid)} />
+            </Box>
+          </CardContent>
+        </Card>
+      )}
 
       {segments.length > 0 && (
         <Card sx={{ mt: 3 }}>

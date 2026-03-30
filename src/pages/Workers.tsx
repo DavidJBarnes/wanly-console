@@ -30,6 +30,7 @@ import {
   Memory,
   Cancel,
 } from "@mui/icons-material";
+import { useNavigate } from "react-router";
 import { getWorkers, deleteWorker, drainWorker, cancelDrain, renameWorker } from "../api/client";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 
@@ -62,6 +63,7 @@ function formatDate(iso: string) {
 }
 
 export default function Workers() {
+  const navigate = useNavigate();
   const [workers, setWorkers] = useState<WorkerResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -171,6 +173,7 @@ export default function Workers() {
               onDrain={setDrainConfirm}
               onCancelDrain={handleCancelDrain}
               onRenamed={fetchWorkers}
+              onClick={() => navigate(`/workers/${worker.id}`)}
             />
           </Grid>
         ))}
@@ -272,12 +275,14 @@ function WorkerCard({
   onDrain,
   onCancelDrain,
   onRenamed,
+  onClick,
 }: {
   worker: WorkerResponse;
   onDelete: (w: WorkerResponse) => void;
   onDrain: (w: WorkerResponse) => void;
   onCancelDrain: (w: WorkerResponse) => void;
   onRenamed: () => void;
+  onClick: () => void;
 }) {
   const cfg = STATUS_CONFIG[worker.status];
   const canDrain = worker.status === "online-idle" || worker.status === "online-busy";
@@ -303,7 +308,7 @@ function WorkerCard({
   };
 
   return (
-    <Card>
+    <Card sx={{ cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }} onClick={onClick}>
       <CardContent>
         <Box
           sx={{
@@ -315,6 +320,7 @@ function WorkerCard({
         >
           {editing ? (
             <TextField
+              onClick={(e) => e.stopPropagation()}
               size="small"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
@@ -338,7 +344,8 @@ function WorkerCard({
               <Tooltip title="Rename worker">
                 <IconButton
                   size="small"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setEditName(worker.friendly_name);
                     setEditing(true);
                   }}
@@ -349,7 +356,7 @@ function WorkerCard({
               </Tooltip>
             </Box>
           )}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }} onClick={(e) => e.stopPropagation()}>
             <Circle sx={{ fontSize: 10, color: cfg.color }} />
             <Typography
               variant="body2"
