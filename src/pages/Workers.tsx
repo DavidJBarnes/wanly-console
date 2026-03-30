@@ -427,6 +427,32 @@ function WorkerCard({
               ComfyUI {worker.comfyui_running ? "running" : "stopped"}
             </Typography>
           </Box>
+          {worker.sd_scripts && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Circle
+                sx={{
+                  fontSize: 8,
+                  color: worker.sd_scripts.sd_scripts_training ? "#ff9800" : worker.sd_scripts.sd_scripts_installed ? "#4caf50" : "#9e9e9e",
+                  ml: 0.25,
+                }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                sd-scripts{" "}
+                {worker.sd_scripts.sd_scripts_training
+                  ? "training"
+                  : worker.sd_scripts.sd_scripts_installed
+                    ? "idle"
+                    : "not installed"}
+              </Typography>
+              {worker.sd_scripts.sd_scripts_training && worker.sd_scripts.sd_scripts_training_info && (
+                <Chip
+                  label={worker.sd_scripts.sd_scripts_training_info.output_name}
+                  size="small"
+                  sx={{ fontSize: "0.7rem", height: 20 }}
+                />
+              )}
+            </Box>
+          )}
           {worker.gpu_stats && (
             <>
               <InfoRow

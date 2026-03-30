@@ -220,8 +220,19 @@ export interface GpuStats {
   vram_used_mb: number;
   vram_total_mb: number;
   gpu_name: string;
-  torch_vram_used_mb: number;
-  torch_vram_free_mb: number;
+  torch_vram_used_mb?: number;
+  torch_vram_free_mb?: number;
+}
+
+export interface SdScriptsTrainingInfo {
+  pid: number;
+  output_name: string;
+}
+
+export interface SdScripts {
+  sd_scripts_installed: boolean;
+  sd_scripts_training: boolean;
+  sd_scripts_training_info: SdScriptsTrainingInfo | null;
 }
 
 export interface WorkerResponse {
@@ -232,6 +243,7 @@ export interface WorkerResponse {
   status: WorkerStatus;
   comfyui_running: boolean;
   gpu_stats: GpuStats | null;
+  sd_scripts: SdScripts | null;
   drain_after_jobs: number | null;
   last_heartbeat: string;
   registered_at: string;

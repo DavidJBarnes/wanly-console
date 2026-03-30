@@ -157,6 +157,18 @@ export default function WorkerDetail() {
             <MetaItem label="Hostname" value={worker.hostname} />
             <MetaItem label="IP Address" value={worker.ip_address} />
             <MetaItem label="ComfyUI" value={worker.comfyui_running ? "Running" : "Stopped"} />
+            <MetaItem
+              label="sd-scripts"
+              value={
+                !worker.sd_scripts
+                  ? "N/A"
+                  : worker.sd_scripts.sd_scripts_training
+                    ? `Training: ${worker.sd_scripts.sd_scripts_training_info?.output_name ?? "unknown"}`
+                    : worker.sd_scripts.sd_scripts_installed
+                      ? "Idle"
+                      : "Not installed"
+              }
+            />
             <MetaItem label="Last Heartbeat" value={timeAgo(worker.last_heartbeat)} />
             <MetaItem label="Registered" value={formatDate(worker.registered_at)} />
             <MetaItem label="Updated" value={formatDate(worker.updated_at)} />
