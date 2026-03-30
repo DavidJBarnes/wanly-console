@@ -227,6 +227,11 @@ export interface GpuStats {
 export interface SdScriptsTrainingInfo {
   pid: number;
   output_name: string;
+  current_epoch?: number;
+  max_epochs?: number;
+  current_step?: number;
+  pct_complete?: number;
+  current_loss?: number;
 }
 
 export interface SdScripts {
