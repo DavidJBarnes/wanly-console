@@ -453,6 +453,25 @@ function WorkerCard({
               )}
             </Box>
           )}
+          {worker.a1111 && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Circle
+                sx={{
+                  fontSize: 8,
+                  color: worker.a1111.a1111_running ? "#4caf50" : worker.a1111.a1111_installed ? "#9e9e9e" : "#9e9e9e",
+                  ml: 0.25,
+                }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                A1111{" "}
+                {worker.a1111.a1111_running
+                  ? "running"
+                  : worker.a1111.a1111_installed
+                    ? "stopped"
+                    : "not installed"}
+              </Typography>
+            </Box>
+          )}
           {worker.gpu_stats && (
             <>
               <InfoRow
