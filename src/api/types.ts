@@ -240,6 +240,11 @@ export interface SdScripts {
   sd_scripts_training_info: SdScriptsTrainingInfo | null;
 }
 
+export interface A1111 {
+  a1111_installed: boolean;
+  a1111_running: boolean;
+}
+
 export interface WorkerResponse {
   id: string;
   friendly_name: string;
@@ -249,6 +254,7 @@ export interface WorkerResponse {
   comfyui_running: boolean;
   gpu_stats: GpuStats | null;
   sd_scripts: SdScripts | null;
+  a1111: A1111 | null;
   drain_after_jobs: number | null;
   last_heartbeat: string;
   registered_at: string;

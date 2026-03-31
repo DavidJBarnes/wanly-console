@@ -170,6 +170,18 @@ export default function WorkerDetail() {
                       : "Not installed"
               }
             />
+            <MetaItem
+              label="A1111"
+              value={
+                !worker.a1111
+                  ? "N/A"
+                  : worker.a1111.a1111_running
+                    ? "Running"
+                    : worker.a1111.a1111_installed
+                      ? "Stopped"
+                      : "Not installed"
+              }
+            />
             <MetaItem label="Last Heartbeat" value={timeAgo(worker.last_heartbeat)} />
             <MetaItem label="Registered" value={formatDate(worker.registered_at)} />
             <MetaItem label="Updated" value={formatDate(worker.updated_at)} />
