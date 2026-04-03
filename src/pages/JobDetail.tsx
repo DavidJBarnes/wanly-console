@@ -905,6 +905,7 @@ export default function JobDetail() {
                               <MenuItem value="none">None</MenuItem>
                               <MenuItem value="fade">Fade (black)</MenuItem>
                               <MenuItem value="flash">Flash (black)</MenuItem>
+                              <MenuItem value="dissolve">Cross-dissolve</MenuItem>
                             </TextField>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
@@ -1629,6 +1630,57 @@ function SegmentDetailModal({
             </Box>
           )}
         </Box>
+
+        {/* Motion Keywords */}
+        {seg.motion_keywords && seg.motion_keywords.length > 0 && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Motion Keywords</Typography>
+            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+              {seg.motion_keywords.map((kw, i) => (
+                <Typography
+                  key={i}
+                  variant="body2"
+                  sx={{
+                    px: 1,
+                    py: 0.25,
+                    bgcolor: "primary.light",
+                    color: "primary.contrastText",
+                    borderRadius: 1,
+                    fontSize: 12,
+                  }}
+                >
+                  {kw}
+                </Typography>
+              ))}
+            </Box>
+          </Box>
+        )}
+
+        {/* Reference Frames */}
+        {seg.reference_frames && seg.reference_frames.length > 0 && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Reference Frames ({seg.reference_frames.length})</Typography>
+            <Box sx={{ display: "flex", gap: 1 }}>
+              {seg.reference_frames.map((frame, i) => (
+                <Tooltip key={i} title={`Reference frame ${i + 1}`}>
+                  <Box
+                    component="img"
+                    src={getFileUrl(frame)}
+                    alt={`Reference ${i + 1}`}
+                    sx={{
+                      width: 48,
+                      height: 48,
+                      objectFit: "cover",
+                      borderRadius: 1,
+                      bgcolor: "#f5f5f5",
+                      cursor: "pointer",
+                    }}
+                  />
+                </Tooltip>
+              ))}
+            </Box>
+          </Box>
+        )}
 
         {/* Error */}
         {seg.error_message && (
