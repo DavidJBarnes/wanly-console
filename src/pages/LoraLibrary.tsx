@@ -635,6 +635,13 @@ function EditLoraDialog({
           margin="normal"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <Typography variant="caption" sx={{ color: "text.disabled", mr: 1 }}>
+                ID: {lora.id}
+              </Typography>
+            ),
+          }}
         />
         <TextField
           label="CivitAI Page URL"
