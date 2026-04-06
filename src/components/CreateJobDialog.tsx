@@ -53,7 +53,7 @@ export default function CreateJobDialog({
   const [prompt, setPrompt] = useState("");
   const [width, setWidth] = useState(640);
   const [height, setHeight] = useState(640);
-  const [fps, setFps] = useState(30);
+  const [fps, setFps] = useState(60);
   const [duration, setDuration] = useState(5.0);
   const [speed, setSpeed] = useState(1.0);
   const [seed, setSeed] = useState("");
@@ -64,7 +64,7 @@ export default function CreateJobDialog({
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
-  const [faceswapEnabled, setFaceswapEnabled] = useState(true);
+  const [faceswapEnabled, setFaceswapEnabled] = useState(false);
   const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("preset");
   const [faceswapImage, setFaceswapImage] = useState<File | null>(null);
   const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
