@@ -142,6 +142,7 @@ export interface SegmentResponse {
   trim_start_frames: number;
   trim_end_frames: number;
   motion_keywords: string[] | null;
+  motion_magnitude: number | null;
   reference_frames: string[] | null;
   status: SegmentStatus;
   worker_id: string | null;
