@@ -20,6 +20,7 @@ import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import { getWorker, getWorkerSegments } from "../api/client";
 import StatusChip from "../components/StatusChip";
 import type { WorkerResponse, WorkerStatus, WorkerSegmentResponse } from "../api/types";
+import { POLL_INTERVAL_SLOW } from "../constants";
 
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
   "online-idle": { color: "#4caf50", label: "Idle" },
@@ -96,7 +97,7 @@ export default function WorkerDetail() {
   useEffect(() => {
     fetchWorker();
     fetchSegments();
-    const interval = setInterval(fetchWorker, 10000);
+    const interval = setInterval(fetchWorker, POLL_INTERVAL_SLOW);
     return () => clearInterval(interval);
   }, [fetchWorker, fetchSegments]);
 

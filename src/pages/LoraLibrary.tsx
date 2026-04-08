@@ -36,6 +36,7 @@ import {
   getFileUrl,
 } from "../api/client";
 import type { LoraListItem, LoraResponse, LoraCreate, LoraUpdate } from "../api/types";
+import { DEFAULT_LORA_WEIGHT } from "../constants";
 
 export default function LoraLibrary() {
   const { loras, loading, fetchLoras } = useLoraStore();
@@ -245,8 +246,8 @@ function AddLoraDialog({
   const [triggerWords, setTriggerWords] = useState("");
   const [defaultPrompt, setDefaultPrompt] = useState("");
   const [description, setDescription] = useState("");
-  const [highWeight, setHighWeight] = useState(1.0);
-  const [lowWeight, setLowWeight] = useState(1.0);
+  const [highWeight, setHighWeight] = useState(DEFAULT_LORA_WEIGHT);
+  const [lowWeight, setLowWeight] = useState(DEFAULT_LORA_WEIGHT);
   const [highFile, setHighFile] = useState<File | null>(null);
   const [lowFile, setLowFile] = useState<File | null>(null);
   const [previewFile, setPreviewFile] = useState<File | null>(null);
@@ -262,8 +263,8 @@ function AddLoraDialog({
     setTriggerWords("");
     setDefaultPrompt("");
     setDescription("");
-    setHighWeight(1.0);
-    setLowWeight(1.0);
+    setHighWeight(DEFAULT_LORA_WEIGHT);
+    setLowWeight(DEFAULT_LORA_WEIGHT);
     setHighFile(null);
     setLowFile(null);
     setPreviewFile(null);

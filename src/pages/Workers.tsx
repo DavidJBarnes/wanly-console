@@ -33,6 +33,7 @@ import {
 import { useNavigate } from "react-router";
 import { getWorkers, deleteWorker, drainWorker, cancelDrain, renameWorker } from "../api/client";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
+import { POLL_INTERVAL_SLOW } from "../constants";
 
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
   "online-idle": { color: "#4caf50", label: "Idle" },
@@ -88,7 +89,7 @@ export default function Workers() {
 
   useEffect(() => {
     fetchWorkers();
-    const interval = setInterval(fetchWorkers, 10000);
+    const interval = setInterval(fetchWorkers, POLL_INTERVAL_SLOW);
     return () => clearInterval(interval);
   }, [fetchWorkers]);
 

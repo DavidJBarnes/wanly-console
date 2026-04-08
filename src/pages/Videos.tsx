@@ -19,6 +19,7 @@ import { Close, Error as ErrorIcon, NavigateBefore, NavigateNext, PlayCircleOutl
 import { useNavigate } from "react-router";
 import { getJobs, getJob, getFileUrl } from "../api/client";
 import type { JobDetailResponse, JobResponse } from "../api/types";
+import { DEFAULT_JOB_FETCH_LIMIT, POLL_INTERVAL_FAST } from "../constants";
 
 function formatDuration(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -67,7 +68,7 @@ export default function Videos() {
 
   useEffect(() => {
     fetchVideos();
-    const interval = setInterval(fetchVideos, 5000);
+    const interval = setInterval(fetchVideos, POLL_INTERVAL_FAST);
     return () => clearInterval(interval);
   }, [fetchVideos]);
 
@@ -103,7 +104,7 @@ export default function Videos() {
     setLoadingRandom(true);
     try {
       // Fetch all finalized jobs
-      const res = await getJobs({ status: "finalized", limit: 200, offset: 0 });
+      const res = await getJobs({ status: "finalized", limit: DEFAULT_JOB_FETCH_LIMIT, offset: 0 });
       const allJobs = res.items;
 
       // Fetch details for any we don't already have

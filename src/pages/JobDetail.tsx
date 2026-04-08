@@ -83,6 +83,16 @@ import type {
   ImageFile,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
+import {
+  DEFAULT_DURATION,
+  DEFAULT_SPEED,
+  DEFAULT_FACESWAP_ENABLED,
+  DEFAULT_FACESWAP_METHOD,
+  DEFAULT_FACESWAP_FACES_INDEX,
+  DEFAULT_FACESWAP_FACES_ORDER,
+  MAX_LORAS,
+  POLL_INTERVAL_FAST,
+} from "../constants";
 
 function formatDate(iso: string | null) {
   if (!iso) return "-";
@@ -174,7 +184,7 @@ export default function JobDetail() {
 
   useEffect(() => {
     fetchJob();
-    const interval = setInterval(fetchJob, 5000);
+    const interval = setInterval(fetchJob, POLL_INTERVAL_FAST);
     return () => clearInterval(interval);
   }, [fetchJob]);
 
@@ -1741,16 +1751,16 @@ function SegmentModal({
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const { presets: promptPresets, fetchPresets } = usePromptPresetStore();
   const [prompt, setPrompt] = useState("");
-  const [duration, setDuration] = useState(5.0);
-  const [speed, setSpeed] = useState(1.0);
-  const [faceswapEnabled, setFaceswapEnabled] = useState(false);
+  const [duration, setDuration] = useState(DEFAULT_DURATION);
+  const [speed, setSpeed] = useState(DEFAULT_SPEED);
+  const [faceswapEnabled, setFaceswapEnabled] = useState(DEFAULT_FACESWAP_ENABLED);
   const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("upload");
-  const [faceswapMethod, setFaceswapMethod] = useState("reactor");
+  const [faceswapMethod, setFaceswapMethod] = useState(DEFAULT_FACESWAP_METHOD);
   const [faceswapFile, setFaceswapFile] = useState<File | null>(null);
   const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
   const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
-  const [faceswapFacesIndex, setFaceswapFacesIndex] = useState("0");
-  const [faceswapFacesOrder, setFaceswapFacesOrder] = useState("left-right");
+  const [faceswapFacesIndex, setFaceswapFacesIndex] = useState(DEFAULT_FACESWAP_FACES_INDEX);
+  const [faceswapFacesOrder, setFaceswapFacesOrder] = useState(DEFAULT_FACESWAP_FACES_ORDER);
   const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
   const [startImageMode, setStartImageMode] = useState<"auto" | "generated" | "repo" | "upload">("auto");
   const [startImagePath, setStartImagePath] = useState<string | null>(null);
@@ -1801,11 +1811,11 @@ function SegmentModal({
           ? "start_frame"
           : "upload";
       setFaceswapSourceType(srcType);
-      setFaceswapMethod(lastSegment.faceswap_method ?? "reactor");
+      setFaceswapMethod(lastSegment.faceswap_method ?? DEFAULT_FACESWAP_METHOD);
       setFaceswapFile(null);
       setFaceswapPresetUri(srcType === "preset" ? lastSegment.faceswap_image ?? null : null);
-      setFaceswapFacesIndex(lastSegment.faceswap_faces_index ?? "0");
-      setFaceswapFacesOrder(lastSegment.faceswap_faces_order ?? "left-right");
+      setFaceswapFacesIndex(lastSegment.faceswap_faces_index ?? DEFAULT_FACESWAP_FACES_INDEX);
+      setFaceswapFacesOrder(lastSegment.faceswap_faces_order ?? DEFAULT_FACESWAP_FACES_ORDER);
       setStartImageMode("auto");
       setStartImagePath(null);
       setStartImageFile(null);
@@ -1844,7 +1854,7 @@ function SegmentModal({
   }, [startImageMode, browseFolders.length]);
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
-    if (!item || loraSlots.length >= 3) return;
+    if (!item || loraSlots.length >= MAX_LORAS) return;
     if (loraSlots.some((l) => l.lora_id === item.id)) return;
     setLoraSlots([
       ...loraSlots,
@@ -2323,7 +2333,7 @@ function SegmentModal({
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0 }}>
-            {loraSlots.length < 3 && (
+            {loraSlots.length < MAX_LORAS && (
               <Autocomplete
                 options={loraLibrary
                   .filter((l) => !loraSlots.some((s) => s.lora_id === l.id))

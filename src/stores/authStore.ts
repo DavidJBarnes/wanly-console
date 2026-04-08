@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { login as apiLogin } from "../api/client";
+import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 
 interface AuthState {
   token: string | null;
@@ -8,16 +9,16 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  token: localStorage.getItem("token"),
+  token: localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY),
 
   login: async (username, password) => {
     const res = await apiLogin(username, password);
-    localStorage.setItem("token", res.access_token);
+    localStorage.setItem(LOCAL_STORAGE_TOKEN_KEY, res.access_token);
     set({ token: res.access_token });
   },
 
   logout: () => {
-    localStorage.removeItem("token");
+    localStorage.removeItem(LOCAL_STORAGE_TOKEN_KEY);
     set({ token: null });
   },
 }));

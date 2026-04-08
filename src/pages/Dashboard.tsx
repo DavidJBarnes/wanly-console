@@ -25,6 +25,7 @@ import {
 } from "@mui/icons-material";
 import { getStats, getWorkers } from "../api/client";
 import type { StatsResponse, WorkerResponse } from "../api/types";
+import { POLL_INTERVAL_SLOW } from "../constants";
 
 function formatRunTime(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
@@ -115,7 +116,7 @@ export default function Dashboard() {
           setWorkers(w);
         })
         .catch(() => {});
-    }, 10000);
+    }, POLL_INTERVAL_SLOW);
     return () => clearInterval(interval);
   }, []);
 

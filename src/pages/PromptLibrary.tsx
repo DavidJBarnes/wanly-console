@@ -41,6 +41,7 @@ import {
 import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { useLoraStore } from "../stores/loraStore";
 import type { WildcardResponse, PromptPreset, PromptPresetLoraSlot, LoraListItem } from "../api/types";
+import { MAX_LORAS } from "../constants";
 
 export default function PromptLibrary() {
   const [wildcards, setWildcards] = useState<WildcardResponse[]>([]);
@@ -539,7 +540,7 @@ function PromptPresetDialog({
   }, [open, loraLibrary]);
 
   const addLora = (item: LoraListItem | null) => {
-    if (!item || loraSlots.length >= 3) return;
+    if (!item || loraSlots.length >= MAX_LORAS) return;
     if (loraSlots.some((l) => l.lora_id === item.id)) return;
     setLoraSlots([
       ...loraSlots,
@@ -645,7 +646,7 @@ function PromptPresetDialog({
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             LoRAs
           </Typography>
-          {loraSlots.length < 3 && (
+          {loraSlots.length < MAX_LORAS && (
             <Autocomplete
               options={loraLibrary
                 .filter((l) => !loraSlots.some((s) => s.lora_id === l.id))

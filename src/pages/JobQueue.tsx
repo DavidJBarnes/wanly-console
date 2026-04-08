@@ -31,6 +31,7 @@ import { getJobs, getFileUrl, reorderJobs } from "../api/client";
 import type { JobResponse, JobStatus } from "../api/types";
 import StatusChip from "../components/StatusChip";
 import CreateJobDialog from "../components/CreateJobDialog";
+import { POLL_INTERVAL_FAST } from "../constants";
 
 const ALL_STATUSES: JobStatus[] = [
   "awaiting",
@@ -114,7 +115,7 @@ export default function JobQueue() {
   useEffect(() => {
     setLoading(true);
     fetchPage();
-    const interval = setInterval(fetchPage, 5000);
+    const interval = setInterval(fetchPage, POLL_INTERVAL_FAST);
     return () => clearInterval(interval);
   }, [fetchPage]);
 

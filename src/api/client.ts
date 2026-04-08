@@ -29,6 +29,7 @@ import type {
   AppSettingsResponse,
   AppSettingsUpdate,
 } from "./types";
+import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const REGISTRY_URL = import.meta.env.VITE_REGISTRY_URL || "/registry";
@@ -38,7 +39,7 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -49,7 +50,7 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem("token");
+      localStorage.removeItem(LOCAL_STORAGE_TOKEN_KEY);
       window.location.href = "/login";
     }
     return Promise.reject(err);
@@ -190,7 +191,7 @@ export async function getWorkerSegments(workerId: string): Promise<WorkerSegment
 }
 
 export function getFileUrl(s3Path: string, version?: string): string {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY);
   let url = `${API_URL}/files?path=${encodeURIComponent(s3Path)}`;
   if (token) url += `&token=${encodeURIComponent(token)}`;
   if (version) url += `&v=${encodeURIComponent(version)}`;
