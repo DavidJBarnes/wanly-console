@@ -30,6 +30,19 @@ import { useTagStore } from "../stores/tagStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { createJob, getFileUrl, getFaceswapPresets } from "../api/client";
 import type { JobCreate, LoraListItem, FaceswapPreset, PromptPreset } from "../api/types";
+import {
+  DEFAULT_WIDTH,
+  DEFAULT_HEIGHT,
+  DEFAULT_FPS,
+  DEFAULT_DURATION,
+  DEFAULT_SPEED,
+  DEFAULT_FACESWAP_ENABLED,
+  DEFAULT_FACESWAP_SOURCE_TYPE,
+  DEFAULT_FACESWAP_METHOD,
+  DEFAULT_FACESWAP_FACES_INDEX,
+  DEFAULT_FACESWAP_FACES_ORDER,
+  MAX_LORAS,
+} from "../constants";
 
 interface CreateJobDialogProps {
   open: boolean;
@@ -51,11 +64,11 @@ export default function CreateJobDialog({
   const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, fetchSettings } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [width, setWidth] = useState(640);
-  const [height, setHeight] = useState(640);
-  const [fps, setFps] = useState(60);
-  const [duration, setDuration] = useState(5.0);
-  const [speed, setSpeed] = useState(1.0);
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  const [fps, setFps] = useState(DEFAULT_FPS);
+  const [duration, setDuration] = useState(DEFAULT_DURATION);
+  const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [seed, setSeed] = useState("");
   const [lightx2vHigh, setLightx2vHigh] = useState(defaultLightx2vHigh);
   const [lightx2vLow, setLightx2vLow] = useState(defaultLightx2vLow);
@@ -64,14 +77,14 @@ export default function CreateJobDialog({
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
-  const [faceswapEnabled, setFaceswapEnabled] = useState(false);
-  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("preset");
+  const [faceswapEnabled, setFaceswapEnabled] = useState(DEFAULT_FACESWAP_ENABLED);
+  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">(DEFAULT_FACESWAP_SOURCE_TYPE);
   const [faceswapImage, setFaceswapImage] = useState<File | null>(null);
   const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
   const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
-  const [faceswapMethod, setFaceswapMethod] = useState("reactor");
-  const [faceswapFacesIndex, setFaceswapFacesIndex] = useState("0");
-  const [faceswapFacesOrder, setFaceswapFacesOrder] = useState("left-right");
+  const [faceswapMethod, setFaceswapMethod] = useState(DEFAULT_FACESWAP_METHOD);
+  const [faceswapFacesIndex, setFaceswapFacesIndex] = useState(DEFAULT_FACESWAP_FACES_INDEX);
+  const [faceswapFacesOrder, setFaceswapFacesOrder] = useState(DEFAULT_FACESWAP_FACES_ORDER);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -165,7 +178,7 @@ export default function CreateJobDialog({
   };
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
-    if (!item || loras.length >= 3) return;
+    if (!item || loras.length >= MAX_LORAS) return;
     if (loras.some((l) => l.lora_id === item.id)) return;
     setLoras([
       ...loras,
@@ -197,11 +210,11 @@ export default function CreateJobDialog({
   const resetForm = useCallback(() => {
     setName("");
     setPrompt("");
-    setWidth(640);
-    setHeight(640);
-    setFps(30);
-    setDuration(5.0);
-    setSpeed(1.0);
+    setWidth(DEFAULT_WIDTH);
+    setHeight(DEFAULT_HEIGHT);
+    setFps(DEFAULT_FPS);
+    setDuration(DEFAULT_DURATION);
+    setSpeed(DEFAULT_SPEED);
     setSeed("");
     setLightx2vHigh(defaultLightx2vHigh);
     setLightx2vLow(defaultLightx2vLow);
@@ -211,13 +224,13 @@ export default function CreateJobDialog({
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
     setStartingImageUri(null);
-    setFaceswapEnabled(true);
-    setFaceswapSourceType("preset");
+    setFaceswapEnabled(DEFAULT_FACESWAP_ENABLED);
+    setFaceswapSourceType(DEFAULT_FACESWAP_SOURCE_TYPE);
     setFaceswapImage(null);
     setFaceswapPresetUri(null);
-    setFaceswapMethod("reactor");
-    setFaceswapFacesIndex("0");
-    setFaceswapFacesOrder("left-right");
+    setFaceswapMethod(DEFAULT_FACESWAP_METHOD);
+    setFaceswapFacesIndex(DEFAULT_FACESWAP_FACES_INDEX);
+    setFaceswapFacesOrder(DEFAULT_FACESWAP_FACES_ORDER);
     setLoras([]);
     setSelectedTag1("");
     setSelectedTag2("");
@@ -571,7 +584,7 @@ export default function CreateJobDialog({
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0 }}>
-            {loras.length < 3 && (
+            {loras.length < MAX_LORAS && (
               <Autocomplete
                 options={loraLibrary
                   .filter((l) => !loras.some((s) => s.lora_id === l.id))

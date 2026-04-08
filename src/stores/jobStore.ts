@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { getJobs } from "../api/client";
 import type { JobResponse } from "../api/types";
+import { DEFAULT_JOB_FETCH_LIMIT } from "../constants";
 
 interface JobState {
   jobs: JobResponse[];
@@ -17,7 +18,7 @@ export const useJobStore = create<JobState>((set) => ({
   fetchJobs: async () => {
     set({ loading: true, error: null });
     try {
-      const res = await getJobs({ limit: 200 });
+      const res = await getJobs({ limit: DEFAULT_JOB_FETCH_LIMIT });
       set({ jobs: res.items, loading: false });
     } catch (e) {
       set({
