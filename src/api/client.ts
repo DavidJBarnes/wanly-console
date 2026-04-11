@@ -32,7 +32,6 @@ import type {
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
-const REGISTRY_URL = import.meta.env.VITE_REGISTRY_URL || "/registry";
 
 const api = axios.create({
   baseURL: API_URL,
@@ -365,37 +364,33 @@ export async function getFaceswapPresets(): Promise<FaceswapPreset[]> {
   return data;
 }
 
-// --- Registry (workers) ---
-
-const registry = axios.create({
-  baseURL: REGISTRY_URL,
-});
+// --- Workers ---
 
 export async function getWorkers(): Promise<WorkerResponse[]> {
-  const { data } = await registry.get<WorkerResponse[]>("/workers");
+  const { data } = await api.get<WorkerResponse[]>("/workers");
   return data;
 }
 
 export async function getWorker(id: string): Promise<WorkerResponse> {
-  const { data } = await registry.get<WorkerResponse>(`/workers/${id}`);
+  const { data } = await api.get<WorkerResponse>(`/workers/${id}`);
   return data;
 }
 
 export async function deleteWorker(id: string): Promise<void> {
-  await registry.delete(`/workers/${id}`);
+  await api.delete(`/workers/${id}`);
 }
 
 export async function drainWorker(id: string, afterJobs?: number): Promise<void> {
   const body = afterJobs && afterJobs > 0 ? { after_jobs: afterJobs } : undefined;
-  await registry.post(`/workers/${id}/drain`, body);
+  await api.post(`/workers/${id}/drain`, body);
 }
 
 export async function cancelDrain(id: string): Promise<void> {
-  await registry.delete(`/workers/${id}/drain`);
+  await api.delete(`/workers/${id}/drain`);
 }
 
 export async function renameWorker(id: string, friendlyName: string): Promise<WorkerResponse> {
-  const { data } = await registry.patch<WorkerResponse>(`/workers/${id}/friendly_name`, {
+  const { data } = await api.patch<WorkerResponse>(`/workers/${id}/friendly_name`, {
     friendly_name: friendlyName,
   });
   return data;
