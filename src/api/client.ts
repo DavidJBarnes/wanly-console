@@ -96,6 +96,24 @@ export async function createJob(formData: FormData): Promise<JobResponse> {
   return data;
 }
 
+export async function sha256Hex(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function checkStartingImageExists(
+  sha256: string,
+): Promise<{ exists: boolean; uri: string | null }> {
+  const { data } = await api.get<{ exists: boolean; uri: string | null }>(
+    "/jobs/starting-image-exists",
+    { params: { sha256 } },
+  );
+  return data;
+}
+
 export async function updateJob(
   id: string,
   body: JobUpdate,

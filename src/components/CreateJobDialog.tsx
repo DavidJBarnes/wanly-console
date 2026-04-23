@@ -28,7 +28,7 @@ import { useLoraStore } from "../stores/loraStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTagStore } from "../stores/tagStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
-import { createJob, getFileUrl, getFaceswapPresets } from "../api/client";
+import { createJob, getFileUrl, getFaceswapPresets, sha256Hex, checkStartingImageExists } from "../api/client";
 import type { JobCreate, LoraListItem, FaceswapPreset, PromptPreset } from "../api/types";
 import {
   DEFAULT_WIDTH,
@@ -251,6 +251,19 @@ export default function CreateJobDialog({
     setError("");
     setSubmitting(true);
     try {
+      // Bandwidth dedup: if this file's SHA-256 is already known to the server
+      // for this user, skip the upload and reference the existing image by hash.
+      let reuseHash: string | null = null;
+      if (startingImage) {
+        try {
+          const hash = await sha256Hex(startingImage);
+          const { exists } = await checkStartingImageExists(hash);
+          if (exists) reuseHash = hash;
+        } catch {
+          // Fall through to full upload on any hash/check failure.
+        }
+      }
+
       const jobData: JobCreate = {
         name: name.trim(),
         width,
@@ -262,6 +275,7 @@ export default function CreateJobDialog({
         cfg_high: cfgHigh ? parseFloat(cfgHigh) : null,
         cfg_low: cfgLow ? parseFloat(cfgLow) : null,
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
+        starting_image_hash: reuseHash,
         first_segment: {
           prompt: prompt.trim(),
           duration_seconds: duration,
@@ -285,7 +299,7 @@ export default function CreateJobDialog({
 
       const formData = new FormData();
       formData.append("data", JSON.stringify(jobData));
-      if (startingImage) {
+      if (startingImage && !reuseHash) {
         formData.append("starting_image", startingImage);
       }
       if (faceswapEnabled && faceswapSourceType === "upload" && faceswapImage) {

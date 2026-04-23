@@ -97,6 +97,7 @@ export interface JobCreate {
   cfg_high?: number | null;
   cfg_low?: number | null;
   starting_image_uri?: string | null;
+  starting_image_hash?: string | null;
   first_segment: SegmentCreate;
 }
 
