@@ -19,6 +19,8 @@ import {
   List,
   ListItemButton,
   ListItemText,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   ArrowBack,
@@ -71,6 +73,8 @@ export default function ImageRepo() {
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveTargetKeys, setMoveTargetKeys] = useState<string[]>([]);
   const [moving, setMoving] = useState(false);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const fetchFolders = useCallback(async () => {
     setLoading(true);
@@ -212,7 +216,7 @@ export default function ImageRepo() {
   if (loading && folders.length === 0 && images.length === 0) {
     return (
       <Box>
-        <Typography variant="h4" sx={{ mb: 3 }}>
+        <Typography variant={isMobile ? "h5" : "h4"} sx={{ mb: 3 }}>
           Image Repo
         </Typography>
         <Box sx={{ textAlign: "center", py: 8 }}>
@@ -226,14 +230,23 @@ export default function ImageRepo() {
   if (currentFolder === null) {
     return (
       <Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
-          <Typography variant="h4">Image Repo</Typography>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 2,
+            mb: 3,
+            flexWrap: "wrap",
+          }}
+        >
+          <Typography variant={isMobile ? "h5" : "h4"}>Image Repo</Typography>
           <Button
             variant="outlined"
-            startIcon={<CreateNewFolder />}
+            startIcon={isMobile ? undefined : <CreateNewFolder />}
+            size={isMobile ? "small" : "medium"}
             onClick={() => setNewFolderOpen(true)}
           >
-            New Folder
+            {isMobile ? "New" : "New Folder"}
           </Button>
         </Box>
 
@@ -294,6 +307,14 @@ export default function ImageRepo() {
               setFolderPage(0);
             }}
             rowsPerPageOptions={[12, 24, 48]}
+            sx={{
+              "& .MuiTablePagination-toolbar": {
+                flexWrap: "wrap",
+                justifyContent: "center",
+                px: 0,
+              },
+              "& .MuiTablePagination-spacer": { display: "none" },
+            }}
           />
         )}
 
@@ -332,35 +353,64 @@ export default function ImageRepo() {
   return (
     <Box>
       {/* Header with breadcrumb */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 3 }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          mb: 3,
+          flexWrap: "wrap",
+        }}
+      >
         <IconButton onClick={handleBack} size="small">
           <ArrowBack />
         </IconButton>
+        {!isMobile && (
+          <>
+            <Typography
+              variant="h4"
+              component="span"
+              sx={{
+                cursor: "pointer",
+                "&:hover": { textDecoration: "underline" },
+              }}
+              onClick={handleBack}
+            >
+              Image Repo
+            </Typography>
+            <NavigateNext sx={{ color: "text.disabled" }} />
+          </>
+        )}
         <Typography
-          variant="h4"
+          variant={isMobile ? "h6" : "h4"}
           component="span"
-          sx={{ cursor: "pointer", "&:hover": { textDecoration: "underline" } }}
-          onClick={handleBack}
+          sx={{
+            minWidth: 0,
+            flexShrink: 1,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
         >
-          Image Repo
-        </Typography>
-        <NavigateNext sx={{ color: "text.disabled" }} />
-        <Typography variant="h4" component="span">
           {currentFolder}
         </Typography>
         <Box sx={{ flex: 1 }} />
         {selectMode && selectedKeys.size > 0 && (
           <Button
             variant="contained"
-            startIcon={<DriveFileMove />}
+            startIcon={isMobile ? undefined : <DriveFileMove />}
+            size={isMobile ? "small" : "medium"}
             onClick={() => handleOpenMoveDialog(Array.from(selectedKeys))}
           >
-            Move {selectedKeys.size} image{selectedKeys.size > 1 ? "s" : ""}
+            {isMobile
+              ? `Move (${selectedKeys.size})`
+              : `Move ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
           </Button>
         )}
         <Button
           variant={selectMode ? "contained" : "outlined"}
-          startIcon={<CheckBoxIcon />}
+          startIcon={isMobile ? undefined : <CheckBoxIcon />}
+          size={isMobile ? "small" : "medium"}
           onClick={() => {
             setSelectMode((prev) => !prev);
             setSelectedKeys(new Set());
@@ -370,11 +420,18 @@ export default function ImageRepo() {
         </Button>
         <Button
           variant="outlined"
-          startIcon={uploading ? <CircularProgress size={16} /> : <CloudUpload />}
+          startIcon={
+            isMobile
+              ? undefined
+              : uploading
+                ? <CircularProgress size={16} />
+                : <CloudUpload />
+          }
+          size={isMobile ? "small" : "medium"}
           disabled={uploading}
           onClick={() => fileInputRef.current?.click()}
         >
-          {uploading ? "Uploading..." : "Upload"}
+          {uploading ? (isMobile ? "..." : "Uploading...") : "Upload"}
         </Button>
         <input
           ref={fileInputRef}
@@ -479,6 +536,14 @@ export default function ImageRepo() {
             setImagePage(0);
           }}
           rowsPerPageOptions={[24, 48, 96]}
+          sx={{
+            "& .MuiTablePagination-toolbar": {
+              flexWrap: "wrap",
+              justifyContent: "center",
+              px: 0,
+            },
+            "& .MuiTablePagination-spacer": { display: "none" },
+          }}
         />
       )}
 
