@@ -24,6 +24,8 @@ import {
 } from "@mui/material";
 import {
   ArrowBack,
+  ArrowDownward,
+  ArrowUpward,
   CheckBox as CheckBoxIcon,
   CloudUpload,
   CreateNewFolder,
@@ -73,6 +75,7 @@ export default function ImageRepo() {
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveTargetKeys, setMoveTargetKeys] = useState<string[]>([]);
   const [moving, setMoving] = useState(false);
+  const [sortDesc, setSortDesc] = useState(true);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -408,6 +411,20 @@ export default function ImageRepo() {
           </Button>
         )}
         <Button
+          variant="outlined"
+          startIcon={
+            isMobile ? undefined : sortDesc ? <ArrowDownward /> : <ArrowUpward />
+          }
+          size={isMobile ? "small" : "medium"}
+          onClick={() => {
+            setSortDesc((prev) => !prev);
+            setImagePage(0);
+          }}
+          title={sortDesc ? "Newest first" : "Oldest first"}
+        >
+          {sortDesc ? "Newest" : "Oldest"}
+        </Button>
+        <Button
           variant={selectMode ? "contained" : "outlined"}
           startIcon={isMobile ? undefined : <CheckBoxIcon />}
           size={isMobile ? "small" : "medium"}
@@ -461,7 +478,11 @@ export default function ImageRepo() {
       )}
 
       <Grid container spacing={2}>
-        {images
+        {[...images]
+          .sort((a, b) => {
+            const cmp = a.last_modified.localeCompare(b.last_modified);
+            return sortDesc ? -cmp : cmp;
+          })
           .slice(imagePage * imagesPerPage, (imagePage + 1) * imagesPerPage)
           .map((image) => (
           <Grid key={image.key} size={{ xs: 6, sm: 4, md: 3, lg: 2 }}>
