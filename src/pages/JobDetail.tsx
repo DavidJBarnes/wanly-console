@@ -411,10 +411,19 @@ export default function JobDetail() {
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 3 }}>
-        <IconButton onClick={() => navigate("/jobs")}>
+        <IconButton onClick={() => navigate("/jobs")} size={isMobile ? "small" : "medium"}>
           <ArrowBack />
         </IconButton>
-        <Typography variant="h4" sx={{ flex: 1 }}>
+        <Typography
+          variant={isMobile ? "h6" : "h4"}
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           {job.name}
         </Typography>
         <Tooltip title="Delete job">
@@ -422,6 +431,7 @@ export default function JobDetail() {
             color="error"
             onClick={() => setDeleteJobConfirm(true)}
             disabled={deletingJob}
+            size={isMobile ? "small" : "medium"}
           >
             {deletingJob ? <CircularProgress size={20} /> : <DeleteOutline />}
           </IconButton>
@@ -528,6 +538,8 @@ export default function JobDetail() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 1,
             px: 2,
             py: 1.5,
             borderBottom: "1px solid",
@@ -535,7 +547,7 @@ export default function JobDetail() {
           }}
         >
           <Typography variant="h6">Segments</Typography>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 1 }}>
             {(job.status === "processing" || job.status === "pending") && (
               <>
                 <CircularProgress size={18} />
@@ -558,10 +570,10 @@ export default function JobDetail() {
               <Button
                 variant="contained"
                 size="small"
-                startIcon={<PlayArrow />}
+                startIcon={isMobile ? undefined : <PlayArrow />}
                 onClick={() => setSegmentModalOpen(true)}
               >
-                Next Segment
+                {isMobile ? "Next" : "Next Segment"}
               </Button>
             )}
             {job.status === "awaiting" && (
@@ -577,7 +589,7 @@ export default function JobDetail() {
                   ) : undefined
                 }
               >
-                {finalizing ? "Finalizing..." : "Finalize & Merge"}
+                {finalizing ? "Finalizing..." : isMobile ? "Finalize" : "Finalize & Merge"}
               </Button>
             )}
             {job.status === "finalized" && (
@@ -590,12 +602,12 @@ export default function JobDetail() {
                 startIcon={
                   reopening ? (
                     <CircularProgress size={16} color="inherit" />
-                  ) : (
+                  ) : isMobile ? undefined : (
                     <Replay />
                   )
                 }
               >
-                {reopening ? "Re-opening..." : "Re-open Job"}
+                {reopening ? "Re-opening..." : isMobile ? "Re-open" : "Re-open Job"}
               </Button>
             )}
             {["awaiting", "failed", "paused"].includes(job.status) && (
@@ -1448,7 +1460,7 @@ export default function JobDetail() {
                         <Box
                           component="img"
                           src={f.data_url}
-                          sx={{ width: 120, height: "auto", display: "block", borderRadius: 0.5 }}
+                          sx={{ width: isMobile ? 56 : 120, height: "auto", display: "block", borderRadius: 0.5 }}
                         />
                         {isTrimmed && (
                           <Box
@@ -1507,6 +1519,8 @@ function SegmentDetailModal({
   onClose: () => void;
 }) {
   const { loras: loraLibrary } = useLoraStore();
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
 
   if (!seg) return null;
 
@@ -1527,7 +1541,7 @@ function SegmentDetailModal({
   });
 
   return (
-    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       <DialogTitle>Segment #{seg.index} Details</DialogTitle>
       <DialogContent dividers>
         {/* Prompt */}
@@ -1544,7 +1558,7 @@ function SegmentDetailModal({
         )}
 
         {/* Duration / Speed */}
-        <Box sx={{ display: "flex", gap: 4, mb: 2 }}>
+        <Box sx={{ display: "flex", gap: 4, mb: 2, flexWrap: "wrap" }}>
           <Box>
             <Typography variant="subtitle2" color="text.secondary">Duration</Typography>
             <Typography variant="body2">{seg.duration_seconds}s</Typography>
@@ -1628,7 +1642,7 @@ function SegmentDetailModal({
         )}
 
         {/* Timing */}
-        <Box sx={{ display: "flex", gap: 4, mb: 2 }}>
+        <Box sx={{ display: "flex", gap: 4, mb: 2, flexWrap: "wrap" }}>
           <Box>
             <Typography variant="subtitle2" color="text.secondary">Created</Typography>
             <Typography variant="body2">{formatDate(seg.created_at)}</Typography>
