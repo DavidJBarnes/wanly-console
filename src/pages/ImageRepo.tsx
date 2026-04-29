@@ -28,6 +28,7 @@ import {
   ArrowUpward,
   CheckBox as CheckBoxIcon,
   CloudUpload,
+  ContentCut,
   CreateNewFolder,
   Delete,
   DriveFileMove,
@@ -44,6 +45,7 @@ import {
 } from "../api/client";
 import type { ImageFolder, ImageFile } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
+import CropResizeDialog from "../components/CropResizeDialog";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -76,6 +78,7 @@ export default function ImageRepo() {
   const [moveTargetKeys, setMoveTargetKeys] = useState<string[]>([]);
   const [moving, setMoving] = useState(false);
   const [sortDesc, setSortDesc] = useState(true);
+  const [cropResizeImage, setCropResizeImage] = useState<ImageFile | null>(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -609,6 +612,15 @@ export default function ImageRepo() {
                 Move to
               </Button>
               <Button
+                startIcon={<ContentCut />}
+                onClick={() => {
+                  setCropResizeImage(lightboxImage);
+                  setLightboxImage(null);
+                }}
+              >
+                Crop & Resize
+              </Button>
+              <Button
                 variant="contained"
                 onClick={() => handleUseAsStartingImage(lightboxImage)}
               >
@@ -683,6 +695,13 @@ export default function ImageRepo() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CropResizeDialog
+        open={!!cropResizeImage}
+        image={cropResizeImage}
+        onClose={() => setCropResizeImage(null)}
+        onSaved={() => { if (currentFolder) fetchImages(currentFolder); }}
+      />
 
       {/* Create Job Dialog */}
       <CreateJobDialog
