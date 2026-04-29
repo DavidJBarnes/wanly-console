@@ -65,7 +65,9 @@ async function cropAndResize(
   const canvas = document.createElement("canvas");
   canvas.width = outW;
   canvas.height = outH;
-  canvas.getContext("2d")!.drawImage(
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not acquire 2D canvas context");
+  ctx.drawImage(
     img,
     pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height,
     0, 0, outW, outH,
@@ -120,23 +122,27 @@ export default function CropResizeDialog({ open, image, onClose, onSaved }: Prop
   }, []);
 
   const handleCustomWChange = (val: string) => {
+    if (!/^\d*$/.test(val)) return;
     setCustomW(val);
     if (aspectLocked) {
       const w = parseInt(val, 10);
+      const oldW = parseInt(customW, 10);
       const h = parseInt(customH, 10);
-      if (w > 0 && h > 0) {
-        setCustomH(String(Math.round(w / (parseInt(customW, 10) / h))));
+      if (w > 0 && oldW > 0 && h > 0) {
+        setCustomH(String(Math.round(w / (oldW / h))));
       }
     }
   };
 
   const handleCustomHChange = (val: string) => {
+    if (!/^\d*$/.test(val)) return;
     setCustomH(val);
     if (aspectLocked) {
       const w = parseInt(customW, 10);
       const h = parseInt(val, 10);
-      if (w > 0 && h > 0) {
-        setCustomW(String(Math.round(h / (parseInt(customH, 10) / w))));
+      const oldH = parseInt(customH, 10);
+      if (w > 0 && h > 0 && oldH > 0) {
+        setCustomW(String(Math.round(h / (oldH / w))));
       }
     }
   };
@@ -154,8 +160,7 @@ export default function CropResizeDialog({ open, image, onClose, onSaved }: Prop
       );
       const dotIdx = image.filename.lastIndexOf(".");
       const base = dotIdx >= 0 ? image.filename.slice(0, dotIdx) : image.filename;
-      const ext = dotIdx >= 0 ? image.filename.slice(dotIdx) : ".png";
-      const newName = `${base}_crop_${outputWidth}x${outputHeight}${ext}`;
+      const newName = `${base}_crop_${outputWidth}x${outputHeight}.png`;
       const file = new File([blob], newName, { type: "image/png" });
       const slashIdx = image.key.lastIndexOf("/");
       const folder = slashIdx >= 0 ? image.key.substring(0, slashIdx) : image.key;
