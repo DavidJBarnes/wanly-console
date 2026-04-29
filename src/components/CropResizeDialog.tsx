@@ -30,12 +30,15 @@ interface PresetSize {
 }
 
 const PRESETS: PresetSize[] = [
-  { label: "240 × 320",  width: 240,  height: 320  },
-  { label: "480 × 640",  sub: "Feature Phone", width: 480,  height: 640  },
-  { label: "600 × 800",  width: 600,  height: 800  },
-  { label: "750 × 1000", sub: "iPhone 6 to 8",  width: 750,  height: 1000 },
-  { label: "768 × 1024", sub: "Old Android",    width: 768,  height: 1024 },
-  { label: "960 × 1280", width: 960,  height: 1280 },
+  { label: "240 × 320",   width: 240,  height: 320  },
+  { label: "480 × 640",   sub: "Feature Phone",          width: 480,  height: 640  },
+  { label: "600 × 800",   width: 600,  height: 800  },
+  { label: "750 × 1000",  sub: "iPhone 6 to 8",          width: 750,  height: 1000 },
+  { label: "768 × 1024",  sub: "Old Android",            width: 768,  height: 1024 },
+  { label: "960 × 1280",  width: 960,  height: 1280 },
+  { label: "640 × 480",   sub: "Feature Phone Landscape", width: 640,  height: 480  },
+  { label: "1024 × 768",  sub: "Old Android Landscape",  width: 1024, height: 768  },
+  { label: "1280 × 960",  sub: "Landscape",              width: 1280, height: 960  },
 ];
 
 interface Props {
