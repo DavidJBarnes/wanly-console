@@ -27,10 +27,3 @@ Docker multi-stage build (node → nginx). Deployed via GitHub Actions → ECR �
 ```
 console.wanly22.com:3000
 ```
-
-### GitHub Actions Secrets
-
-| Secret | Value |
-|--------|-------|
-| `AWS_ROLE_ARN` | `arn:aws:iam::791342033319:role/github-actions-wanly-console` |
-| `EC2_INSTANCE_ID` | `i-0f3019a32eab2395e` |
