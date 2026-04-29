@@ -45,13 +45,18 @@ interface Props {
   onSaved: () => void;
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+async function loadImage(src: string): Promise<HTMLImageElement> {
+  // Fetch as a blob first so the resulting object URL is always same-origin,
+  // which prevents canvas taint regardless of the API's CORS headers.
+  const res = await fetch(src);
+  if (!res.ok) throw new Error(`Failed to fetch image (${res.status})`);
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
+    img.onload = () => { URL.revokeObjectURL(objectUrl); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Failed to decode image")); };
+    img.src = objectUrl;
   });
 }
 
