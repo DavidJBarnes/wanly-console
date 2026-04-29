@@ -215,6 +215,14 @@ export function getFileUrl(s3Path: string, version?: string): string {
   return url;
 }
 
+// Returns bytes directly (no S3 redirect) so fetch() + canvas works across origins.
+export function getImageDownloadUrl(s3Path: string): string {
+  const token = localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY);
+  let url = `${API_URL}/images/download?path=${encodeURIComponent(s3Path)}`;
+  if (token) url += `&token=${encodeURIComponent(token)}`;
+  return url;
+}
+
 export async function getStats(): Promise<StatsResponse> {
   const { data } = await api.get<StatsResponse>("/stats");
   return data;

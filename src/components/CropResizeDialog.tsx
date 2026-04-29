@@ -19,7 +19,7 @@ import {
   Typography,
 } from "@mui/material";
 import { ContentCut, Lock, LockOpen } from "@mui/icons-material";
-import { getFileUrl, uploadImage } from "../api/client";
+import { getFileUrl, getImageDownloadUrl, uploadImage } from "../api/client";
 import type { ImageFile } from "../api/types";
 
 interface PresetSize {
@@ -158,7 +158,7 @@ export default function CropResizeDialog({ open, image, onClose, onSaved }: Prop
     setError(null);
     try {
       const blob = await cropAndResize(
-        getFileUrl(image.path),
+        getImageDownloadUrl(image.path),
         croppedAreaPixels,
         outputWidth,
         outputHeight,
