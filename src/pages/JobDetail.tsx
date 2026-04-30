@@ -45,6 +45,7 @@ import {
   StopCircle,
   Download,
   ExpandMore,
+  Repeat,
   Visibility,
   ChevronLeft,
   ChevronRight,
@@ -142,6 +143,7 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [videoModal, setVideoModal] = useState<{ path: string; v?: string; segIndex?: number } | null>(null);
+  const [loopVideo, setLoopVideo] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [segmentModalOpen, setSegmentModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<SegmentResponse | null>(
@@ -509,21 +511,32 @@ export default function JobDetail() {
                   component="video"
                   src={getFileUrl(finalVideo.output_path, finalVideo.completed_at ?? undefined)}
                   controls
+                  loop={loopVideo}
                   sx={{ width: "100%", borderRadius: 1, display: "block" }}
                 />
                 <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 1 }}>
                   <Typography variant="caption" color="text.secondary">
                     {finalVideo.duration_seconds != null ? formatDuration(finalVideo.duration_seconds) : ""}
                   </Typography>
-                  <IconButton
-                    size="small"
-                    component="a"
-                    href={getFileUrl(finalVideo.output_path, finalVideo.completed_at ?? undefined)}
-                    download
-                    target="_blank"
-                  >
-                    <Download fontSize="small" />
-                  </IconButton>
+                  <Box sx={{ display: "flex", alignItems: "center" }}>
+                    <IconButton
+                      size="small"
+                      onClick={() => setLoopVideo((v) => !v)}
+                      color={loopVideo ? "primary" : "default"}
+                      title={loopVideo ? "Loop on" : "Loop off"}
+                    >
+                      <Repeat fontSize="small" />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      component="a"
+                      href={getFileUrl(finalVideo.output_path, finalVideo.completed_at ?? undefined)}
+                      download
+                      target="_blank"
+                    >
+                      <Download fontSize="small" />
+                    </IconButton>
+                  </Box>
                 </Box>
               </CardContent>
             </Card>
@@ -1409,10 +1422,21 @@ export default function JobDetail() {
               component="video"
               controls
               autoPlay
+              loop={loopVideo}
               src={getFileUrl(videoModal.path, videoModal.v)}
               sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
             />
           )}
+          <Box sx={{ p: 1, display: "flex", justifyContent: "flex-start", bgcolor: "rgba(0,0,0,0.8)" }}>
+            <IconButton
+              size="small"
+              onClick={() => setLoopVideo((v) => !v)}
+              sx={{ color: loopVideo ? "primary.main" : "rgba(255,255,255,0.5)" }}
+              title={loopVideo ? "Loop on" : "Loop off"}
+            >
+              <Repeat fontSize="small" />
+            </IconButton>
+          </Box>
         </DialogContent>
       </Dialog>
 
