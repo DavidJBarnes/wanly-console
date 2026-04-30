@@ -15,7 +15,7 @@ import {
   Alert,
   TablePagination,
 } from "@mui/material";
-import { Close, Error as ErrorIcon, NavigateBefore, NavigateNext, PlayCircleOutline, Shuffle, VideoLibrary } from "@mui/icons-material";
+import { Close, Error as ErrorIcon, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Shuffle, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { getJobs, getJob, getFileUrl } from "../api/client";
 import type { JobDetailResponse, JobResponse } from "../api/types";
@@ -48,6 +48,7 @@ export default function Videos() {
   const [playlist, setPlaylist] = useState<{ jobId: string; videoPath: string; jobName: string }[]>([]);
   const [playlistIndex, setPlaylistIndex] = useState(0);
   const [loadingRandom, setLoadingRandom] = useState(false);
+  const [loopVideo, setLoopVideo] = useState(false);
 
   const fetchVideos = useCallback(async () => {
     try {
@@ -358,6 +359,7 @@ export default function Videos() {
               component="video"
               controls
               autoPlay
+              loop={loopVideo}
               src={getFileUrl(modalVideo.output_path)}
               sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
             />
@@ -384,7 +386,15 @@ export default function Videos() {
             </Box>
           ) : null}
           {videoModal && (
-            <Box sx={{ p: 1.5, display: "flex", justifyContent: "flex-end", bgcolor: "rgba(0,0,0,0.8)" }}>
+            <Box sx={{ p: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", bgcolor: "rgba(0,0,0,0.8)" }}>
+              <IconButton
+                size="small"
+                onClick={() => setLoopVideo((v) => !v)}
+                sx={{ color: loopVideo ? "primary.main" : "rgba(255,255,255,0.5)" }}
+                title={loopVideo ? "Loop on" : "Loop off"}
+              >
+                <Repeat fontSize="small" />
+              </IconButton>
               <Button
                 size="small"
                 variant="contained"
@@ -423,6 +433,7 @@ export default function Videos() {
               key={playlistIndex}
               controls
               autoPlay
+              loop={loopVideo}
               src={getFileUrl(currentPlaylistItem.videoPath)}
               onEnded={() => {
                 if (playlistIndex < playlist.length - 1) {
@@ -452,6 +463,14 @@ export default function Videos() {
                 sx={{ color: "white" }}
               >
                 <NavigateNext />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => setLoopVideo((v) => !v)}
+                sx={{ color: loopVideo ? "primary.main" : "rgba(255,255,255,0.5)" }}
+                title={loopVideo ? "Loop on" : "Loop off"}
+              >
+                <Repeat fontSize="small" />
               </IconButton>
               <Typography variant="body2" noWrap sx={{ color: "rgba(255,255,255,0.7)", flex: 1, ml: 1 }}>
                 {currentPlaylistItem.jobName}
