@@ -34,16 +34,18 @@ import {
   DriveFileMove,
   NavigateNext,
 } from "@mui/icons-material";
+import { useNavigate } from "react-router";
 import {
   getImageFolders,
   getImageFolder,
   getFileUrl,
+  getImageJobs,
   deleteImage,
   createImageFolder,
   uploadImage,
   moveImages,
 } from "../api/client";
-import type { ImageFolder, ImageFile } from "../api/types";
+import type { ImageFolder, ImageFile, ImageJobInfo } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 
@@ -79,6 +81,9 @@ export default function ImageRepo() {
   const [moving, setMoving] = useState(false);
   const [sortDesc, setSortDesc] = useState(true);
   const [cropResizeImage, setCropResizeImage] = useState<ImageFile | null>(null);
+  const [lightboxJobs, setLightboxJobs] = useState<ImageJobInfo[]>([]);
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -137,6 +142,16 @@ export default function ImageRepo() {
       // ignore
     }
     setDeleteConfirm(null);
+  };
+
+  const handleOpenLightbox = (image: ImageFile) => {
+    setLightboxImage(image);
+    setLoadingJobs(true);
+    setLightboxJobs([]);
+    getImageJobs(image.path)
+      .then(setLightboxJobs)
+      .catch(() => setLightboxJobs([]))
+      .finally(() => setLoadingJobs(false));
   };
 
   const handleUseAsStartingImage = (image: ImageFile) => {
@@ -496,7 +511,7 @@ export default function ImageRepo() {
             >
               <CardActionArea
                 onClick={() =>
-                  selectMode ? toggleSelect(image.key) : setLightboxImage(image)
+                  selectMode ? toggleSelect(image.key) : handleOpenLightbox(image)
                 }
               >
                 <CardMedia
@@ -586,17 +601,84 @@ export default function ImageRepo() {
                 {formatBytes(lightboxImage.size)}
               </Typography>
             </DialogTitle>
-            <DialogContent sx={{ textAlign: "center", pt: 2 }}>
+            <DialogContent sx={{ pt: 2 }}>
               <Box
-                component="img"
-                src={getFileUrl(lightboxImage.path)}
-                alt={lightboxImage.filename}
                 sx={{
-                  maxWidth: "100%",
-                  maxHeight: "80vh",
-                  objectFit: "contain",
+                  display: "flex",
+                  flexDirection: isMobile ? "column" : "row",
+                  gap: 2,
                 }}
-              />
+              >
+                {/* Left: Image */}
+                <Box
+                  sx={{
+                    flex: isMobile ? "none" : "2 1 0",
+                    minWidth: 0,
+                    textAlign: "center",
+                  }}
+                >
+                  <Box
+                    component="img"
+                    src={getFileUrl(lightboxImage.path)}
+                    alt={lightboxImage.filename}
+                    sx={{
+                      maxWidth: "100%",
+                      maxHeight: isMobile ? "50vh" : "70vh",
+                      objectFit: "contain",
+                    }}
+                  />
+                </Box>
+
+                {/* Right: Jobs that used this image */}
+                <Box
+                  sx={{
+                    flex: isMobile ? "none" : "1 1 0",
+                    minWidth: 0,
+                    borderLeft: isMobile ? "none" : "1px solid",
+                    borderTop: isMobile ? "1px solid" : "none",
+                    borderColor: "divider",
+                    pl: isMobile ? 0 : 2,
+                    pt: isMobile ? 2 : 0,
+                    maxHeight: "70vh",
+                    overflowY: "auto",
+                  }}
+                >
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                    Jobs Using This Image
+                  </Typography>
+                  {loadingJobs ? (
+                    <Box sx={{ textAlign: "center", py: 4 }}>
+                      <CircularProgress size={24} />
+                    </Box>
+                  ) : lightboxJobs.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No Jobs have used this image
+                    </Typography>
+                  ) : (
+                    <List dense disablePadding>
+                      {lightboxJobs.map((job) => (
+                        <ListItemButton
+                          key={job.id}
+                          onClick={() => {
+                            setLightboxImage(null);
+                            navigate(`/jobs/${job.id}`);
+                          }}
+                          sx={{ borderRadius: 1 }}
+                        >
+                          <ListItemText
+                            primary={job.name}
+                            primaryTypographyProps={{
+                              variant: "body2",
+                              sx: { color: "primary.main", cursor: "pointer" },
+                            }}
+                            secondary={new Date(job.created_at + "Z").toLocaleString()}
+                          />
+                        </ListItemButton>
+                      ))}
+                    </List>
+                  )}
+                </Box>
+              </Box>
             </DialogContent>
             <DialogActions>
               <Button
