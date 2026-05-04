@@ -347,6 +347,12 @@ export interface TitleTagCreate {
   group: number;
 }
 
+export interface ImageJobInfo {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
 export interface ImageFolder {
   name: string;
   thumbnail: string | null;

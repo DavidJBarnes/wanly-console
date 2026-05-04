@@ -26,6 +26,7 @@ import type {
   TitleTagCreate,
   ImageFolder,
   ImageFile,
+  ImageJobInfo,
   AppSettingsResponse,
   AppSettingsUpdate,
 } from "./types";
@@ -357,6 +358,13 @@ export async function moveImages(keys: string[], targetFolder: string): Promise<
   const { data } = await api.post<{ moved: number }>("/images/move", {
     keys,
     target_folder: targetFolder,
+  });
+  return data;
+}
+
+export async function getImageJobs(path: string): Promise<ImageJobInfo[]> {
+  const { data } = await api.get<ImageJobInfo[]>("/images/jobs", {
+    params: { path },
   });
   return data;
 }
