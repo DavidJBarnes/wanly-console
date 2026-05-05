@@ -387,6 +387,20 @@ export interface AppSettingsResponse {
   negative_prompt: string;
 }
 
+export interface FavoriteToggleRequest {
+  item_type: "video" | "image";
+  item_ref: string;
+}
+
+export interface FavoriteToggleResponse {
+  favorited: boolean;
+  item_ref: string;
+}
+
+export interface FavoriteListResponse {
+  item_refs: string[];
+}
+
 export interface AppSettingsUpdate {
   cfg_high?: number;
   cfg_low?: number;
