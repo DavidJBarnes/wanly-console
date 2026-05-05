@@ -14,6 +14,7 @@ import {
   DialogActions,
   TextField,
   MenuItem,
+  Slider,
   Switch,
   FormControlLabel,
   Alert,
@@ -64,8 +65,11 @@ export default function CreateJobDialog({
   const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, fetchSettings } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [origWidth, setOrigWidth] = useState(DEFAULT_WIDTH);
+  const [origHeight, setOrigHeight] = useState(DEFAULT_HEIGHT);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  const [scale, setScale] = useState(100);
   const [fps, setFps] = useState(DEFAULT_FPS);
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
@@ -134,8 +138,11 @@ export default function CreateJobDialog({
       setImagePreview(url);
       const img = new window.Image();
       img.onload = () => {
+        setOrigWidth(img.naturalWidth);
+        setOrigHeight(img.naturalHeight);
         setWidth(img.naturalWidth);
         setHeight(img.naturalHeight);
+        setScale(100);
       };
       img.src = url;
     }
@@ -149,8 +156,11 @@ export default function CreateJobDialog({
       setImagePreview(previewUrl);
       const img = new window.Image();
       img.onload = () => {
+        setOrigWidth(img.naturalWidth);
+        setOrigHeight(img.naturalHeight);
         setWidth(img.naturalWidth);
         setHeight(img.naturalHeight);
+        setScale(100);
       };
       img.src = previewUrl;
     }
@@ -210,8 +220,11 @@ export default function CreateJobDialog({
   const resetForm = useCallback(() => {
     setName("");
     setPrompt("");
+    setOrigWidth(DEFAULT_WIDTH);
+    setOrigHeight(DEFAULT_HEIGHT);
     setWidth(DEFAULT_WIDTH);
     setHeight(DEFAULT_HEIGHT);
+    setScale(100);
     setFps(DEFAULT_FPS);
     setDuration(DEFAULT_DURATION);
     setSpeed(DEFAULT_SPEED);
@@ -413,8 +426,11 @@ export default function CreateJobDialog({
                     setImagePreview(url);
                     const img = new window.Image();
                     img.onload = () => {
+                      setOrigWidth(img.naturalWidth);
+                      setOrigHeight(img.naturalHeight);
                       setWidth(img.naturalWidth);
                       setHeight(img.naturalHeight);
+                      setScale(100);
                     };
                     img.src = url;
                   } else {
@@ -476,6 +492,31 @@ export default function CreateJobDialog({
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0 }}>
+            <Box sx={{ px: 1 }}>
+              <Typography variant="caption" color="text.secondary" gutterBottom>
+                Scale
+              </Typography>
+              <Slider
+                value={scale}
+                min={1}
+                max={100}
+                step={1}
+                onChange={(_e, val) => {
+                  const s = val as number;
+                  setScale(s);
+                  setWidth(Math.round(origWidth * s / 100));
+                  setHeight(Math.round(origHeight * s / 100));
+                }}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(v) => `${v}%`}
+                marks={[
+                  { value: 1, label: "1%" },
+                  { value: 50, label: "50%" },
+                  { value: 100, label: "100%" },
+                ]}
+                sx={{ mb: 0.5 }}
+              />
+            </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
               <TextField
                 label="Width"
