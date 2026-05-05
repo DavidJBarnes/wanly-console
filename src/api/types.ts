@@ -118,6 +118,7 @@ export interface JobResponse {
   segment_count: number;
   completed_segment_count: number;
   estimated_run_time: number | null;
+  faceswap_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
