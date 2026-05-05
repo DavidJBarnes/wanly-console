@@ -696,7 +696,7 @@ export default function ImageRepo() {
                               variant: "body2",
                               sx: { color: "primary.main", cursor: "pointer" },
                             }}
-                            secondary={new Date(job.created_at + "Z").toLocaleString()}
+                            secondary={new Date(job.created_at).toLocaleString()}
                           />
                         </ListItemButton>
                       ))}
