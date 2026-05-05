@@ -23,7 +23,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Add, DragIndicator } from "@mui/icons-material";
+import { Add, DragIndicator, Face } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { DragDropProvider, DragOverlay } from "@dnd-kit/react";
 import { useSortable, isSortable } from "@dnd-kit/react/sortable";
@@ -305,6 +305,7 @@ export default function JobQueue() {
                   <SortableHeader id="status" label="Status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 120 }} />
                   <TableCell sx={{ width: 70 }}>ETA</TableCell>
                   <TableCell sx={{ width: 80 }}>Segments</TableCell>
+                  <TableCell sx={{ width: 80 }}>Faceswap</TableCell>
                   <TableCell>Dimensions</TableCell>
                   <SortableHeader id="fps" label="FPS" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 80 }} />
                   <SortableHeader id="created_at" label="Created" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} isPriorityMode={isPriorityMode} sx={{ width: 150 }} />
@@ -528,6 +529,13 @@ function SortableTableRow({
         </Typography>
       </TableCell>
       <TableCell>
+        {job.faceswap_enabled ? (
+          <Face sx={{ color: "primary.main", fontSize: 20 }} />
+        ) : (
+          <Typography variant="body2" color="text.disabled">-</Typography>
+        )}
+      </TableCell>
+      <TableCell>
         {job.width}x{job.height}
       </TableCell>
       <TableCell>{job.fps}</TableCell>
@@ -618,7 +626,7 @@ function SortableMobileCard({
               <StatusChip status={job.status} />
             </Box>
             <Typography variant="caption" color="text.secondary">
-              {job.width}x{job.height} &middot; {job.fps}fps &middot; {job.completed_segment_count} seg{job.completed_segment_count !== 1 ? "s" : ""}{job.estimated_run_time != null ? ` · ~${formatDuration(job.estimated_run_time)}` : ""} &middot; {formatDate(job.updated_at)}
+              {job.width}x{job.height} &middot; {job.fps}fps &middot; {job.completed_segment_count} seg{job.completed_segment_count !== 1 ? "s" : ""}{job.estimated_run_time != null ? ` · ~${formatDuration(job.estimated_run_time)}` : ""}{job.faceswap_enabled ? ` · Faceswap` : ""} &middot; {formatDate(job.updated_at)}
             </Typography>
           </Box>
         </Box>
