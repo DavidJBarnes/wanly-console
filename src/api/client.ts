@@ -73,6 +73,7 @@ export async function getJobs(params?: {
   offset?: number;
   status?: string;
   sort?: string;
+  name?: string;
 }): Promise<JobListResponse> {
   const { data } = await api.get<JobListResponse>("/jobs", { params });
   return data;

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Box,
   Typography,
@@ -52,6 +52,20 @@ export default function Videos() {
   const [loadingRandom, setLoadingRandom] = useState(false);
   const [loopVideo, setLoopVideo] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Debounce search input to avoid hammering the API on every keystroke
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+      setPage(0);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchQuery]);
 
   const fetchVideos = useCallback(async () => {
     try {
@@ -60,6 +74,7 @@ export default function Videos() {
         limit: rowsPerPage,
         offset: page * rowsPerPage,
         sort: "updated_at_desc",
+        name: debouncedQuery || undefined,
       });
       setJobs(res.items);
       setTotal(res.total);
@@ -68,7 +83,7 @@ export default function Videos() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage]);
+  }, [page, rowsPerPage, debouncedQuery]);
 
   useEffect(() => {
     fetchVideos();
@@ -76,9 +91,7 @@ export default function Videos() {
     return () => clearInterval(interval);
   }, [fetchVideos]);
 
-  const finalizedJobs = jobs.filter(
-    (j) => !searchQuery || j.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const finalizedJobs = jobs;
 
   // Fetch details for jobs to get video info
   useEffect(() => {
@@ -109,11 +122,14 @@ export default function Videos() {
   const handlePlayRandom = async () => {
     setLoadingRandom(true);
     try {
-      // Fetch all finalized jobs
-      const res = await getJobs({ status: "finalized", limit: DEFAULT_JOB_FETCH_LIMIT, offset: 0 });
-      const allJobs = res.items.filter(
-        (j) => !searchQuery || j.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+      // Fetch all finalized jobs (respecting the active search filter)
+      const res = await getJobs({
+        status: "finalized",
+        limit: DEFAULT_JOB_FETCH_LIMIT,
+        offset: 0,
+        name: debouncedQuery || undefined,
+      });
+      const allJobs = res.items;
 
       // Fetch details for any we don't already have
       const details = await Promise.all(
