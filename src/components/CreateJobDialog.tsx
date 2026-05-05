@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Accordion,
   AccordionSummary,
@@ -14,6 +14,7 @@ import {
   DialogActions,
   TextField,
   MenuItem,
+  Slider,
   Switch,
   FormControlLabel,
   Alert,
@@ -64,8 +65,56 @@ export default function CreateJobDialog({
   const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, fetchSettings } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [origWidth, setOrigWidth] = useState(DEFAULT_WIDTH);
+  const [origHeight, setOrigHeight] = useState(DEFAULT_HEIGHT);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  const [scale, setScale] = useState(100);
+  const mountedRef = useRef(true);
+  const prevPreviewUrlRef = useRef<string | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (prevPreviewUrlRef.current?.startsWith("blob:")) {
+        URL.revokeObjectURL(prevPreviewUrlRef.current);
+      }
+    };
+  }, []);
+
+  // Load image dimensions from a URL, handling cleanup and error states
+  const loadImageFromUrl = useCallback((url: string) => {
+    // Revoke previous blob URL to prevent memory leaks
+    if (prevPreviewUrlRef.current?.startsWith("blob:")) {
+      URL.revokeObjectURL(prevPreviewUrlRef.current);
+    }
+    prevPreviewUrlRef.current = url;
+    setImagePreview(url);
+
+    const img = new window.Image();
+    img.onload = () => {
+      if (!mountedRef.current) return;
+      setOrigWidth(img.naturalWidth);
+      setOrigHeight(img.naturalHeight);
+      setWidth(img.naturalWidth);
+      setHeight(img.naturalHeight);
+      setScale(100);
+    };
+    img.onerror = () => {
+      if (!mountedRef.current) return;
+      // Reset to defaults on load failure
+      setOrigWidth(DEFAULT_WIDTH);
+      setOrigHeight(DEFAULT_HEIGHT);
+      setWidth(DEFAULT_WIDTH);
+      setHeight(DEFAULT_HEIGHT);
+      setScale(100);
+      setImagePreview(null);
+    };
+    img.src = url;
+  }, []);
+
   const [fps, setFps] = useState(DEFAULT_FPS);
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
@@ -130,31 +179,17 @@ export default function CreateJobDialog({
   useEffect(() => {
     if (open && initialStartingImage) {
       setStartingImage(initialStartingImage);
-      const url = URL.createObjectURL(initialStartingImage);
-      setImagePreview(url);
-      const img = new window.Image();
-      img.onload = () => {
-        setWidth(img.naturalWidth);
-        setHeight(img.naturalHeight);
-      };
-      img.src = url;
+      loadImageFromUrl(URL.createObjectURL(initialStartingImage));
     }
-  }, [open, initialStartingImage]);
+  }, [open, initialStartingImage, loadImageFromUrl]);
 
   // Apply initialStartingImageUri (S3 URI pass-through) when dialog opens
   useEffect(() => {
     if (open && initialStartingImageUri) {
       setStartingImageUri(initialStartingImageUri);
-      const previewUrl = getFileUrl(initialStartingImageUri);
-      setImagePreview(previewUrl);
-      const img = new window.Image();
-      img.onload = () => {
-        setWidth(img.naturalWidth);
-        setHeight(img.naturalHeight);
-      };
-      img.src = previewUrl;
+      loadImageFromUrl(getFileUrl(initialStartingImageUri));
     }
-  }, [open, initialStartingImageUri]);
+  }, [open, initialStartingImageUri, loadImageFromUrl]);
 
   const applyPreset = (preset: PromptPreset | null) => {
     if (!preset) return;
@@ -210,8 +245,11 @@ export default function CreateJobDialog({
   const resetForm = useCallback(() => {
     setName("");
     setPrompt("");
+    setOrigWidth(DEFAULT_WIDTH);
+    setOrigHeight(DEFAULT_HEIGHT);
     setWidth(DEFAULT_WIDTH);
     setHeight(DEFAULT_HEIGHT);
+    setScale(100);
     setFps(DEFAULT_FPS);
     setDuration(DEFAULT_DURATION);
     setSpeed(DEFAULT_SPEED);
@@ -221,7 +259,10 @@ export default function CreateJobDialog({
     setCfgHigh(defaultCfgHigh);
     setCfgLow(defaultCfgLow);
     setStartingImage(null);
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    if (prevPreviewUrlRef.current?.startsWith("blob:")) {
+      URL.revokeObjectURL(prevPreviewUrlRef.current);
+      prevPreviewUrlRef.current = null;
+    }
     setImagePreview(null);
     setStartingImageUri(null);
     setFaceswapEnabled(DEFAULT_FACESWAP_ENABLED);
@@ -236,7 +277,7 @@ export default function CreateJobDialog({
     setSelectedTag2("");
     setNameManuallyEdited(false);
     setError("");
-  }, [imagePreview, defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow]);
+  }, [defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow]);
 
   const handleSubmit = async () => {
     if (!name.trim() || !prompt.trim()) {
@@ -407,16 +448,8 @@ export default function CreateJobDialog({
                   const file = e.target.files?.[0] ?? null;
                   setStartingImage(file);
                   setStartingImageUri(null);
-                  if (imagePreview) URL.revokeObjectURL(imagePreview);
                   if (file) {
-                    const url = URL.createObjectURL(file);
-                    setImagePreview(url);
-                    const img = new window.Image();
-                    img.onload = () => {
-                      setWidth(img.naturalWidth);
-                      setHeight(img.naturalHeight);
-                    };
-                    img.src = url;
+                    loadImageFromUrl(URL.createObjectURL(file));
                   } else {
                     setImagePreview(null);
                   }
@@ -476,6 +509,33 @@ export default function CreateJobDialog({
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0 }}>
+            <Box sx={{ px: 1 }}>
+              <Typography variant="caption" color="text.secondary" gutterBottom>
+                Scale
+              </Typography>
+              <Slider
+                value={scale}
+                min={10}
+                max={100}
+                step={1}
+                onChange={(_e, val) => {
+                  const s = val as number;
+                  setScale(s);
+                  setWidth(Math.round(origWidth * s / 100));
+                  setHeight(Math.round(origHeight * s / 100));
+                }}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(v) => `${v}%`}
+                marks={[
+                  { value: 25, label: "25%" },
+                  { value: 50, label: "50%" },
+                  { value: 75, label: "75%" },
+                  { value: 100, label: "100%" },
+                ]}
+                aria-label="Image scale percentage"
+                sx={{ mb: 0.5 }}
+              />
+            </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
               <TextField
                 label="Width"
