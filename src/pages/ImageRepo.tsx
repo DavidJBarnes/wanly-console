@@ -282,7 +282,8 @@ export default function ImageRepo() {
         )}
 
         <Grid container spacing={2}>
-          {folders
+          {[...folders]
+            .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
             .slice(folderPage * foldersPerPage, (folderPage + 1) * foldersPerPage)
             .map((folder) => (
             <Grid key={folder.name} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
