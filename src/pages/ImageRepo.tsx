@@ -33,6 +33,7 @@ import {
   Delete,
   DriveFileMove,
   NavigateNext,
+  Refresh,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import {
@@ -83,6 +84,7 @@ export default function ImageRepo() {
   const [cropResizeImage, setCropResizeImage] = useState<ImageFile | null>(null);
   const [lightboxJobs, setLightboxJobs] = useState<ImageJobInfo[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -452,6 +454,28 @@ export default function ImageRepo() {
           }}
         >
           {selectMode ? "Cancel" : "Select"}
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={
+            isMobile
+              ? undefined
+              : refreshing
+                ? <CircularProgress size={16} />
+                : <Refresh />
+          }
+          size={isMobile ? "small" : "medium"}
+          disabled={refreshing}
+          onClick={async () => {
+            setRefreshing(true);
+            try {
+              await fetchImages(currentFolder!);
+            } finally {
+              setRefreshing(false);
+            }
+          }}
+        >
+          {refreshing ? (isMobile ? "..." : "Refreshing...") : "Refresh"}
         </Button>
         <Button
           variant="outlined"
