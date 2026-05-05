@@ -53,7 +53,7 @@ export default function Videos() {
   const [loopVideo, setLoopVideo] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Debounce search input to avoid hammering the API on every keystroke
   useEffect(() => {
