@@ -356,6 +356,7 @@ export interface ImageJobInfo {
 export interface ImageFolder {
   name: string;
   thumbnail: string | null;
+  created_at: string | null;
 }
 
 export interface ImageFile {
