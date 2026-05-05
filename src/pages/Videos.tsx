@@ -14,8 +14,10 @@ import {
   Button,
   Alert,
   TablePagination,
+  InputAdornment,
+  TextField,
 } from "@mui/material";
-import { Close, Error as ErrorIcon, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Shuffle, VideoLibrary } from "@mui/icons-material";
+import { Close, Error as ErrorIcon, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { getJobs, getJob, getFileUrl } from "../api/client";
 import type { JobDetailResponse, JobResponse } from "../api/types";
@@ -49,6 +51,7 @@ export default function Videos() {
   const [playlistIndex, setPlaylistIndex] = useState(0);
   const [loadingRandom, setLoadingRandom] = useState(false);
   const [loopVideo, setLoopVideo] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchVideos = useCallback(async () => {
     try {
@@ -73,7 +76,9 @@ export default function Videos() {
     return () => clearInterval(interval);
   }, [fetchVideos]);
 
-  const finalizedJobs = jobs;
+  const finalizedJobs = jobs.filter(
+    (j) => !searchQuery || j.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // Fetch details for jobs to get video info
   useEffect(() => {
@@ -106,7 +111,9 @@ export default function Videos() {
     try {
       // Fetch all finalized jobs
       const res = await getJobs({ status: "finalized", limit: DEFAULT_JOB_FETCH_LIMIT, offset: 0 });
-      const allJobs = res.items;
+      const allJobs = res.items.filter(
+        (j) => !searchQuery || j.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
 
       // Fetch details for any we don't already have
       const details = await Promise.all(
@@ -157,9 +164,9 @@ export default function Videos() {
 
   return (
     <Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3, flexWrap: "wrap" }}>
         <Typography variant="h4">Videos</Typography>
-        {finalizedJobs.length > 0 && (
+        {jobs.length > 0 && (
           <Button
             variant="contained"
             startIcon={loadingRandom ? <CircularProgress size={18} color="inherit" /> : <Shuffle />}
@@ -170,6 +177,26 @@ export default function Videos() {
             Play Random
           </Button>
         )}
+        <Box sx={{ flex: 1 }} />
+        <TextField
+          size="small"
+          placeholder="Search videos…"
+          value={searchQuery}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setPage(0);
+          }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" />
+                </InputAdornment>
+              ),
+            },
+          }}
+          sx={{ minWidth: 240 }}
+        />
       </Box>
 
       {loading && finalizedJobs.length === 0 && (
