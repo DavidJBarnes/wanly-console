@@ -27,6 +27,9 @@ import type {
   ImageFolder,
   ImageFile,
   ImageJobInfo,
+  FavoriteToggleRequest,
+  FavoriteToggleResponse,
+  FavoriteListResponse,
   AppSettingsResponse,
   AppSettingsUpdate,
 } from "./types";
@@ -440,6 +443,20 @@ export async function uploadFile(
   if (jobId) formData.append("job_id", jobId);
   const { data } = await api.post<{ path: string }>("/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+// --- Favorites ---
+
+export async function toggleFavorite(body: FavoriteToggleRequest): Promise<FavoriteToggleResponse> {
+  const { data } = await api.post<FavoriteToggleResponse>("/favorites/toggle", body);
+  return data;
+}
+
+export async function getFavorites(itemType?: "video" | "image"): Promise<FavoriteListResponse> {
+  const { data } = await api.get<FavoriteListResponse>("/favorites", {
+    params: itemType ? { item_type: itemType } : undefined,
   });
   return data;
 }

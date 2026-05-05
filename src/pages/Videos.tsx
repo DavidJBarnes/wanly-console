@@ -17,11 +17,12 @@ import {
   InputAdornment,
   TextField,
 } from "@mui/material";
-import { Close, Error as ErrorIcon, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary } from "@mui/icons-material";
+import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
-import { getJobs, getJob, getFileUrl } from "../api/client";
+import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite } from "../api/client";
 import type { JobDetailResponse, JobResponse } from "../api/types";
 import { DEFAULT_JOB_FETCH_LIMIT, POLL_INTERVAL_FAST } from "../constants";
+import FavoriteHeart from "../components/FavoriteHeart";
 
 function formatDuration(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -54,6 +55,8 @@ export default function Videos() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
 
   // Debounce search input to avoid hammering the API on every keystroke
   useEffect(() => {
@@ -91,7 +94,22 @@ export default function Videos() {
     return () => clearInterval(interval);
   }, [fetchVideos]);
 
-  const finalizedJobs = jobs;
+  const fetchFavorites = useCallback(async () => {
+    try {
+      const res = await getFavorites("video");
+      setFavoritesSet(new Set(res.item_refs));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => { fetchFavorites(); }, [fetchFavorites]);
+
+  const filteredJobs = favoritesOnly
+    ? jobs.filter((j) => favoritesSet.has(j.id))
+    : jobs;
+
+  const finalizedJobs = filteredJobs;
 
   // Fetch details for jobs to get video info
   useEffect(() => {
@@ -129,7 +147,9 @@ export default function Videos() {
         offset: 0,
         name: debouncedQuery || undefined,
       });
-      const allJobs = res.items;
+      const allJobs = favoritesOnly
+        ? res.items.filter((j) => favoritesSet.has(j.id))
+        : res.items;
 
       // Fetch details for any we don't already have
       const details = await Promise.all(
@@ -193,6 +213,16 @@ export default function Videos() {
             Play Random
           </Button>
         )}
+        <Button
+          variant={favoritesOnly ? "contained" : "outlined"}
+          color={favoritesOnly ? "error" : "inherit"}
+          startIcon={<Favorite />}
+          size="small"
+          onClick={() => setFavoritesOnly((v) => !v)}
+          sx={{ textTransform: "none" }}
+        >
+          Favorites
+        </Button>
         <Box sx={{ flex: 1 }} />
         <TextField
           size="small"
@@ -330,6 +360,22 @@ export default function Videos() {
                           }}
                         />
                       )}
+                      <Box sx={{ position: "absolute", top: 4, left: 4 }}>
+                        <FavoriteHeart
+                          favorited={favoritesSet.has(job.id)}
+                          onToggle={async () => {
+                            const prev = new Set(favoritesSet);
+                            const nowFav = !prev.has(job.id);
+                            if (nowFav) prev.add(job.id); else prev.delete(job.id);
+                            setFavoritesSet(prev);
+                            try {
+                              await toggleFavorite({ item_type: "video", item_ref: job.id });
+                            } catch {
+                              setFavoritesSet(favoritesSet);
+                            }
+                          }}
+                        />
+                      </Box>
                     </Box>
                   </CardActionArea>
                   <CardContent sx={{ pb: "12px !important" }}>

@@ -32,6 +32,7 @@ import {
   CreateNewFolder,
   Delete,
   DriveFileMove,
+  Favorite,
   NavigateNext,
   Refresh,
 } from "@mui/icons-material";
@@ -45,10 +46,13 @@ import {
   createImageFolder,
   uploadImage,
   moveImages,
+  getFavorites,
+  toggleFavorite,
 } from "../api/client";
 import type { ImageFolder, ImageFile, ImageJobInfo } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
+import FavoriteHeart from "../components/FavoriteHeart";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -85,9 +89,22 @@ export default function ImageRepo() {
   const [lightboxJobs, setLightboxJobs] = useState<ImageJobInfo[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  const fetchFavorites = useCallback(async () => {
+    try {
+      const res = await getFavorites("image");
+      setFavoritesSet(new Set(res.item_refs));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => { fetchFavorites(); }, [fetchFavorites]);
 
   const fetchFolders = useCallback(async () => {
     setLoading(true);
@@ -446,6 +463,18 @@ export default function ImageRepo() {
           {sortDesc ? "Newest" : "Oldest"}
         </Button>
         <Button
+          variant={favoritesOnly ? "contained" : "outlined"}
+          color={favoritesOnly ? "error" : "inherit"}
+          startIcon={isMobile ? undefined : <Favorite />}
+          size={isMobile ? "small" : "medium"}
+          onClick={() => {
+            setFavoritesOnly((v) => !v);
+            setImagePage(0);
+          }}
+        >
+          {isMobile ? (favoritesOnly ? "Fav" : "Fav") : "Favorites"}
+        </Button>
+        <Button
           variant={selectMode ? "contained" : "outlined"}
           startIcon={isMobile ? undefined : <CheckBoxIcon />}
           size={isMobile ? "small" : "medium"}
@@ -520,8 +549,16 @@ export default function ImageRepo() {
         </Box>
       )}
 
+      {images.length > 0 && favoritesOnly && !images.some((img) => favoritesSet.has(img.path)) && !loading && (
+        <Box sx={{ textAlign: "center", py: 8 }}>
+          <Typography color="text.secondary">
+            No favorited images in this folder.
+          </Typography>
+        </Box>
+      )}
+
       <Grid container spacing={2}>
-        {[...images]
+        {[...(favoritesOnly ? images.filter((img) => favoritesSet.has(img.path)) : images)]
           .sort((a, b) => {
             const cmp = a.last_modified.localeCompare(b.last_modified);
             return sortDesc ? -cmp : cmp;
@@ -565,6 +602,24 @@ export default function ImageRepo() {
                   }}
                 />
               )}
+              {!selectMode && (
+                <Box sx={{ position: "absolute", top: 4, left: 4 }}>
+                  <FavoriteHeart
+                    favorited={favoritesSet.has(image.path)}
+                    onToggle={async () => {
+                      const prev = new Set(favoritesSet);
+                      const nowFav = !prev.has(image.path);
+                      if (nowFav) prev.add(image.path); else prev.delete(image.path);
+                      setFavoritesSet(prev);
+                      try {
+                        await toggleFavorite({ item_type: "image", item_ref: image.path });
+                      } catch {
+                        setFavoritesSet(favoritesSet);
+                      }
+                    }}
+                  />
+                </Box>
+              )}
               {!selectMode && hoveredCard === image.key && (
                 <IconButton
                   size="small"
@@ -591,7 +646,7 @@ export default function ImageRepo() {
       {images.length > 0 && (
         <TablePagination
           component="div"
-          count={images.length}
+          count={favoritesOnly ? images.filter((img) => favoritesSet.has(img.path)).length : images.length}
           page={imagePage}
           onPageChange={(_, p) => setImagePage(p)}
           rowsPerPage={imagesPerPage}
@@ -712,6 +767,23 @@ export default function ImageRepo() {
               >
                 Delete
               </Button>
+              <IconButton
+                onClick={async () => {
+                  if (!lightboxImage) return;
+                  const prev = new Set(favoritesSet);
+                  const nowFav = !prev.has(lightboxImage.path);
+                  if (nowFav) prev.add(lightboxImage.path); else prev.delete(lightboxImage.path);
+                  setFavoritesSet(prev);
+                  try {
+                    await toggleFavorite({ item_type: "image", item_ref: lightboxImage.path });
+                  } catch {
+                    setFavoritesSet(favoritesSet);
+                  }
+                }}
+                sx={{ color: favoritesSet.has(lightboxImage.path) ? "#e91e63" : undefined }}
+              >
+                <Favorite />
+              </IconButton>
               <Button
                 startIcon={<DriveFileMove />}
                 onClick={() => handleOpenMoveDialog([lightboxImage.key])}
