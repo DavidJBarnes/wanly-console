@@ -859,7 +859,7 @@ export default function ImageRepo() {
                 </Box>
               </Box>
             </DialogContent>
-            <DialogActions sx={{ flexWrap: "wrap", gap: 0.5, justifyContent: isMobile ? "space-between" : undefined }}>
+            <DialogActions sx={{ flexWrap: "wrap", gap: isMobile ? 1.5 : 1 }}>
               <Button
                 color="error"
                 size={btnSize}
@@ -910,7 +910,7 @@ export default function ImageRepo() {
               >
                 {isMobile ? "New Job" : "Use as Starting Image"}
               </Button>
-              <Button size={btnSize} onClick={() => setLightboxImage(null)}>Close</Button>
+              <Button size={btnSize} onClick={() => setLightboxImage(null)} sx={{ ml: "auto" }}>Close</Button>
             </DialogActions>
           </>
         )}
