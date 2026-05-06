@@ -16,9 +16,8 @@ import {
   TablePagination,
   InputAdornment,
   TextField,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite } from "../api/client";
@@ -42,8 +41,7 @@ function formatDate(iso: string) {
 }
 
 export default function Videos() {
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobResponse[]>([]);
   const [total, setTotal] = useState(0);
