@@ -376,7 +376,7 @@ export default function CreateJobDialog({
 
         {/* ── Name ── */}
         {(titleTags1.length > 0 || titleTags2.length > 0) && (
-          <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+          <Box sx={{ display: "flex", gap: 2, mt: 2, flexWrap: "wrap" }}>
             {titleTags1.length > 0 && (
               <TextField
                 label="Title Tag 1"
@@ -437,7 +437,7 @@ export default function CreateJobDialog({
 
         {/* ── Starting Image (moved up — needed for auto-generate) ── */}
         <Box sx={{ mt: 1, mb: 1 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
             <Button variant="outlined" component="label" size="small">
               {startingImage ? startingImage.name : startingImageUri ? "Image from repo" : "Choose Image *"}
               <input

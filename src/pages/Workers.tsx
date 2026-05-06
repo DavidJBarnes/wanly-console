@@ -19,6 +19,8 @@ import {
   RadioGroup,
   FormControlLabel,
   Radio,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Circle,
@@ -64,6 +66,8 @@ function formatDate(iso: string) {
 }
 
 export default function Workers() {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
   const [workers, setWorkers] = useState<WorkerResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,6 +197,7 @@ export default function Workers() {
         onClose={() => setDeleteConfirm(null)}
         maxWidth="xs"
         fullWidth
+        fullScreen={fullScreen}
       >
         <DialogTitle>Delete Worker</DialogTitle>
         <DialogContent>
@@ -219,6 +224,7 @@ export default function Workers() {
         onClose={() => setDrainConfirm(null)}
         maxWidth="xs"
         fullWidth
+        fullScreen={fullScreen}
       >
         <DialogTitle>Drain Worker</DialogTitle>
         <DialogContent>

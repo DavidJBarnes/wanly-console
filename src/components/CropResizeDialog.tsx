@@ -17,6 +17,8 @@ import {
   Slider,
   TextField,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { ContentCut, Lock, LockOpen } from "@mui/icons-material";
 import { getFileUrl, getImageDownloadUrl, uploadImage } from "../api/client";
@@ -89,6 +91,8 @@ async function cropAndResize(
 }
 
 export default function CropResizeDialog({ open, image, onClose, onSaved }: Props) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const [imageUrl, setImageUrl] = useState<string>("");
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -186,7 +190,7 @@ export default function CropResizeDialog({ open, image, onClose, onSaved }: Prop
     !!croppedAreaPixels && outputWidth > 0 && outputHeight > 0 && !saving;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth fullScreen={fullScreen}>
       {image && (
         <>
           <DialogTitle sx={{ pb: 1 }}>
