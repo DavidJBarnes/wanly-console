@@ -62,7 +62,7 @@ export default function Videos() {
 
   // Scroll to top when page changes
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
   }, [page]);
 
   // Debounce search input to avoid hammering the API on every keystroke
