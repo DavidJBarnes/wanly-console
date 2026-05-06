@@ -383,6 +383,7 @@ export default function ImageRepo() {
         )}
 
         {!favoritesView && (
+          <>
         <Grid container spacing={2}>
           {[...folders]
             .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
@@ -443,6 +444,7 @@ export default function ImageRepo() {
             }}
           />
         )}
+          </>
         )}
 
         {/* New Folder Dialog */}
