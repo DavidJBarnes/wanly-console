@@ -59,11 +59,10 @@ export default function Videos() {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const contentTopRef = useRef<HTMLDivElement>(null);
 
   // Scroll to top when page changes
   useEffect(() => {
-    contentTopRef.current?.scrollIntoView({ behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }, [page]);
 
   // Debounce search input to avoid hammering the API on every keystroke
@@ -261,7 +260,6 @@ export default function Videos() {
 
       {finalizedJobs.length > 0 ? (
         <>
-        <div ref={contentTopRef} />
         <Grid container spacing={3}>
           {finalizedJobs.map((job) => {
             const videoInfo = getVideoInfo(job.id);
