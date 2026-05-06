@@ -903,7 +903,7 @@ export default function ImageRepo() {
       <Dialog
         open={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
-        fullScreen={isMobile}
+        fullScreen={{ xs: true, sm: false }}
       >
         <DialogTitle>Delete Image?</DialogTitle>
         <DialogContent>

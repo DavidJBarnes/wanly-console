@@ -437,13 +437,14 @@ export default function Videos() {
         onClose={() => setVideoModal(null)}
         maxWidth="md"
         fullWidth
-        fullScreen={fullScreen}
+        fullScreen={isMobile}
       >
         <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
           <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
             <IconButton
               onClick={() => setVideoModal(null)}
               sx={{ color: "white" }}
+              aria-label="Close video"
             >
               <Close />
             </IconButton>
@@ -511,13 +512,14 @@ export default function Videos() {
         onClose={() => setPlaylist([])}
         maxWidth="md"
         fullWidth
-        fullScreen={fullScreen}
+        fullScreen={isMobile}
       >
         <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
           <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
             <IconButton
               onClick={() => setPlaylist([])}
               sx={{ color: "white" }}
+              aria-label="Close playlist"
             >
               <Close />
             </IconButton>
