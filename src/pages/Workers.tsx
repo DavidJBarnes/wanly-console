@@ -20,6 +20,7 @@ import {
   FormControlLabel,
   Radio,
 } from "@mui/material";
+import { useIsMobile } from "../hooks/useIsMobile";
 import {
   Circle,
   Computer,
@@ -64,6 +65,7 @@ function formatDate(iso: string) {
 }
 
 export default function Workers() {
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const [workers, setWorkers] = useState<WorkerResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,7 +195,7 @@ export default function Workers() {
         onClose={() => setDeleteConfirm(null)}
         maxWidth="xs"
         fullWidth
-        fullScreen={{ xs: true, sm: false }}
+        fullScreen={isMobile}
       >
         <DialogTitle>Delete Worker</DialogTitle>
         <DialogContent>
@@ -220,7 +222,7 @@ export default function Workers() {
         onClose={() => setDrainConfirm(null)}
         maxWidth="xs"
         fullWidth
-        fullScreen={{ xs: true, sm: false }}
+        fullScreen={isMobile}
       >
         <DialogTitle>Drain Worker</DialogTitle>
         <DialogContent>

@@ -98,6 +98,17 @@ export default function ImageRepo() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const folderTopRef = useRef<HTMLDivElement>(null);
+  const imageTopRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to top when page changes
+  useEffect(() => {
+    folderTopRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [folderPage]);
+
+  useEffect(() => {
+    imageTopRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [imagePage]);
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -384,6 +395,7 @@ export default function ImageRepo() {
 
         {!favoritesView && (
           <>
+        <div ref={folderTopRef} />
         <Grid container spacing={2}>
           {[...folders]
             .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
@@ -645,6 +657,7 @@ export default function ImageRepo() {
         </Box>
       )}
 
+      <div ref={imageTopRef} />
       <Grid container spacing={2}>
         {[...(favoritesOnly ? images.filter((img) => favoritesSet.has(img.path)) : images)]
           .sort((a, b) => {
@@ -903,7 +916,7 @@ export default function ImageRepo() {
       <Dialog
         open={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
-        fullScreen={{ xs: true, sm: false }}
+        fullScreen={isMobile}
       >
         <DialogTitle>Delete Image?</DialogTitle>
         <DialogContent>

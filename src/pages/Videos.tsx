@@ -16,9 +16,8 @@ import {
   TablePagination,
   InputAdornment,
   TextField,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite } from "../api/client";
@@ -42,8 +41,7 @@ function formatDate(iso: string) {
 }
 
 export default function Videos() {
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobResponse[]>([]);
   const [total, setTotal] = useState(0);
@@ -61,6 +59,12 @@ export default function Videos() {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const contentTopRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to top when page changes
+  useEffect(() => {
+    contentTopRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [page]);
 
   // Debounce search input to avoid hammering the API on every keystroke
   useEffect(() => {
@@ -257,6 +261,7 @@ export default function Videos() {
 
       {finalizedJobs.length > 0 ? (
         <>
+        <div ref={contentTopRef} />
         <Grid container spacing={3}>
           {finalizedJobs.map((job) => {
             const videoInfo = getVideoInfo(job.id);
