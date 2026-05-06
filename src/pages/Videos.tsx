@@ -16,6 +16,8 @@ import {
   TablePagination,
   InputAdornment,
   TextField,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
@@ -40,6 +42,8 @@ function formatDate(iso: string) {
 }
 
 export default function Videos() {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobResponse[]>([]);
   const [total, setTotal] = useState(0);
@@ -433,12 +437,14 @@ export default function Videos() {
         onClose={() => setVideoModal(null)}
         maxWidth="md"
         fullWidth
+        fullScreen={isMobile}
       >
         <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
           <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
             <IconButton
               onClick={() => setVideoModal(null)}
               sx={{ color: "white" }}
+              aria-label="Close video"
             >
               <Close />
             </IconButton>
@@ -506,12 +512,14 @@ export default function Videos() {
         onClose={() => setPlaylist([])}
         maxWidth="md"
         fullWidth
+        fullScreen={isMobile}
       >
         <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
           <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
             <IconButton
               onClick={() => setPlaylist([])}
               sx={{ color: "white" }}
+              aria-label="Close playlist"
             >
               <Close />
             </IconButton>

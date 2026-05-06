@@ -448,7 +448,7 @@ export default function ImageRepo() {
         )}
 
         {/* New Folder Dialog */}
-        <Dialog open={newFolderOpen} onClose={() => setNewFolderOpen(false)}>
+        <Dialog open={newFolderOpen} onClose={() => setNewFolderOpen(false)} fullScreen={isMobile}>
           <DialogTitle>Create New Folder</DialogTitle>
           <DialogContent>
             <TextField
@@ -903,6 +903,7 @@ export default function ImageRepo() {
       <Dialog
         open={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
+        fullScreen={{ xs: true, sm: false }}
       >
         <DialogTitle>Delete Image?</DialogTitle>
         <DialogContent>
@@ -925,6 +926,7 @@ export default function ImageRepo() {
         onClose={() => setMoveDialogOpen(false)}
         maxWidth="xs"
         fullWidth
+        fullScreen={isMobile}
       >
         <DialogTitle>
           Move {moveTargetKeys.length} image{moveTargetKeys.length > 1 ? "s" : ""} to...

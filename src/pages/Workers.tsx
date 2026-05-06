@@ -193,6 +193,7 @@ export default function Workers() {
         onClose={() => setDeleteConfirm(null)}
         maxWidth="xs"
         fullWidth
+        fullScreen={{ xs: true, sm: false }}
       >
         <DialogTitle>Delete Worker</DialogTitle>
         <DialogContent>
@@ -219,6 +220,7 @@ export default function Workers() {
         onClose={() => setDrainConfirm(null)}
         maxWidth="xs"
         fullWidth
+        fullScreen={{ xs: true, sm: false }}
       >
         <DialogTitle>Drain Worker</DialogTitle>
         <DialogContent>

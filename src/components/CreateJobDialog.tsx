@@ -21,9 +21,8 @@ import {
   IconButton,
   ToggleButton,
   ToggleButtonGroup,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { ClearOutlined, ExpandMore } from "@mui/icons-material";
 import { useLoraStore } from "../stores/loraStore";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -60,8 +59,7 @@ export default function CreateJobDialog({
   initialStartingImage,
   initialStartingImageUri,
 }: CreateJobDialogProps) {
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+  const isMobile = useIsMobile();
   const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, fetchSettings } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -365,7 +363,7 @@ export default function CreateJobDialog({
   const accordionSx = { "&:before": { display: "none" }, boxShadow: "none", border: "1px solid", borderColor: "divider", borderRadius: "8px !important", mb: 1 };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={isMobile}>
       <DialogTitle>Create New Job</DialogTitle>
       <DialogContent>
         {error && (
@@ -376,7 +374,7 @@ export default function CreateJobDialog({
 
         {/* ── Name ── */}
         {(titleTags1.length > 0 || titleTags2.length > 0) && (
-          <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+          <Box sx={{ display: "flex", gap: 2, mt: 2, flexWrap: "wrap", "& > *": { minWidth: { xs: "100%", sm: 0 } } }}>
             {titleTags1.length > 0 && (
               <TextField
                 label="Title Tag 1"
@@ -437,7 +435,7 @@ export default function CreateJobDialog({
 
         {/* ── Starting Image (moved up — needed for auto-generate) ── */}
         <Box sx={{ mt: 1, mb: 1 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", "& > .MuiButton-root": { minWidth: { xs: "100%", sm: 0 } } }}>
             <Button variant="outlined" component="label" size="small">
               {startingImage ? startingImage.name : startingImageUri ? "Image from repo" : "Choose Image *"}
               <input
