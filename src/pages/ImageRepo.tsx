@@ -101,11 +101,11 @@ export default function ImageRepo() {
 
   // Scroll to top when page changes
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
   }, [folderPage]);
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
   }, [imagePage]);
 
   const fetchFavorites = useCallback(async () => {
