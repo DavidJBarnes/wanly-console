@@ -98,6 +98,7 @@ export default function ImageRepo() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const btnSize = isMobile ? "small" : "medium";
 
   // Scroll to top when page changes
   useEffect(() => {
@@ -861,13 +862,14 @@ export default function ImageRepo() {
             <DialogActions sx={{ flexWrap: "wrap", gap: 0.5, justifyContent: isMobile ? "space-between" : undefined }}>
               <Button
                 color="error"
-                size={isMobile ? "small" : "medium"}
+                size={btnSize}
                 onClick={() => setDeleteConfirm(lightboxImage)}
               >
                 Delete
               </Button>
               <IconButton
-                size={isMobile ? "small" : undefined}
+                size={btnSize}
+                aria-label={favoritesSet.has(lightboxImage.path) ? "Unfavorite" : "Favorite"}
                 onClick={async () => {
                   if (!lightboxImage) return;
                   const prev = new Set(favoritesSet);
@@ -886,14 +888,14 @@ export default function ImageRepo() {
               </IconButton>
               <Button
                 startIcon={isMobile ? undefined : <DriveFileMove />}
-                size={isMobile ? "small" : "medium"}
+                size={btnSize}
                 onClick={() => handleOpenMoveDialog([lightboxImage.key])}
               >
                 Move to
               </Button>
               <Button
                 startIcon={isMobile ? undefined : <ContentCut />}
-                size={isMobile ? "small" : "medium"}
+                size={btnSize}
                 onClick={() => {
                   setCropResizeImage(lightboxImage);
                   setLightboxImage(null);
@@ -903,12 +905,12 @@ export default function ImageRepo() {
               </Button>
               <Button
                 variant="contained"
-                size={isMobile ? "small" : "medium"}
+                size={btnSize}
                 onClick={() => handleUseAsStartingImage(lightboxImage)}
               >
                 {isMobile ? "New Job" : "Use as Starting Image"}
               </Button>
-              <Button size={isMobile ? "small" : "medium"} onClick={() => setLightboxImage(null)}>Close</Button>
+              <Button size={btnSize} onClick={() => setLightboxImage(null)}>Close</Button>
             </DialogActions>
           </>
         )}
