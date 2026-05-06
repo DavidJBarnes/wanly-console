@@ -48,6 +48,7 @@ import {
   moveImages,
   getFavorites,
   toggleFavorite,
+  getFavoriteImages,
 } from "../api/client";
 import type { ImageFolder, ImageFile, ImageJobInfo } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
@@ -91,6 +92,9 @@ export default function ImageRepo() {
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [favoritesView, setFavoritesView] = useState(false);
+  const [favImages, setFavImages] = useState<ImageFile[]>([]);
+  const [loadingFavImages, setLoadingFavImages] = useState(false);
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -288,9 +292,89 @@ export default function ImageRepo() {
           >
             {isMobile ? "New" : "New Folder"}
           </Button>
+          <Button
+            variant={favoritesView ? "contained" : "outlined"}
+            color={favoritesView ? "error" : "inherit"}
+            startIcon={isMobile ? undefined : <Favorite />}
+            size={isMobile ? "small" : "medium"}
+            onClick={async () => {
+              if (favoritesView) {
+                setFavoritesView(false);
+                return;
+              }
+              setFavoritesView(true);
+              setLoadingFavImages(true);
+              try {
+                const imgs = await getFavoriteImages();
+                setFavImages(imgs);
+              } catch {
+                // ignore
+              } finally {
+                setLoadingFavImages(false);
+              }
+            }}
+          >
+            {isMobile ? "Fav" : "Favorites"}
+          </Button>
         </Box>
 
-        {folders.length === 0 && !loading && (
+        {favoritesView && (
+          <>
+            {loadingFavImages && (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <CircularProgress />
+              </Box>
+            )}
+            {!loadingFavImages && favImages.length === 0 && (
+              <Box sx={{ textAlign: "center", py: 8 }}>
+                <Typography color="text.secondary">
+                  No favorited images yet.
+                </Typography>
+              </Box>
+            )}
+            {favImages.length > 0 && (
+              <>
+                <Grid container spacing={2}>
+                  {favImages.map((image) => (
+                    <Grid key={image.key} size={{ xs: 6, sm: 4, md: 3, lg: 2 }}>
+                      <Card sx={{ position: "relative" }}>
+                        <CardActionArea onClick={() => handleOpenLightbox(image)}>
+                          <CardMedia
+                            component="img"
+                            image={getFileUrl(image.path)}
+                            alt={image.filename}
+                            sx={{ height: 200, objectFit: "cover" }}
+                          />
+                          <Box sx={{ p: 1 }}>
+                            <Typography variant="caption" noWrap>
+                              {image.filename}
+                            </Typography>
+                          </Box>
+                        </CardActionArea>
+                        <Box sx={{ position: "absolute", top: 4, left: 4 }}>
+                          <FavoriteHeart
+                            favorited={true}
+                            onToggle={async () => {
+                              setFavImages((prev) => prev.filter((img) => img.path !== image.path));
+                              try {
+                                await toggleFavorite({ item_type: "image", item_ref: image.path });
+                                await fetchFavorites();
+                              } catch {
+                                setFavImages((prev) => [...prev, image]);
+                              }
+                            }}
+                          />
+                        </Box>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              </>
+            )}
+          </>
+        )}
+
+        {!favoritesView && folders.length === 0 && !loading && (
           <Box sx={{ textAlign: "center", py: 8 }}>
             <Typography color="text.secondary">
               No image folders found.
@@ -298,6 +382,8 @@ export default function ImageRepo() {
           </Box>
         )}
 
+        {!favoritesView && (
+          <>
         <Grid container spacing={2}>
           {[...folders]
             .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
@@ -357,6 +443,8 @@ export default function ImageRepo() {
               "& .MuiTablePagination-spacer": { display: "none" },
             }}
           />
+        )}
+          </>
         )}
 
         {/* New Folder Dialog */}

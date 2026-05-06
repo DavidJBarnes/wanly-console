@@ -349,6 +349,11 @@ export async function getImageFolder(date: string): Promise<ImageFile[]> {
   return data;
 }
 
+export async function getFavoriteImages(): Promise<ImageFile[]> {
+  const { data } = await api.get<ImageFile[]>("/images/favorites");
+  return data;
+}
+
 export async function deleteImage(path: string): Promise<void> {
   await api.delete("/images", { params: { path } });
 }
