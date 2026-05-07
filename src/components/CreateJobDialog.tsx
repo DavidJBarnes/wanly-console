@@ -176,8 +176,8 @@ export default function CreateJobDialog({
 
   // Pre-populate negative prompt from settings default when dialog opens
   useEffect(() => {
-    if (open && defaultNegativePrompt) {
-      setNegativePrompt(defaultNegativePrompt);
+    if (open) {
+      setNegativePrompt(defaultNegativePrompt || '');
     }
   }, [open, defaultNegativePrompt]);
 
@@ -535,6 +535,7 @@ export default function CreateJobDialog({
                 disabled={!negativePrompt}
                 sx={{ color: "text.disabled", p: 0.25 }}
                 title="Clear negative prompt"
+                aria-label="Clear negative prompt"
               >
                 <ClearOutlined sx={{ fontSize: 14 }} />
               </IconButton>
