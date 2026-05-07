@@ -112,6 +112,30 @@ function formatDuration(seconds: number) {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+const BRANCH_COLORS = [
+  "#e53935", "#1e88e5", "#43a047", "#fb8c00",
+  "#8e24aa", "#00acc1", "#f4511e", "#3949ab",
+];
+
+function buildGroups(segments: SegmentResponse[], job: JobDetailResponse) {
+  const groups: { filename: string; color: string }[] = [];
+  const seen = new Map<string, string>();
+  for (const seg of segments) {
+    const filename =
+      seg.start_image ??
+      (seg.index === 0
+        ? job.starting_image
+        : segments.find((s) => s.index === seg.index - 1)?.last_frame_path) ??
+      null;
+    if (!filename) continue;
+    if (!seen.has(filename)) {
+      seen.set(filename, BRANCH_COLORS[seen.size % BRANCH_COLORS.length]);
+      groups.push({ filename, color: seen.get(filename)! });
+    }
+  }
+  return groups;
+}
+
 function segmentRunTime(seg: SegmentResponse): string {
   if (!seg.claimed_at || !seg.completed_at) return "-";
   const ms =
@@ -648,12 +672,15 @@ export default function JobDetail() {
           </Box>
         </Box>
         {/* Desktop table */}
-        {!isMobile && (
+        {(() => {
+          const groups = buildGroups(job.segments, job);
+          const laneWidth = groups.length * 24 + 8 || 32;
+          return !isMobile && (
           <TableContainer>
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ width: 60 }}>#</TableCell>
+                  <TableCell sx={{ width: laneWidth, minWidth: laneWidth, px: 0.5 }} />
                   <TableCell sx={{ width: 120 }}>Start Image</TableCell>
                   <TableCell>Prompt</TableCell>
                   <TableCell sx={{ width: 120 }}>Output</TableCell>
@@ -669,7 +696,29 @@ export default function JobDetail() {
                 {job.segments.flatMap((seg) => {
                   const rows = [
                   <TableRow key={seg.id}>
-                    <TableCell>{seg.index}</TableCell>
+                    <TableCell sx={{ width: laneWidth, minWidth: laneWidth, p: 0 }}>
+                      <svg width={laneWidth} height={80}>
+                        {groups.map((group, idx) => {
+                          const segFilename =
+                            seg.start_image ??
+                            (seg.index === 0 ? job.starting_image : job.segments.find((s) => s.index === seg.index - 1)?.last_frame_path) ??
+                            null;
+                          const cx = idx * 24 + 12;
+                          const isActive = group.filename === segFilename;
+                          return (
+                            <g key={group.filename}>
+                              <line x1={cx} y1={0} x2={cx} y2={80} stroke={group.color} strokeWidth={2} />
+                              {isActive && (
+                                <>
+                                  <circle cx={cx} cy={40} r={5} fill={group.color} />
+                                  <line x1={cx + 5} y1={40} x2={laneWidth} y2={40} stroke={group.color} strokeWidth={2} />
+                                </>
+                              )}
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </TableCell>
                     <TableCell>
                       {(() => {
                         const img =
@@ -908,7 +957,14 @@ export default function JobDetail() {
                   ];
                   rows.push(
                     <TableRow key={`transition-${seg.id}`} sx={{ bgcolor: "action.hover" }}>
-                      <TableCell colSpan={10} sx={{ py: 0.5 }}>
+                      <TableCell sx={{ width: laneWidth, minWidth: laneWidth, p: 0 }}>
+                        <svg width={laneWidth} height={80}>
+                          {groups.map((group, idx) => (
+                            <line key={group.filename} x1={idx * 24 + 12} y1={0} x2={idx * 24 + 12} y2={80} stroke={group.color} strokeWidth={2} />
+                          ))}
+                        </svg>
+                      </TableCell>
+                      <TableCell colSpan={9} sx={{ py: 0.5 }}>
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                             <Typography variant="caption" color="text.secondary">Trim #{seg.index} Start:</Typography>
@@ -979,7 +1035,8 @@ export default function JobDetail() {
               </TableBody>
             </Table>
           </TableContainer>
-        )}
+          );
+        })()}
 
         {/* Mobile card layout */}
         {isMobile && (
