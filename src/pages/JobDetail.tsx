@@ -137,14 +137,18 @@ function resolveSegmentStartImage(
 }
 
 function buildGroups(segments: SegmentResponse[], job: JobDetailResponse): BranchGroup[] {
-  const groups: BranchGroup[] = [];
-  const seen = new Map<string, string>();
+  const counts = new Map<string, number>();
   for (const seg of segments) {
     const filename = resolveSegmentStartImage(seg, segments, job.starting_image);
     if (!filename) continue;
-    if (!seen.has(filename)) {
-      seen.set(filename, BRANCH_COLORS[seen.size % BRANCH_COLORS.length]);
-      groups.push({ filename, color: seen.get(filename)! });
+    counts.set(filename, (counts.get(filename) || 0) + 1);
+  }
+  const groups: BranchGroup[] = [];
+  let colorIdx = 0;
+  for (const [filename, count] of counts) {
+    if (count >= 2) {
+      groups.push({ filename, color: BRANCH_COLORS[colorIdx % BRANCH_COLORS.length] });
+      colorIdx++;
     }
   }
   return groups;
@@ -177,8 +181,9 @@ function LiveTimer({ since }: { since: string }) {
 function BranchLane({ groups, laneWidth, activeFilename }: { groups: BranchGroup[]; laneWidth: number; activeFilename: string | null }) {
   return (
     <svg
-      width={laneWidth}
-      height={80}
+      viewBox={`0 0 ${laneWidth} 100`}
+      preserveAspectRatio="none"
+      style={{ display: "block", width: laneWidth, height: "100%", minHeight: 80 }}
       role="img"
       aria-label={activeFilename ? `Segment branch: ${activeFilename}` : "Branch lanes"}
     >
@@ -187,11 +192,11 @@ function BranchLane({ groups, laneWidth, activeFilename }: { groups: BranchGroup
         const isActive = group.filename === activeFilename;
         return (
           <g key={group.filename}>
-            <line x1={cx} y1={0} x2={cx} y2={80} stroke={group.color} strokeWidth={2} />
+            <line x1={cx} y1={0} x2={cx} y2={100} stroke={group.color} strokeWidth={2} />
             {isActive && (
               <>
-                <circle cx={cx} cy={40} r={5} fill={group.color} />
-                <line x1={cx + 5} y1={40} x2={laneWidth} y2={40} stroke={group.color} strokeWidth={2} />
+                <circle cx={cx} cy={50} r={5} fill={group.color} />
+                <line x1={cx + 5} y1={50} x2={laneWidth} y2={50} stroke={group.color} strokeWidth={2} />
               </>
             )}
           </g>
@@ -476,7 +481,7 @@ export default function JobDetail() {
     !job.segments.some((s) =>
       ["pending", "claimed", "processing"].includes(s.status),
     );
-  const laneWidth = groups.length * 24 + 8 || 32;
+  const laneWidth = groups.length > 0 ? groups.length * 24 + 24 : 0;
 
   return (
     <Box>
@@ -721,8 +726,10 @@ export default function JobDetail() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ width: laneWidth, minWidth: laneWidth, px: 0.5 }} />
-                  <TableCell sx={{ width: 120 }}>Start Image</TableCell>
+                  {groups.length > 0 && (
+                    <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth }} />
+                  )}
+                  <TableCell sx={{ width: 120, ...(groups.length > 0 ? { pl: 0 } : {}) }}>Start Image</TableCell>
                   <TableCell>Prompt</TableCell>
                   <TableCell sx={{ width: 120 }}>Output</TableCell>
                   <TableCell sx={{ width: 80 }}>Swapped</TableCell>
@@ -737,14 +744,16 @@ export default function JobDetail() {
                 {job.segments.flatMap((seg) => {
                   const rows = [
                   <TableRow key={seg.id}>
-                    <TableCell sx={{ width: laneWidth, minWidth: laneWidth, p: 0 }}>
-                      <BranchLane
-                        groups={groups}
-                        laneWidth={laneWidth}
-                        activeFilename={resolveSegmentStartImage(seg, job.segments, job.starting_image)}
-                      />
-                    </TableCell>
-                    <TableCell>
+                    {groups.length > 0 && (
+                      <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth }}>
+                        <BranchLane
+                          groups={groups}
+                          laneWidth={laneWidth}
+                          activeFilename={resolveSegmentStartImage(seg, job.segments, job.starting_image)}
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell sx={groups.length > 0 ? { pl: 0 } : undefined}>
                       {(() => {
                         const img =
                           seg.start_image ??
@@ -980,15 +989,17 @@ export default function JobDetail() {
                     </TableCell>
                   </TableRow>
                   ];
-                  rows.push(
+                   rows.push(
                     <TableRow key={`transition-${seg.id}`} sx={{ bgcolor: "action.hover" }}>
-                      <TableCell sx={{ width: laneWidth, minWidth: laneWidth, p: 0 }}>
-                        <BranchLane
-                          groups={groups}
-                          laneWidth={laneWidth}
-                          activeFilename={null}
-                        />
-                      </TableCell>
+                      {groups.length > 0 && (
+                        <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth }}>
+                          <BranchLane
+                            groups={groups}
+                            laneWidth={laneWidth}
+                            activeFilename={null}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell colSpan={9} sx={{ py: 0.5 }}>
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
