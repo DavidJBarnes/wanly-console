@@ -450,6 +450,8 @@ export default function JobDetail() {
     loadFramePreview(framePreview.segId, framePreview.position, newTrim);
   };
 
+  const groups = useMemo(() => job ? buildGroups(job.segments, job) : [], [job]);
+
   if (loading) {
     return (
       <Box sx={{ textAlign: "center", py: 8 }}>
@@ -474,7 +476,6 @@ export default function JobDetail() {
     !job.segments.some((s) =>
       ["pending", "claimed", "processing"].includes(s.status),
     );
-  const groups = useMemo(() => buildGroups(job.segments, job), [job.segments, job]);
   const laneWidth = groups.length * 24 + 8 || 32;
 
   return (
