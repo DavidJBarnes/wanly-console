@@ -71,6 +71,7 @@ import {
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import type {
   JobDetailResponse,
   SegmentResponse,
@@ -1929,7 +1930,9 @@ function SegmentModal({
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const { presets: promptPresets, fetchPresets } = usePromptPresetStore();
+  const { negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
   const [prompt, setPrompt] = useState("");
+  const [negativePrompt, setNegativePrompt] = useState("");
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [faceswapEnabled, setFaceswapEnabled] = useState(DEFAULT_FACESWAP_ENABLED);
@@ -2010,9 +2013,17 @@ function SegmentModal({
     if (open) {
       fetchLoras();
       fetchPresets();
+      fetchSettings();
       getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
     }
-  }, [open, fetchLoras, fetchPresets]);
+  }, [open, fetchLoras, fetchPresets, fetchSettings]);
+
+  // Pre-populate negative prompt from settings default when modal opens
+  useEffect(() => {
+    if (open) {
+      setNegativePrompt(defaultNegativePrompt || '');
+    }
+  }, [open, defaultNegativePrompt]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on open + library load
   useEffect(() => {
@@ -2117,6 +2128,7 @@ function SegmentModal({
                 low_weight: l.low_weight,
               }))
             : null,
+        negative_prompt: negativePrompt.trim() || null,
       };
       await addSegment(jobId, body);
       onSubmitted();
@@ -2460,6 +2472,43 @@ function SegmentModal({
             <ClearOutlined sx={{ fontSize: 14 }} />
           </IconButton>
         </Box>
+
+        {/* ── Negative Prompt (accordion) ── */}
+        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
+          <AccordionSummary expandIcon={<ExpandMore />}>
+            <Typography variant="subtitle2">
+              Negative Prompt
+              {negativePrompt && (
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  {negativePrompt.length > 60 ? negativePrompt.slice(0, 60) + '…' : negativePrompt}
+                </Typography>
+              )}
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails sx={{ pt: 0 }}>
+            <TextField
+              label="Negative Prompt"
+              fullWidth
+              multiline
+              rows={3}
+              value={negativePrompt}
+              onChange={(e) => setNegativePrompt(e.target.value)}
+              helperText="Passed as negative conditioning to ComfyUI"
+            />
+            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
+              <IconButton
+                size="small"
+                onClick={() => setNegativePrompt("")}
+                disabled={!negativePrompt}
+                sx={{ color: "text.disabled", p: 0.25 }}
+                title="Clear negative prompt"
+                aria-label="Clear negative prompt"
+              >
+                <ClearOutlined sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Box>
+          </AccordionDetails>
+        </Accordion>
 
         {/* ── Video Settings (accordion) ── */}
         <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
