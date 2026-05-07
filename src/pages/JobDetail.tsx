@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Accordion,
   AccordionSummary,
@@ -117,16 +117,30 @@ const BRANCH_COLORS = [
   "#8e24aa", "#00acc1", "#f4511e", "#3949ab",
 ];
 
-function buildGroups(segments: SegmentResponse[], job: JobDetailResponse) {
-  const groups: { filename: string; color: string }[] = [];
+interface BranchGroup {
+  filename: string;
+  color: string;
+}
+
+function resolveSegmentStartImage(
+  seg: SegmentResponse,
+  segments: SegmentResponse[],
+  startingImage: string | null,
+): string | null {
+  return (
+    seg.start_image ??
+    (seg.index === 0
+      ? startingImage
+      : segments[seg.index - 1]?.last_frame_path) ??
+    null
+  );
+}
+
+function buildGroups(segments: SegmentResponse[], job: JobDetailResponse): BranchGroup[] {
+  const groups: BranchGroup[] = [];
   const seen = new Map<string, string>();
   for (const seg of segments) {
-    const filename =
-      seg.start_image ??
-      (seg.index === 0
-        ? job.starting_image
-        : segments.find((s) => s.index === seg.index - 1)?.last_frame_path) ??
-      null;
+    const filename = resolveSegmentStartImage(seg, segments, job.starting_image);
     if (!filename) continue;
     if (!seen.has(filename)) {
       seen.set(filename, BRANCH_COLORS[seen.size % BRANCH_COLORS.length]);
@@ -157,6 +171,33 @@ function LiveTimer({ since }: { since: string }) {
     <Typography variant="caption" sx={{ color: "warning.main", fontWeight: 600 }}>
       {formatDuration(elapsed)}
     </Typography>
+  );
+}
+
+function BranchLane({ groups, laneWidth, activeFilename }: { groups: BranchGroup[]; laneWidth: number; activeFilename: string | null }) {
+  return (
+    <svg
+      width={laneWidth}
+      height={80}
+      role="img"
+      aria-label={activeFilename ? `Segment branch: ${activeFilename}` : "Branch lanes"}
+    >
+      {groups.map((group, idx) => {
+        const cx = idx * 24 + 12;
+        const isActive = group.filename === activeFilename;
+        return (
+          <g key={group.filename}>
+            <line x1={cx} y1={0} x2={cx} y2={80} stroke={group.color} strokeWidth={2} />
+            {isActive && (
+              <>
+                <circle cx={cx} cy={40} r={5} fill={group.color} />
+                <line x1={cx + 5} y1={40} x2={laneWidth} y2={40} stroke={group.color} strokeWidth={2} />
+              </>
+            )}
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -433,6 +474,8 @@ export default function JobDetail() {
     !job.segments.some((s) =>
       ["pending", "claimed", "processing"].includes(s.status),
     );
+  const groups = useMemo(() => buildGroups(job.segments, job), [job.segments, job]);
+  const laneWidth = groups.length * 24 + 8 || 32;
 
   return (
     <Box>
@@ -672,10 +715,7 @@ export default function JobDetail() {
           </Box>
         </Box>
         {/* Desktop table */}
-        {(() => {
-          const groups = buildGroups(job.segments, job);
-          const laneWidth = groups.length * 24 + 8 || 32;
-          return !isMobile && (
+        {!isMobile && (
           <TableContainer>
             <Table>
               <TableHead>
@@ -697,27 +737,11 @@ export default function JobDetail() {
                   const rows = [
                   <TableRow key={seg.id}>
                     <TableCell sx={{ width: laneWidth, minWidth: laneWidth, p: 0 }}>
-                      <svg width={laneWidth} height={80}>
-                        {groups.map((group, idx) => {
-                          const segFilename =
-                            seg.start_image ??
-                            (seg.index === 0 ? job.starting_image : job.segments.find((s) => s.index === seg.index - 1)?.last_frame_path) ??
-                            null;
-                          const cx = idx * 24 + 12;
-                          const isActive = group.filename === segFilename;
-                          return (
-                            <g key={group.filename}>
-                              <line x1={cx} y1={0} x2={cx} y2={80} stroke={group.color} strokeWidth={2} />
-                              {isActive && (
-                                <>
-                                  <circle cx={cx} cy={40} r={5} fill={group.color} />
-                                  <line x1={cx + 5} y1={40} x2={laneWidth} y2={40} stroke={group.color} strokeWidth={2} />
-                                </>
-                              )}
-                            </g>
-                          );
-                        })}
-                      </svg>
+                      <BranchLane
+                        groups={groups}
+                        laneWidth={laneWidth}
+                        activeFilename={resolveSegmentStartImage(seg, job.segments, job.starting_image)}
+                      />
                     </TableCell>
                     <TableCell>
                       {(() => {
@@ -958,11 +982,11 @@ export default function JobDetail() {
                   rows.push(
                     <TableRow key={`transition-${seg.id}`} sx={{ bgcolor: "action.hover" }}>
                       <TableCell sx={{ width: laneWidth, minWidth: laneWidth, p: 0 }}>
-                        <svg width={laneWidth} height={80}>
-                          {groups.map((group, idx) => (
-                            <line key={group.filename} x1={idx * 24 + 12} y1={0} x2={idx * 24 + 12} y2={80} stroke={group.color} strokeWidth={2} />
-                          ))}
-                        </svg>
+                        <BranchLane
+                          groups={groups}
+                          laneWidth={laneWidth}
+                          activeFilename={null}
+                        />
                       </TableCell>
                       <TableCell colSpan={9} sx={{ py: 0.5 }}>
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
@@ -1035,8 +1059,7 @@ export default function JobDetail() {
               </TableBody>
             </Table>
           </TableContainer>
-          );
-        })()}
+        )}
 
         {/* Mobile card layout */}
         {isMobile && (
