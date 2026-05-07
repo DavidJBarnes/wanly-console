@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Accordion,
   AccordionSummary,
@@ -112,6 +112,44 @@ function formatDuration(seconds: number) {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+const BRANCH_COLORS = [
+  "#e53935", "#1e88e5", "#43a047", "#fb8c00",
+  "#8e24aa", "#00acc1", "#f4511e", "#3949ab",
+];
+
+interface BranchGroup {
+  filename: string;
+  color: string;
+}
+
+function resolveSegmentStartImage(
+  seg: SegmentResponse,
+  segments: SegmentResponse[],
+  startingImage: string | null,
+): string | null {
+  return (
+    seg.start_image ??
+    (seg.index === 0
+      ? startingImage
+      : segments[seg.index - 1]?.last_frame_path) ??
+    null
+  );
+}
+
+function buildGroups(segments: SegmentResponse[], job: JobDetailResponse): BranchGroup[] {
+  const groups: BranchGroup[] = [];
+  const seen = new Map<string, string>();
+  for (const seg of segments) {
+    const filename = resolveSegmentStartImage(seg, segments, job.starting_image);
+    if (!filename) continue;
+    if (!seen.has(filename)) {
+      seen.set(filename, BRANCH_COLORS[seen.size % BRANCH_COLORS.length]);
+      groups.push({ filename, color: seen.get(filename)! });
+    }
+  }
+  return groups;
+}
+
 function segmentRunTime(seg: SegmentResponse): string {
   if (!seg.claimed_at || !seg.completed_at) return "-";
   const ms =
@@ -133,6 +171,33 @@ function LiveTimer({ since }: { since: string }) {
     <Typography variant="caption" sx={{ color: "warning.main", fontWeight: 600 }}>
       {formatDuration(elapsed)}
     </Typography>
+  );
+}
+
+function BranchLane({ groups, laneWidth, activeFilename }: { groups: BranchGroup[]; laneWidth: number; activeFilename: string | null }) {
+  return (
+    <svg
+      width={laneWidth}
+      height={80}
+      role="img"
+      aria-label={activeFilename ? `Segment branch: ${activeFilename}` : "Branch lanes"}
+    >
+      {groups.map((group, idx) => {
+        const cx = idx * 24 + 12;
+        const isActive = group.filename === activeFilename;
+        return (
+          <g key={group.filename}>
+            <line x1={cx} y1={0} x2={cx} y2={80} stroke={group.color} strokeWidth={2} />
+            {isActive && (
+              <>
+                <circle cx={cx} cy={40} r={5} fill={group.color} />
+                <line x1={cx + 5} y1={40} x2={laneWidth} y2={40} stroke={group.color} strokeWidth={2} />
+              </>
+            )}
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -409,6 +474,8 @@ export default function JobDetail() {
     !job.segments.some((s) =>
       ["pending", "claimed", "processing"].includes(s.status),
     );
+  const groups = useMemo(() => buildGroups(job.segments, job), [job.segments, job]);
+  const laneWidth = groups.length * 24 + 8 || 32;
 
   return (
     <Box>
@@ -653,7 +720,7 @@ export default function JobDetail() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ width: 60 }}>#</TableCell>
+                  <TableCell sx={{ width: laneWidth, minWidth: laneWidth, px: 0.5 }} />
                   <TableCell sx={{ width: 120 }}>Start Image</TableCell>
                   <TableCell>Prompt</TableCell>
                   <TableCell sx={{ width: 120 }}>Output</TableCell>
@@ -669,7 +736,13 @@ export default function JobDetail() {
                 {job.segments.flatMap((seg) => {
                   const rows = [
                   <TableRow key={seg.id}>
-                    <TableCell>{seg.index}</TableCell>
+                    <TableCell sx={{ width: laneWidth, minWidth: laneWidth, p: 0 }}>
+                      <BranchLane
+                        groups={groups}
+                        laneWidth={laneWidth}
+                        activeFilename={resolveSegmentStartImage(seg, job.segments, job.starting_image)}
+                      />
+                    </TableCell>
                     <TableCell>
                       {(() => {
                         const img =
@@ -908,7 +981,14 @@ export default function JobDetail() {
                   ];
                   rows.push(
                     <TableRow key={`transition-${seg.id}`} sx={{ bgcolor: "action.hover" }}>
-                      <TableCell colSpan={10} sx={{ py: 0.5 }}>
+                      <TableCell sx={{ width: laneWidth, minWidth: laneWidth, p: 0 }}>
+                        <BranchLane
+                          groups={groups}
+                          laneWidth={laneWidth}
+                          activeFilename={null}
+                        />
+                      </TableCell>
+                      <TableCell colSpan={9} sx={{ py: 0.5 }}>
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                             <Typography variant="caption" color="text.secondary">Trim #{seg.index} Start:</Typography>
