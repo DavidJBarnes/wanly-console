@@ -120,6 +120,8 @@ const BRANCH_COLORS = [
 interface BranchGroup {
   filename: string;
   color: string;
+  firstIndex: number;
+  lastIndex: number;
 }
 
 function resolveSegmentStartImage(
@@ -138,16 +140,25 @@ function resolveSegmentStartImage(
 
 function buildGroups(segments: SegmentResponse[], job: JobDetailResponse): BranchGroup[] {
   const counts = new Map<string, number>();
+  const firstIdx = new Map<string, number>();
+  const lastIdx = new Map<string, number>();
   for (const seg of segments) {
     const filename = resolveSegmentStartImage(seg, segments, job.starting_image);
     if (!filename) continue;
     counts.set(filename, (counts.get(filename) || 0) + 1);
+    if (!firstIdx.has(filename)) firstIdx.set(filename, seg.index);
+    lastIdx.set(filename, seg.index);
   }
   const groups: BranchGroup[] = [];
   let colorIdx = 0;
   for (const [filename, count] of counts) {
     if (count >= 2) {
-      groups.push({ filename, color: BRANCH_COLORS[colorIdx % BRANCH_COLORS.length] });
+      groups.push({
+        filename,
+        color: BRANCH_COLORS[colorIdx % BRANCH_COLORS.length],
+        firstIndex: firstIdx.get(filename)!,
+        lastIndex: lastIdx.get(filename)!,
+      });
       colorIdx++;
     }
   }
@@ -178,7 +189,8 @@ function LiveTimer({ since }: { since: string }) {
   );
 }
 
-function BranchLane({ groups, laneWidth, activeFilename }: { groups: BranchGroup[]; laneWidth: number; activeFilename: string | null }) {
+function BranchLane({ groups, laneWidth, activeFilename, segIndex }: { groups: BranchGroup[]; laneWidth: number; activeFilename: string | null; segIndex: number }) {
+  const showDot = activeFilename !== null;
   return (
     <svg
       viewBox={`0 0 ${laneWidth} 100`}
@@ -190,10 +202,23 @@ function BranchLane({ groups, laneWidth, activeFilename }: { groups: BranchGroup
       {groups.map((group, idx) => {
         const cx = idx * 24 + 12;
         const isActive = group.filename === activeFilename;
+        let y1: number;
+        let y2: number;
+
+        if (showDot) {
+          if (segIndex < group.firstIndex || segIndex > group.lastIndex) return null;
+          if (isActive && segIndex === group.firstIndex) { y1 = 50; y2 = 100; }
+          else if (isActive && segIndex === group.lastIndex) { y1 = 0; y2 = 50; }
+          else { y1 = 0; y2 = 100; }
+        } else {
+          if (segIndex < group.firstIndex || segIndex >= group.lastIndex) return null;
+          y1 = 0; y2 = 100;
+        }
+
         return (
           <g key={group.filename}>
-            <line x1={cx} y1={0} x2={cx} y2={100} stroke={group.color} strokeWidth={2} />
-            {isActive && (
+            <line x1={cx} y1={y1} x2={cx} y2={y2} stroke={group.color} strokeWidth={2} />
+            {isActive && showDot && (
               <>
                 <circle cx={cx} cy={50} r={5} fill={group.color} />
                 <line x1={cx + 5} y1={50} x2={laneWidth} y2={50} stroke={group.color} strokeWidth={2} />
@@ -751,6 +776,7 @@ export default function JobDetail() {
                             groups={groups}
                             laneWidth={laneWidth}
                             activeFilename={resolveSegmentStartImage(seg, job.segments, job.starting_image)}
+                            segIndex={seg.index}
                           />
                         </div>
                       </TableCell>
@@ -1000,6 +1026,7 @@ export default function JobDetail() {
                               groups={groups}
                               laneWidth={laneWidth}
                               activeFilename={null}
+                              segIndex={seg.index}
                             />
                           </div>
                         </TableCell>
