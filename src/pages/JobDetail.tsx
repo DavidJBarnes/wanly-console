@@ -715,6 +715,15 @@ export default function JobDetail() {
                           Resolved: {seg.prompt}
                         </Typography>
                       )}
+                      {seg.negative_prompt && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}
+                        >
+                          Negative: {seg.negative_prompt}
+                        </Typography>
+                      )}
                       {seg.error_message && (
                         <Alert severity="error" sx={{ mt: 1 }}>
                           {seg.error_message}
@@ -1147,6 +1156,15 @@ export default function JobDetail() {
                     {seg.prompt_template && (
                       <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic", display: "block" }}>
                         Resolved: {seg.prompt}
+                      </Typography>
+                    )}
+                    {seg.negative_prompt && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ fontStyle: "italic", display: "block" }}
+                      >
+                        Negative: {seg.negative_prompt}
                       </Typography>
                     )}
                     {seg.error_message && (

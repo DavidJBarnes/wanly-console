@@ -60,9 +60,10 @@ export default function CreateJobDialog({
   initialStartingImageUri,
 }: CreateJobDialogProps) {
   const isMobile = useIsMobile();
-  const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, fetchSettings } = useSettingsStore();
+  const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [negativePrompt, setNegativePrompt] = useState("");
   const [origWidth, setOrigWidth] = useState(DEFAULT_WIDTH);
   const [origHeight, setOrigHeight] = useState(DEFAULT_HEIGHT);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
@@ -173,6 +174,13 @@ export default function CreateJobDialog({
     }
   }, [open, fetchLoras, fetchTags]);
 
+  // Pre-populate negative prompt from settings default when dialog opens
+  useEffect(() => {
+    if (open && defaultNegativePrompt) {
+      setNegativePrompt(defaultNegativePrompt);
+    }
+  }, [open, defaultNegativePrompt]);
+
   // Apply initialStartingImage (File) when dialog opens
   useEffect(() => {
     if (open && initialStartingImage) {
@@ -243,6 +251,7 @@ export default function CreateJobDialog({
   const resetForm = useCallback(() => {
     setName("");
     setPrompt("");
+    setNegativePrompt("");
     setOrigWidth(DEFAULT_WIDTH);
     setOrigHeight(DEFAULT_HEIGHT);
     setWidth(DEFAULT_WIDTH);
@@ -332,6 +341,7 @@ export default function CreateJobDialog({
           faceswap_source_type: faceswapEnabled ? faceswapSourceType : null,
           faceswap_image: faceswapEnabled && faceswapSourceType === "preset" ? faceswapPresetUri : null,
           faceswap_faces_index: faceswapEnabled ? faceswapFacesIndex : null,
+          negative_prompt: negativePrompt.trim() || null,
           faceswap_faces_order: faceswapEnabled ? faceswapFacesOrder : null,
         },
       };
@@ -495,6 +505,42 @@ export default function CreateJobDialog({
             <ClearOutlined sx={{ fontSize: 14 }} />
           </IconButton>
         </Box>
+
+        {/* ── Negative Prompt (accordion) ── */}
+        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
+          <AccordionSummary expandIcon={<ExpandMore />}>
+            <Typography variant="subtitle2">
+              Negative Prompt
+              {negativePrompt && (
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  {negativePrompt.length > 60 ? negativePrompt.slice(0, 60) + '…' : negativePrompt}
+                </Typography>
+              )}
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails sx={{ pt: 0 }}>
+            <TextField
+              label="Negative Prompt"
+              fullWidth
+              multiline
+              rows={3}
+              value={negativePrompt}
+              onChange={(e) => setNegativePrompt(e.target.value)}
+              helperText="Passed as negative conditioning to ComfyUI"
+            />
+            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
+              <IconButton
+                size="small"
+                onClick={() => setNegativePrompt("")}
+                disabled={!negativePrompt}
+                sx={{ color: "text.disabled", p: 0.25 }}
+                title="Clear negative prompt"
+              >
+                <ClearOutlined sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Box>
+          </AccordionDetails>
+        </Accordion>
 
         {/* ── Video Settings (accordion) ── */}
         <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
