@@ -20,6 +20,7 @@ export interface SegmentCreate {
   faceswap_image?: string | null;
   faceswap_faces_order?: string | null;
   faceswap_faces_index?: string | null;
+  negative_prompt?: string | null;
   auto_finalize?: boolean;
   transition?: string | null;
 }
@@ -146,6 +147,7 @@ export interface SegmentResponse {
   motion_keywords: string[] | null;
   motion_magnitude: number | null;
   reference_frames: string[] | null;
+  negative_prompt: string | null;
   status: SegmentStatus;
   worker_id: string | null;
   worker_name: string | null;
