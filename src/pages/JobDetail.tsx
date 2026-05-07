@@ -183,7 +183,7 @@ function BranchLane({ groups, laneWidth, activeFilename }: { groups: BranchGroup
     <svg
       viewBox={`0 0 ${laneWidth} 100`}
       preserveAspectRatio="none"
-      style={{ display: "block", width: laneWidth, height: "100%", minHeight: 80 }}
+      style={{ display: "block", width: "100%", height: "100%" }}
       role="img"
       aria-label={activeFilename ? `Segment branch: ${activeFilename}` : "Branch lanes"}
     >
@@ -745,12 +745,14 @@ export default function JobDetail() {
                   const rows = [
                   <TableRow key={seg.id}>
                     {groups.length > 0 && (
-                      <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth }}>
-                        <BranchLane
-                          groups={groups}
-                          laneWidth={laneWidth}
-                          activeFilename={resolveSegmentStartImage(seg, job.segments, job.starting_image)}
-                        />
+                      <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth, position: "relative" }}>
+                        <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}>
+                          <BranchLane
+                            groups={groups}
+                            laneWidth={laneWidth}
+                            activeFilename={resolveSegmentStartImage(seg, job.segments, job.starting_image)}
+                          />
+                        </div>
                       </TableCell>
                     )}
                     <TableCell sx={groups.length > 0 ? { pl: 0 } : undefined}>
@@ -992,12 +994,14 @@ export default function JobDetail() {
                    rows.push(
                     <TableRow key={`transition-${seg.id}`} sx={{ bgcolor: "action.hover" }}>
                       {groups.length > 0 && (
-                        <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth }}>
-                          <BranchLane
-                            groups={groups}
-                            laneWidth={laneWidth}
-                            activeFilename={null}
-                          />
+                        <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth, position: "relative" }}>
+                          <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}>
+                            <BranchLane
+                              groups={groups}
+                              laneWidth={laneWidth}
+                              activeFilename={null}
+                            />
+                          </div>
                         </TableCell>
                       )}
                       <TableCell colSpan={9} sx={{ py: 0.5 }}>
