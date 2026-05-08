@@ -680,7 +680,19 @@ export default function ImageRepo() {
                   alt={image.filename}
                   sx={{ height: 200, objectFit: "cover" }}
                 />
-                <Box sx={{ p: 1 }}>
+                <Box sx={{ p: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <Box
+                    component="span"
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      flexShrink: 0,
+                      bgcolor: image.in_use ? "success.main" : "grey.400",
+                    }}
+                    aria-label={image.in_use ? "Used in a job" : "Not used in any job"}
+                    title={image.in_use ? "Used in a job" : "Not used in any job"}
+                  />
                   <Typography variant="caption" noWrap>
                     {image.filename}
                   </Typography>
