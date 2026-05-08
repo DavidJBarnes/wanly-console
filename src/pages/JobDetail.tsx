@@ -68,6 +68,7 @@ import {
   getSegmentFrames,
   getImageFolders,
   getImageFolder,
+  updateVideoTags,
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
@@ -254,6 +255,8 @@ export default function JobDetail() {
   const [archiving, setArchiving] = useState(false);
   const [trimValues, setTrimValues] = useState<Record<string, { start: number; end: number }>>({});
   const trimTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [videoTags, setVideoTags] = useState("");
+  const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [framePreview, setFramePreview] = useState<{
     anchorEl: HTMLElement | null;
     segId: string;
@@ -402,6 +405,24 @@ export default function JobDetail() {
     }
     setTrimValues(newTrimValues);
   }, [job]);
+
+  // Initialize tags from the finalized video when job loads
+  useEffect(() => {
+    if (!job) return;
+    const video = job.videos?.find((v) => v.status === "completed" && v.output_path);
+    setVideoTags(video?.tags ?? "");
+  }, [job]);
+
+  const handleVideoTagsChange = (newTags: string) => {
+    setVideoTags(newTags);
+    if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
+    tagSaveTimer.current = setTimeout(() => {
+      const video = job?.videos?.find((v) => v.status === "completed" && v.output_path);
+      if (video) {
+        updateVideoTags(video.id, newTags || null).catch(() => {});
+      }
+    }, 500);
+  };
 
   const handleTrimChange = (segId: string, field: "start" | "end", value: number) => {
     setTrimValues((prev) => ({
@@ -613,30 +634,58 @@ export default function JobDetail() {
                   loop={loopVideo}
                   sx={{ width: "100%", borderRadius: 1, display: "block" }}
                 />
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {finalVideo.duration_seconds != null ? formatDuration(finalVideo.duration_seconds) : ""}
-                  </Typography>
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <IconButton
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              {finalVideo.duration_seconds != null ? formatDuration(finalVideo.duration_seconds) : ""}
+            </Typography>
+            <Box sx={{ display: "flex", alignItems: "center" }}>
+              <IconButton
+                size="small"
+                onClick={() => setLoopVideo((v) => !v)}
+                color={loopVideo ? "primary" : "default"}
+                title={loopVideo ? "Loop on" : "Loop off"}
+              >
+                <Repeat fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                component="a"
+                href={getFileUrl(finalVideo.output_path, finalVideo.completed_at ?? undefined)}
+                download
+                target="_blank"
+              >
+                <Download fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
+          <Box sx={{ mt: 1.5 }}>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Add tags (comma separated)"
+              value={videoTags}
+              onChange={(e) => handleVideoTagsChange(e.target.value)}
+            />
+            {videoTags && (
+              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
+                {videoTags.split(",").map((tag, i) => {
+                  const trimmed = tag.trim();
+                  if (!trimmed) return null;
+                  return (
+                    <Chip
+                      key={i}
+                      label={trimmed}
                       size="small"
-                      onClick={() => setLoopVideo((v) => !v)}
-                      color={loopVideo ? "primary" : "default"}
-                      title={loopVideo ? "Loop on" : "Loop off"}
-                    >
-                      <Repeat fontSize="small" />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      component="a"
-                      href={getFileUrl(finalVideo.output_path, finalVideo.completed_at ?? undefined)}
-                      download
-                      target="_blank"
-                    >
-                      <Download fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Box>
+                      onDelete={() => {
+                        const tags = videoTags.split(",").map((t) => t.trim()).filter((t) => t && t !== trimmed);
+                        handleVideoTagsChange(tags.join(", "));
+                      }}
+                    />
+                  );
+                })}
+              </Box>
+            )}
+          </Box>
               </CardContent>
             </Card>
           );
