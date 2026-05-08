@@ -32,6 +32,7 @@ import type {
   FavoriteListResponse,
   AppSettingsResponse,
   AppSettingsUpdate,
+  VideoResponse,
 } from "./types";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 
@@ -77,6 +78,7 @@ export async function getJobs(params?: {
   status?: string;
   sort?: string;
   name?: string;
+  q?: string;
 }): Promise<JobListResponse> {
   const { data } = await api.get<JobListResponse>("/jobs", { params });
   return data;
@@ -456,6 +458,11 @@ export async function uploadFile(
 
 export async function toggleFavorite(body: FavoriteToggleRequest): Promise<FavoriteToggleResponse> {
   const { data } = await api.post<FavoriteToggleResponse>("/favorites/toggle", body);
+  return data;
+}
+
+export async function updateVideoTags(videoId: string, tags: string | null): Promise<VideoResponse> {
+  const { data } = await api.patch<VideoResponse>(`/videos/${videoId}/tags`, { tags });
   return data;
 }
 

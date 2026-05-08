@@ -120,6 +120,7 @@ export interface JobResponse {
   completed_segment_count: number;
   estimated_run_time: number | null;
   faceswap_enabled: boolean;
+  tags: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -181,6 +182,7 @@ export interface VideoResponse {
   duration_seconds: number | null;
   status: string;
   error_message: string | null;
+  tags: string | null;
   created_at: string;
   completed_at: string | null;
 }

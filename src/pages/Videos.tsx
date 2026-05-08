@@ -84,7 +84,7 @@ export default function Videos() {
         limit: rowsPerPage,
         offset: page * rowsPerPage,
         sort: "updated_at_desc",
-        name: debouncedQuery || undefined,
+        q: debouncedQuery || undefined,
       });
       setJobs(res.items);
       setTotal(res.total);
@@ -152,7 +152,7 @@ export default function Videos() {
         status: "finalized",
         limit: DEFAULT_JOB_FETCH_LIMIT,
         offset: 0,
-        name: debouncedQuery || undefined,
+        q: debouncedQuery || undefined,
       });
       const allJobs = favoritesOnly
         ? res.items.filter((j) => favoritesSet.has(j.id))
@@ -389,6 +389,17 @@ export default function Videos() {
                     <Typography variant="subtitle2" noWrap sx={{ mb: 0.5 }}>
                       {job.name}
                     </Typography>
+                    {job.tags && (
+                      <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.5 }}>
+                        {job.tags.split(",").map((tag, i) => {
+                          const trimmed = tag.trim();
+                          if (!trimmed) return null;
+                          return (
+                            <Chip key={i} label={trimmed} size="small" sx={{ height: 20, fontSize: 11 }} />
+                          );
+                        })}
+                      </Box>
+                    )}
                     <Typography variant="caption" color="text.secondary" component="div">
                       {detail ? `${detail.completed_segment_count} segments` : "..."} &middot;{" "}
                       {detail ? formatDuration(detail.total_video_time) : "..."} &middot;{" "}
