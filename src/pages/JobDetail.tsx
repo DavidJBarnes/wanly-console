@@ -255,7 +255,7 @@ export default function JobDetail() {
   const [archiving, setArchiving] = useState(false);
   const [trimValues, setTrimValues] = useState<Record<string, { start: number; end: number }>>({});
   const trimTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const [videoTags, setVideoTags] = useState("");
+  const [jobTags, setJobTags] = useState("");
   const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [framePreview, setFramePreview] = useState<{
     anchorEl: HTMLElement | null;
@@ -417,17 +417,19 @@ export default function JobDetail() {
   useEffect(() => {
     if (!job) return;
     if (tagSaveTimer.current) return;
-    setVideoTags(job.tags ?? "");
+    const tags = job.tags ?? job.videos?.find((v) => v.tags)?.tags ?? "";
+    setJobTags(tags);
   }, [job]);
 
-  const handleVideoTagsChange = (newTags: string) => {
-    setVideoTags(newTags);
+  const handleTagsChange = (newTags: string) => {
+    setJobTags(newTags);
     if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
     tagSaveTimer.current = setTimeout(() => {
       tagSaveTimer.current = undefined;
       if (id) {
         updateJob(id, { tags: newTags || null }).catch((err) => {
           console.error("Failed to save tags:", err);
+          setError("Failed to save tags");
         });
       }
     }, 500);
@@ -681,13 +683,13 @@ export default function JobDetail() {
             size="small"
             fullWidth
             placeholder="Add tags (comma separated)"
-            value={videoTags}
-            onChange={(e) => handleVideoTagsChange(e.target.value)}
+            value={jobTags}
+            onChange={(e) => handleTagsChange(e.target.value)}
             aria-label="Job tags"
           />
-          {videoTags && (
+          {jobTags && (
             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
-              {videoTags.split(",").map((tag, i) => {
+              {jobTags.split(",").map((tag, i) => {
                 const trimmed = tag.trim();
                 if (!trimmed) return null;
                 return (
@@ -696,8 +698,8 @@ export default function JobDetail() {
                     label={trimmed}
                     size="small"
                     onDelete={() => {
-                      const tags = videoTags.split(",").map((t) => t.trim()).filter((t) => t && t !== trimmed);
-                      handleVideoTagsChange(tags.join(", "));
+                      const tags = jobTags.split(",").map((t) => t.trim()).filter((t) => t && t !== trimmed);
+                      handleTagsChange(tags.join(", "));
                     }}
                   />
                 );
