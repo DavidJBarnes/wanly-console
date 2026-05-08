@@ -69,7 +69,6 @@ import {
   getSegmentFrames,
   getImageFolders,
   getImageFolder,
-  updateVideoTags,
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
@@ -414,12 +413,11 @@ export default function JobDetail() {
     };
   }, []);
 
-  // Initialize tags from the finalized video when job loads (only if no pending edits)
+  // Initialize tags from the job when loaded (only if no pending edits)
   useEffect(() => {
     if (!job) return;
     if (tagSaveTimer.current) return;
-    const video = job.videos?.find((v) => v.status === "completed" && v.output_path);
-    setVideoTags(video?.tags ?? "");
+    setVideoTags(job.tags ?? "");
   }, [job]);
 
   const handleVideoTagsChange = (newTags: string) => {
@@ -427,10 +425,9 @@ export default function JobDetail() {
     if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
     tagSaveTimer.current = setTimeout(() => {
       tagSaveTimer.current = undefined;
-      const video = job?.videos?.find((v) => v.status === "completed" && v.output_path);
-      if (video) {
-        updateVideoTags(video.id, newTags || null).catch((err) => {
-          console.error("Failed to save video tags:", err);
+      if (id) {
+        updateJob(id, { tags: newTags || null }).catch((err) => {
+          console.error("Failed to save tags:", err);
         });
       }
     }, 500);
@@ -670,40 +667,45 @@ export default function JobDetail() {
               </IconButton>
             </Box>
           </Box>
-          <Box sx={{ mt: 1.5 }}>
-            <TextField
-              size="small"
-              fullWidth
-              placeholder="Add tags (comma separated)"
-              value={videoTags}
-              onChange={(e) => handleVideoTagsChange(e.target.value)}
-              aria-label="Video tags"
-            />
-            {videoTags && (
-              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
-                {videoTags.split(",").map((tag, i) => {
-                  const trimmed = tag.trim();
-                  if (!trimmed) return null;
-                  return (
-                    <Chip
-                      key={i}
-                      label={trimmed}
-                      size="small"
-                      onDelete={() => {
-                        const tags = videoTags.split(",").map((t) => t.trim()).filter((t) => t && t !== trimmed);
-                        handleVideoTagsChange(tags.join(", "));
-                      }}
-                    />
-                  );
-                })}
-              </Box>
-            )}
-          </Box>
               </CardContent>
             </Card>
           );
         })()}
       </Box>
+
+      {/* Tags editor — always visible */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Tags</Typography>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="Add tags (comma separated)"
+            value={videoTags}
+            onChange={(e) => handleVideoTagsChange(e.target.value)}
+            aria-label="Job tags"
+          />
+          {videoTags && (
+            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
+              {videoTags.split(",").map((tag, i) => {
+                const trimmed = tag.trim();
+                if (!trimmed) return null;
+                return (
+                  <Chip
+                    key={i}
+                    label={trimmed}
+                    size="small"
+                    onDelete={() => {
+                      const tags = videoTags.split(",").map((t) => t.trim()).filter((t) => t && t !== trimmed);
+                      handleVideoTagsChange(tags.join(", "));
+                    }}
+                  />
+                );
+              })}
+            </Box>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Segments table */}
       <Card sx={{ mb: 3 }}>

@@ -206,6 +206,7 @@ export interface JobDetailResponse extends JobResponse {
 export interface JobUpdate {
   name?: string;
   status?: string;
+  tags?: string | null;
 }
 
 export type JobStatus =
