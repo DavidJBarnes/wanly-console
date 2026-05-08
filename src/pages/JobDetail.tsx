@@ -406,9 +406,17 @@ export default function JobDetail() {
     setTrimValues(newTrimValues);
   }, [job]);
 
-  // Initialize tags from the finalized video when job loads
+  // Cleanup tag save timer on unmount
+  useEffect(() => {
+    return () => {
+      if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
+    };
+  }, []);
+
+  // Initialize tags from the finalized video when job loads (only if no pending edits)
   useEffect(() => {
     if (!job) return;
+    if (tagSaveTimer.current) return;
     const video = job.videos?.find((v) => v.status === "completed" && v.output_path);
     setVideoTags(video?.tags ?? "");
   }, [job]);
@@ -417,9 +425,12 @@ export default function JobDetail() {
     setVideoTags(newTags);
     if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
     tagSaveTimer.current = setTimeout(() => {
+      tagSaveTimer.current = undefined;
       const video = job?.videos?.find((v) => v.status === "completed" && v.output_path);
       if (video) {
-        updateVideoTags(video.id, newTags || null).catch(() => {});
+        updateVideoTags(video.id, newTags || null).catch((err) => {
+          console.error("Failed to save video tags:", err);
+        });
       }
     }, 500);
   };
@@ -665,6 +676,7 @@ export default function JobDetail() {
               placeholder="Add tags (comma separated)"
               value={videoTags}
               onChange={(e) => handleVideoTagsChange(e.target.value)}
+              aria-label="Video tags"
             />
             {videoTags && (
               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
