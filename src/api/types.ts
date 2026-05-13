@@ -414,3 +414,12 @@ export interface AppSettingsUpdate {
   lightx2v_strength_low?: number;
   negative_prompt?: string;
 }
+
+export interface SegmentReprocessRequest {
+  faceswap_enabled: boolean;
+  faceswap_method?: string | null;
+  faceswap_source_type?: string | null;
+  faceswap_image?: string | null;
+  faceswap_faces_order?: string | null;
+  faceswap_faces_index?: string | null;
+}

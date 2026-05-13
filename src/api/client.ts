@@ -7,6 +7,7 @@ import type {
   JobUpdate,
   SegmentCreate,
   SegmentResponse,
+  SegmentReprocessRequest,
   FramePreviewResponse,
   WorkerResponse,
   LoraListItem,
@@ -198,6 +199,24 @@ export async function getSegmentFrames(
   const { data } = await api.get<FramePreviewResponse>(
     `/segments/${segmentId}/frames`,
     { params: { position, count, trim } },
+  );
+  return data;
+}
+
+export async function reprocessSegment(
+  segmentId: string,
+  body: SegmentReprocessRequest,
+  faceswapFile?: File,
+): Promise<SegmentResponse> {
+  const formData = new FormData();
+  formData.append("data", JSON.stringify(body));
+  if (faceswapFile) {
+    formData.append("faceswap_image", faceswapFile);
+  }
+  const { data } = await api.post<SegmentResponse>(
+    `/segments/${segmentId}/reprocess`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } },
   );
   return data;
 }

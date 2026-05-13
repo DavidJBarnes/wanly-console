@@ -15,12 +15,8 @@ import {
   TextField,
   MenuItem,
   Slider,
-  Switch,
-  FormControlLabel,
   Alert,
   IconButton,
-  ToggleButton,
-  ToggleButtonGroup,
 } from "@mui/material";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { ClearOutlined, ExpandMore } from "@mui/icons-material";
@@ -30,17 +26,14 @@ import { useTagStore } from "../stores/tagStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { createJob, getFileUrl, getFaceswapPresets, sha256Hex, checkStartingImageExists } from "../api/client";
 import type { JobCreate, LoraListItem, FaceswapPreset, PromptPreset } from "../api/types";
+import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "./FaceswapConfig";
 import {
   DEFAULT_WIDTH,
   DEFAULT_HEIGHT,
   DEFAULT_FPS,
   DEFAULT_DURATION,
   DEFAULT_SPEED,
-  DEFAULT_FACESWAP_ENABLED,
   DEFAULT_FACESWAP_SOURCE_TYPE,
-  DEFAULT_FACESWAP_METHOD,
-  DEFAULT_FACESWAP_FACES_INDEX,
-  DEFAULT_FACESWAP_FACES_ORDER,
   MAX_LORAS,
 } from "../constants";
 
@@ -125,14 +118,8 @@ export default function CreateJobDialog({
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
-  const [faceswapEnabled, setFaceswapEnabled] = useState(DEFAULT_FACESWAP_ENABLED);
-  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">(DEFAULT_FACESWAP_SOURCE_TYPE);
-  const [faceswapImage, setFaceswapImage] = useState<File | null>(null);
-  const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
+  const [faceswap, setFaceswap] = useState<FaceswapConfigState>(() => defaultFaceswapState({ sourceType: DEFAULT_FACESWAP_SOURCE_TYPE }));
   const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
-  const [faceswapMethod, setFaceswapMethod] = useState(DEFAULT_FACESWAP_METHOD);
-  const [faceswapFacesIndex, setFaceswapFacesIndex] = useState(DEFAULT_FACESWAP_FACES_INDEX);
-  const [faceswapFacesOrder, setFaceswapFacesOrder] = useState(DEFAULT_FACESWAP_FACES_ORDER);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -169,7 +156,7 @@ export default function CreateJobDialog({
       getFaceswapPresets().then((presets) => {
         setFaceswapPresets(presets);
         const kelly = presets.find((p) => p.name.toLowerCase() === "kelly_young.safetensors" || p.key.toLowerCase() === "kelly_young.safetensors.png");
-        if (kelly && !faceswapPresetUri) setFaceswapPresetUri(kelly.url);
+        if (kelly && !faceswap.presetUri) setFaceswap((prev) => ({ ...prev, presetUri: kelly.url }));
       }).catch(() => {});
     }
   }, [open, fetchLoras, fetchTags]);
@@ -272,13 +259,7 @@ export default function CreateJobDialog({
     }
     setImagePreview(null);
     setStartingImageUri(null);
-    setFaceswapEnabled(DEFAULT_FACESWAP_ENABLED);
-    setFaceswapSourceType(DEFAULT_FACESWAP_SOURCE_TYPE);
-    setFaceswapImage(null);
-    setFaceswapPresetUri(null);
-    setFaceswapMethod(DEFAULT_FACESWAP_METHOD);
-    setFaceswapFacesIndex(DEFAULT_FACESWAP_FACES_INDEX);
-    setFaceswapFacesOrder(DEFAULT_FACESWAP_FACES_ORDER);
+    setFaceswap(defaultFaceswapState({ sourceType: DEFAULT_FACESWAP_SOURCE_TYPE }));
     setLoras([]);
     setSelectedTag1("");
     setSelectedTag2("");
@@ -336,13 +317,13 @@ export default function CreateJobDialog({
                   low_weight: l.low_weight,
                 }))
               : null,
-          faceswap_enabled: faceswapEnabled,
-          faceswap_method: faceswapEnabled ? faceswapMethod : null,
-          faceswap_source_type: faceswapEnabled ? faceswapSourceType : null,
-          faceswap_image: faceswapEnabled && faceswapSourceType === "preset" ? faceswapPresetUri : null,
-          faceswap_faces_index: faceswapEnabled ? faceswapFacesIndex : null,
+          faceswap_enabled: faceswap.enabled,
+          faceswap_method: faceswap.enabled ? faceswap.method : null,
+          faceswap_source_type: faceswap.enabled ? faceswap.sourceType : null,
+          faceswap_image: faceswap.enabled && faceswap.sourceType === "preset" ? faceswap.presetUri : null,
+          faceswap_faces_index: faceswap.enabled ? faceswap.facesIndex : null,
           negative_prompt: negativePrompt.trim() || null,
-          faceswap_faces_order: faceswapEnabled ? faceswapFacesOrder : null,
+          faceswap_faces_order: faceswap.enabled ? faceswap.facesOrder : null,
         },
       };
 
@@ -351,10 +332,10 @@ export default function CreateJobDialog({
       if (startingImage && !reuseHash) {
         formData.append("starting_image", startingImage);
       }
-      if (faceswapEnabled && faceswapSourceType === "upload" && faceswapImage) {
-        formData.append("faceswap_image", faceswapImage);
+      if (faceswap.enabled && faceswap.sourceType === "upload" && faceswap.file) {
+        formData.append("faceswap_image", faceswap.file);
       }
-      if (faceswapEnabled && faceswapSourceType === "start_frame" && startingImage) {
+      if (faceswap.enabled && faceswap.sourceType === "start_frame" && startingImage) {
         formData.append("faceswap_image", startingImage);
       }
 
@@ -860,128 +841,13 @@ export default function CreateJobDialog({
         </Accordion>
 
         {/* ── Faceswap (accordion) ── */}
-        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMore />}>
-            <Typography variant="subtitle2">
-              Faceswap
-              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {faceswapEnabled ? `ON — ${faceswapMethod}` : "OFF"}
-              </Typography>
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={faceswapEnabled}
-                  onChange={(e) => setFaceswapEnabled(e.target.checked)}
-                />
-              }
-              label="Enable Faceswap"
-            />
-            {faceswapEnabled && (
-              <Box sx={{ mt: 1 }}>
-                <TextField
-                  label="Method"
-                  select
-                  size="small"
-                  fullWidth
-                  value={faceswapMethod}
-                  onChange={(e) => setFaceswapMethod(e.target.value)}
-                  sx={{ mb: 1 }}
-                >
-                  <MenuItem value="reactor">ReActor</MenuItem>
-                  <MenuItem value="facefusion">FaceFusion</MenuItem>
-                </TextField>
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
-                  <TextField
-                    label="Faces Index"
-                    size="small"
-                    value={faceswapFacesIndex}
-                    onChange={(e) => setFaceswapFacesIndex(e.target.value)}
-                    sx={{ flex: 1, minWidth: 120 }}
-                  />
-                  <TextField
-                    label="Faces Order"
-                    size="small"
-                    select
-                    value={faceswapFacesOrder}
-                    onChange={(e) => setFaceswapFacesOrder(e.target.value)}
-                    sx={{ flex: 1, minWidth: 120 }}
-                  >
-                    <MenuItem value="left-right">Left → Right</MenuItem>
-                    <MenuItem value="right-left">Right → Left</MenuItem>
-                    <MenuItem value="top-bottom">Top → Bottom</MenuItem>
-                    <MenuItem value="bottom-top">Bottom → Top</MenuItem>
-                    <MenuItem value="large-small">Large → Small</MenuItem>
-                    <MenuItem value="small-large">Small → Large</MenuItem>
-                  </TextField>
-                </Box>
-                <ToggleButtonGroup
-                  value={faceswapSourceType}
-                  exclusive
-                  onChange={(_e, v) => {
-                    if (v === null) return;
-                    setFaceswapSourceType(v);
-                    if (v !== "upload") setFaceswapImage(null);
-                    if (v !== "preset") setFaceswapPresetUri(null);
-                  }}
-                  size="small"
-                  fullWidth
-                  sx={{ mb: 1 }}
-                >
-                  <ToggleButton value="upload">Upload</ToggleButton>
-                  <ToggleButton value="preset">Preset</ToggleButton>
-                  <ToggleButton value="start_frame" disabled={!startingImage && !startingImageUri}>
-                    Start Frame
-                  </ToggleButton>
-                </ToggleButtonGroup>
-                {faceswapSourceType === "upload" && (
-                  <Button variant="outlined" size="small" component="label">
-                    {faceswapImage ? faceswapImage.name : "Choose Faceswap Image"}
-                    <input
-                      type="file"
-                      hidden
-                      accept="image/*"
-                      onChange={(e) =>
-                        setFaceswapImage(e.target.files?.[0] ?? null)
-                      }
-                    />
-                  </Button>
-                )}
-                {faceswapSourceType === "preset" && (
-                  <TextField
-                    label="Preset Face"
-                    select
-                    size="small"
-                    fullWidth
-                    value={faceswapPresetUri ?? ""}
-                    onChange={(e) => setFaceswapPresetUri(e.target.value || null)}
-                  >
-                    {faceswapPresets.map((p) => (
-                      <MenuItem key={p.key} value={p.url}>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                          <Box
-                            component="img"
-                            src={getFileUrl(p.url)}
-                            alt={p.name}
-                            sx={{
-                              width: 32,
-                              height: 32,
-                              objectFit: "cover",
-                              borderRadius: 0.5,
-                            }}
-                          />
-                          <Typography variant="body2">{p.name}</Typography>
-                        </Box>
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              </Box>
-            )}
-          </AccordionDetails>
-        </Accordion>
+        <FaceswapConfig
+          state={faceswap}
+          onChange={setFaceswap}
+          presets={faceswapPresets}
+          accordionSx={accordionSx}
+          disableStartFrame={!startingImage && !startingImageUri}
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
