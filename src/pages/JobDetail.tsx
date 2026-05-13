@@ -1534,7 +1534,6 @@ export default function JobDetail() {
         <ReprocessDialog
           open={!!reprocessSeg}
           segment={reprocessSeg}
-          jobId={job.id}
           onClose={() => setReprocessSeg(null)}
           onSubmitted={() => {
             setReprocessSeg(null);
@@ -2837,13 +2836,11 @@ function SegmentModal({
 function ReprocessDialog({
   open,
   segment,
-  jobId,
   onClose,
   onSubmitted,
 }: {
   open: boolean;
   segment: SegmentResponse;
-  jobId: string;
   onClose: () => void;
   onSubmitted: () => void;
 }) {
