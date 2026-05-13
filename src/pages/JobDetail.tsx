@@ -1073,6 +1073,7 @@ export default function JobDetail() {
                               size="small"
                               color="secondary"
                               onClick={() => setReprocessSeg(seg)}
+                              aria-label="Re-process segment with faceswap"
                             >
                               <Face fontSize="small" />
                             </IconButton>
@@ -1263,6 +1264,7 @@ export default function JobDetail() {
                             size="small"
                             color="secondary"
                             onClick={() => setReprocessSeg(seg)}
+                            aria-label="Re-process segment with faceswap"
                           >
                             <Face fontSize="small" />
                           </IconButton>
@@ -2944,6 +2946,7 @@ function ReprocessDialog({
           presets={faceswapPresets}
           accordionSx={accordionSx}
           defaultExpanded
+          disableStartFrame={!segment.start_image}
           existingImageName={existingFaceswapName && segment.faceswap_source_type !== "preset" ? existingFaceswapName : null}
         />
       </DialogContent>
