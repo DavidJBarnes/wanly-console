@@ -12,8 +12,6 @@ import {
   Button,
   TextField,
   MenuItem,
-  Switch,
-  FormControlLabel,
   Alert,
   CircularProgress,
   IconButton,
@@ -50,6 +48,7 @@ import {
   Visibility,
   ChevronLeft,
   ChevronRight,
+  Face,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -59,6 +58,7 @@ import {
   uploadFile,
   retrySegment,
   cancelSegment,
+  reprocessSegment,
   deleteSegment,
   deleteJob,
   reopenJob,
@@ -77,6 +77,7 @@ import type {
   JobDetailResponse,
   SegmentResponse,
   SegmentCreate,
+  SegmentReprocessRequest,
   LoraConfig,
   LoraListItem,
   FaceswapPreset,
@@ -86,10 +87,10 @@ import type {
   ImageFile,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
+import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import {
   DEFAULT_DURATION,
   DEFAULT_SPEED,
-  DEFAULT_FACESWAP_ENABLED,
   DEFAULT_FACESWAP_METHOD,
   DEFAULT_FACESWAP_FACES_INDEX,
   DEFAULT_FACESWAP_FACES_ORDER,
@@ -252,6 +253,7 @@ export default function JobDetail() {
   const [detailSeg, setDetailSeg] = useState<SegmentResponse | null>(null);
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
+  const [reprocessSeg, setReprocessSeg] = useState<SegmentResponse | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [trimValues, setTrimValues] = useState<Record<string, { start: number; end: number }>>({});
   const trimTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1065,6 +1067,17 @@ export default function JobDetail() {
                             </IconButton>
                           </Tooltip>
                         )}
+                        {seg.status === "completed" && (
+                          <Tooltip title="Re-process with Faceswap">
+                            <IconButton
+                              size="small"
+                              color="secondary"
+                              onClick={() => setReprocessSeg(seg)}
+                            >
+                              <Face fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {job.status !== "finalized" &&
                           (seg.status === "failed" ||
                             seg.status === "completed") &&
@@ -1243,6 +1256,15 @@ export default function JobDetail() {
                             ) : (
                               <Replay fontSize="small" />
                             )}
+                          </IconButton>
+                        )}
+                        {seg.status === "completed" && (
+                          <IconButton
+                            size="small"
+                            color="secondary"
+                            onClick={() => setReprocessSeg(seg)}
+                          >
+                            <Face fontSize="small" />
                           </IconButton>
                         )}
                         {job.status !== "finalized" &&
@@ -1504,6 +1526,20 @@ export default function JobDetail() {
           fetchJob();
         }}
       />
+
+      {/* Reprocess dialog */}
+      {reprocessSeg && (
+        <ReprocessDialog
+          open={!!reprocessSeg}
+          segment={reprocessSeg}
+          jobId={job.id}
+          onClose={() => setReprocessSeg(null)}
+          onSubmitted={() => {
+            setReprocessSeg(null);
+            fetchJob();
+          }}
+        />
+      )}
 
       {/* Delete confirm dialog */}
       <Dialog
@@ -2001,14 +2037,8 @@ function SegmentModal({
   const [negativePrompt, setNegativePrompt] = useState("");
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
-  const [faceswapEnabled, setFaceswapEnabled] = useState(DEFAULT_FACESWAP_ENABLED);
-  const [faceswapSourceType, setFaceswapSourceType] = useState<"upload" | "preset" | "start_frame">("upload");
-  const [faceswapMethod, setFaceswapMethod] = useState(DEFAULT_FACESWAP_METHOD);
-  const [faceswapFile, setFaceswapFile] = useState<File | null>(null);
-  const [faceswapPresetUri, setFaceswapPresetUri] = useState<string | null>(null);
+  const [faceswap, setFaceswap] = useState<FaceswapConfigState>(() => defaultFaceswapState());
   const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
-  const [faceswapFacesIndex, setFaceswapFacesIndex] = useState(DEFAULT_FACESWAP_FACES_INDEX);
-  const [faceswapFacesOrder, setFaceswapFacesOrder] = useState(DEFAULT_FACESWAP_FACES_ORDER);
   const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
   const [startImageMode, setStartImageMode] = useState<"auto" | "generated" | "repo" | "upload">("auto");
   const [startImagePath, setStartImagePath] = useState<string | null>(null);
@@ -2052,18 +2082,19 @@ function SegmentModal({
       setPrompt(lastSegment.prompt_template ?? lastSegment.prompt);
       setDuration(lastSegment.duration_seconds);
       setSpeed(lastSegment.speed);
-      setFaceswapEnabled(lastSegment.faceswap_enabled);
       const srcType = lastSegment.faceswap_source_type === "preset"
-        ? "preset"
+        ? "preset" as const
         : lastSegment.faceswap_source_type === "start_frame"
-          ? "start_frame"
-          : "upload";
-      setFaceswapSourceType(srcType);
-      setFaceswapMethod(lastSegment.faceswap_method ?? DEFAULT_FACESWAP_METHOD);
-      setFaceswapFile(null);
-      setFaceswapPresetUri(srcType === "preset" ? lastSegment.faceswap_image ?? null : null);
-      setFaceswapFacesIndex(lastSegment.faceswap_faces_index ?? DEFAULT_FACESWAP_FACES_INDEX);
-      setFaceswapFacesOrder(lastSegment.faceswap_faces_order ?? DEFAULT_FACESWAP_FACES_ORDER);
+          ? "start_frame" as const
+          : "upload" as const;
+      setFaceswap(defaultFaceswapState({
+        enabled: lastSegment.faceswap_enabled,
+        sourceType: srcType,
+        method: lastSegment.faceswap_method ?? DEFAULT_FACESWAP_METHOD,
+        presetUri: srcType === "preset" ? lastSegment.faceswap_image ?? null : null,
+        facesIndex: lastSegment.faceswap_faces_index ?? DEFAULT_FACESWAP_FACES_INDEX,
+        facesOrder: lastSegment.faceswap_faces_order ?? DEFAULT_FACESWAP_FACES_ORDER,
+      }));
       setStartImageMode("auto");
       setStartImagePath(null);
       setStartImageFile(null);
@@ -2153,14 +2184,13 @@ function SegmentModal({
     setSubmitting(true);
     try {
       let faceswapImageUri: string | null = null;
-      if (faceswapEnabled) {
-        if (faceswapSourceType === "preset") {
-          faceswapImageUri = faceswapPresetUri;
-        } else if (faceswapSourceType === "start_frame") {
-          // Use the effective start image for the next segment
+      if (faceswap.enabled) {
+        if (faceswap.sourceType === "preset") {
+          faceswapImageUri = faceswap.presetUri;
+        } else if (faceswap.sourceType === "start_frame") {
           faceswapImageUri = lastSegment?.last_frame_path ?? job.starting_image ?? null;
-        } else if (faceswapFile) {
-          const result = await uploadFile(faceswapFile, jobId);
+        } else if (faceswap.file) {
+          const result = await uploadFile(faceswap.file, jobId);
           faceswapImageUri = result.path;
         } else {
           faceswapImageUri = lastSegment?.faceswap_image ?? null;
@@ -2180,12 +2210,12 @@ function SegmentModal({
         duration_seconds: duration,
         speed,
         start_image: startImageUri,
-        faceswap_enabled: faceswapEnabled,
-        faceswap_method: faceswapEnabled ? faceswapMethod : null,
-        faceswap_source_type: faceswapEnabled ? faceswapSourceType : null,
+        faceswap_enabled: faceswap.enabled,
+        faceswap_method: faceswap.enabled ? faceswap.method : null,
+        faceswap_source_type: faceswap.enabled ? faceswap.sourceType : null,
         faceswap_image: faceswapImageUri,
-        faceswap_faces_index: faceswapEnabled ? faceswapFacesIndex : null,
-        faceswap_faces_order: faceswapEnabled ? faceswapFacesOrder : null,
+        faceswap_faces_index: faceswap.enabled ? faceswap.facesIndex : null,
+        faceswap_faces_order: faceswap.enabled ? faceswap.facesOrder : null,
         loras:
           loraSlots.length > 0
             ? loraSlots.map((l) => ({
@@ -2782,147 +2812,145 @@ function SegmentModal({
         </Accordion>
 
         {/* ── Faceswap (accordion) ── */}
-        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMore />}>
-            <Typography variant="subtitle2">
-              Faceswap
-              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {faceswapEnabled ? `ON — ${faceswapMethod}` : "OFF"}
-              </Typography>
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={faceswapEnabled}
-                  onChange={(e) => setFaceswapEnabled(e.target.checked)}
-                />
-              }
-              label="Enable Faceswap"
-            />
-            {faceswapEnabled && (
-              <Box sx={{ mt: 1 }}>
-                <TextField
-                  label="Method"
-                  select
-                  size="small"
-                  fullWidth
-                  value={faceswapMethod}
-                  onChange={(e) => setFaceswapMethod(e.target.value)}
-                  sx={{ mb: 1 }}
-                >
-                  <MenuItem value="reactor">ReActor</MenuItem>
-                  <MenuItem value="facefusion">FaceFusion</MenuItem>
-                </TextField>
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
-                  <TextField
-                    label="Faces Index"
-                    size="small"
-                    value={faceswapFacesIndex}
-                    onChange={(e) => setFaceswapFacesIndex(e.target.value)}
-                    sx={{ flex: 1, minWidth: 120 }}
-                  />
-                  <TextField
-                    label="Faces Order"
-                    size="small"
-                    select
-                    value={faceswapFacesOrder}
-                    onChange={(e) => setFaceswapFacesOrder(e.target.value)}
-                    sx={{ flex: 1, minWidth: 120 }}
-                  >
-                    <MenuItem value="left-right">Left → Right</MenuItem>
-                    <MenuItem value="right-left">Right → Left</MenuItem>
-                    <MenuItem value="top-bottom">Top → Bottom</MenuItem>
-                    <MenuItem value="bottom-top">Bottom → Top</MenuItem>
-                    <MenuItem value="large-small">Large → Small</MenuItem>
-                    <MenuItem value="small-large">Small → Large</MenuItem>
-                  </TextField>
-                </Box>
-                <ToggleButtonGroup
-                  value={faceswapSourceType}
-                  exclusive
-                  onChange={(_e, v) => {
-                    if (v === null) return;
-                    setFaceswapSourceType(v);
-                    if (v !== "upload") setFaceswapFile(null);
-                    if (v !== "preset") setFaceswapPresetUri(null);
-                  }}
-                  size="small"
-                  fullWidth
-                  sx={{ mb: 1 }}
-                >
-                  <ToggleButton value="upload">Upload</ToggleButton>
-                  <ToggleButton value="preset">Preset</ToggleButton>
-                  <ToggleButton value="start_frame">Start Frame</ToggleButton>
-                </ToggleButtonGroup>
-                {faceswapSourceType === "upload" && (
-                  <>
-                    <Button variant="outlined" size="small" component="label">
-                      {faceswapFile
-                        ? faceswapFile.name
-                        : existingFaceswapName && lastSegment?.faceswap_source_type !== "preset"
-                          ? `Re-using: ${existingFaceswapName}`
-                          : "Choose Faceswap Image"}
-                      <input
-                        type="file"
-                        hidden
-                        accept="image/*"
-                        onChange={(e) =>
-                          setFaceswapFile(e.target.files?.[0] ?? null)
-                        }
-                      />
-                    </Button>
-                    {faceswapFile && existingFaceswapName && lastSegment?.faceswap_source_type !== "preset" && (
-                      <Button
-                        size="small"
-                        sx={{ ml: 1 }}
-                        onClick={() => setFaceswapFile(null)}
-                      >
-                        Reset to existing
-                      </Button>
-                    )}
-                  </>
-                )}
-                {faceswapSourceType === "preset" && (
-                  <TextField
-                    label="Preset Face"
-                    select
-                    size="small"
-                    fullWidth
-                    value={faceswapPresetUri ?? ""}
-                    onChange={(e) => setFaceswapPresetUri(e.target.value || null)}
-                  >
-                    {faceswapPresets.map((p) => (
-                      <MenuItem key={p.key} value={p.url}>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                          <Box
-                            component="img"
-                            src={getFileUrl(p.url)}
-                            alt={p.name}
-                            sx={{
-                              width: 32,
-                              height: 32,
-                              objectFit: "cover",
-                              borderRadius: 0.5,
-                            }}
-                          />
-                          <Typography variant="body2">{p.name}</Typography>
-                        </Box>
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              </Box>
-            )}
-          </AccordionDetails>
-        </Accordion>
+        <FaceswapConfig
+          state={faceswap}
+          onChange={setFaceswap}
+          presets={faceswapPresets}
+          accordionSx={accordionSx}
+          existingImageName={existingFaceswapName && lastSegment?.faceswap_source_type !== "preset" ? existingFaceswapName : null}
+        />
 
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="contained" onClick={handleSubmit} disabled={submitting}>
           {submitting ? "Submitting..." : "Submit"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+
+function ReprocessDialog({
+  open,
+  segment,
+  jobId,
+  onClose,
+  onSubmitted,
+}: {
+  open: boolean;
+  segment: SegmentResponse;
+  jobId: string;
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+  const [faceswap, setFaceswap] = useState<FaceswapConfigState>(() => defaultFaceswapState());
+  const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const accordionSx = { "&:before": { display: "none" }, boxShadow: "none", border: "1px solid", borderColor: "divider", borderRadius: "8px !important", mb: 1 };
+
+  useEffect(() => {
+    if (open) {
+      const srcType = segment.faceswap_source_type === "preset"
+        ? "preset" as const
+        : segment.faceswap_source_type === "start_frame"
+          ? "start_frame" as const
+          : "upload" as const;
+      setFaceswap(defaultFaceswapState({
+        enabled: true,
+        sourceType: segment.faceswap_source_type ? srcType : "upload",
+        method: segment.faceswap_method ?? DEFAULT_FACESWAP_METHOD,
+        presetUri: srcType === "preset" ? segment.faceswap_image ?? null : null,
+        facesIndex: segment.faceswap_faces_index ?? DEFAULT_FACESWAP_FACES_INDEX,
+        facesOrder: segment.faceswap_faces_order ?? DEFAULT_FACESWAP_FACES_ORDER,
+      }));
+      setError("");
+      getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
+    }
+  }, [open, segment]);
+
+  const existingFaceswapName = segment.faceswap_image
+    ? segment.faceswap_image.split("/").pop() ?? "existing image"
+    : null;
+
+  const handleSubmit = async () => {
+    setError("");
+    setSubmitting(true);
+    try {
+      let faceswapImageUri: string | null = null;
+      if (faceswap.enabled) {
+        if (faceswap.sourceType === "preset") {
+          faceswapImageUri = faceswap.presetUri;
+        } else if (faceswap.sourceType === "start_frame") {
+          faceswapImageUri = segment.start_image ?? null;
+        } else if (faceswap.file) {
+          // New file — let the API endpoint handle upload
+        } else {
+          faceswapImageUri = segment.faceswap_image ?? null;
+        }
+      }
+
+      const body: SegmentReprocessRequest = {
+        faceswap_enabled: faceswap.enabled,
+        faceswap_method: faceswap.enabled ? faceswap.method : null,
+        faceswap_source_type: faceswap.enabled ? faceswap.sourceType : null,
+        faceswap_image: faceswapImageUri,
+        faceswap_faces_index: faceswap.enabled ? faceswap.facesIndex : null,
+        faceswap_faces_order: faceswap.enabled ? faceswap.facesOrder : null,
+      };
+
+      await reprocessSegment(
+        segment.id,
+        body,
+        faceswap.enabled && faceswap.sourceType === "upload" && faceswap.file
+          ? faceswap.file
+          : undefined,
+      );
+      onSubmitted();
+    } catch {
+      setError("Failed to reprocess segment");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+      <DialogTitle>Re-process Segment #{segment.index} with Faceswap</DialogTitle>
+      <DialogContent>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
+            {error}
+          </Alert>
+        )}
+
+        <Box sx={{ mt: 1, mb: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+            Prompt: {segment.prompt.length > 120 ? segment.prompt.slice(0, 120) + "..." : segment.prompt}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Duration: {segment.duration_seconds}s / Speed: {segment.speed}x
+          </Typography>
+        </Box>
+
+        <FaceswapConfig
+          state={faceswap}
+          onChange={setFaceswap}
+          presets={faceswapPresets}
+          accordionSx={accordionSx}
+          defaultExpanded
+          existingImageName={existingFaceswapName && segment.faceswap_source_type !== "preset" ? existingFaceswapName : null}
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={handleSubmit} disabled={submitting}>
+          {submitting ? "Re-processing..." : "Re-process"}
         </Button>
       </DialogActions>
     </Dialog>
