@@ -39,6 +39,7 @@ export default function SettingsPage() {
   } = useSettingsStore();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTags();
@@ -58,6 +59,7 @@ export default function SettingsPage() {
   const handleSaveDefaults = async () => {
     setSaving(true);
     setSaved(false);
+    setSaveError(null);
     try {
       await saveSettings({
         lightx2v_strength_high: parseFloat(defaultLightx2vHigh) || 2.0,
@@ -67,8 +69,11 @@ export default function SettingsPage() {
         negative_prompt: negativePrompt,
       });
       setSaved(true);
-    } catch {
-      // error handled silently
+    } catch (err) {
+      console.error("Failed to save app settings:", err);
+      const message =
+        err instanceof Error ? err.message : "Failed to save settings. Please try again.";
+      setSaveError(message);
     } finally {
       setSaving(false);
     }
@@ -257,6 +262,11 @@ export default function SettingsPage() {
                 {saved && (
                   <Alert severity="success" sx={{ mt: 1 }}>
                     Defaults saved
+                  </Alert>
+                )}
+                {saveError && (
+                  <Alert severity="error" sx={{ mt: 1 }} onClose={() => setSaveError(null)}>
+                    {saveError}
                   </Alert>
                 )}
               </Box>
