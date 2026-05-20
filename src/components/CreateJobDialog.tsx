@@ -88,7 +88,7 @@ export default function CreateJobDialog({
     const img = new window.Image();
     img.onload = () => {
       if (!mountedRef.current) return;
-      const oversize = img.naturalWidth > 1216 || img.naturalHeight > 832;
+      const oversize = img.naturalWidth >= 1216 || img.naturalHeight >= 832;
       const scalePct = oversize ? 75 : 100;
       setOrigWidth(img.naturalWidth);
       setOrigHeight(img.naturalHeight);
