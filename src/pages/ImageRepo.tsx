@@ -86,6 +86,7 @@ export default function ImageRepo() {
   const [moveTargetKeys, setMoveTargetKeys] = useState<string[]>([]);
   const [moving, setMoving] = useState(false);
   const [sortDesc, setSortDesc] = useState(true);
+  const pendingImagePathRef = useRef<string | null>(null);
   const [cropResizeImage, setCropResizeImage] = useState<ImageFile | null>(null);
   const [lightboxJobs, setLightboxJobs] = useState<ImageJobInfo[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
@@ -188,6 +189,7 @@ export default function ImageRepo() {
   };
 
   const handleUseAsStartingImage = (image: ImageFile) => {
+    pendingImagePathRef.current = image.path;
     setJobDialogImageUri(image.path);
     setLightboxImage(null);
     setJobDialogOpen(true);
@@ -1008,10 +1010,25 @@ export default function ImageRepo() {
         onClose={() => {
           setJobDialogOpen(false);
           setJobDialogImageUri(null);
+          pendingImagePathRef.current = null;
         }}
         onCreated={() => {
+          const path = pendingImagePathRef.current;
           setJobDialogOpen(false);
           setJobDialogImageUri(null);
+          pendingImagePathRef.current = null;
+          if (path) {
+            setImages((prev) =>
+              prev.map((img) =>
+                img.path === path ? { ...img, in_use: true } : img,
+              ),
+            );
+            setFavImages((prev) =>
+              prev.map((img) =>
+                img.path === path ? { ...img, in_use: true } : img,
+              ),
+            );
+          }
         }}
         initialStartingImageUri={jobDialogImageUri}
       />
