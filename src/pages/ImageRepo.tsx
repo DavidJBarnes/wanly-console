@@ -269,6 +269,249 @@ export default function ImageRepo() {
     }
   };
 
+  const dialogs = (
+    <>
+      {/* Lightbox Modal */}
+      <Dialog
+        open={!!lightboxImage}
+        onClose={() => setLightboxImage(null)}
+        maxWidth="lg"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        {lightboxImage && (
+          <>
+            <DialogTitle sx={{ pb: 0 }}>
+              {lightboxImage.filename}
+              <Typography variant="body2" color="text.secondary">
+                {formatBytes(lightboxImage.size)}
+              </Typography>
+            </DialogTitle>
+            <DialogContent sx={{ pt: 2 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: isMobile ? "column" : "row",
+                  gap: 2,
+                }}
+              >
+                {/* Left: Image */}
+                <Box
+                  sx={{
+                    flex: isMobile ? "none" : "2 1 0",
+                    minWidth: 0,
+                    textAlign: "center",
+                  }}
+                >
+                  <Box
+                    component="img"
+                    src={getFileUrl(lightboxImage.path)}
+                    alt={lightboxImage.filename}
+                    sx={{
+                      maxWidth: "100%",
+                      maxHeight: isMobile ? "50vh" : "70vh",
+                      objectFit: "contain",
+                    }}
+                  />
+                </Box>
+
+                {/* Right: Jobs that used this image */}
+                <Box
+                  sx={{
+                    flex: isMobile ? "none" : "1 1 0",
+                    minWidth: 0,
+                    borderLeft: isMobile ? "none" : "1px solid",
+                    borderTop: isMobile ? "1px solid" : "none",
+                    borderColor: "divider",
+                    pl: isMobile ? 0 : 2,
+                    pt: isMobile ? 2 : 0,
+                    maxHeight: "70vh",
+                    overflowY: "auto",
+                  }}
+                >
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                    Jobs Using This Image
+                  </Typography>
+                  {loadingJobs ? (
+                    <Box sx={{ textAlign: "center", py: 4 }}>
+                      <CircularProgress size={24} />
+                    </Box>
+                  ) : lightboxJobs.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No Jobs have used this image
+                    </Typography>
+                  ) : (
+                    <List dense disablePadding>
+                      {lightboxJobs.map((job) => (
+                        <ListItemButton
+                          key={job.id}
+                          onClick={() => {
+                            setLightboxImage(null);
+                            navigate(`/jobs/${job.id}`);
+                          }}
+                          sx={{ borderRadius: 1 }}
+                        >
+                          <ListItemText
+                            primary={job.name}
+                            primaryTypographyProps={{
+                              variant: "body2",
+                              sx: { color: "primary.main", cursor: "pointer" },
+                            }}
+                            secondary={new Date(job.created_at).toLocaleString()}
+                          />
+                        </ListItemButton>
+                      ))}
+                    </List>
+                  )}
+                </Box>
+              </Box>
+            </DialogContent>
+            <DialogActions sx={{ flexWrap: "wrap", gap: isMobile ? 1.5 : 1 }}>
+              <Button
+                color="error"
+                size={btnSize}
+                onClick={() => setDeleteConfirm(lightboxImage)}
+              >
+                Delete
+              </Button>
+              <IconButton
+                size={btnSize}
+                aria-label={favoritesSet.has(lightboxImage.path) ? "Unfavorite" : "Favorite"}
+                onClick={async () => {
+                  if (!lightboxImage) return;
+                  const prev = new Set(favoritesSet);
+                  const nowFav = !prev.has(lightboxImage.path);
+                  if (nowFav) prev.add(lightboxImage.path); else prev.delete(lightboxImage.path);
+                  setFavoritesSet(prev);
+                  try {
+                    await toggleFavorite({ item_type: "image", item_ref: lightboxImage.path });
+                  } catch {
+                    setFavoritesSet(favoritesSet);
+                  }
+                }}
+                sx={{ color: favoritesSet.has(lightboxImage.path) ? "#e91e63" : undefined }}
+              >
+                <Favorite />
+              </IconButton>
+              <Button
+                startIcon={isMobile ? undefined : <DriveFileMove />}
+                size={btnSize}
+                onClick={() => handleOpenMoveDialog([lightboxImage.key])}
+              >
+                Move to
+              </Button>
+              <Button
+                startIcon={isMobile ? undefined : <ContentCut />}
+                size={btnSize}
+                onClick={() => {
+                  setCropResizeImage(lightboxImage);
+                  setLightboxImage(null);
+                }}
+              >
+                Crop & Resize
+              </Button>
+              <Button
+                variant="contained"
+                size={btnSize}
+                onClick={() => handleUseAsStartingImage(lightboxImage)}
+              >
+                {isMobile ? "New Job" : "Use as Starting Image"}
+              </Button>
+              <Button size={btnSize} onClick={() => setLightboxImage(null)} sx={{ ml: "auto" }}>Close</Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <Dialog
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        fullScreen={isMobile}
+      >
+        <DialogTitle>Delete Image?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete{" "}
+            <strong>{deleteConfirm?.filename}</strong>? This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={handleDeleteConfirm}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Move to Folder Dialog */}
+      <Dialog
+        open={moveDialogOpen}
+        onClose={() => setMoveDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogTitle>
+          Move {moveTargetKeys.length} image{moveTargetKeys.length > 1 ? "s" : ""} to...
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {moving ? (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <List>
+              {folders
+                .filter((f) => f.name !== currentFolder)
+                .map((f) => (
+                  <ListItemButton
+                    key={f.name}
+                    onClick={() => handleMove(f.name)}
+                  >
+                    <ListItemText primary={f.name} />
+                  </ListItemButton>
+                ))}
+              {folders.filter((f) => f.name !== currentFolder).length === 0 && (
+                <Box sx={{ textAlign: "center", py: 3 }}>
+                  <Typography color="text.secondary">
+                    No other folders available
+                  </Typography>
+                </Box>
+              )}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMoveDialogOpen(false)} disabled={moving}>
+            Cancel
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <CropResizeDialog
+        open={!!cropResizeImage}
+        image={cropResizeImage}
+        onClose={() => setCropResizeImage(null)}
+        onSaved={() => { if (currentFolder) fetchImages(currentFolder); }}
+      />
+
+      {/* Create Job Dialog */}
+      <CreateJobDialog
+        open={jobDialogOpen}
+        onClose={() => {
+          setJobDialogOpen(false);
+          setJobDialogImageUri(null);
+        }}
+        onCreated={() => {
+          setJobDialogOpen(false);
+          setJobDialogImageUri(null);
+        }}
+        initialStartingImageUri={jobDialogImageUri}
+      />
+    </>
+  );
+
   if (loading && folders.length === 0 && images.length === 0) {
     return (
       <Box>
@@ -486,6 +729,7 @@ export default function ImageRepo() {
             </Button>
           </DialogActions>
         </Dialog>
+        {dialogs}
       </Box>
     );
   }
@@ -779,259 +1023,7 @@ export default function ImageRepo() {
         />
       )}
 
-      {/* Lightbox Modal */}
-      <Dialog
-        open={!!lightboxImage}
-        onClose={() => setLightboxImage(null)}
-        maxWidth="lg"
-        fullWidth
-        fullScreen={isMobile}
-      >
-        {lightboxImage && (
-          <>
-            <DialogTitle sx={{ pb: 0 }}>
-              {lightboxImage.filename}
-              <Typography variant="body2" color="text.secondary">
-                {formatBytes(lightboxImage.size)}
-              </Typography>
-            </DialogTitle>
-            <DialogContent sx={{ pt: 2 }}>
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: isMobile ? "column" : "row",
-                  gap: 2,
-                }}
-              >
-                {/* Left: Image */}
-                <Box
-                  sx={{
-                    flex: isMobile ? "none" : "2 1 0",
-                    minWidth: 0,
-                    textAlign: "center",
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={getFileUrl(lightboxImage.path)}
-                    alt={lightboxImage.filename}
-                    sx={{
-                      maxWidth: "100%",
-                      maxHeight: isMobile ? "50vh" : "70vh",
-                      objectFit: "contain",
-                    }}
-                  />
-                </Box>
-
-                {/* Right: Jobs that used this image */}
-                <Box
-                  sx={{
-                    flex: isMobile ? "none" : "1 1 0",
-                    minWidth: 0,
-                    borderLeft: isMobile ? "none" : "1px solid",
-                    borderTop: isMobile ? "1px solid" : "none",
-                    borderColor: "divider",
-                    pl: isMobile ? 0 : 2,
-                    pt: isMobile ? 2 : 0,
-                    maxHeight: "70vh",
-                    overflowY: "auto",
-                  }}
-                >
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                    Jobs Using This Image
-                  </Typography>
-                  {loadingJobs ? (
-                    <Box sx={{ textAlign: "center", py: 4 }}>
-                      <CircularProgress size={24} />
-                    </Box>
-                  ) : lightboxJobs.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No Jobs have used this image
-                    </Typography>
-                  ) : (
-                    <List dense disablePadding>
-                      {lightboxJobs.map((job) => (
-                        <ListItemButton
-                          key={job.id}
-                          onClick={() => {
-                            setLightboxImage(null);
-                            navigate(`/jobs/${job.id}`);
-                          }}
-                          sx={{ borderRadius: 1 }}
-                        >
-                          <ListItemText
-                            primary={job.name}
-                            primaryTypographyProps={{
-                              variant: "body2",
-                              sx: { color: "primary.main", cursor: "pointer" },
-                            }}
-                            secondary={new Date(job.created_at).toLocaleString()}
-                          />
-                        </ListItemButton>
-                      ))}
-                    </List>
-                  )}
-                </Box>
-              </Box>
-            </DialogContent>
-            <DialogActions sx={{ flexWrap: "wrap", gap: isMobile ? 1.5 : 1 }}>
-              <Button
-                color="error"
-                size={btnSize}
-                onClick={() => setDeleteConfirm(lightboxImage)}
-              >
-                Delete
-              </Button>
-              <IconButton
-                size={btnSize}
-                aria-label={favoritesSet.has(lightboxImage.path) ? "Unfavorite" : "Favorite"}
-                onClick={async () => {
-                  if (!lightboxImage) return;
-                  const prev = new Set(favoritesSet);
-                  const nowFav = !prev.has(lightboxImage.path);
-                  if (nowFav) prev.add(lightboxImage.path); else prev.delete(lightboxImage.path);
-                  setFavoritesSet(prev);
-                  try {
-                    await toggleFavorite({ item_type: "image", item_ref: lightboxImage.path });
-                  } catch {
-                    setFavoritesSet(favoritesSet);
-                  }
-                }}
-                sx={{ color: favoritesSet.has(lightboxImage.path) ? "#e91e63" : undefined }}
-              >
-                <Favorite />
-              </IconButton>
-              <Button
-                startIcon={isMobile ? undefined : <DriveFileMove />}
-                size={btnSize}
-                onClick={() => handleOpenMoveDialog([lightboxImage.key])}
-              >
-                Move to
-              </Button>
-              <Button
-                startIcon={isMobile ? undefined : <ContentCut />}
-                size={btnSize}
-                onClick={() => {
-                  setCropResizeImage(lightboxImage);
-                  setLightboxImage(null);
-                }}
-              >
-                Crop & Resize
-              </Button>
-              <Button
-                variant="contained"
-                size={btnSize}
-                onClick={() => handleUseAsStartingImage(lightboxImage)}
-              >
-                {isMobile ? "New Job" : "Use as Starting Image"}
-              </Button>
-              <Button size={btnSize} onClick={() => setLightboxImage(null)} sx={{ ml: "auto" }}>Close</Button>
-            </DialogActions>
-          </>
-        )}
-      </Dialog>
-
-      {/* Delete Confirmation */}
-      <Dialog
-        open={!!deleteConfirm}
-        onClose={() => setDeleteConfirm(null)}
-        fullScreen={isMobile}
-      >
-        <DialogTitle>Delete Image?</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete{" "}
-            <strong>{deleteConfirm?.filename}</strong>? This cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={handleDeleteConfirm}>
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Move to Folder Dialog */}
-      <Dialog
-        open={moveDialogOpen}
-        onClose={() => setMoveDialogOpen(false)}
-        maxWidth="xs"
-        fullWidth
-        fullScreen={isMobile}
-      >
-        <DialogTitle>
-          Move {moveTargetKeys.length} image{moveTargetKeys.length > 1 ? "s" : ""} to...
-        </DialogTitle>
-        <DialogContent sx={{ p: 0 }}>
-          {moving ? (
-            <Box sx={{ textAlign: "center", py: 4 }}>
-              <CircularProgress />
-            </Box>
-          ) : (
-            <List>
-              {folders
-                .filter((f) => f.name !== currentFolder)
-                .map((f) => (
-                  <ListItemButton
-                    key={f.name}
-                    onClick={() => handleMove(f.name)}
-                  >
-                    <ListItemText primary={f.name} />
-                  </ListItemButton>
-                ))}
-              {folders.filter((f) => f.name !== currentFolder).length === 0 && (
-                <Box sx={{ textAlign: "center", py: 3 }}>
-                  <Typography color="text.secondary">
-                    No other folders available
-                  </Typography>
-                </Box>
-              )}
-            </List>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setMoveDialogOpen(false)} disabled={moving}>
-            Cancel
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <CropResizeDialog
-        open={!!cropResizeImage}
-        image={cropResizeImage}
-        onClose={() => setCropResizeImage(null)}
-        onSaved={() => { if (currentFolder) fetchImages(currentFolder); }}
-      />
-
-      {/* Create Job Dialog */}
-      <CreateJobDialog
-        open={jobDialogOpen}
-        onClose={() => {
-          setJobDialogOpen(false);
-          setJobDialogImageUri(null);
-          pendingImagePathRef.current = null;
-        }}
-        onCreated={() => {
-          const path = pendingImagePathRef.current;
-          setJobDialogOpen(false);
-          setJobDialogImageUri(null);
-          pendingImagePathRef.current = null;
-          if (path) {
-            setImages((prev) =>
-              prev.map((img) =>
-                img.path === path ? { ...img, in_use: true } : img,
-              ),
-            );
-            setFavImages((prev) =>
-              prev.map((img) =>
-                img.path === path ? { ...img, in_use: true } : img,
-              ),
-            );
-          }
-        }}
-        initialStartingImageUri={jobDialogImageUri}
-      />
+      {dialogs}
     </Box>
   );
 }
