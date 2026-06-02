@@ -85,6 +85,9 @@ export default function ImageRepo() {
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveTargetKeys, setMoveTargetKeys] = useState<string[]>([]);
   const [moving, setMoving] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteKeys, setBulkDeleteKeys] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [sortDesc, setSortDesc] = useState(true);
   const pendingImagePathRef = useRef<string | null>(null);
   const [cropResizeImage, setCropResizeImage] = useState<ImageFile | null>(null);
@@ -245,6 +248,34 @@ export default function ImageRepo() {
       } catch {
         // ignore
       }
+    }
+  };
+
+  const handleOpenBulkDelete = (keys: string[]) => {
+    setBulkDeleteKeys(keys);
+    setBulkDeleteOpen(true);
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (bulkDeleteKeys.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      for (const key of bulkDeleteKeys) {
+        const img = images.find((i) => i.key === key);
+        if (img) await deleteImage(img.path);
+      }
+      setImages((prev) => prev.filter((img) => !bulkDeleteKeys.includes(img.key)));
+      if (lightboxImage && bulkDeleteKeys.includes(lightboxImage.key)) {
+        setLightboxImage(null);
+      }
+      setSelectedKeys(new Set());
+      setSelectMode(false);
+      setBulkDeleteOpen(false);
+      setBulkDeleteKeys([]);
+    } catch {
+      // ignore
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -440,6 +471,35 @@ export default function ImageRepo() {
           <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
           <Button color="error" variant="contained" onClick={handleDeleteConfirm}>
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation */}
+      <Dialog
+        open={bulkDeleteOpen}
+        onClose={() => !bulkDeleting && setBulkDeleteOpen(false)}
+        fullScreen={isMobile}
+      >
+        <DialogTitle>Delete Images?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete{" "}
+            <strong>{bulkDeleteKeys.length} image{bulkDeleteKeys.length > 1 ? "s" : ""}</strong>?
+            This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkDeleteOpen(false)} disabled={bulkDeleting}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleBulkDeleteConfirm}
+            disabled={bulkDeleting}
+          >
+            {bulkDeleting ? <CircularProgress size={20} /> : `Delete ${bulkDeleteKeys.length} image${bulkDeleteKeys.length > 1 ? "s" : ""}`}
           </Button>
         </DialogActions>
       </Dialog>
@@ -781,6 +841,7 @@ export default function ImageRepo() {
         </Typography>
         <Box sx={{ flex: 1 }} />
         {selectMode && selectedKeys.size > 0 && (
+          <>
           <Button
             variant="contained"
             startIcon={isMobile ? undefined : <DriveFileMove />}
@@ -791,6 +852,18 @@ export default function ImageRepo() {
               ? `Move (${selectedKeys.size})`
               : `Move ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
           </Button>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={isMobile ? undefined : <Delete />}
+            size={isMobile ? "small" : "medium"}
+            onClick={() => handleOpenBulkDelete(Array.from(selectedKeys))}
+          >
+            {isMobile
+              ? `Del (${selectedKeys.size})`
+              : `Delete ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
+          </Button>
+          </>
         )}
         <Button
           variant="outlined"
