@@ -372,6 +372,14 @@ export interface ImageFile {
   size: number;
   last_modified: string;
   in_use: boolean;
+  tags: string | null;
+}
+
+export interface ImageSearchResponse {
+  items: ImageFile[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface FramePreview {

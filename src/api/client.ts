@@ -28,6 +28,7 @@ import type {
   ImageFolder,
   ImageFile,
   ImageJobInfo,
+  ImageSearchResponse,
   FavoriteToggleRequest,
   FavoriteToggleResponse,
   FavoriteListResponse,
@@ -395,6 +396,19 @@ export async function getImageJobs(path: string): Promise<ImageJobInfo[]> {
   const { data } = await api.get<ImageJobInfo[]>("/images/jobs", {
     params: { path },
   });
+  return data;
+}
+
+export async function updateImageTags(path: string, tags: string | null): Promise<void> {
+  await api.patch("/images/tags", { tags: tags || null }, { params: { path } });
+}
+
+export async function searchImages(params: {
+  q: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ImageSearchResponse> {
+  const { data } = await api.get<ImageSearchResponse>("/images/search", { params });
   return data;
 }
 
