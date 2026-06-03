@@ -375,6 +375,13 @@ export interface ImageFile {
   tags: string | null;
 }
 
+export interface ImageSearchResponse {
+  items: ImageFile[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface FramePreview {
   frame_index: number;
   data_url: string;

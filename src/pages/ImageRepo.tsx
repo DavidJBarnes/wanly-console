@@ -13,6 +13,7 @@ import {
   DialogActions,
   CircularProgress,
   Grid,
+  InputAdornment,
   TablePagination,
   TextField,
   Checkbox,
@@ -36,6 +37,7 @@ import {
   Favorite,
   NavigateNext,
   Refresh,
+  Search,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import {
@@ -51,6 +53,7 @@ import {
   toggleFavorite,
   getFavoriteImages,
   updateImageTags,
+  searchImages,
 } from "../api/client";
 import type { ImageFolder, ImageFile, ImageJobInfo } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
@@ -103,6 +106,14 @@ export default function ImageRepo() {
   const [loadingFavImages, setLoadingFavImages] = useState(false);
   const [lightboxTags, setLightboxTags] = useState("");
   const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<ImageFile[]>([]);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchPage, setSearchPage] = useState(0);
+  const [searchRowsPerPage, setSearchRowsPerPage] = useState(24);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -130,6 +141,43 @@ export default function ImageRepo() {
     }
     setLightboxTags(lightboxImage?.tags ?? "");
   }, [lightboxImage]);
+
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setSearchPage(0);
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery]);
+
+  const fetchSearchResults = useCallback(async () => {
+    if (!debouncedSearch) {
+      setSearchResults([]);
+      setSearchTotal(0);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const res = await searchImages({
+        q: debouncedSearch,
+        limit: searchRowsPerPage,
+        offset: searchPage * searchRowsPerPage,
+      });
+      setSearchResults(res.items);
+      setSearchTotal(res.total);
+    } catch {
+      // ignore
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [debouncedSearch, searchPage, searchRowsPerPage]);
+
+  useEffect(() => {
+    fetchSearchResults();
+  }, [fetchSearchResults]);
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -705,8 +753,121 @@ export default function ImageRepo() {
           >
             {isMobile ? "Fav" : "Favorites"}
           </Button>
+          <Box sx={{ flex: 1 }} />
+          <TextField
+            size="small"
+            placeholder="Search images by tag…"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setSearchPage(0);
+            }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search fontSize="small" />
+                  </InputAdornment>
+                ),
+              },
+            }}
+            sx={{ minWidth: 220 }}
+          />
         </Box>
 
+        {debouncedSearch && (
+          <>
+            {searchLoading && (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <CircularProgress />
+              </Box>
+            )}
+            {!searchLoading && searchResults.length === 0 && (
+              <Box sx={{ textAlign: "center", py: 8 }}>
+                <Typography color="text.secondary">
+                  No images found matching "{debouncedSearch}".
+                </Typography>
+              </Box>
+            )}
+            {searchResults.length > 0 && (
+              <>
+                <Grid container spacing={2}>
+                  {searchResults.map((image) => (
+                    <Grid key={image.key} size={{ xs: 6, sm: 4, md: 3, lg: 2 }}>
+                      <Card sx={{ position: "relative" }}>
+                        <CardActionArea onClick={() => handleOpenLightbox(image)}>
+                          <CardMedia
+                            component="img"
+                            image={getFileUrl(image.path)}
+                            alt={image.filename}
+                            sx={{ height: 200, objectFit: "cover" }}
+                          />
+                          <Box sx={{ p: 1 }}>
+                            <Typography variant="caption" noWrap>
+                              {image.filename}
+                            </Typography>
+                            {image.tags && (
+                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
+                                {image.tags.split(",").slice(0, 3).map((tag, i) => {
+                                  const trimmed = tag.trim();
+                                  if (!trimmed) return null;
+                                  return (
+                                    <Chip key={i} label={trimmed} size="small" sx={{ height: 20, fontSize: 11 }} />
+                                  );
+                                })}
+                              </Box>
+                            )}
+                          </Box>
+                        </CardActionArea>
+                        <Box sx={{ position: "absolute", top: 4, left: 4 }}>
+                          <FavoriteHeart
+                            favorited={favoritesSet.has(image.path)}
+                            onToggle={async () => {
+                              const prev = new Set(favoritesSet);
+                              const nowFav = !prev.has(image.path);
+                              if (nowFav) prev.add(image.path); else prev.delete(image.path);
+                              setFavoritesSet(prev);
+                              try {
+                                await toggleFavorite({ item_type: "image", item_ref: image.path });
+                              } catch {
+                                setFavoritesSet(favoritesSet);
+                              }
+                            }}
+                          />
+                        </Box>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+                <TablePagination
+                  component="div"
+                  count={searchTotal}
+                  page={searchPage}
+                  onPageChange={(_, p) => setSearchPage(p)}
+                  rowsPerPage={searchRowsPerPage}
+                  onRowsPerPageChange={(e) => {
+                    setSearchRowsPerPage(parseInt(e.target.value, 10));
+                    setSearchPage(0);
+                  }}
+                  rowsPerPageOptions={[24, 48, 96]}
+                  showFirstButton
+                  showLastButton
+                  sx={{
+                    "& .MuiTablePagination-toolbar": {
+                      flexWrap: "wrap",
+                      justifyContent: "center",
+                      px: 0,
+                    },
+                    "& .MuiTablePagination-spacer": { display: "none" },
+                  }}
+                />
+              </>
+            )}
+          </>
+        )}
+
+        {!debouncedSearch && (
+          <>
         {favoritesView && (
           <>
             {loadingFavImages && (
@@ -837,6 +998,8 @@ export default function ImageRepo() {
         )}
           </>
         )}
+          </>
+        )}
 
         {/* New Folder Dialog */}
         <Dialog open={newFolderOpen} onClose={() => setNewFolderOpen(false)} fullScreen={isMobile}>
@@ -916,6 +1079,25 @@ export default function ImageRepo() {
           {currentFolder}
         </Typography>
         <Box sx={{ flex: 1 }} />
+        <TextField
+          size="small"
+          placeholder="Search images by tag…"
+          value={searchQuery}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setSearchPage(0);
+          }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" />
+                </InputAdornment>
+              ),
+            },
+          }}
+          sx={{ minWidth: 220 }}
+        />
         {selectMode && selectedKeys.size > 0 && (
           <>
           <Button
@@ -1028,6 +1210,152 @@ export default function ImageRepo() {
         />
       </Box>
 
+      {debouncedSearch && (
+        <>
+          {searchLoading && (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+              <CircularProgress />
+            </Box>
+          )}
+          {!searchLoading && searchResults.length === 0 && (
+            <Box sx={{ textAlign: "center", py: 8 }}>
+              <Typography color="text.secondary">
+                No images found matching "{debouncedSearch}".
+              </Typography>
+            </Box>
+          )}
+          {searchResults.length > 0 && (
+            <>
+              <Grid container spacing={2}>
+                {searchResults.map((image) => (
+                  <Grid key={image.key} size={{ xs: 6, sm: 4, md: 3, lg: 2 }}>
+                    <Card
+                      sx={{ position: "relative" }}
+                      onMouseEnter={() => setHoveredCard(image.key)}
+                      onMouseLeave={() => setHoveredCard(null)}
+                    >
+                      <CardActionArea
+                        onClick={() =>
+                          selectMode ? toggleSelect(image.key) : handleOpenLightbox(image)
+                        }
+                      >
+                        <CardMedia
+                          component="img"
+                          image={getFileUrl(image.path)}
+                          alt={image.filename}
+                          sx={{ height: 200, objectFit: "cover" }}
+                        />
+                        <Box sx={{ p: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
+                          <Box
+                            component="span"
+                            sx={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              flexShrink: 0,
+                              bgcolor: "grey.500",
+                            }}
+                          />
+                          <Typography variant="caption" noWrap>
+                            {image.filename}
+                          </Typography>
+                        </Box>
+                        {image.tags && (
+                          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", px: 1, pb: 1 }}>
+                            {image.tags.split(",").slice(0, 3).map((tag, i) => {
+                              const trimmed = tag.trim();
+                              if (!trimmed) return null;
+                              return (
+                                <Chip key={i} label={trimmed} size="small" sx={{ height: 20, fontSize: 11 }} />
+                              );
+                            })}
+                          </Box>
+                        )}
+                      </CardActionArea>
+                      {selectMode && (
+                        <Checkbox
+                          checked={selectedKeys.has(image.key)}
+                          onChange={() => toggleSelect(image.key)}
+                          sx={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            bgcolor: "rgba(255,255,255,0.8)",
+                            borderRadius: "0 0 4px 0",
+                            p: 0.5,
+                          }}
+                        />
+                      )}
+                      {!selectMode && (
+                        <Box sx={{ position: "absolute", top: 4, left: 4 }}>
+                          <FavoriteHeart
+                            favorited={favoritesSet.has(image.path)}
+                            onToggle={async () => {
+                              const prev = new Set(favoritesSet);
+                              const nowFav = !prev.has(image.path);
+                              if (nowFav) prev.add(image.path); else prev.delete(image.path);
+                              setFavoritesSet(prev);
+                              try {
+                                await toggleFavorite({ item_type: "image", item_ref: image.path });
+                              } catch {
+                                setFavoritesSet(favoritesSet);
+                              }
+                            }}
+                          />
+                        </Box>
+                      )}
+                      {!selectMode && hoveredCard === image.key && (
+                        <IconButton
+                          size="small"
+                          sx={{
+                            position: "absolute",
+                            top: 4,
+                            right: 4,
+                            bgcolor: "rgba(0,0,0,0.5)",
+                            color: "white",
+                            "&:hover": { bgcolor: "rgba(211,47,47,0.8)" },
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirm(image);
+                          }}
+                        >
+                          <Delete fontSize="small" />
+                        </IconButton>
+                      )}
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+              <TablePagination
+                component="div"
+                count={searchTotal}
+                page={searchPage}
+                onPageChange={(_, p) => setSearchPage(p)}
+                rowsPerPage={searchRowsPerPage}
+                onRowsPerPageChange={(e) => {
+                  setSearchRowsPerPage(parseInt(e.target.value, 10));
+                  setSearchPage(0);
+                }}
+                rowsPerPageOptions={[24, 48, 96]}
+                showFirstButton
+                showLastButton
+                sx={{
+                  "& .MuiTablePagination-toolbar": {
+                    flexWrap: "wrap",
+                    justifyContent: "center",
+                    px: 0,
+                  },
+                  "& .MuiTablePagination-spacer": { display: "none" },
+                }}
+              />
+            </>
+          )}
+        </>
+      )}
+
+      {!debouncedSearch && (
+        <>
       {loading && images.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8 }}>
           <CircularProgress />
@@ -1093,6 +1421,17 @@ export default function ImageRepo() {
                     {image.filename}
                   </Typography>
                 </Box>
+                {image.tags && (
+                  <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", px: 1, pb: 1 }}>
+                    {image.tags.split(",").slice(0, 3).map((tag, i) => {
+                      const trimmed = tag.trim();
+                      if (!trimmed) return null;
+                      return (
+                        <Chip key={i} label={trimmed} size="small" sx={{ height: 20, fontSize: 11 }} />
+                      );
+                    })}
+                  </Box>
+                )}
               </CardActionArea>
               {selectMode && (
                 <Checkbox
@@ -1173,6 +1512,8 @@ export default function ImageRepo() {
           }}
         />
       )}
+          </>
+        )}
 
       {dialogs}
     </Box>
