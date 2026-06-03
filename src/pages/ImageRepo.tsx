@@ -59,6 +59,7 @@ import type { ImageFolder, ImageFile, ImageJobInfo } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
+import { useTagStore } from "../stores/tagStore";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -114,6 +115,7 @@ export default function ImageRepo() {
   const [searchPage, setSearchPage] = useState(0);
   const [searchRowsPerPage, setSearchRowsPerPage] = useState(24);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const { titleTags1, titleTags2, fetchTags } = useTagStore();
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -152,6 +154,10 @@ export default function ImageRepo() {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
   }, [searchQuery]);
+
+  useEffect(() => {
+    fetchTags();
+  }, [fetchTags]);
 
   const fetchSearchResults = useCallback(async () => {
     if (!debouncedSearch) {
@@ -514,6 +520,44 @@ export default function ImageRepo() {
                             />
                           );
                         })}
+                      </Box>
+                    )}
+                    {(titleTags1.length > 0 || titleTags2.length > 0) && (
+                      <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
+                        {titleTags1.map((tag) => (
+                          <Chip
+                            key={tag.id}
+                            label={tag.name}
+                            size="small"
+                            variant="outlined"
+                            onClick={() => {
+                              const current = lightboxTags
+                                .split(",")
+                                .map((t) => t.trim())
+                                .filter(Boolean);
+                              if (!current.includes(tag.name)) {
+                                handleTagsChange([...current, tag.name].join(", "));
+                              }
+                            }}
+                          />
+                        ))}
+                        {titleTags2.map((tag) => (
+                          <Chip
+                            key={tag.id}
+                            label={tag.name}
+                            size="small"
+                            variant="outlined"
+                            onClick={() => {
+                              const current = lightboxTags
+                                .split(",")
+                                .map((t) => t.trim())
+                                .filter(Boolean);
+                              if (!current.includes(tag.name)) {
+                                handleTagsChange([...current, tag.name].join(", "));
+                              }
+                            }}
+                          />
+                        ))}
                       </Box>
                     )}
                   </Box>
