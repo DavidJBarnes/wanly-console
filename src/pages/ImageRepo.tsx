@@ -749,6 +749,8 @@ export default function ImageRepo() {
               setFolderPage(0);
             }}
             rowsPerPageOptions={[12, 24, 48]}
+            showFirstButton
+            showLastButton
             sx={{
               "& .MuiTablePagination-toolbar": {
                 flexWrap: "wrap",
@@ -1085,6 +1087,8 @@ export default function ImageRepo() {
             setImagePage(0);
           }}
           rowsPerPageOptions={[24, 48, 96]}
+          showFirstButton
+          showLastButton
           sx={{
             "& .MuiTablePagination-toolbar": {
               flexWrap: "wrap",
