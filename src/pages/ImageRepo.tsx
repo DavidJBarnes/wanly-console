@@ -485,39 +485,39 @@ export default function ImageRepo() {
                       ))}
                     </List>
                   )}
-                </Box>
-              </Box>
-              <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
-              <Box>
-                <TextField
-                  size="small"
-                  fullWidth
-                  placeholder="Add tags (comma separated)"
-                  value={lightboxTags}
-                  onChange={(e) => handleTagsChange(e.target.value)}
-                  aria-label="Image tags"
-                />
-                {lightboxTags && (
-                  <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
-                    {lightboxTags.split(",").map((tag, i) => {
-                      const trimmed = tag.trim();
-                      if (!trimmed) return null;
-                      return (
-                        <Chip
-                          key={i}
-                          label={trimmed}
-                          size="small"
-                          onDelete={() => {
-                            const tags = lightboxTags.split(",")
-                              .map((t) => t.trim())
-                              .filter((t) => t && t !== trimmed);
-                            handleTagsChange(tags.join(", "));
-                          }}
-                        />
-                      );
-                    })}
+                  <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
+                  <Box>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      placeholder="Add tags (comma separated)"
+                      value={lightboxTags}
+                      onChange={(e) => handleTagsChange(e.target.value)}
+                      aria-label="Image tags"
+                    />
+                    {lightboxTags && (
+                      <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
+                        {lightboxTags.split(",").map((tag, i) => {
+                          const trimmed = tag.trim();
+                          if (!trimmed) return null;
+                          return (
+                            <Chip
+                              key={i}
+                              label={trimmed}
+                              size="small"
+                              onDelete={() => {
+                                const tags = lightboxTags.split(",")
+                                  .map((t) => t.trim())
+                                  .filter((t) => t && t !== trimmed);
+                                handleTagsChange(tags.join(", "));
+                              }}
+                            />
+                          );
+                        })}
+                      </Box>
+                    )}
                   </Box>
-                )}
+                </Box>
               </Box>
             </DialogContent>
             <DialogActions sx={{ flexWrap: "wrap", gap: isMobile ? 1.5 : 1 }}>
