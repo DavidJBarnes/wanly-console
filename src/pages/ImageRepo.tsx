@@ -16,6 +16,7 @@ import {
   TablePagination,
   TextField,
   Checkbox,
+  Chip,
   List,
   ListItemButton,
   ListItemText,
@@ -49,6 +50,7 @@ import {
   getFavorites,
   toggleFavorite,
   getFavoriteImages,
+  updateImageTags,
 } from "../api/client";
 import type { ImageFolder, ImageFile, ImageJobInfo } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
@@ -99,6 +101,8 @@ export default function ImageRepo() {
   const [favoritesView, setFavoritesView] = useState(false);
   const [favImages, setFavImages] = useState<ImageFile[]>([]);
   const [loadingFavImages, setLoadingFavImages] = useState(false);
+  const [lightboxTags, setLightboxTags] = useState("");
+  const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -112,6 +116,20 @@ export default function ImageRepo() {
   useEffect(() => {
     document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
   }, [imagePage]);
+
+  useEffect(() => {
+    return () => {
+      if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (tagSaveTimer.current) {
+      clearTimeout(tagSaveTimer.current);
+      tagSaveTimer.current = undefined;
+    }
+    setLightboxTags(lightboxImage?.tags ?? "");
+  }, [lightboxImage]);
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -196,6 +214,31 @@ export default function ImageRepo() {
     setJobDialogImageUri(image.path);
     setLightboxImage(null);
     setJobDialogOpen(true);
+  };
+
+  const handleTagsChange = (newTags: string) => {
+    setLightboxTags(newTags);
+    if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
+    tagSaveTimer.current = setTimeout(() => {
+      tagSaveTimer.current = undefined;
+      if (lightboxImage) {
+        const path = lightboxImage.path;
+        updateImageTags(path, newTags || null)
+          .then(() => {
+            setImages((prev) =>
+              prev.map((img) =>
+                img.path === path ? { ...img, tags: newTags || null } : img
+              )
+            );
+            setLightboxImage((prev) =>
+              prev && prev.path === path ? { ...prev, tags: newTags || null } : prev
+            );
+          })
+          .catch((err) => {
+            console.error("Failed to save image tags:", err);
+          });
+      }
+    }, 500);
   };
 
   const handleCreateFolder = async () => {
@@ -319,6 +362,37 @@ export default function ImageRepo() {
               </Typography>
             </DialogTitle>
             <DialogContent sx={{ pt: 2 }}>
+              <Box sx={{ mb: 2 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="Add tags (comma separated)"
+                  value={lightboxTags}
+                  onChange={(e) => handleTagsChange(e.target.value)}
+                  aria-label="Image tags"
+                />
+                {lightboxTags && (
+                  <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
+                    {lightboxTags.split(",").map((tag, i) => {
+                      const trimmed = tag.trim();
+                      if (!trimmed) return null;
+                      return (
+                        <Chip
+                          key={i}
+                          label={trimmed}
+                          size="small"
+                          onDelete={() => {
+                            const tags = lightboxTags.split(",")
+                              .map((t) => t.trim())
+                              .filter((t) => t && t !== trimmed);
+                            handleTagsChange(tags.join(", "));
+                          }}
+                        />
+                      );
+                    })}
+                  </Box>
+                )}
+              </Box>
               <Box
                 sx={{
                   display: "flex",

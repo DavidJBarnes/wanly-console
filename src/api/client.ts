@@ -398,6 +398,10 @@ export async function getImageJobs(path: string): Promise<ImageJobInfo[]> {
   return data;
 }
 
+export async function updateImageTags(path: string, tags: string | null): Promise<void> {
+  await api.patch("/images/tags", { tags: tags || null }, { params: { path } });
+}
+
 export async function uploadImage(file: File, folder: string): Promise<{ path: string }> {
   const formData = new FormData();
   formData.append("file", file);

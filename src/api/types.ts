@@ -372,6 +372,7 @@ export interface ImageFile {
   size: number;
   last_modified: string;
   in_use: boolean;
+  tags: string | null;
 }
 
 export interface FramePreview {
