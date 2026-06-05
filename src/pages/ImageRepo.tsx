@@ -76,6 +76,7 @@ export default function ImageRepo() {
   const [deleteConfirm, setDeleteConfirm] = useState<ImageFile | null>(null);
   const [jobDialogOpen, setJobDialogOpen] = useState(false);
   const [jobDialogImageUri, setJobDialogImageUri] = useState<string | null>(null);
+  const [jobDialogImageTags, setJobDialogImageTags] = useState<string | null>(null);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [folderPage, setFolderPage] = useState(0);
   const [foldersPerPage, setFoldersPerPage] = useState(12);
@@ -266,6 +267,7 @@ export default function ImageRepo() {
   const handleUseAsStartingImage = (image: ImageFile) => {
     pendingImagePathRef.current = image.path;
     setJobDialogImageUri(image.path);
+    setJobDialogImageTags(image.tags ?? null);
     setLightboxImage(null);
     setJobDialogOpen(true);
   };
@@ -729,12 +731,14 @@ export default function ImageRepo() {
         onClose={() => {
           setJobDialogOpen(false);
           setJobDialogImageUri(null);
+          setJobDialogImageTags(null);
           pendingImagePathRef.current = null;
         }}
         onCreated={() => {
           const path = pendingImagePathRef.current;
           setJobDialogOpen(false);
           setJobDialogImageUri(null);
+          setJobDialogImageTags(null);
           pendingImagePathRef.current = null;
           if (path) {
             setImages((prev) =>
@@ -750,6 +754,7 @@ export default function ImageRepo() {
           }
         }}
         initialStartingImageUri={jobDialogImageUri}
+        initialImageTags={jobDialogImageTags}
       />
     </>
   );
