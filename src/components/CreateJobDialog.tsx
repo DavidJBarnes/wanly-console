@@ -37,6 +37,14 @@ import {
   MAX_LORAS,
 } from "../constants";
 
+function splitAtoms(s: string): string[] {
+  return s
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .split(/[^a-zA-Z0-9]+/g)
+    .filter(Boolean)
+    .map((a) => a.toLowerCase());
+}
+
 interface CreateJobDialogProps {
   open: boolean;
   onClose: () => void;
@@ -143,6 +151,7 @@ export default function CreateJobDialog({
   }, [selectedTag1, selectedTag2, fps, nameManuallyEdited]);
 
   const autoSelectApplied = useRef(false);
+  const presetAutoSelectApplied = useRef(false);
 
   // Reset dropdowns when dialog opens with image tags
   useEffect(() => {
@@ -150,6 +159,7 @@ export default function CreateJobDialog({
       setSelectedTag1("");
       setSelectedTag2("");
       autoSelectApplied.current = false;
+      presetAutoSelectApplied.current = false;
     }
   }, [open, initialImageTags]);
 
@@ -237,6 +247,26 @@ export default function CreateJobDialog({
       setLoras([]);
     }
   };
+
+  // Auto-select preset from selected Tag 2 value via atom-based matching
+  useEffect(() => {
+    if (!open || !initialImageTags) return;
+    if (presetAutoSelectApplied.current) return;
+    if (!selectedTag2) return;
+    if (presets.length === 0) return;
+
+    const tagAtoms = splitAtoms(selectedTag2);
+    if (tagAtoms.length === 0) return;
+
+    const match = presets.find((p) => {
+      const presetAtoms = new Set(splitAtoms(p.name));
+      return tagAtoms.every((a) => presetAtoms.has(a));
+    });
+
+    if (match) applyPreset(match);
+
+    presetAutoSelectApplied.current = true;
+  }, [open, initialImageTags, selectedTag2, presets]);
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
     if (!item || loras.length >= MAX_LORAS) return;
