@@ -139,6 +139,7 @@ export default function CreateJobDialog({
   const { titleTags1, titleTags2, fetchTags } = useTagStore();
   const [selectedTag1, setSelectedTag1] = useState("");
   const [selectedTag2, setSelectedTag2] = useState("");
+  const [tags, setTags] = useState("");
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
 
   // Auto-generate name from tags + fps
@@ -158,6 +159,7 @@ export default function CreateJobDialog({
     if (open && initialImageTags) {
       setSelectedTag1("");
       setSelectedTag2("");
+      setTags(initialImageTags);
       autoSelectApplied.current = false;
       presetAutoSelectApplied.current = false;
     }
@@ -327,6 +329,7 @@ export default function CreateJobDialog({
     setSelectedTag1("");
     setSelectedTag2("");
     setNameManuallyEdited(false);
+    setTags("");
     setError("");
   }, [defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow]);
 
@@ -368,6 +371,7 @@ export default function CreateJobDialog({
         cfg_low: cfgLow ? parseFloat(cfgLow) : null,
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         starting_image_hash: reuseHash,
+        tags: tags || null,
         first_segment: {
           prompt: prompt.trim(),
           duration_seconds: duration,
@@ -900,6 +904,24 @@ export default function CreateJobDialog({
                 </Box>
               </Card>
             ))}
+          </AccordionDetails>
+        </Accordion>
+
+        {/* ── Tags (accordion, collapsed by default) ── */}
+        <Accordion defaultExpanded={false} sx={accordionSx}>
+          <AccordionSummary expandIcon={<ExpandMore />}>
+            <Typography variant="subtitle2">Tags</Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <TextField
+              label="Tags"
+              fullWidth
+              size="small"
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              placeholder="comma,separated,tags"
+              helperText="Comma-separated tags"
+            />
           </AccordionDetails>
         </Accordion>
 

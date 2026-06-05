@@ -100,6 +100,7 @@ export interface JobCreate {
   starting_image_uri?: string | null;
   starting_image_hash?: string | null;
   first_segment: SegmentCreate;
+  tags?: string | null;
 }
 
 export interface JobResponse {
