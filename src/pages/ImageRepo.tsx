@@ -729,10 +729,25 @@ export default function ImageRepo() {
         onClose={() => {
           setJobDialogOpen(false);
           setJobDialogImageUri(null);
+          pendingImagePathRef.current = null;
         }}
         onCreated={() => {
+          const path = pendingImagePathRef.current;
           setJobDialogOpen(false);
           setJobDialogImageUri(null);
+          pendingImagePathRef.current = null;
+          if (path) {
+            setImages((prev) =>
+              prev.map((img) =>
+                img.path === path ? { ...img, in_use: true } : img,
+              ),
+            );
+            setFavImages((prev) =>
+              prev.map((img) =>
+                img.path === path ? { ...img, in_use: true } : img,
+              ),
+            );
+          }
         }}
         initialStartingImageUri={jobDialogImageUri}
       />
