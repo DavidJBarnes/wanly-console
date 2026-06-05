@@ -43,6 +43,7 @@ interface CreateJobDialogProps {
   onCreated: () => void;
   initialStartingImage?: File | null;
   initialStartingImageUri?: string | null;
+  initialImageTags?: string | null;
 }
 
 export default function CreateJobDialog({
@@ -51,6 +52,7 @@ export default function CreateJobDialog({
   onCreated,
   initialStartingImage,
   initialStartingImageUri,
+  initialImageTags,
 }: CreateJobDialogProps) {
   const isMobile = useIsMobile();
   const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
@@ -139,6 +141,35 @@ export default function CreateJobDialog({
       setName(parts.join("_"));
     }
   }, [selectedTag1, selectedTag2, fps, nameManuallyEdited]);
+
+  const autoSelectApplied = useRef(false);
+
+  // Reset dropdowns when dialog opens with image tags
+  useEffect(() => {
+    if (open && initialImageTags) {
+      setSelectedTag1("");
+      setSelectedTag2("");
+      autoSelectApplied.current = false;
+    }
+  }, [open, initialImageTags]);
+
+  // Auto-select title tag dropdowns from image tags
+  useEffect(() => {
+    if (!open || !initialImageTags) return;
+    if (autoSelectApplied.current) return;
+    if (titleTags1.length === 0 && titleTags2.length === 0) return;
+
+    const tags = initialImageTags.split(",").map((t) => t.trim()).filter(Boolean);
+    const tagSet = new Set(tags);
+
+    const match1 = titleTags1.find((t) => tagSet.has(t.name));
+    const match2 = titleTags2.find((t) => tagSet.has(t.name));
+
+    if (match1) setSelectedTag1(match1.name);
+    if (match2) setSelectedTag2(match2.name);
+
+    autoSelectApplied.current = true;
+  }, [open, initialImageTags, titleTags1, titleTags2]);
 
   // Preset state
   const { presets, fetchPresets } = usePromptPresetStore();
