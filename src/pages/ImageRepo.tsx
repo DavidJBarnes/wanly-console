@@ -1374,29 +1374,6 @@ export default function ImageRepo() {
           {isMobile ? (favoritesOnly ? "Fav" : "Fav") : "Favorites"}
         </Button>
         <Button
-          variant="outlined"
-          startIcon={isMobile ? undefined : <PlayArrow />}
-          size={isMobile ? "small" : "medium"}
-          disabled={
-            !debouncedSearch && images.length === 0 ||
-            debouncedSearch && searchResults.length === 0 ||
-            favoritesOnly && !images.some((img) => favoritesSet.has(img.path))
-          }
-          onClick={() => {
-            let pool: ImageFile[];
-            if (debouncedSearch) {
-              pool = searchResults;
-            } else if (favoritesOnly) {
-              pool = images.filter((img) => favoritesSet.has(img.path));
-            } else {
-              pool = images;
-            }
-            handleOpenScreensaver(pool);
-          }}
-        >
-          {isMobile ? "Play" : "Play"}
-        </Button>
-        <Button
           variant={selectMode ? "contained" : "outlined"}
           startIcon={isMobile ? undefined : <CheckBoxIcon />}
           size={isMobile ? "small" : "medium"}
