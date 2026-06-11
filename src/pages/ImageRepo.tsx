@@ -964,19 +964,21 @@ export default function ImageRepo() {
           >
             {isMobile ? "Fav" : "Favorites"}
           </Button>
-          {(favoritesView && favImages.length > 0) || (debouncedSearch && searchResults.length > 0) ? (
-            <Button
-              variant="outlined"
-              startIcon={isMobile ? undefined : <PlayArrow />}
-              size={isMobile ? "small" : "medium"}
-              onClick={() => {
-                const pool = debouncedSearch ? searchResults : favImages;
-                handleOpenScreensaver(pool);
-              }}
-            >
-              {isMobile ? "Play" : "Play"}
-            </Button>
-          ) : null}
+          <Button
+            variant="outlined"
+            startIcon={isMobile ? undefined : <PlayArrow />}
+            size={isMobile ? "small" : "medium"}
+            disabled={
+              !(favoritesView && favImages.length > 0) &&
+              !(debouncedSearch && searchResults.length > 0)
+            }
+            onClick={() => {
+              const pool = debouncedSearch ? searchResults : favImages;
+              handleOpenScreensaver(pool);
+            }}
+          >
+            {isMobile ? "Play" : "Play"}
+          </Button>
           <Box sx={{ flex: 1 }} />
           <TextField
             size="small"
