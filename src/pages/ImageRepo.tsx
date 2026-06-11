@@ -34,8 +34,10 @@ import {
   CreateNewFolder,
   Delete,
   DriveFileMove,
+  Close,
   Favorite,
   NavigateNext,
+  PlayArrow,
   Refresh,
   Search,
 } from "@mui/icons-material";
@@ -65,6 +67,15 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
 }
 
 export default function ImageRepo() {
@@ -116,6 +127,9 @@ export default function ImageRepo() {
   const [searchPage, setSearchPage] = useState(0);
   const [searchRowsPerPage, setSearchRowsPerPage] = useState(24);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [screensaverOpen, setScreensaverOpen] = useState(false);
+  const [screensaverIndex, setScreensaverIndex] = useState(0);
+  const screensaverPoolRef = useRef<ImageFile[]>([]);
   const { titleTags1, titleTags2, fetchTags } = useTagStore();
   const navigate = useNavigate();
   const theme = useTheme();
@@ -159,6 +173,22 @@ export default function ImageRepo() {
   useEffect(() => {
     fetchTags();
   }, [fetchTags]);
+
+  // Screensaver auto-advance timer
+  useEffect(() => {
+    if (!screensaverOpen) return;
+    const timer = setInterval(() => {
+      setScreensaverIndex((prev) => {
+        const next = prev + 1;
+        if (next >= screensaverPoolRef.current.length) {
+          screensaverPoolRef.current = shuffleArray(screensaverPoolRef.current);
+          return 0;
+        }
+        return next;
+      });
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [screensaverOpen]);
 
   const fetchSearchResults = useCallback(async () => {
     if (!debouncedSearch) {
@@ -397,6 +427,13 @@ export default function ImageRepo() {
     } finally {
       setMoving(false);
     }
+  };
+
+  const handleOpenScreensaver = (pool: ImageFile[]) => {
+    if (pool.length === 0) return;
+    screensaverPoolRef.current = shuffleArray(pool);
+    setScreensaverIndex(0);
+    setScreensaverOpen(true);
   };
 
   const dialogs = (
@@ -756,6 +793,115 @@ export default function ImageRepo() {
         initialStartingImageUri={jobDialogImageUri}
         initialImageTags={jobDialogImageTags}
       />
+
+      {/* Screensaver */}
+      <Dialog
+        open={screensaverOpen}
+        onClose={() => setScreensaverOpen(false)}
+        fullScreen
+        PaperProps={{
+          sx: {
+            bgcolor: "#000",
+            backgroundImage: "none",
+            borderRadius: 0,
+          },
+        }}
+      >
+        <Box
+          sx={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            position: "relative",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+          onClick={() => {
+            setScreensaverIndex((prev) => {
+              const next = prev + 1;
+              if (next >= screensaverPoolRef.current.length) {
+                screensaverPoolRef.current = shuffleArray(screensaverPoolRef.current);
+                return 0;
+              }
+              return next;
+            });
+          }}
+        >
+          {screensaverPoolRef.current.length > 0 && (
+            <Box
+              component="img"
+              src={getFileUrl(screensaverPoolRef.current[screensaverIndex]?.path ?? "")}
+              alt={screensaverPoolRef.current[screensaverIndex]?.filename ?? ""}
+              sx={{
+                maxWidth: "100%",
+                maxHeight: "100%",
+                objectFit: "contain",
+                pointerEvents: "none",
+              }}
+            />
+          )}
+
+          {/* Close button */}
+          <IconButton
+            onClick={(e) => {
+              e.stopPropagation();
+              setScreensaverOpen(false);
+            }}
+            sx={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              color: "white",
+              bgcolor: "rgba(0,0,0,0.4)",
+              "&:hover": { bgcolor: "rgba(255,255,255,0.2)" },
+            }}
+          >
+            <Close />
+          </IconButton>
+
+          {/* Info overlay at bottom */}
+          {screensaverPoolRef.current.length > 0 && (
+            <Box
+              sx={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                p: 2,
+                background: "linear-gradient(transparent, rgba(0,0,0,0.7))",
+                color: "white",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-end",
+                pointerEvents: "none",
+              }}
+            >
+              <Box>
+                <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                  {screensaverPoolRef.current[screensaverIndex]?.filename}
+                </Typography>
+                {screensaverPoolRef.current[screensaverIndex]?.tags && (
+                  <Typography variant="body2" sx={{ opacity: 0.7 }}>
+                    {screensaverPoolRef.current[screensaverIndex]?.tags}
+                  </Typography>
+                )}
+              </Box>
+              <Typography variant="body2" sx={{ opacity: 0.7, ml: 2, flexShrink: 0 }}>
+                {screensaverIndex + 1} / {screensaverPoolRef.current.length}
+              </Typography>
+            </Box>
+          )}
+
+          {/* Pause indicator — appears briefly on pause via Space */}
+          {screensaverPoolRef.current.length === 0 && (
+            <Typography color="white" variant="h6">
+              No images to display
+            </Typography>
+          )}
+        </Box>
+      </Dialog>
     </>
   );
 
@@ -818,6 +964,19 @@ export default function ImageRepo() {
           >
             {isMobile ? "Fav" : "Favorites"}
           </Button>
+          {(favoritesView && favImages.length > 0) || (debouncedSearch && searchResults.length > 0) ? (
+            <Button
+              variant="outlined"
+              startIcon={isMobile ? undefined : <PlayArrow />}
+              size={isMobile ? "small" : "medium"}
+              onClick={() => {
+                const pool = debouncedSearch ? searchResults : favImages;
+                handleOpenScreensaver(pool);
+              }}
+            >
+              {isMobile ? "Play" : "Play"}
+            </Button>
+          ) : null}
           <Box sx={{ flex: 1 }} />
           <TextField
             size="small"
@@ -1213,6 +1372,29 @@ export default function ImageRepo() {
           }}
         >
           {isMobile ? (favoritesOnly ? "Fav" : "Fav") : "Favorites"}
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={isMobile ? undefined : <PlayArrow />}
+          size={isMobile ? "small" : "medium"}
+          disabled={
+            !debouncedSearch && images.length === 0 ||
+            debouncedSearch && searchResults.length === 0 ||
+            favoritesOnly && !images.some((img) => favoritesSet.has(img.path))
+          }
+          onClick={() => {
+            let pool: ImageFile[];
+            if (debouncedSearch) {
+              pool = searchResults;
+            } else if (favoritesOnly) {
+              pool = images.filter((img) => favoritesSet.has(img.path));
+            } else {
+              pool = images;
+            }
+            handleOpenScreensaver(pool);
+          }}
+        >
+          {isMobile ? "Play" : "Play"}
         </Button>
         <Button
           variant={selectMode ? "contained" : "outlined"}
