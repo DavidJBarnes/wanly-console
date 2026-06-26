@@ -14,7 +14,8 @@ import {
   DialogActions,
   TextField,
   MenuItem,
-  Slider,
+  ToggleButton,
+  ToggleButtonGroup,
   Alert,
   IconButton,
 } from "@mui/material";
@@ -30,6 +31,7 @@ import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "
 import {
   DEFAULT_WIDTH,
   DEFAULT_HEIGHT,
+  SIZE_PRESETS,
   DEFAULT_FPS,
   DEFAULT_DURATION,
   DEFAULT_SPEED,
@@ -67,11 +69,8 @@ export default function CreateJobDialog({
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
-  const [origWidth, setOrigWidth] = useState(DEFAULT_WIDTH);
-  const [origHeight, setOrigHeight] = useState(DEFAULT_HEIGHT);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
-  const [scale, setScale] = useState(100);
   const mountedRef = useRef(true);
   const prevPreviewUrlRef = useRef<string | null>(null);
 
@@ -86,7 +85,8 @@ export default function CreateJobDialog({
     };
   }, []);
 
-  // Load image dimensions from a URL, handling cleanup and error states
+  // Set the starting-image preview. Output dimensions come from the chosen size
+  // preset (not the image), so we no longer derive width/height from the source.
   const loadImageFromUrl = useCallback((url: string) => {
     // Revoke previous blob URL to prevent memory leaks
     if (prevPreviewUrlRef.current?.startsWith("blob:")) {
@@ -94,29 +94,6 @@ export default function CreateJobDialog({
     }
     prevPreviewUrlRef.current = url;
     setImagePreview(url);
-
-    const img = new window.Image();
-    img.onload = () => {
-      if (!mountedRef.current) return;
-      const oversize = img.naturalWidth >= 1216 || img.naturalHeight >= 832;
-      const scalePct = oversize ? 75 : 100;
-      setOrigWidth(img.naturalWidth);
-      setOrigHeight(img.naturalHeight);
-      setWidth(Math.round(img.naturalWidth * scalePct / 100));
-      setHeight(Math.round(img.naturalHeight * scalePct / 100));
-      setScale(scalePct);
-    };
-    img.onerror = () => {
-      if (!mountedRef.current) return;
-      // Reset to defaults on load failure
-      setOrigWidth(DEFAULT_WIDTH);
-      setOrigHeight(DEFAULT_HEIGHT);
-      setWidth(DEFAULT_WIDTH);
-      setHeight(DEFAULT_HEIGHT);
-      setScale(100);
-      setImagePreview(null);
-    };
-    img.src = url;
   }, []);
 
   const [fps, setFps] = useState(DEFAULT_FPS);
@@ -304,11 +281,8 @@ export default function CreateJobDialog({
     setName("");
     setPrompt("");
     setNegativePrompt("");
-    setOrigWidth(DEFAULT_WIDTH);
-    setOrigHeight(DEFAULT_HEIGHT);
     setWidth(DEFAULT_WIDTH);
     setHeight(DEFAULT_HEIGHT);
-    setScale(100);
     setFps(DEFAULT_FPS);
     setDuration(DEFAULT_DURATION);
     setSpeed(DEFAULT_SPEED);
@@ -602,50 +576,53 @@ export default function CreateJobDialog({
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0 }}>
-            <Box sx={{ px: 1 }}>
+            <Box sx={{ px: 1, mb: 0.5 }}>
               <Typography variant="caption" color="text.secondary" gutterBottom>
-                Scale
+                Output Size
               </Typography>
-              <Slider
-                value={scale}
-                min={10}
-                max={100}
-                step={1}
-                onChange={(_e, val) => {
-                  const s = val as number;
-                  setScale(s);
-                  setWidth(Math.round(origWidth * s / 100));
-                  setHeight(Math.round(origHeight * s / 100));
-                }}
-                valueLabelDisplay="auto"
-                valueLabelFormat={(v) => `${v}%`}
-                marks={[
-                  { value: 25, label: "25%" },
-                  { value: 50, label: "50%" },
-                  { value: 75, label: "75%" },
-                  { value: 100, label: "100%" },
-                ]}
-                aria-label="Image scale percentage"
-                sx={{ mb: 0.5 }}
-              />
-            </Box>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-              <TextField
-                label="Width"
-                type="number"
-                size="small"
-                value={width}
-                onChange={(e) => setWidth(parseInt(e.target.value) || 0)}
-                sx={{ flex: 1, minWidth: 100 }}
-              />
-              <TextField
-                label="Height"
-                type="number"
-                size="small"
-                value={height}
-                onChange={(e) => setHeight(parseInt(e.target.value) || 0)}
-                sx={{ flex: 1, minWidth: 100 }}
-              />
+              {(["portrait", "landscape"] as const).map((orient) => (
+                <Box key={orient} sx={{ mt: 0.5 }}>
+                  <Typography variant="overline" color="text.secondary" sx={{ display: "block", lineHeight: 1.6 }}>
+                    {orient}
+                  </Typography>
+                  <ToggleButtonGroup
+                    exclusive
+                    size="small"
+                    value={`${width}x${height}`}
+                    onChange={(_e, val) => {
+                      if (!val) return;
+                      const [w, h] = (val as string).split("x").map(Number);
+                      setWidth(w);
+                      setHeight(h);
+                    }}
+                    sx={{
+                      flexWrap: "wrap",
+                      gap: 1,
+                      "& .MuiToggleButtonGroup-grouped": {
+                        border: 1,
+                        borderColor: "divider",
+                        borderRadius: 1,
+                        m: 0,
+                      },
+                    }}
+                  >
+                    {SIZE_PRESETS[orient].map((p) => (
+                      <ToggleButton
+                        key={`${p.width}x${p.height}`}
+                        value={`${p.width}x${p.height}`}
+                        sx={{ flexDirection: "column", px: 1.5, py: 0.5, textTransform: "none" }}
+                      >
+                        <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
+                          {p.label}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
+                          {p.width}×{p.height} · {p.ratio}
+                        </Typography>
+                      </ToggleButton>
+                    ))}
+                  </ToggleButtonGroup>
+                </Box>
+              ))}
             </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
               <TextField
