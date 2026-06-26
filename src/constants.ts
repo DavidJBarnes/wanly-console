@@ -21,6 +21,17 @@ export const SIZE_PRESETS: { portrait: SizePreset[]; landscape: SizePreset[] } =
   ],
 };
 
+// Pick the preset whose aspect is closest to the given image dimensions, matching
+// orientation first (square → portrait). Used to auto-default output size from the
+// start image so the frame is neither stretched nor cropped.
+export function nearestSizePreset(width: number, height: number): SizePreset {
+  const targetAspect = width / height;
+  const pool = height >= width ? SIZE_PRESETS.portrait : SIZE_PRESETS.landscape;
+  return pool.reduce((best, p) =>
+    Math.abs(p.width / p.height - targetAspect) < Math.abs(best.width / best.height - targetAspect) ? p : best
+  );
+}
+
 // Job defaults — SDXL-match portrait so SDXL 832×1216 starts flow through untouched.
 export const DEFAULT_WIDTH = 832;
 export const DEFAULT_HEIGHT = 1216;

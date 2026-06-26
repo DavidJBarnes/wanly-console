@@ -32,6 +32,7 @@ import {
   DEFAULT_WIDTH,
   DEFAULT_HEIGHT,
   SIZE_PRESETS,
+  nearestSizePreset,
   DEFAULT_FPS,
   DEFAULT_DURATION,
   DEFAULT_SPEED,
@@ -85,8 +86,9 @@ export default function CreateJobDialog({
     };
   }, []);
 
-  // Set the starting-image preview. Output dimensions come from the chosen size
-  // preset (not the image), so we no longer derive width/height from the source.
+  // Set the starting-image preview and auto-default the output size to the preset
+  // closest to the image's aspect (Wan-legal dimensions). Manual preset override
+  // afterward still wins.
   const loadImageFromUrl = useCallback((url: string) => {
     // Revoke previous blob URL to prevent memory leaks
     if (prevPreviewUrlRef.current?.startsWith("blob:")) {
@@ -94,6 +96,15 @@ export default function CreateJobDialog({
     }
     prevPreviewUrlRef.current = url;
     setImagePreview(url);
+
+    const img = new window.Image();
+    img.onload = () => {
+      if (!mountedRef.current) return;
+      const preset = nearestSizePreset(img.naturalWidth, img.naturalHeight);
+      setWidth(preset.width);
+      setHeight(preset.height);
+    };
+    img.src = url;
   }, []);
 
   const [fps, setFps] = useState(DEFAULT_FPS);
