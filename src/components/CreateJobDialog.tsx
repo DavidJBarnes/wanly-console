@@ -224,11 +224,14 @@ export default function CreateJobDialog({
       setLoras(
         preset.loras.map((l) => {
           const lib = loraLibrary.find((item) => item.id === l.lora_id);
+          // Library default weights are the source of truth (mirrors the manual
+          // picker, incl. the high/low-file guard). Fall back to the preset's
+          // stored weights only if the LoRA is no longer in the library.
           return {
             lora_id: l.lora_id,
             name: lib?.name ?? l.lora_id.slice(0, 8),
-            high_weight: l.high_weight,
-            low_weight: l.low_weight,
+            high_weight: lib ? (lib.high_file ? lib.default_high_weight : 0) : l.high_weight,
+            low_weight: lib ? (lib.low_file ? lib.default_low_weight : 0) : l.low_weight,
             preview_image: lib?.preview_image ?? null,
           };
         }),
