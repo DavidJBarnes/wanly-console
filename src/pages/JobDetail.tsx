@@ -600,22 +600,7 @@ export default function JobDetail() {
               <MetaItem label="Dimensions" value={`${job.width}x${job.height}`} />
               <MetaItem label="FPS" value={`${job.fps}`} />
               <MetaItem label="Seed" value={`${job.seed}`} />
-              <MetaItem
-                label="LightX2V High"
-                value={`${job.lightx2v_strength_high ?? 2.0}`}
-              />
-              <MetaItem
-                label="LightX2V Low"
-                value={`${job.lightx2v_strength_low ?? 1.0}`}
-              />
-              <MetaItem
-                label="CFG High"
-                value={`${job.cfg_high ?? 1}`}
-              />
-              <MetaItem
-                label="CFG Low"
-                value={`${job.cfg_low ?? 1}`}
-              />
+              <MetaItem label="Mode" value={job.mode ?? "identity"} />
               <MetaItem
                 label="Segments"
                 value={`${job.completed_segment_count}`}

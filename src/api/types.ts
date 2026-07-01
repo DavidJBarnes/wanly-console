@@ -93,10 +93,7 @@ export interface JobCreate {
   height: number;
   fps: number;
   seed?: number | null;
-  lightx2v_strength_high?: number | null;
-  lightx2v_strength_low?: number | null;
-  cfg_high?: number | null;
-  cfg_low?: number | null;
+  mode?: string;
   starting_image_uri?: string | null;
   starting_image_hash?: string | null;
   first_segment: SegmentCreate;
@@ -111,10 +108,7 @@ export interface JobResponse {
   fps: number;
   seed: number;
   starting_image: string | null;
-  lightx2v_strength_high: number | null;
-  lightx2v_strength_low: number | null;
-  cfg_high: number | null;
-  cfg_low: number | null;
+  mode: string;
   priority: number;
   status: JobStatus;
   segment_count: number;
@@ -395,10 +389,6 @@ export interface FramePreviewResponse {
 }
 
 export interface AppSettingsResponse {
-  cfg_high: number;
-  cfg_low: number;
-  lightx2v_strength_high: number;
-  lightx2v_strength_low: number;
   negative_prompt: string;
 }
 
@@ -417,10 +407,6 @@ export interface FavoriteListResponse {
 }
 
 export interface AppSettingsUpdate {
-  cfg_high?: number;
-  cfg_low?: number;
-  lightx2v_strength_high?: number;
-  lightx2v_strength_low?: number;
   negative_prompt?: string;
 }
 
