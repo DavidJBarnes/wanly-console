@@ -66,7 +66,7 @@ export default function CreateJobDialog({
   initialImageTags,
 }: CreateJobDialogProps) {
   const isMobile = useIsMobile();
-  const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
+  const { negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
@@ -111,10 +111,7 @@ export default function CreateJobDialog({
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [seed, setSeed] = useState("");
-  const [lightx2vHigh, setLightx2vHigh] = useState(defaultLightx2vHigh);
-  const [lightx2vLow, setLightx2vLow] = useState(defaultLightx2vLow);
-  const [cfgHigh, setCfgHigh] = useState(defaultCfgHigh);
-  const [cfgLow, setCfgLow] = useState(defaultCfgLow);
+  const [mode, setMode] = useState("identity");  // GenerationMode — locked for all segments
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -301,10 +298,7 @@ export default function CreateJobDialog({
     setDuration(DEFAULT_DURATION);
     setSpeed(DEFAULT_SPEED);
     setSeed("");
-    setLightx2vHigh(defaultLightx2vHigh);
-    setLightx2vLow(defaultLightx2vLow);
-    setCfgHigh(defaultCfgHigh);
-    setCfgLow(defaultCfgLow);
+    setMode("identity");
     setStartingImage(null);
     if (prevPreviewUrlRef.current?.startsWith("blob:")) {
       URL.revokeObjectURL(prevPreviewUrlRef.current);
@@ -319,7 +313,7 @@ export default function CreateJobDialog({
     setNameManuallyEdited(false);
     setTags("");
     setError("");
-  }, [defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow]);
+  }, []);
 
   const handleSubmit = async () => {
     if (!name.trim() || !prompt.trim()) {
@@ -353,10 +347,7 @@ export default function CreateJobDialog({
         height,
         fps,
         seed: seed ? parseInt(seed) : null,
-        lightx2v_strength_high: lightx2vHigh ? parseFloat(lightx2vHigh) : null,
-        lightx2v_strength_low: lightx2vLow ? parseFloat(lightx2vLow) : null,
-        cfg_high: cfgHigh ? parseFloat(cfgHigh) : null,
-        cfg_low: cfgLow ? parseFloat(cfgLow) : null,
+        mode,
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         starting_image_hash: reuseHash,
         tags: tags || null,
@@ -585,7 +576,7 @@ export default function CreateJobDialog({
             <Typography variant="subtitle2">
               Video Settings
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {width}x{height} / {fps}fps / {duration}s / {speed}x / CFG {cfgHigh}/{cfgLow}
+                {width}x{height} / {fps}fps / {duration}s / {speed}x / {mode}
               </Typography>
             </Typography>
           </AccordionSummary>
@@ -684,47 +675,18 @@ export default function CreateJobDialog({
             </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
               <TextField
-                label="LightX2V High"
-                type="number"
+                select
+                label="Mode"
                 size="small"
-                value={lightx2vHigh}
-                onChange={(e) => setLightx2vHigh(e.target.value)}
+                value={mode}
+                onChange={(e) => setMode(e.target.value)}
                 sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
-                helperText="1.0–5.6"
-              />
-              <TextField
-                label="LightX2V Low"
-                type="number"
-                size="small"
-                value={lightx2vLow}
-                onChange={(e) => setLightx2vLow(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
-                helperText="1.0–2.0"
-              />
-            </Box>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
-              <TextField
-                label="CFG High"
-                type="number"
-                size="small"
-                value={cfgHigh}
-                onChange={(e) => setCfgHigh(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
-                helperText="High noise"
-              />
-              <TextField
-                label="CFG Low"
-                type="number"
-                size="small"
-                value={cfgLow}
-                onChange={(e) => setCfgLow(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
-                helperText="Low noise"
-              />
+                helperText="Generation profile — set once, locked for all segments"
+              >
+                <MenuItem value="identity">Wan22 Base (Character Identity) · ~16m</MenuItem>
+                <MenuItem value="expression">Wan22 Base (Identity + Expression) · ~21m</MenuItem>
+                <MenuItem value="dasiwa">DaSiWa (Fast) · ~13m</MenuItem>
+              </TextField>
             </Box>
           </AccordionDetails>
         </Accordion>
