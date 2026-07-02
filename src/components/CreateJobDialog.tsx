@@ -32,7 +32,7 @@ import {
   DEFAULT_WIDTH,
   DEFAULT_HEIGHT,
   SIZE_PRESETS,
-  nearestSizePreset,
+  smallestSizePreset,
   DEFAULT_FPS,
   DEFAULT_DURATION,
   DEFAULT_SPEED,
@@ -100,7 +100,7 @@ export default function CreateJobDialog({
     const img = new window.Image();
     img.onload = () => {
       if (!mountedRef.current) return;
-      const preset = nearestSizePreset(img.naturalWidth, img.naturalHeight);
+      const preset = smallestSizePreset(img.naturalWidth, img.naturalHeight);
       setWidth(preset.width);
       setHeight(preset.height);
     };

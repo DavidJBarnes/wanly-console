@@ -21,14 +21,14 @@ export const SIZE_PRESETS: { portrait: SizePreset[]; landscape: SizePreset[] } =
   ],
 };
 
-// Pick the preset whose aspect is closest to the given image dimensions, matching
-// orientation first (square → portrait). Used to auto-default output size from the
-// start image so the frame is neither stretched nor cropped.
-export function nearestSizePreset(width: number, height: number): SizePreset {
-  const targetAspect = width / height;
+// Pick the SMALLEST preset in the image's orientation (portrait if tall/square, else
+// landscape). Used to auto-default output size from a start image — reduced res is the
+// norm now (full-res 1216×832 is the failure mode), so a landscape image → Classic
+// 1024×768, a portrait image → Light 768×1024.
+export function smallestSizePreset(width: number, height: number): SizePreset {
   const pool = height >= width ? SIZE_PRESETS.portrait : SIZE_PRESETS.landscape;
-  return pool.reduce((best, p) =>
-    Math.abs(p.width / p.height - targetAspect) < Math.abs(best.width / best.height - targetAspect) ? p : best
+  return pool.reduce((smallest, p) =>
+    p.width * p.height < smallest.width * smallest.height ? p : smallest
   );
 }
 
