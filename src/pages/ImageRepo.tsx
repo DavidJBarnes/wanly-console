@@ -237,7 +237,9 @@ export default function ImageRepo() {
     try {
       const data = await getImageFolders();
       setFolders(data);
-      setFolderPage(0);
+      // NOTE: do NOT reset folderPage here — this fetch also runs when returning to the
+      // folder list (currentFolder→null), and resetting sent Back to page 1 every time.
+      // folderPage defaults to 0 on mount, so pagination is preserved across Back.
     } catch {
       // ignore
     } finally {
@@ -398,11 +400,16 @@ export default function ImageRepo() {
     if (bulkDeleteKeys.length === 0) return;
     setBulkDeleting(true);
     try {
+      // Work against whichever list is showing (in-folder, favorites, or untagged).
+      const activeImages = favoritesView ? favImages : untaggedView ? untaggedImages : images;
       for (const key of bulkDeleteKeys) {
-        const img = images.find((i) => i.key === key);
+        const img = activeImages.find((i) => i.key === key);
         if (img) await deleteImage(img.path);
       }
-      setImages((prev) => prev.filter((img) => !bulkDeleteKeys.includes(img.key)));
+      const removeDeleted = (prev: ImageFile[]) => prev.filter((img) => !bulkDeleteKeys.includes(img.key));
+      setImages(removeDeleted);
+      setFavImages(removeDeleted);
+      setUntaggedImages(removeDeleted);
       if (lightboxImage && bulkDeleteKeys.includes(lightboxImage.key)) {
         setLightboxImage(null);
       }
@@ -999,6 +1006,32 @@ export default function ImageRepo() {
           >
             {isMobile ? "Untag" : "Untagged"}
           </Button>
+          {(favoritesView || untaggedView) && (
+            <>
+              <Button
+                variant={selectMode ? "contained" : "outlined"}
+                color="inherit"
+                size={isMobile ? "small" : "medium"}
+                onClick={() => {
+                  setSelectMode((p) => !p);
+                  setSelectedKeys(new Set());
+                }}
+              >
+                {selectMode ? "Cancel" : "Select"}
+              </Button>
+              {selectMode && selectedKeys.size > 0 && (
+                <Button
+                  variant="contained"
+                  color="error"
+                  startIcon={isMobile ? undefined : <Delete />}
+                  size={isMobile ? "small" : "medium"}
+                  onClick={() => handleOpenBulkDelete(Array.from(selectedKeys))}
+                >
+                  {isMobile ? `Del (${selectedKeys.size})` : `Delete ${selectedKeys.size}`}
+                </Button>
+              )}
+            </>
+          )}
           {(favoritesView && favImages.length > 0) || (debouncedSearch && searchResults.length > 0) ? (
             <Button
               variant="outlined"
@@ -1201,8 +1234,12 @@ export default function ImageRepo() {
               <Grid container spacing={2}>
                 {untaggedImages.map((image) => (
                   <Grid key={image.key} size={{ xs: 6, sm: 4, md: 3, lg: 2 }}>
-                    <Card>
-                      <CardActionArea onClick={() => handleOpenLightbox(image)}>
+                    <Card sx={{ position: "relative" }}>
+                      <CardActionArea
+                        onClick={() =>
+                          selectMode ? toggleSelect(image.key) : handleOpenLightbox(image)
+                        }
+                      >
                         <CardMedia
                           component="img"
                           image={getFileUrl(image.path)}
@@ -1215,6 +1252,20 @@ export default function ImageRepo() {
                           </Typography>
                         </Box>
                       </CardActionArea>
+                      {selectMode && (
+                        <Checkbox
+                          checked={selectedKeys.has(image.key)}
+                          onChange={() => toggleSelect(image.key)}
+                          sx={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            bgcolor: "rgba(255,255,255,0.8)",
+                            borderRadius: "0 0 4px 0",
+                            p: 0.5,
+                          }}
+                        />
+                      )}
                     </Card>
                   </Grid>
                 ))}
