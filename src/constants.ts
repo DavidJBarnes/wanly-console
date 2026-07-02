@@ -42,6 +42,7 @@ export const MODE_LABELS: Record<string, string> = {
   identity: "Wan22 Base (Character Identity)",
   expression: "Wan22 Base (Identity + Expression)",
   dasiwa: "DaSiWa (Fast)",
+  remix: "Wan22 Remix (Enhanced Motions)",
 };
 export const modeLabel = (mode: string | null | undefined): string =>
   MODE_LABELS[mode ?? "identity"] ?? (mode ?? "identity");

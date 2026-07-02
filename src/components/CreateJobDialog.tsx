@@ -686,6 +686,7 @@ export default function CreateJobDialog({
                 <MenuItem value="identity">Wan22 Base (Character Identity) · ~16m</MenuItem>
                 <MenuItem value="expression">Wan22 Base (Identity + Expression) · ~21m</MenuItem>
                 <MenuItem value="dasiwa">DaSiWa (Fast) · ~13m</MenuItem>
+                <MenuItem value="remix">Wan22 Remix (Enhanced Motions) · ~13m</MenuItem>
               </TextField>
             </Box>
           </AccordionDetails>
