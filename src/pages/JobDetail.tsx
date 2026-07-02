@@ -96,6 +96,7 @@ import {
   DEFAULT_FACESWAP_FACES_ORDER,
   MAX_LORAS,
   POLL_INTERVAL_FAST,
+  modeLabel,
 } from "../constants";
 
 function formatDate(iso: string | null) {
@@ -600,7 +601,7 @@ export default function JobDetail() {
               <MetaItem label="Dimensions" value={`${job.width}x${job.height}`} />
               <MetaItem label="FPS" value={`${job.fps}`} />
               <MetaItem label="Seed" value={`${job.seed}`} />
-              <MetaItem label="Mode" value={job.mode ?? "identity"} />
+              <MetaItem label="Mode" value={modeLabel(job.mode)} />
               <MetaItem
                 label="Segments"
                 value={`${job.completed_segment_count}`}

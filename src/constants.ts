@@ -32,9 +32,19 @@ export function nearestSizePreset(width: number, height: number): SizePreset {
   );
 }
 
-// Job defaults — SDXL-match portrait so SDXL 832×1216 starts flow through untouched.
-export const DEFAULT_WIDTH = 832;
-export const DEFAULT_HEIGHT = 1216;
+// Job defaults — smallest portrait (Light 768×1024). Reduced res is the norm now
+// (full-res 1216×832 is the only failure mode). Landscape's smallest is Classic 1024×768.
+export const DEFAULT_WIDTH = 768;
+export const DEFAULT_HEIGHT = 1024;
+
+// Generation mode → full display label (used in the New Job dropdown + Job Detail).
+export const MODE_LABELS: Record<string, string> = {
+  identity: "Wan22 Base (Character Identity)",
+  expression: "Wan22 Base (Identity + Expression)",
+  dasiwa: "DaSiWa (Fast)",
+};
+export const modeLabel = (mode: string | null | undefined): string =>
+  MODE_LABELS[mode ?? "identity"] ?? (mode ?? "identity");
 export const DEFAULT_FPS = 60;
 export const DEFAULT_DURATION = 5.0;
 export const DEFAULT_SPEED = 1.0;
