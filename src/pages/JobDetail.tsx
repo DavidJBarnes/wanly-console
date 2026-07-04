@@ -49,8 +49,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Face,
+  AutoAwesome,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
+import FinalCutDialog from "../components/FinalCutDialog";
 import {
   getJob,
   updateJob,
@@ -259,6 +261,7 @@ export default function JobDetail() {
   const [trimValues, setTrimValues] = useState<Record<string, { start: number; end: number }>>({});
   const trimTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [jobTags, setJobTags] = useState("");
+  const [finalCutOpen, setFinalCutOpen] = useState(false);
   const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [framePreview, setFramePreview] = useState<{
     anchorEl: HTMLElement | null;
@@ -562,6 +565,17 @@ export default function JobDetail() {
         >
           {job.name}
         </Typography>
+        {job.kind === "final_cut" && job.source_job_id && (
+          <Chip
+            size="small"
+            icon={<AutoAwesome sx={{ fontSize: 14 }} />}
+            label="Final Cut — view source"
+            component={RouterLink}
+            to={`/jobs/${job.source_job_id}`}
+            clickable
+            sx={{ ml: 1, flexShrink: 0 }}
+          />
+        )}
         <Tooltip title="Delete job">
           <IconButton
             color="error"
@@ -657,11 +671,57 @@ export default function JobDetail() {
               </IconButton>
             </Box>
           </Box>
+          <Button
+            fullWidth
+            size="small"
+            variant="outlined"
+            startIcon={<AutoAwesome fontSize="small" />}
+            onClick={() => setFinalCutOpen(true)}
+            sx={{ mt: 1 }}
+          >
+            Final Cut
+          </Button>
+          {job.final_cuts && job.final_cuts.length > 0 && (
+            <Box sx={{ mt: 1.5 }}>
+              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                Final Cuts ({job.final_cuts.length})
+              </Typography>
+              {job.final_cuts.map((fc) => (
+                <Box key={fc.id} sx={{ mb: 1 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <RouterLink to={`/jobs/${fc.id}`} style={{ fontSize: 13 }}>
+                      {fc.name}
+                    </RouterLink>
+                    <Typography variant="caption" color="text.secondary">
+                      {fc.status}
+                    </Typography>
+                  </Box>
+                  {fc.video?.output_path && (
+                    <Box
+                      component="video"
+                      src={getFileUrl(fc.video.output_path, fc.video.completed_at ?? undefined)}
+                      controls
+                      sx={{ width: "100%", borderRadius: 1, mt: 0.5, display: "block" }}
+                    />
+                  )}
+                </Box>
+              ))}
+            </Box>
+          )}
               </CardContent>
             </Card>
           );
         })()}
       </Box>
+
+      {job && (
+        <FinalCutDialog
+          open={finalCutOpen}
+          jobId={job.id}
+          onClose={() => setFinalCutOpen(false)}
+          onCreated={fetchJob}
+        />
+      )}
 
       {/* Tags editor — always visible */}
       <Card sx={{ mb: 3 }}>
