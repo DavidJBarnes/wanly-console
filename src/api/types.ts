@@ -109,6 +109,8 @@ export interface JobResponse {
   seed: number;
   starting_image: string | null;
   mode: string;
+  kind: string;
+  source_job_id: string | null;
   priority: number;
   status: JobStatus;
   segment_count: number;
@@ -189,9 +191,26 @@ export interface JobListResponse {
   offset: number;
 }
 
+export interface FinalCutSummary {
+  id: string;
+  name: string;
+  kind: string;
+  status: JobStatus;
+  created_at: string;
+  video: VideoResponse | null;
+}
+
+export interface FinalCutCreate {
+  mode: string; // "move" | "mix"
+  preset: string; // "fast" | "highres"
+  loras?: LoraConfig[] | null;
+  reference_image_uri?: string | null;
+}
+
 export interface JobDetailResponse extends JobResponse {
   segments: SegmentResponse[];
   videos: VideoResponse[];
+  final_cuts: FinalCutSummary[];
   segment_count: number;
   completed_segment_count: number;
   total_run_time: number;
