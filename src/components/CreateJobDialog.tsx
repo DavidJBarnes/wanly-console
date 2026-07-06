@@ -112,6 +112,20 @@ export default function CreateJobDialog({
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [seed, setSeed] = useState("");
   const [mode, setMode] = useState("identity");  // GenerationMode — locked for all segments
+
+  // Draft/Driver mode: cap the segment to a small "driver" resolution (fast; Animate re-renders the
+  // final at its own preset res) and lock fps to 16 — also prevents high-res OOM on the fast pass.
+  useEffect(() => {
+    if (mode !== "draft") return;
+    setFps(16);
+    const CAP = 640; // longest side; keeps aspect, rounds to /16
+    const longer = Math.max(width, height);
+    if (longer > CAP) {
+      const s = CAP / longer;
+      setWidth(Math.max(256, Math.round((width * s) / 16) * 16));
+      setHeight(Math.max(256, Math.round((height * s) / 16) * 16));
+    }
+  }, [mode, width, height]);
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -585,6 +599,11 @@ export default function CreateJobDialog({
               <Typography variant="caption" color="text.secondary" gutterBottom>
                 Output Size
               </Typography>
+              {mode === "draft" && (
+                <Typography variant="caption" color="primary" sx={{ display: "block", mb: 0.5 }}>
+                  Driver locked to {width}×{height} @ 16fps — Animate re-renders the final at its own resolution
+                </Typography>
+              )}
               {(["portrait", "landscape"] as const).map((orient) => (
                 <Box key={orient} sx={{ mt: 0.5 }}>
                   <Typography variant="overline" color="text.secondary" sx={{ display: "block", lineHeight: 1.6 }}>
@@ -593,6 +612,7 @@ export default function CreateJobDialog({
                   <ToggleButtonGroup
                     exclusive
                     size="small"
+                    disabled={mode === "draft"}
                     value={`${width}x${height}`}
                     onChange={(_e, val) => {
                       if (!val) return;
@@ -634,11 +654,13 @@ export default function CreateJobDialog({
                 label="FPS"
                 select
                 size="small"
+                disabled={mode === "draft"}
                 value={fps}
                 onChange={(e) => setFps(parseInt(e.target.value))}
                 sx={{ flex: 1, minWidth: 80 }}
               >
                 <MenuItem value={15}>15</MenuItem>
+                <MenuItem value={16}>16</MenuItem>
                 <MenuItem value={30}>30</MenuItem>
                 <MenuItem value={60}>60</MenuItem>
               </TextField>
