@@ -205,6 +205,7 @@ export interface FinalCutCreate {
   preset: string; // "fast" | "highres"
   loras?: LoraConfig[] | null;
   reference_image_uri?: string | null;
+  prompt?: string | null; // scene prompt (matters for move mode); default = source job's prompt
 }
 
 export interface JobDetailResponse extends JobResponse {

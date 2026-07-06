@@ -12,6 +12,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  TextField,
   CircularProgress,
 } from "@mui/material";
 
@@ -22,23 +23,28 @@ import type { FinalCutCreate } from "../api/types";
 interface FinalCutDialogProps {
   open: boolean;
   jobId: string;
+  defaultPrompt?: string;
   onClose: () => void;
   onCreated: () => void;
 }
 
 // Final Cut: re-render a job's finalized video through Wan Animate (identity-locked) as a linked
 // child job. Runs on the normal queue. Reference defaults to the source job's start image.
-export default function FinalCutDialog({ open, jobId, onClose, onCreated }: FinalCutDialogProps) {
+export default function FinalCutDialog({ open, jobId, defaultPrompt, onClose, onCreated }: FinalCutDialogProps) {
   const { loras, fetchLoras } = useLoraStore();
   const [mode, setMode] = useState<"move" | "mix">("mix");
   const [preset, setPreset] = useState<"fast" | "highres">("fast");
   const [loraId, setLoraId] = useState<string>("");
+  const [prompt, setPrompt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) fetchLoras();
-  }, [open, fetchLoras]);
+    if (open) {
+      fetchLoras();
+      setPrompt(defaultPrompt ?? "");
+    }
+  }, [open, defaultPrompt, fetchLoras]);
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -51,6 +57,7 @@ export default function FinalCutDialog({ open, jobId, onClose, onCreated }: Fina
         loras: lora
           ? [{ lora_id: lora.id, high_weight: lora.default_high_weight, low_weight: lora.default_low_weight }]
           : null,
+        prompt: prompt.trim() || null,
       };
       await createFinalCut(jobId, body);
       onCreated();
@@ -121,6 +128,20 @@ export default function FinalCutDialog({ open, jobId, onClose, onCreated }: Fina
             ))}
           </Select>
         </FormControl>
+
+        {mode === "move" && (
+          <TextField
+            fullWidth
+            multiline
+            minRows={2}
+            size="small"
+            label="Scene prompt (move mode)"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            helperText="Shapes the new scene move generates — prefilled from the source job; edit to change it."
+            sx={{ mb: 1.5 }}
+          />
+        )}
 
         <Typography variant="caption" color="text.secondary">
           Reference: the job&apos;s start image.
