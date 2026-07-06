@@ -679,7 +679,11 @@ export default function CreateJobDialog({
                 label="Mode"
                 size="small"
                 value={mode}
-                onChange={(e) => setMode(e.target.value)}
+                onChange={(e) => {
+                  const m = e.target.value;
+                  setMode(m);
+                  if (m === "draft") setFps(16); // Animate resamples the driver to 16fps — higher is wasted
+                }}
                 sx={{ flex: 1, minWidth: 100 }}
                 helperText="Generation profile — set once, locked for all segments"
               >
@@ -687,6 +691,7 @@ export default function CreateJobDialog({
                 <MenuItem value="expression">Wan22 Base (Identity + Expression) · ~21m</MenuItem>
                 <MenuItem value="dasiwa">DaSiWa (Fast) · ~13m</MenuItem>
                 <MenuItem value="remix">Wan22 Remix (Enhanced Motions) · ~13m</MenuItem>
+                <MenuItem value="draft">Draft / Driver (fastest — feed to Final Cut) · ~5m</MenuItem>
               </TextField>
             </Box>
           </AccordionDetails>
