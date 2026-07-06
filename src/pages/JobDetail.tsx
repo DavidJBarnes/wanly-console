@@ -718,6 +718,7 @@ export default function JobDetail() {
         <FinalCutDialog
           open={finalCutOpen}
           jobId={job.id}
+          defaultPrompt={job.segments?.[0]?.prompt ?? ""}
           onClose={() => setFinalCutOpen(false)}
           onCreated={fetchJob}
         />
