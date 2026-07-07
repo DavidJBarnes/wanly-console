@@ -36,7 +36,6 @@ import {
   DriveFileMove,
   Close,
   Favorite,
-  LabelOff,
   NavigateNext,
   PlayArrow,
   Refresh,
@@ -55,7 +54,6 @@ import {
   getFavorites,
   toggleFavorite,
   getFavoriteImages,
-  getUntaggedImages,
   updateImageTags,
   searchImages,
 } from "../api/client";
@@ -119,9 +117,6 @@ export default function ImageRepo() {
   const [favoritesView, setFavoritesView] = useState(false);
   const [favImages, setFavImages] = useState<ImageFile[]>([]);
   const [loadingFavImages, setLoadingFavImages] = useState(false);
-  const [untaggedView, setUntaggedView] = useState(false);
-  const [untaggedImages, setUntaggedImages] = useState<ImageFile[]>([]);
-  const [loadingUntagged, setLoadingUntagged] = useState(false);
   const [lightboxTags, setLightboxTags] = useState("");
   const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [searchQuery, setSearchQuery] = useState("");
@@ -237,9 +232,7 @@ export default function ImageRepo() {
     try {
       const data = await getImageFolders();
       setFolders(data);
-      // NOTE: do NOT reset folderPage here — this fetch also runs when returning to the
-      // folder list (currentFolder→null), and resetting sent Back to page 1 every time.
-      // folderPage defaults to 0 on mount, so pagination is preserved across Back.
+      setFolderPage(0);
     } catch {
       // ignore
     } finally {
@@ -326,10 +319,6 @@ export default function ImageRepo() {
             setLightboxImage((prev) =>
               prev && prev.path === path ? { ...prev, tags: newTags || null } : prev
             );
-            // In the Untagged view, an image that now has tags is no longer untagged.
-            if (newTags.trim()) {
-              setUntaggedImages((prev) => prev.filter((img) => img.path !== path));
-            }
           })
           .catch((err) => {
             console.error("Failed to save image tags:", err);
@@ -400,16 +389,11 @@ export default function ImageRepo() {
     if (bulkDeleteKeys.length === 0) return;
     setBulkDeleting(true);
     try {
-      // Work against whichever list is showing (in-folder, favorites, or untagged).
-      const activeImages = favoritesView ? favImages : untaggedView ? untaggedImages : images;
       for (const key of bulkDeleteKeys) {
-        const img = activeImages.find((i) => i.key === key);
+        const img = images.find((i) => i.key === key);
         if (img) await deleteImage(img.path);
       }
-      const removeDeleted = (prev: ImageFile[]) => prev.filter((img) => !bulkDeleteKeys.includes(img.key));
-      setImages(removeDeleted);
-      setFavImages(removeDeleted);
-      setUntaggedImages(removeDeleted);
+      setImages((prev) => prev.filter((img) => !bulkDeleteKeys.includes(img.key)));
       if (lightboxImage && bulkDeleteKeys.includes(lightboxImage.key)) {
         setLightboxImage(null);
       }
@@ -966,7 +950,6 @@ export default function ImageRepo() {
                 setFavoritesView(false);
                 return;
               }
-              setUntaggedView(false);
               setFavoritesView(true);
               setLoadingFavImages(true);
               try {
@@ -981,57 +964,6 @@ export default function ImageRepo() {
           >
             {isMobile ? "Fav" : "Favorites"}
           </Button>
-          <Button
-            variant={untaggedView ? "contained" : "outlined"}
-            color={untaggedView ? "warning" : "inherit"}
-            startIcon={isMobile ? undefined : <LabelOff />}
-            size={isMobile ? "small" : "medium"}
-            onClick={async () => {
-              if (untaggedView) {
-                setUntaggedView(false);
-                return;
-              }
-              setFavoritesView(false);
-              setUntaggedView(true);
-              setLoadingUntagged(true);
-              try {
-                const imgs = await getUntaggedImages();
-                setUntaggedImages(imgs);
-              } catch {
-                // ignore
-              } finally {
-                setLoadingUntagged(false);
-              }
-            }}
-          >
-            {isMobile ? "Untag" : "Untagged"}
-          </Button>
-          {(favoritesView || untaggedView) && (
-            <>
-              <Button
-                variant={selectMode ? "contained" : "outlined"}
-                color="inherit"
-                size={isMobile ? "small" : "medium"}
-                onClick={() => {
-                  setSelectMode((p) => !p);
-                  setSelectedKeys(new Set());
-                }}
-              >
-                {selectMode ? "Cancel" : "Select"}
-              </Button>
-              {selectMode && selectedKeys.size > 0 && (
-                <Button
-                  variant="contained"
-                  color="error"
-                  startIcon={isMobile ? undefined : <Delete />}
-                  size={isMobile ? "small" : "medium"}
-                  onClick={() => handleOpenBulkDelete(Array.from(selectedKeys))}
-                >
-                  {isMobile ? `Del (${selectedKeys.size})` : `Delete ${selectedKeys.size}`}
-                </Button>
-              )}
-            </>
-          )}
           {(favoritesView && favImages.length > 0) || (debouncedSearch && searchResults.length > 0) ? (
             <Button
               variant="outlined"
@@ -1216,65 +1148,7 @@ export default function ImageRepo() {
           </>
         )}
 
-        {untaggedView && (
-          <>
-            {loadingUntagged && (
-              <Box sx={{ textAlign: "center", py: 4 }}>
-                <CircularProgress />
-              </Box>
-            )}
-            {!loadingUntagged && untaggedImages.length === 0 && (
-              <Box sx={{ textAlign: "center", py: 8 }}>
-                <Typography color="text.secondary">
-                  No untagged images — all caught up!
-                </Typography>
-              </Box>
-            )}
-            {untaggedImages.length > 0 && (
-              <Grid container spacing={2}>
-                {untaggedImages.map((image) => (
-                  <Grid key={image.key} size={{ xs: 6, sm: 4, md: 3, lg: 2 }}>
-                    <Card sx={{ position: "relative" }}>
-                      <CardActionArea
-                        onClick={() =>
-                          selectMode ? toggleSelect(image.key) : handleOpenLightbox(image)
-                        }
-                      >
-                        <CardMedia
-                          component="img"
-                          image={getFileUrl(image.path)}
-                          alt={image.filename}
-                          sx={{ height: 200, objectFit: "cover" }}
-                        />
-                        <Box sx={{ p: 1 }}>
-                          <Typography variant="caption" noWrap>
-                            {image.filename}
-                          </Typography>
-                        </Box>
-                      </CardActionArea>
-                      {selectMode && (
-                        <Checkbox
-                          checked={selectedKeys.has(image.key)}
-                          onChange={() => toggleSelect(image.key)}
-                          sx={{
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            bgcolor: "rgba(255,255,255,0.8)",
-                            borderRadius: "0 0 4px 0",
-                            p: 0.5,
-                          }}
-                        />
-                      )}
-                    </Card>
-                  </Grid>
-                ))}
-              </Grid>
-            )}
-          </>
-        )}
-
-        {!favoritesView && !untaggedView && folders.length === 0 && !loading && (
+        {!favoritesView && folders.length === 0 && !loading && (
           <Box sx={{ textAlign: "center", py: 8 }}>
             <Typography color="text.secondary">
               No image folders found.
@@ -1282,7 +1156,7 @@ export default function ImageRepo() {
           </Box>
         )}
 
-        {!favoritesView && !untaggedView && (
+        {!favoritesView && (
           <>
         <Grid container spacing={2}>
           {[...folders]

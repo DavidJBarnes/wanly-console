@@ -14,8 +14,7 @@ import {
   DialogActions,
   TextField,
   MenuItem,
-  ToggleButton,
-  ToggleButtonGroup,
+  Slider,
   Alert,
   IconButton,
 } from "@mui/material";
@@ -31,8 +30,6 @@ import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "
 import {
   DEFAULT_WIDTH,
   DEFAULT_HEIGHT,
-  SIZE_PRESETS,
-  smallestSizePreset,
   DEFAULT_FPS,
   DEFAULT_DURATION,
   DEFAULT_SPEED,
@@ -66,12 +63,15 @@ export default function CreateJobDialog({
   initialImageTags,
 }: CreateJobDialogProps) {
   const isMobile = useIsMobile();
-  const { negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
+  const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
+  const [origWidth, setOrigWidth] = useState(DEFAULT_WIDTH);
+  const [origHeight, setOrigHeight] = useState(DEFAULT_HEIGHT);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  const [scale, setScale] = useState(100);
   const mountedRef = useRef(true);
   const prevPreviewUrlRef = useRef<string | null>(null);
 
@@ -86,9 +86,7 @@ export default function CreateJobDialog({
     };
   }, []);
 
-  // Set the starting-image preview and auto-default the output size to the preset
-  // closest to the image's aspect (Wan-legal dimensions). Manual preset override
-  // afterward still wins.
+  // Load image dimensions from a URL, handling cleanup and error states
   const loadImageFromUrl = useCallback((url: string) => {
     // Revoke previous blob URL to prevent memory leaks
     if (prevPreviewUrlRef.current?.startsWith("blob:")) {
@@ -100,9 +98,23 @@ export default function CreateJobDialog({
     const img = new window.Image();
     img.onload = () => {
       if (!mountedRef.current) return;
-      const preset = smallestSizePreset(img.naturalWidth, img.naturalHeight);
-      setWidth(preset.width);
-      setHeight(preset.height);
+      const oversize = img.naturalWidth >= 1216 || img.naturalHeight >= 832;
+      const scalePct = oversize ? 75 : 100;
+      setOrigWidth(img.naturalWidth);
+      setOrigHeight(img.naturalHeight);
+      setWidth(Math.round(img.naturalWidth * scalePct / 100));
+      setHeight(Math.round(img.naturalHeight * scalePct / 100));
+      setScale(scalePct);
+    };
+    img.onerror = () => {
+      if (!mountedRef.current) return;
+      // Reset to defaults on load failure
+      setOrigWidth(DEFAULT_WIDTH);
+      setOrigHeight(DEFAULT_HEIGHT);
+      setWidth(DEFAULT_WIDTH);
+      setHeight(DEFAULT_HEIGHT);
+      setScale(100);
+      setImagePreview(null);
     };
     img.src = url;
   }, []);
@@ -111,21 +123,10 @@ export default function CreateJobDialog({
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [seed, setSeed] = useState("");
-  const [mode, setMode] = useState("identity");  // GenerationMode — locked for all segments
-
-  // Draft/Driver mode: cap the segment to a small "driver" resolution (fast; Animate re-renders the
-  // final at its own preset res) and lock fps to 16 — also prevents high-res OOM on the fast pass.
-  useEffect(() => {
-    if (mode !== "draft") return;
-    setFps(16);
-    const CAP = 640; // longest side; keeps aspect, rounds to /16
-    const longer = Math.max(width, height);
-    if (longer > CAP) {
-      const s = CAP / longer;
-      setWidth(Math.max(256, Math.round((width * s) / 16) * 16));
-      setHeight(Math.max(256, Math.round((height * s) / 16) * 16));
-    }
-  }, [mode, width, height]);
+  const [lightx2vHigh, setLightx2vHigh] = useState(defaultLightx2vHigh);
+  const [lightx2vLow, setLightx2vLow] = useState(defaultLightx2vLow);
+  const [cfgHigh, setCfgHigh] = useState(defaultCfgHigh);
+  const [cfgLow, setCfgLow] = useState(defaultCfgLow);
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -235,14 +236,11 @@ export default function CreateJobDialog({
       setLoras(
         preset.loras.map((l) => {
           const lib = loraLibrary.find((item) => item.id === l.lora_id);
-          // Library default weights are the source of truth (mirrors the manual
-          // picker, incl. the high/low-file guard). Fall back to the preset's
-          // stored weights only if the LoRA is no longer in the library.
           return {
             lora_id: l.lora_id,
             name: lib?.name ?? l.lora_id.slice(0, 8),
-            high_weight: lib ? (lib.high_file ? lib.default_high_weight : 0) : l.high_weight,
-            low_weight: lib ? (lib.low_file ? lib.default_low_weight : 0) : l.low_weight,
+            high_weight: l.high_weight,
+            low_weight: l.low_weight,
             preview_image: lib?.preview_image ?? null,
           };
         }),
@@ -306,13 +304,19 @@ export default function CreateJobDialog({
     setName("");
     setPrompt("");
     setNegativePrompt("");
+    setOrigWidth(DEFAULT_WIDTH);
+    setOrigHeight(DEFAULT_HEIGHT);
     setWidth(DEFAULT_WIDTH);
     setHeight(DEFAULT_HEIGHT);
+    setScale(100);
     setFps(DEFAULT_FPS);
     setDuration(DEFAULT_DURATION);
     setSpeed(DEFAULT_SPEED);
     setSeed("");
-    setMode("identity");
+    setLightx2vHigh(defaultLightx2vHigh);
+    setLightx2vLow(defaultLightx2vLow);
+    setCfgHigh(defaultCfgHigh);
+    setCfgLow(defaultCfgLow);
     setStartingImage(null);
     if (prevPreviewUrlRef.current?.startsWith("blob:")) {
       URL.revokeObjectURL(prevPreviewUrlRef.current);
@@ -327,7 +331,7 @@ export default function CreateJobDialog({
     setNameManuallyEdited(false);
     setTags("");
     setError("");
-  }, []);
+  }, [defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow]);
 
   const handleSubmit = async () => {
     if (!name.trim() || !prompt.trim()) {
@@ -361,7 +365,10 @@ export default function CreateJobDialog({
         height,
         fps,
         seed: seed ? parseInt(seed) : null,
-        mode,
+        lightx2v_strength_high: lightx2vHigh ? parseFloat(lightx2vHigh) : null,
+        lightx2v_strength_low: lightx2vLow ? parseFloat(lightx2vLow) : null,
+        cfg_high: cfgHigh ? parseFloat(cfgHigh) : null,
+        cfg_low: cfgLow ? parseFloat(cfgLow) : null,
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         starting_image_hash: reuseHash,
         tags: tags || null,
@@ -590,77 +597,66 @@ export default function CreateJobDialog({
             <Typography variant="subtitle2">
               Video Settings
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {width}x{height} / {fps}fps / {duration}s / {speed}x / {mode}
+                {width}x{height} / {fps}fps / {duration}s / {speed}x / CFG {cfgHigh}/{cfgLow}
               </Typography>
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0 }}>
-            <Box sx={{ px: 1, mb: 0.5 }}>
+            <Box sx={{ px: 1 }}>
               <Typography variant="caption" color="text.secondary" gutterBottom>
-                Output Size
+                Scale
               </Typography>
-              {mode === "draft" && (
-                <Typography variant="caption" color="primary" sx={{ display: "block", mb: 0.5 }}>
-                  Driver locked to {width}×{height} @ 16fps — Animate re-renders the final at its own resolution
-                </Typography>
-              )}
-              {(["portrait", "landscape"] as const).map((orient) => (
-                <Box key={orient} sx={{ mt: 0.5 }}>
-                  <Typography variant="overline" color="text.secondary" sx={{ display: "block", lineHeight: 1.6 }}>
-                    {orient}
-                  </Typography>
-                  <ToggleButtonGroup
-                    exclusive
-                    size="small"
-                    disabled={mode === "draft"}
-                    value={`${width}x${height}`}
-                    onChange={(_e, val) => {
-                      if (!val) return;
-                      const [w, h] = (val as string).split("x").map(Number);
-                      setWidth(w);
-                      setHeight(h);
-                    }}
-                    sx={{
-                      flexWrap: "wrap",
-                      gap: 1,
-                      "& .MuiToggleButtonGroup-grouped": {
-                        border: 1,
-                        borderColor: "divider",
-                        borderRadius: 1,
-                        m: 0,
-                      },
-                    }}
-                  >
-                    {SIZE_PRESETS[orient].map((p) => (
-                      <ToggleButton
-                        key={`${p.width}x${p.height}`}
-                        value={`${p.width}x${p.height}`}
-                        sx={{ flexDirection: "column", px: 1.5, py: 0.5, textTransform: "none" }}
-                      >
-                        <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-                          {p.label}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
-                          {p.width}×{p.height} · {p.ratio}
-                        </Typography>
-                      </ToggleButton>
-                    ))}
-                  </ToggleButtonGroup>
-                </Box>
-              ))}
+              <Slider
+                value={scale}
+                min={10}
+                max={100}
+                step={1}
+                onChange={(_e, val) => {
+                  const s = val as number;
+                  setScale(s);
+                  setWidth(Math.round(origWidth * s / 100));
+                  setHeight(Math.round(origHeight * s / 100));
+                }}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(v) => `${v}%`}
+                marks={[
+                  { value: 25, label: "25%" },
+                  { value: 50, label: "50%" },
+                  { value: 75, label: "75%" },
+                  { value: 100, label: "100%" },
+                ]}
+                aria-label="Image scale percentage"
+                sx={{ mb: 0.5 }}
+              />
+            </Box>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+              <TextField
+                label="Width"
+                type="number"
+                size="small"
+                value={width}
+                onChange={(e) => setWidth(parseInt(e.target.value) || 0)}
+                sx={{ flex: 1, minWidth: 100 }}
+              />
+              <TextField
+                label="Height"
+                type="number"
+                size="small"
+                value={height}
+                onChange={(e) => setHeight(parseInt(e.target.value) || 0)}
+                sx={{ flex: 1, minWidth: 100 }}
+              />
             </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
               <TextField
                 label="FPS"
                 select
                 size="small"
-                disabled={mode === "draft"}
                 value={fps}
                 onChange={(e) => setFps(parseInt(e.target.value))}
                 sx={{ flex: 1, minWidth: 80 }}
               >
                 <MenuItem value={15}>15</MenuItem>
-                <MenuItem value={16}>16</MenuItem>
                 <MenuItem value={30}>30</MenuItem>
                 <MenuItem value={60}>60</MenuItem>
               </TextField>
@@ -697,24 +693,47 @@ export default function CreateJobDialog({
             </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
               <TextField
-                select
-                label="Mode"
+                label="LightX2V High"
+                type="number"
                 size="small"
-                value={mode}
-                onChange={(e) => {
-                  const m = e.target.value;
-                  setMode(m);
-                  if (m === "draft") setFps(16); // Animate resamples the driver to 16fps — higher is wasted
-                }}
+                value={lightx2vHigh}
+                onChange={(e) => setLightx2vHigh(e.target.value)}
                 sx={{ flex: 1, minWidth: 100 }}
-                helperText="Generation profile — set once, locked for all segments"
-              >
-                <MenuItem value="identity">Wan22 Base (Character Identity) · ~16m</MenuItem>
-                <MenuItem value="expression">Wan22 Base (Identity + Expression) · ~21m</MenuItem>
-                <MenuItem value="dasiwa">DaSiWa (Fast) · ~13m</MenuItem>
-                <MenuItem value="remix">Wan22 Remix (Enhanced Motions) · ~13m</MenuItem>
-                <MenuItem value="draft">Draft / Driver (fastest — feed to Final Cut) · ~5m</MenuItem>
-              </TextField>
+                slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+                helperText="1.0–5.6"
+              />
+              <TextField
+                label="LightX2V Low"
+                type="number"
+                size="small"
+                value={lightx2vLow}
+                onChange={(e) => setLightx2vLow(e.target.value)}
+                sx={{ flex: 1, minWidth: 100 }}
+                slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+                helperText="1.0–2.0"
+              />
+            </Box>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
+              <TextField
+                label="CFG High"
+                type="number"
+                size="small"
+                value={cfgHigh}
+                onChange={(e) => setCfgHigh(e.target.value)}
+                sx={{ flex: 1, minWidth: 100 }}
+                slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
+                helperText="High noise"
+              />
+              <TextField
+                label="CFG Low"
+                type="number"
+                size="small"
+                value={cfgLow}
+                onChange={(e) => setCfgLow(e.target.value)}
+                sx={{ flex: 1, minWidth: 100 }}
+                slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
+                helperText="Low noise"
+              />
             </Box>
           </AccordionDetails>
         </Accordion>

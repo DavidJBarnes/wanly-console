@@ -5,7 +5,6 @@ import type {
   JobListResponse,
   JobDetailResponse,
   JobUpdate,
-  FinalCutCreate,
   SegmentCreate,
   SegmentResponse,
   SegmentReprocessRequest,
@@ -137,14 +136,6 @@ export async function deleteJob(id: string): Promise<void> {
 
 export async function reopenJob(id: string): Promise<JobDetailResponse> {
   const { data } = await api.post<JobDetailResponse>(`/jobs/${id}/reopen`);
-  return data;
-}
-
-export async function createFinalCut(
-  id: string,
-  body: FinalCutCreate,
-): Promise<JobResponse> {
-  const { data } = await api.post<JobResponse>(`/jobs/${id}/final-cut`, body);
   return data;
 }
 
@@ -381,11 +372,6 @@ export async function getImageFolder(date: string): Promise<ImageFile[]> {
 
 export async function getFavoriteImages(): Promise<ImageFile[]> {
   const { data } = await api.get<ImageFile[]>("/images/favorites");
-  return data;
-}
-
-export async function getUntaggedImages(): Promise<ImageFile[]> {
-  const { data } = await api.get<ImageFile[]>("/images/untagged");
   return data;
 }
 
