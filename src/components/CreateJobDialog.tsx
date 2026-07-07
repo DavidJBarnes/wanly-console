@@ -127,6 +127,8 @@ export default function CreateJobDialog({
   const [lightx2vLow, setLightx2vLow] = useState(defaultLightx2vLow);
   const [cfgHigh, setCfgHigh] = useState(defaultCfgHigh);
   const [cfgLow, setCfgLow] = useState(defaultCfgLow);
+  const [stepsTotal, setStepsTotal] = useState("4");
+  const [highNoiseSteps, setHighNoiseSteps] = useState("2");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -369,6 +371,8 @@ export default function CreateJobDialog({
         lightx2v_strength_low: lightx2vLow ? parseFloat(lightx2vLow) : null,
         cfg_high: cfgHigh ? parseFloat(cfgHigh) : null,
         cfg_low: cfgLow ? parseFloat(cfgLow) : null,
+        steps_total: stepsTotal ? parseInt(stepsTotal, 10) : null,
+        high_noise_steps: highNoiseSteps ? parseInt(highNoiseSteps, 10) : null,
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         starting_image_hash: reuseHash,
         tags: tags || null,
@@ -733,6 +737,28 @@ export default function CreateJobDialog({
                 sx={{ flex: 1, minWidth: 100 }}
                 slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
                 helperText="Low noise"
+              />
+            </Box>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
+              <TextField
+                label="Steps Total"
+                type="number"
+                size="small"
+                value={stepsTotal}
+                onChange={(e) => setStepsTotal(e.target.value)}
+                sx={{ flex: 1, minWidth: 100 }}
+                slotProps={{ htmlInput: { step: 1, min: 1 } }}
+                helperText="Total steps (4=distilled; raise + drop Lightning for CFG)"
+              />
+              <TextField
+                label="High-Noise Steps"
+                type="number"
+                size="small"
+                value={highNoiseSteps}
+                onChange={(e) => setHighNoiseSteps(e.target.value)}
+                sx={{ flex: 1, minWidth: 100 }}
+                slotProps={{ htmlInput: { step: 1, min: 0 } }}
+                helperText="High/low split boundary"
               />
             </Box>
           </AccordionDetails>

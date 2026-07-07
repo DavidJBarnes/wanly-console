@@ -97,6 +97,8 @@ export interface JobCreate {
   lightx2v_strength_low?: number | null;
   cfg_high?: number | null;
   cfg_low?: number | null;
+  steps_total?: number | null;
+  high_noise_steps?: number | null;
   starting_image_uri?: string | null;
   starting_image_hash?: string | null;
   first_segment: SegmentCreate;
@@ -115,6 +117,8 @@ export interface JobResponse {
   lightx2v_strength_low: number | null;
   cfg_high: number | null;
   cfg_low: number | null;
+  steps_total: number | null;
+  high_noise_steps: number | null;
   priority: number;
   status: JobStatus;
   segment_count: number;
