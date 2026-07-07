@@ -23,10 +23,18 @@ export default function SettingsPage() {
   const [input1, setInput1] = useState("");
   const [input2, setInput2] = useState("");
   const {
+    defaultLightx2vHigh,
+    defaultLightx2vLow,
+    defaultCfgHigh,
+    defaultCfgLow,
     negativePrompt,
     loaded,
     fetchSettings,
     saveSettings,
+    setDefaultLightx2vHigh,
+    setDefaultLightx2vLow,
+    setDefaultCfgHigh,
+    setDefaultCfgLow,
     setNegativePrompt,
   } = useSettingsStore();
   const [saving, setSaving] = useState(false);
@@ -53,7 +61,13 @@ export default function SettingsPage() {
     setSaved(false);
     setSaveError(null);
     try {
-      await saveSettings({ negative_prompt: negativePrompt });
+      await saveSettings({
+        lightx2v_strength_high: parseFloat(defaultLightx2vHigh) || 2.0,
+        lightx2v_strength_low: parseFloat(defaultLightx2vLow) || 1.0,
+        cfg_high: parseFloat(defaultCfgHigh) || 1,
+        cfg_low: parseFloat(defaultCfgLow) || 1,
+        negative_prompt: negativePrompt,
+      });
       setSaved(true);
     } catch (err) {
       console.error("Failed to save app settings:", err);
@@ -181,6 +195,50 @@ export default function SettingsPage() {
             </Box>
           ) : (
             <>
+              <Box sx={{ display: "flex", gap: 2, maxWidth: 500, flexWrap: "wrap" }}>
+                <TextField
+                  label="LightX2V High"
+                  type="number"
+                  size="small"
+                  value={defaultLightx2vHigh}
+                  onChange={(e) => setDefaultLightx2vHigh(e.target.value)}
+                  slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+                  helperText="Range: 1.0–5.6"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+                <TextField
+                  label="LightX2V Low"
+                  type="number"
+                  size="small"
+                  value={defaultLightx2vLow}
+                  onChange={(e) => setDefaultLightx2vLow(e.target.value)}
+                  slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
+                  helperText="Range: 1.0–2.0"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+              </Box>
+              <Box sx={{ display: "flex", gap: 2, maxWidth: 500, mt: 2, flexWrap: "wrap" }}>
+                <TextField
+                  label="CFG High"
+                  type="number"
+                  size="small"
+                  value={defaultCfgHigh}
+                  onChange={(e) => setDefaultCfgHigh(e.target.value)}
+                  slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
+                  helperText="High noise sampler"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+                <TextField
+                  label="CFG Low"
+                  type="number"
+                  size="small"
+                  value={defaultCfgLow}
+                  onChange={(e) => setDefaultCfgLow(e.target.value)}
+                  slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
+                  helperText="Low noise sampler"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+              </Box>
               <TextField
                 label="Negative Prompt"
                 size="small"

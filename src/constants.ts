@@ -1,51 +1,6 @@
-// Job size presets — all multiples of 16 (Wan VAE/patch constraint), Wan-friendly areas.
-// Source image aspect should match the chosen preset so the start frame is neither
-// cropped nor stretched. 832×1216 matches SDXL portrait output (pass-through).
-export interface SizePreset {
-  label: string;
-  ratio: string;
-  width: number;
-  height: number;
-}
-
-export const SIZE_PRESETS: { portrait: SizePreset[]; landscape: SizePreset[] } = {
-  portrait: [
-    { label: "SDXL match", ratio: "2:3", width: 832, height: 1216 },
-    { label: "Reels", ratio: "9:16", width: 720, height: 1280 },
-    { label: "Light", ratio: "3:4", width: 768, height: 1024 },
-  ],
-  landscape: [
-    { label: "Wide 3:2", ratio: "3:2", width: 1216, height: 832 },
-    { label: "Widescreen", ratio: "16:9", width: 1280, height: 720 },
-    { label: "Classic", ratio: "4:3", width: 1024, height: 768 },
-  ],
-};
-
-// Pick the SMALLEST preset in the image's orientation (portrait if tall/square, else
-// landscape). Used to auto-default output size from a start image — reduced res is the
-// norm now (full-res 1216×832 is the failure mode), so a landscape image → Classic
-// 1024×768, a portrait image → Light 768×1024.
-export function smallestSizePreset(width: number, height: number): SizePreset {
-  const pool = height >= width ? SIZE_PRESETS.portrait : SIZE_PRESETS.landscape;
-  return pool.reduce((smallest, p) =>
-    p.width * p.height < smallest.width * smallest.height ? p : smallest
-  );
-}
-
-// Job defaults — smallest portrait (Light 768×1024). Reduced res is the norm now
-// (full-res 1216×832 is the only failure mode). Landscape's smallest is Classic 1024×768.
-export const DEFAULT_WIDTH = 768;
-export const DEFAULT_HEIGHT = 1024;
-
-// Generation mode → full display label (used in the New Job dropdown + Job Detail).
-export const MODE_LABELS: Record<string, string> = {
-  identity: "Wan22 Base (Character Identity)",
-  expression: "Wan22 Base (Identity + Expression)",
-  dasiwa: "DaSiWa (Fast)",
-  remix: "Wan22 Remix (Enhanced Motions)",
-};
-export const modeLabel = (mode: string | null | undefined): string =>
-  MODE_LABELS[mode ?? "identity"] ?? (mode ?? "identity");
+// Job defaults
+export const DEFAULT_WIDTH = 640;
+export const DEFAULT_HEIGHT = 640;
 export const DEFAULT_FPS = 60;
 export const DEFAULT_DURATION = 5.0;
 export const DEFAULT_SPEED = 1.0;

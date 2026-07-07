@@ -93,7 +93,10 @@ export interface JobCreate {
   height: number;
   fps: number;
   seed?: number | null;
-  mode?: string;
+  lightx2v_strength_high?: number | null;
+  lightx2v_strength_low?: number | null;
+  cfg_high?: number | null;
+  cfg_low?: number | null;
   starting_image_uri?: string | null;
   starting_image_hash?: string | null;
   first_segment: SegmentCreate;
@@ -108,9 +111,10 @@ export interface JobResponse {
   fps: number;
   seed: number;
   starting_image: string | null;
-  mode: string;
-  kind: string;
-  source_job_id: string | null;
+  lightx2v_strength_high: number | null;
+  lightx2v_strength_low: number | null;
+  cfg_high: number | null;
+  cfg_low: number | null;
   priority: number;
   status: JobStatus;
   segment_count: number;
@@ -191,25 +195,9 @@ export interface JobListResponse {
   offset: number;
 }
 
-export interface FinalCutSummary {
-  id: string;
-  name: string;
-  kind: string;
-  status: JobStatus;
-  created_at: string;
-  video: VideoResponse | null;
-}
-
-export interface FinalCutCreate {
-  reference_image_uri?: string | null; // face to swap in; default = source job's start image
-  face_index?: number; // which face in a multi-person clip (0 = first, left-to-right)
-  distance?: number | null; // FaceFusion reference-face-distance; null = auto
-}
-
 export interface JobDetailResponse extends JobResponse {
   segments: SegmentResponse[];
   videos: VideoResponse[];
-  final_cuts: FinalCutSummary[];
   segment_count: number;
   completed_segment_count: number;
   total_run_time: number;
@@ -407,6 +395,10 @@ export interface FramePreviewResponse {
 }
 
 export interface AppSettingsResponse {
+  cfg_high: number;
+  cfg_low: number;
+  lightx2v_strength_high: number;
+  lightx2v_strength_low: number;
   negative_prompt: string;
 }
 
@@ -425,6 +417,10 @@ export interface FavoriteListResponse {
 }
 
 export interface AppSettingsUpdate {
+  cfg_high?: number;
+  cfg_low?: number;
+  lightx2v_strength_high?: number;
+  lightx2v_strength_low?: number;
   negative_prompt?: string;
 }
 
