@@ -1,63 +1,40 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Button,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   TextField,
   CircularProgress,
 } from "@mui/material";
 
-import { useLoraStore } from "../stores/loraStore";
 import { createFinalCut } from "../api/client";
 import type { FinalCutCreate } from "../api/types";
 
 interface FinalCutDialogProps {
   open: boolean;
   jobId: string;
-  defaultPrompt?: string;
   onClose: () => void;
   onCreated: () => void;
 }
 
-// Final Cut: re-render a job's finalized video through Wan Animate (identity-locked) as a linked
-// child job. Runs on the normal queue. Reference defaults to the source job's start image.
-export default function FinalCutDialog({ open, jobId, defaultPrompt, onClose, onCreated }: FinalCutDialogProps) {
-  const { loras, fetchLoras } = useLoraStore();
-  const [mode, setMode] = useState<"move" | "mix">("mix");
-  const [preset, setPreset] = useState<"fast" | "highres">("fast");
-  const [loraId, setLoraId] = useState<string>("");
-  const [prompt, setPrompt] = useState("");
+// Final Cut: face-swap the character onto this job's finalized video via FaceFusion, as a linked
+// child job. Runs on the normal queue. Reference face defaults to the source job's start image.
+export default function FinalCutDialog({ open, jobId, onClose, onCreated }: FinalCutDialogProps) {
+  const [faceIndex, setFaceIndex] = useState(0);
+  const [distance, setDistance] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      fetchLoras();
-      setPrompt(defaultPrompt ?? "");
-    }
-  }, [open, defaultPrompt, fetchLoras]);
 
   const handleSubmit = async () => {
     setSubmitting(true);
     setError(null);
     try {
-      const lora = loras.find((l) => l.id === loraId);
       const body: FinalCutCreate = {
-        mode,
-        preset,
-        loras: lora
-          ? [{ lora_id: lora.id, high_weight: lora.default_high_weight, low_weight: lora.default_low_weight }]
-          : null,
-        prompt: prompt.trim() || null,
+        face_index: faceIndex,
+        distance: distance.trim() === "" ? null : Number(distance),
       };
       await createFinalCut(jobId, body);
       onCreated();
@@ -76,75 +53,36 @@ export default function FinalCutDialog({ open, jobId, defaultPrompt, onClose, on
       <DialogTitle>Final Cut</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Re-render this job&apos;s finalized video through Wan Animate (identity-locked). Queued like any
+          Face-swap the character onto this job&apos;s finalized video via FaceFusion. Queued like any
           job — you can run this multiple times.
         </Typography>
 
-        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-          Mode
-        </Typography>
-        <ToggleButtonGroup
-          exclusive
+        <TextField
           fullWidth
-          value={mode}
-          onChange={(_, v) => v && setMode(v)}
           size="small"
+          type="number"
+          label="Face to swap"
+          value={faceIndex}
+          onChange={(e) => setFaceIndex(Math.max(0, parseInt(e.target.value || "0", 10)))}
+          helperText="Which face in a multi-person clip (0 = first, left-to-right)."
+          inputProps={{ min: 0 }}
           sx={{ mb: 2 }}
-        >
-          <ToggleButton value="mix">Mix — keep scene</ToggleButton>
-          <ToggleButton value="move">Move — new scene</ToggleButton>
-        </ToggleButtonGroup>
+        />
 
-        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-          Quality
-        </Typography>
-        <ToggleButtonGroup
-          exclusive
+        <TextField
           fullWidth
-          value={preset}
-          onChange={(_, v) => v && setPreset(v)}
           size="small"
-          sx={{ mb: 2 }}
-        >
-          <ToggleButton value="fast">Fast</ToggleButton>
-          <ToggleButton value="highres">High-res</ToggleButton>
-        </ToggleButtonGroup>
-
-        <FormControl fullWidth size="small" sx={{ mb: 1.5 }}>
-          <InputLabel id="fc-lora-label">Character LoRA (optional)</InputLabel>
-          <Select
-            labelId="fc-lora-label"
-            label="Character LoRA (optional)"
-            value={loraId}
-            onChange={(e) => setLoraId(e.target.value)}
-          >
-            <MenuItem value="">
-              <em>None</em>
-            </MenuItem>
-            {loras.map((l) => (
-              <MenuItem key={l.id} value={l.id}>
-                {l.name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        {mode === "move" && (
-          <TextField
-            fullWidth
-            multiline
-            minRows={2}
-            size="small"
-            label="Scene prompt (move mode)"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            helperText="Shapes the new scene move generates — prefilled from the source job; edit to change it."
-            sx={{ mb: 1.5 }}
-          />
-        )}
+          type="number"
+          label="Match distance (advanced, optional)"
+          value={distance}
+          onChange={(e) => setDistance(e.target.value)}
+          helperText="Blank = auto. Higher holds through head-turns; lower isolates one person (0.0–1.5)."
+          inputProps={{ min: 0, max: 1.5, step: 0.05 }}
+          sx={{ mb: 1.5 }}
+        />
 
         <Typography variant="caption" color="text.secondary">
-          Reference: the job&apos;s start image.
+          Reference face: the job&apos;s start image.
         </Typography>
         {error && (
           <Typography color="error" variant="body2" sx={{ mt: 1 }}>

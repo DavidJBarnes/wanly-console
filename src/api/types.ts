@@ -201,11 +201,9 @@ export interface FinalCutSummary {
 }
 
 export interface FinalCutCreate {
-  mode: string; // "move" | "mix"
-  preset: string; // "fast" | "highres"
-  loras?: LoraConfig[] | null;
-  reference_image_uri?: string | null;
-  prompt?: string | null; // scene prompt (matters for move mode); default = source job's prompt
+  reference_image_uri?: string | null; // face to swap in; default = source job's start image
+  face_index?: number; // which face in a multi-person clip (0 = first, left-to-right)
+  distance?: number | null; // FaceFusion reference-face-distance; null = auto
 }
 
 export interface JobDetailResponse extends JobResponse {
