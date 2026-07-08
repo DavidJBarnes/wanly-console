@@ -27,6 +27,9 @@ export default function SettingsPage() {
     defaultLightx2vLow,
     defaultCfgHigh,
     defaultCfgLow,
+    defaultStepsTotal,
+    defaultHighNoiseSteps,
+    defaultFlowShift,
     negativePrompt,
     loaded,
     fetchSettings,
@@ -35,6 +38,9 @@ export default function SettingsPage() {
     setDefaultLightx2vLow,
     setDefaultCfgHigh,
     setDefaultCfgLow,
+    setDefaultStepsTotal,
+    setDefaultHighNoiseSteps,
+    setDefaultFlowShift,
     setNegativePrompt,
   } = useSettingsStore();
   const [saving, setSaving] = useState(false);
@@ -66,6 +72,9 @@ export default function SettingsPage() {
         lightx2v_strength_low: parseFloat(defaultLightx2vLow) || 1.0,
         cfg_high: parseFloat(defaultCfgHigh) || 1,
         cfg_low: parseFloat(defaultCfgLow) || 1,
+        steps_total: parseInt(defaultStepsTotal, 10) || 4,
+        high_noise_steps: parseInt(defaultHighNoiseSteps, 10) || 2,
+        flow_shift: parseFloat(defaultFlowShift) || 5,
         negative_prompt: negativePrompt,
       });
       setSaved(true);
@@ -236,6 +245,38 @@ export default function SettingsPage() {
                   onChange={(e) => setDefaultCfgLow(e.target.value)}
                   slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
                   helperText="Low noise sampler"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+              </Box>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 2 }}>
+                <TextField
+                  label="Steps Total"
+                  type="number"
+                  size="small"
+                  value={defaultStepsTotal}
+                  onChange={(e) => setDefaultStepsTotal(e.target.value)}
+                  slotProps={{ htmlInput: { step: 1, min: 1 } }}
+                  helperText="Total sampler steps"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+                <TextField
+                  label="High-Noise Steps"
+                  type="number"
+                  size="small"
+                  value={defaultHighNoiseSteps}
+                  onChange={(e) => setDefaultHighNoiseSteps(e.target.value)}
+                  slotProps={{ htmlInput: { step: 1, min: 0 } }}
+                  helperText="High/low split boundary"
+                  sx={{ flex: 1, minWidth: 110 }}
+                />
+                <TextField
+                  label="Flow Shift"
+                  type="number"
+                  size="small"
+                  value={defaultFlowShift}
+                  onChange={(e) => setDefaultFlowShift(e.target.value)}
+                  slotProps={{ htmlInput: { step: 0.5, min: 1 } }}
+                  helperText="Motion schedule shift"
                   sx={{ flex: 1, minWidth: 110 }}
                 />
               </Box>
