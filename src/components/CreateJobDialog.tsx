@@ -129,6 +129,7 @@ export default function CreateJobDialog({
   const [cfgLow, setCfgLow] = useState(defaultCfgLow);
   const [stepsTotal, setStepsTotal] = useState("4");
   const [highNoiseSteps, setHighNoiseSteps] = useState("2");
+  const [flowShift, setFlowShift] = useState("5");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -373,6 +374,7 @@ export default function CreateJobDialog({
         cfg_low: cfgLow ? parseFloat(cfgLow) : null,
         steps_total: stepsTotal ? parseInt(stepsTotal, 10) : null,
         high_noise_steps: highNoiseSteps ? parseInt(highNoiseSteps, 10) : null,
+        flow_shift: flowShift ? parseFloat(flowShift) : null,
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         starting_image_hash: reuseHash,
         tags: tags || null,
@@ -759,6 +761,16 @@ export default function CreateJobDialog({
                 sx={{ flex: 1, minWidth: 100 }}
                 slotProps={{ htmlInput: { step: 1, min: 0 } }}
                 helperText="High/low split boundary"
+              />
+              <TextField
+                label="Flow Shift"
+                type="number"
+                size="small"
+                value={flowShift}
+                onChange={(e) => setFlowShift(e.target.value)}
+                sx={{ flex: 1, minWidth: 100 }}
+                slotProps={{ htmlInput: { step: 0.5, min: 1 } }}
+                helperText="Motion: 5=default, raise ~8-10 for more"
               />
             </Box>
           </AccordionDetails>

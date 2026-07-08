@@ -99,6 +99,7 @@ export interface JobCreate {
   cfg_low?: number | null;
   steps_total?: number | null;
   high_noise_steps?: number | null;
+  flow_shift?: number | null;
   starting_image_uri?: string | null;
   starting_image_hash?: string | null;
   first_segment: SegmentCreate;
@@ -119,6 +120,7 @@ export interface JobResponse {
   cfg_low: number | null;
   steps_total: number | null;
   high_noise_steps: number | null;
+  flow_shift: number | null;
   priority: number;
   status: JobStatus;
   segment_count: number;
