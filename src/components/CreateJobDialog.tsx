@@ -63,7 +63,7 @@ export default function CreateJobDialog({
   initialImageTags,
 }: CreateJobDialogProps) {
   const isMobile = useIsMobile();
-  const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
+  const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, defaultStepsTotal, defaultHighNoiseSteps, defaultFlowShift, negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
@@ -127,9 +127,10 @@ export default function CreateJobDialog({
   const [lightx2vLow, setLightx2vLow] = useState(defaultLightx2vLow);
   const [cfgHigh, setCfgHigh] = useState(defaultCfgHigh);
   const [cfgLow, setCfgLow] = useState(defaultCfgLow);
-  const [stepsTotal, setStepsTotal] = useState("4");
-  const [highNoiseSteps, setHighNoiseSteps] = useState("2");
-  const [flowShift, setFlowShift] = useState("5");
+  const [stepsTotal, setStepsTotal] = useState(defaultStepsTotal);
+  const [highNoiseSteps, setHighNoiseSteps] = useState(defaultHighNoiseSteps);
+  const [flowShift, setFlowShift] = useState(defaultFlowShift);
+  const [samplerPreset, setSamplerPreset] = useState("");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -320,6 +321,9 @@ export default function CreateJobDialog({
     setLightx2vLow(defaultLightx2vLow);
     setCfgHigh(defaultCfgHigh);
     setCfgLow(defaultCfgLow);
+    setStepsTotal(defaultStepsTotal);
+    setHighNoiseSteps(defaultHighNoiseSteps);
+    setFlowShift(defaultFlowShift);
     setStartingImage(null);
     if (prevPreviewUrlRef.current?.startsWith("blob:")) {
       URL.revokeObjectURL(prevPreviewUrlRef.current);
@@ -334,7 +338,39 @@ export default function CreateJobDialog({
     setNameManuallyEdited(false);
     setTags("");
     setError("");
-  }, [defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow]);
+  }, [defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, defaultStepsTotal, defaultHighNoiseSteps, defaultFlowShift]);
+
+  // Re-sync sampler fields from saved settings each time the dialog opens.
+  // Fixes the stale useState init (defaults load async after first mount).
+  useEffect(() => {
+    if (open) {
+      setLightx2vHigh(defaultLightx2vHigh);
+      setLightx2vLow(defaultLightx2vLow);
+      setCfgHigh(defaultCfgHigh);
+      setCfgLow(defaultCfgLow);
+      setStepsTotal(defaultStepsTotal);
+      setHighNoiseSteps(defaultHighNoiseSteps);
+      setFlowShift(defaultFlowShift);
+    }
+  }, [open, defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, defaultStepsTotal, defaultHighNoiseSteps, defaultFlowShift]);
+
+  const SAMPLER_PRESETS: Record<string, Record<string, string>> = {
+    Lightning: { lightx2vHigh: "1", lightx2vLow: "1", cfgHigh: "1", cfgLow: "1", stepsTotal: "4", highNoiseSteps: "2", flowShift: "5" },
+    "Prompt-Aware": { lightx2vHigh: "0", lightx2vLow: "1", cfgHigh: "2.75", cfgLow: "1", stepsTotal: "12", highNoiseSteps: "8", flowShift: "5" },
+    "High Motion": { lightx2vHigh: "0", lightx2vLow: "1", cfgHigh: "3.5", cfgLow: "1", stepsTotal: "12", highNoiseSteps: "8", flowShift: "5" },
+  };
+  const applySamplerPreset = (name: string) => {
+    setSamplerPreset(name);
+    const p = SAMPLER_PRESETS[name];
+    if (!p) return;
+    setLightx2vHigh(p.lightx2vHigh);
+    setLightx2vLow(p.lightx2vLow);
+    setCfgHigh(p.cfgHigh);
+    setCfgLow(p.cfgLow);
+    setStepsTotal(p.stepsTotal);
+    setHighNoiseSteps(p.highNoiseSteps);
+    setFlowShift(p.flowShift);
+  };
 
   const handleSubmit = async () => {
     if (!name.trim() || !prompt.trim()) {
@@ -683,6 +719,8 @@ export default function CreateJobDialog({
                 onChange={(e) => setSpeed(parseFloat(e.target.value))}
                 sx={{ flex: 1, minWidth: 80 }}
               >
+                <MenuItem value={0.5}>0.5x</MenuItem>
+                <MenuItem value={0.75}>0.75x</MenuItem>
                 <MenuItem value={1.0}>1.0x</MenuItem>
                 <MenuItem value={1.25}>1.25x</MenuItem>
                 <MenuItem value={1.5}>1.5x</MenuItem>
@@ -696,6 +734,22 @@ export default function CreateJobDialog({
                 onChange={(e) => setSeed(e.target.value)}
                 sx={{ flex: 1, minWidth: 80 }}
               />
+            </Box>
+            <Box sx={{ mt: 1.5 }}>
+              <TextField
+                select
+                label="Preset"
+                size="small"
+                value={samplerPreset}
+                onChange={(e) => applySamplerPreset(e.target.value)}
+                sx={{ minWidth: 240 }}
+                helperText="Load a known-good sampler bundle"
+              >
+                <MenuItem value="">Custom</MenuItem>
+                <MenuItem value="Lightning">Lightning — fast, cfg 1</MenuItem>
+                <MenuItem value="Prompt-Aware">Prompt-Aware — cfg 2.75, motion</MenuItem>
+                <MenuItem value="High Motion">High Motion — cfg 3.5</MenuItem>
+              </TextField>
             </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
               <TextField

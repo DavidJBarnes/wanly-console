@@ -7,6 +7,9 @@ interface SettingsState {
   defaultLightx2vLow: string;
   defaultCfgHigh: string;
   defaultCfgLow: string;
+  defaultStepsTotal: string;
+  defaultHighNoiseSteps: string;
+  defaultFlowShift: string;
   negativePrompt: string;
   loaded: boolean;
   fetchSettings: () => Promise<void>;
@@ -15,6 +18,9 @@ interface SettingsState {
   setDefaultLightx2vLow: (value: string) => void;
   setDefaultCfgHigh: (value: string) => void;
   setDefaultCfgLow: (value: string) => void;
+  setDefaultStepsTotal: (value: string) => void;
+  setDefaultHighNoiseSteps: (value: string) => void;
+  setDefaultFlowShift: (value: string) => void;
   setNegativePrompt: (value: string) => void;
 }
 
@@ -23,6 +29,9 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   defaultLightx2vLow: "1.0",
   defaultCfgHigh: "1",
   defaultCfgLow: "1",
+  defaultStepsTotal: "4",
+  defaultHighNoiseSteps: "2",
+  defaultFlowShift: "5",
   negativePrompt: "",
   loaded: false,
   fetchSettings: async () => {
@@ -33,6 +42,9 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
         defaultLightx2vLow: String(s.lightx2v_strength_low),
         defaultCfgHigh: String(s.cfg_high),
         defaultCfgLow: String(s.cfg_low),
+        defaultStepsTotal: String(s.steps_total),
+        defaultHighNoiseSteps: String(s.high_noise_steps),
+        defaultFlowShift: String(s.flow_shift),
         negativePrompt: s.negative_prompt,
         loaded: true,
       });
@@ -48,6 +60,9 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
       defaultLightx2vLow: String(s.lightx2v_strength_low),
       defaultCfgHigh: String(s.cfg_high),
       defaultCfgLow: String(s.cfg_low),
+      defaultStepsTotal: String(s.steps_total),
+      defaultHighNoiseSteps: String(s.high_noise_steps),
+      defaultFlowShift: String(s.flow_shift),
       negativePrompt: s.negative_prompt,
     });
   },
@@ -55,5 +70,8 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   setDefaultLightx2vLow: (value) => set({ defaultLightx2vLow: value }),
   setDefaultCfgHigh: (value) => set({ defaultCfgHigh: value }),
   setDefaultCfgLow: (value) => set({ defaultCfgLow: value }),
+  setDefaultStepsTotal: (value) => set({ defaultStepsTotal: value }),
+  setDefaultHighNoiseSteps: (value) => set({ defaultHighNoiseSteps: value }),
+  setDefaultFlowShift: (value) => set({ defaultFlowShift: value }),
   setNegativePrompt: (value) => set({ negativePrompt: value }),
 }));

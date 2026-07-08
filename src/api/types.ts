@@ -405,6 +405,9 @@ export interface AppSettingsResponse {
   cfg_low: number;
   lightx2v_strength_high: number;
   lightx2v_strength_low: number;
+  steps_total: number;
+  high_noise_steps: number;
+  flow_shift: number;
   negative_prompt: string;
 }
 
@@ -427,6 +430,9 @@ export interface AppSettingsUpdate {
   cfg_low?: number;
   lightx2v_strength_high?: number;
   lightx2v_strength_low?: number;
+  steps_total?: number;
+  high_noise_steps?: number;
+  flow_shift?: number;
   negative_prompt?: string;
 }
 
