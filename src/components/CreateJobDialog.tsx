@@ -130,7 +130,7 @@ export default function CreateJobDialog({
   const [stepsTotal, setStepsTotal] = useState(defaultStepsTotal);
   const [highNoiseSteps, setHighNoiseSteps] = useState(defaultHighNoiseSteps);
   const [flowShift, setFlowShift] = useState(defaultFlowShift);
-  const [preset, setPreset] = useState("");
+  const [samplerPreset, setSamplerPreset] = useState("");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -359,8 +359,8 @@ export default function CreateJobDialog({
     "Prompt-Aware": { lightx2vHigh: "0", lightx2vLow: "1", cfgHigh: "2.75", cfgLow: "1", stepsTotal: "12", highNoiseSteps: "8", flowShift: "5" },
     "High Motion": { lightx2vHigh: "0", lightx2vLow: "1", cfgHigh: "3.5", cfgLow: "1", stepsTotal: "12", highNoiseSteps: "8", flowShift: "5" },
   };
-  const applyPreset = (name: string) => {
-    setPreset(name);
+  const applySamplerPreset = (name: string) => {
+    setSamplerPreset(name);
     const p = SAMPLER_PRESETS[name];
     if (!p) return;
     setLightx2vHigh(p.lightx2vHigh);
@@ -740,8 +740,8 @@ export default function CreateJobDialog({
                 select
                 label="Preset"
                 size="small"
-                value={preset}
-                onChange={(e) => applyPreset(e.target.value)}
+                value={samplerPreset}
+                onChange={(e) => applySamplerPreset(e.target.value)}
                 sx={{ minWidth: 240 }}
                 helperText="Load a known-good sampler bundle"
               >
