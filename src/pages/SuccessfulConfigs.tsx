@@ -13,7 +13,12 @@ import {
 import { Star } from "@mui/icons-material";
 import { getJobs, getFileUrl } from "../api/client";
 import StatusChip from "../components/StatusChip";
-import type { JobResponse } from "../api/types";
+import type { JobResponse, JobLoraSummary } from "../api/types";
+
+function loraLabel(l: JobLoraSummary): string {
+  const raw = l.name || l.high_file || l.low_file || l.lora_id || "lora";
+  return raw.replace(/\.safetensors$/i, "");
+}
 
 function ConfigChip({ label, value }: { label: string; value: string | number }) {
   return (
@@ -116,6 +121,26 @@ export default function SuccessfulConfigs() {
                       {job.flow_shift != null && <ConfigChip label="Shift" value={job.flow_shift} />}
                       <ConfigChip label="" value={`${job.width}x${job.height}`} />
                     </Box>
+                    {job.loras.length > 0 && (
+                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.75 }}>
+                        {job.loras.map((l, i) => (
+                          <Chip
+                            key={i}
+                            size="small"
+                            color="secondary"
+                            variant="outlined"
+                            label={
+                              <span>
+                                {loraLabel(l)}{" "}
+                                <Box component="span" sx={{ color: "text.secondary" }}>
+                                  hi {l.high_weight ?? 0} · lo {l.low_weight ?? 0}
+                                </Box>
+                              </span>
+                            }
+                          />
+                        ))}
+                      </Box>
+                    )}
                   </CardContent>
                 </Box>
               </CardActionArea>
