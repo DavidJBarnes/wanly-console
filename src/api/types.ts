@@ -106,6 +106,15 @@ export interface JobCreate {
   tags?: string | null;
 }
 
+export interface JobLoraSummary {
+  lora_id?: string | null;
+  name?: string | null;
+  high_file?: string | null;
+  low_file?: string | null;
+  high_weight?: number | null;
+  low_weight?: number | null;
+}
+
 export interface JobResponse {
   id: string;
   name: string;
@@ -128,6 +137,7 @@ export interface JobResponse {
   completed_segment_count: number;
   estimated_run_time: number | null;
   faceswap_enabled: boolean;
+  loras: JobLoraSummary[];
   tags: string | null;
   created_at: string;
   updated_at: string;
