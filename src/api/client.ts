@@ -375,6 +375,11 @@ export async function getFavoriteImages(): Promise<ImageFile[]> {
   return data;
 }
 
+export async function getUntaggedImages(): Promise<ImageFile[]> {
+  const { data } = await api.get<ImageFile[]>("/images/untagged");
+  return data;
+}
+
 export async function deleteImage(path: string): Promise<void> {
   await api.delete("/images", { params: { path } });
 }
