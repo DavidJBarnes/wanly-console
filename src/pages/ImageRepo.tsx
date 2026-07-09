@@ -141,14 +141,14 @@ export default function ImageRepo() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const btnSize = isMobile ? "small" : "medium";
 
-  // Scroll to top when page changes
+  // Scroll the main scroll container to the top when either page changes.
+  // Instant (not smooth) + rAF so the async image-grid re-render can't interrupt/stall it
+  // — smooth-scrolling from the bottom of a tall image page left it stuck at the bottom.
   useEffect(() => {
-    document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
-  }, [folderPage]);
-
-  useEffect(() => {
-    document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
-  }, [imagePage]);
+    requestAnimationFrame(() => {
+      document.querySelector("main")?.scrollTo({ top: 0 });
+    });
+  }, [folderPage, imagePage]);
 
   useEffect(() => {
     return () => {
