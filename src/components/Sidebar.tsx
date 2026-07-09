@@ -17,6 +17,7 @@ import {
   TextSnippet,
   Image,
   Settings,
+  Star,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router";
 
@@ -25,6 +26,7 @@ export const DRAWER_WIDTH = 220;
 const NAV_ITEMS = [
   { label: "Dashboard", icon: <DashboardIcon />, path: "/" },
   { label: "Job Queue", icon: <QueueMusic />, path: "/jobs" },
+  { label: "Successful Configs", icon: <Star />, path: "/configs" },
   { label: "Workers", icon: <Dns />, path: "/workers" },
   { label: "Videos", icon: <VideoLibrary />, path: "/videos" },
   { label: "LoRA Library", icon: <AutoFixHigh />, path: "/loras" },

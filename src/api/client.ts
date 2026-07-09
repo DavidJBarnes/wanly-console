@@ -80,6 +80,7 @@ export async function getJobs(params?: {
   sort?: string;
   name?: string;
   q?: string;
+  starred?: boolean;
 }): Promise<JobListResponse> {
   const { data } = await api.get<JobListResponse>("/jobs", { params });
   return data;
