@@ -12,6 +12,7 @@ import Videos from "./pages/Videos";
 import LoraLibrary from "./pages/LoraLibrary";
 import PromptLibrary from "./pages/PromptLibrary";
 import ImageRepo from "./pages/ImageRepo";
+import SuccessfulConfigs from "./pages/SuccessfulConfigs";
 import SettingsPage from "./pages/SettingsPage";
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/jobs" element={<JobQueue />} />
             <Route path="/jobs/:id" element={<JobDetail />} />
+            <Route path="/configs" element={<SuccessfulConfigs />} />
             <Route path="/workers" element={<Workers />} />
             <Route path="/workers/:id" element={<WorkerDetail />} />
             <Route path="/videos" element={<Videos />} />
