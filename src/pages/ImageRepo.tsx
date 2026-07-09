@@ -37,6 +37,7 @@ import {
   Close,
   Favorite,
   NavigateNext,
+  LabelOff,
   PlayArrow,
   Refresh,
   Search,
@@ -54,6 +55,7 @@ import {
   getFavorites,
   toggleFavorite,
   getFavoriteImages,
+  getUntaggedImages,
   updateImageTags,
   searchImages,
 } from "../api/client";
@@ -117,6 +119,9 @@ export default function ImageRepo() {
   const [favoritesView, setFavoritesView] = useState(false);
   const [favImages, setFavImages] = useState<ImageFile[]>([]);
   const [loadingFavImages, setLoadingFavImages] = useState(false);
+  const [untaggedView, setUntaggedView] = useState(false);
+  const [untaggedImages, setUntaggedImages] = useState<ImageFile[]>([]);
+  const [loadingUntagged, setLoadingUntagged] = useState(false);
   const [lightboxTags, setLightboxTags] = useState("");
   const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [searchQuery, setSearchQuery] = useState("");
@@ -232,7 +237,6 @@ export default function ImageRepo() {
     try {
       const data = await getImageFolders();
       setFolders(data);
-      setFolderPage(0);
     } catch {
       // ignore
     } finally {
@@ -259,6 +263,13 @@ export default function ImageRepo() {
       fetchImages(currentFolder);
     }
   }, [currentFolder, fetchFolders, fetchImages]);
+
+  // Keep folderPage in range if the list shrinks (e.g. after a delete), but never
+  // reset it on navigation — resetting was what snapped "page 2 -> folder -> back" to page 1.
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil(folders.length / foldersPerPage) - 1);
+    if (folderPage > maxPage) setFolderPage(maxPage);
+  }, [folders.length, foldersPerPage, folderPage]);
 
   const handleFolderClick = (name: string) => {
     setCurrentFolder(name);
@@ -316,6 +327,9 @@ export default function ImageRepo() {
                 img.path === path ? { ...img, tags: newTags || null } : img
               )
             );
+            if (newTags && newTags.trim()) {
+              setUntaggedImages((prev) => prev.filter((img) => img.path !== path));
+            }
             setLightboxImage((prev) =>
               prev && prev.path === path ? { ...prev, tags: newTags || null } : prev
             );
@@ -950,6 +964,7 @@ export default function ImageRepo() {
                 setFavoritesView(false);
                 return;
               }
+              setUntaggedView(false);
               setFavoritesView(true);
               setLoadingFavImages(true);
               try {
@@ -963,6 +978,31 @@ export default function ImageRepo() {
             }}
           >
             {isMobile ? "Fav" : "Favorites"}
+          </Button>
+          <Button
+            variant={untaggedView ? "contained" : "outlined"}
+            color={untaggedView ? "warning" : "inherit"}
+            startIcon={isMobile ? undefined : <LabelOff />}
+            size={isMobile ? "small" : "medium"}
+            onClick={async () => {
+              if (untaggedView) {
+                setUntaggedView(false);
+                return;
+              }
+              setFavoritesView(false);
+              setUntaggedView(true);
+              setLoadingUntagged(true);
+              try {
+                const imgs = await getUntaggedImages();
+                setUntaggedImages(imgs);
+              } catch {
+                // ignore
+              } finally {
+                setLoadingUntagged(false);
+              }
+            }}
+          >
+            {isMobile ? "Untag" : "Untagged"}
           </Button>
           {(favoritesView && favImages.length > 0) || (debouncedSearch && searchResults.length > 0) ? (
             <Button
@@ -1148,7 +1188,65 @@ export default function ImageRepo() {
           </>
         )}
 
-        {!favoritesView && folders.length === 0 && !loading && (
+        {untaggedView && (
+          <>
+            {loadingUntagged && (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <CircularProgress />
+              </Box>
+            )}
+            {!loadingUntagged && untaggedImages.length === 0 && (
+              <Box sx={{ textAlign: "center", py: 8 }}>
+                <Typography color="text.secondary">
+                  No untagged images — all caught up!
+                </Typography>
+              </Box>
+            )}
+            {untaggedImages.length > 0 && (
+              <Grid container spacing={2}>
+                {untaggedImages.map((image) => (
+                  <Grid key={image.key} size={{ xs: 6, sm: 4, md: 3, lg: 2 }}>
+                    <Card sx={{ position: "relative" }}>
+                      <CardActionArea
+                        onClick={() =>
+                          selectMode ? toggleSelect(image.key) : handleOpenLightbox(image)
+                        }
+                      >
+                        <CardMedia
+                          component="img"
+                          image={getFileUrl(image.path)}
+                          alt={image.filename}
+                          sx={{ height: 200, objectFit: "cover" }}
+                        />
+                        <Box sx={{ p: 1 }}>
+                          <Typography variant="caption" noWrap>
+                            {image.filename}
+                          </Typography>
+                        </Box>
+                      </CardActionArea>
+                      {selectMode && (
+                        <Checkbox
+                          checked={selectedKeys.has(image.key)}
+                          onChange={() => toggleSelect(image.key)}
+                          sx={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            bgcolor: "rgba(255,255,255,0.8)",
+                            borderRadius: "0 0 4px 0",
+                            p: 0.5,
+                          }}
+                        />
+                      )}
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </>
+        )}
+
+        {!favoritesView && !untaggedView && folders.length === 0 && !loading && (
           <Box sx={{ textAlign: "center", py: 8 }}>
             <Typography color="text.secondary">
               No image folders found.
@@ -1156,7 +1254,7 @@ export default function ImageRepo() {
           </Box>
         )}
 
-        {!favoritesView && (
+        {!favoritesView && !untaggedView && (
           <>
         <Grid container spacing={2}>
           {[...folders]
