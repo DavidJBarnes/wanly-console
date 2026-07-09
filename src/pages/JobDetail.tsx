@@ -617,6 +617,18 @@ export default function JobDetail() {
                 value={`${job.cfg_low ?? 1}`}
               />
               <MetaItem
+                label="Steps"
+                value={job.steps_total != null ? `${job.steps_total}` : "—"}
+              />
+              <MetaItem
+                label="High-Noise Steps"
+                value={job.high_noise_steps != null ? `${job.high_noise_steps}` : "—"}
+              />
+              <MetaItem
+                label="Flow Shift"
+                value={job.flow_shift != null ? `${job.flow_shift}` : "—"}
+              />
+              <MetaItem
                 label="Segments"
                 value={`${job.completed_segment_count}`}
               />
