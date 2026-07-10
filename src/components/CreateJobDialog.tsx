@@ -696,16 +696,16 @@ export default function CreateJobDialog({
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => { setWidth(480); setHeight(848); }}
+                onClick={() => { setWidth(480); setHeight(832); }}
               >
-                480×848 ↕
+                480×832 ↕
               </Button>
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => { setWidth(848); setHeight(480); }}
+                onClick={() => { setWidth(832); setHeight(480); }}
               >
-                848×480 ↔
+                832×480 ↔
               </Button>
             </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
