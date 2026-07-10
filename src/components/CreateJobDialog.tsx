@@ -691,21 +691,21 @@ export default function CreateJobDialog({
             </Box>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5 }}>
               <Typography variant="caption" color="text.secondary">
-                480p:
+                Resolution:
               </Typography>
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => { setWidth(480); setHeight(832); }}
+                onClick={() => { const p = height >= width; setWidth(p ? 480 : 832); setHeight(p ? 832 : 480); }}
               >
-                480×832 ↕
+                480p
               </Button>
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => { setWidth(832); setHeight(480); }}
+                onClick={() => { const p = height >= width; setWidth(p ? 720 : 1280); setHeight(p ? 1280 : 720); }}
               >
-                832×480 ↔
+                720p
               </Button>
             </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
