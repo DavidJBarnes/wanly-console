@@ -689,6 +689,25 @@ export default function CreateJobDialog({
                 sx={{ flex: 1, minWidth: 100 }}
               />
             </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5 }}>
+              <Typography variant="caption" color="text.secondary">
+                480p:
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => { setWidth(480); setHeight(848); }}
+              >
+                480×848 ↕
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => { setWidth(848); setHeight(480); }}
+              >
+                848×480 ↔
+              </Button>
+            </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
               <TextField
                 label="FPS"
