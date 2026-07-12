@@ -732,6 +732,7 @@ export default function JobDetail() {
           {(() => {
             const holoSeg = job.segments?.find((s) => s.hologram_video_path);
             const holoUrl = holoSeg ? `${window.location.origin}/holo/${holoSeg.id}` : null;
+            const building = !holoSeg && job.segments?.some((s) => s.reprocess_type === "ar_hologram");
             return (
               <Box sx={{ mt: 1.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
                 {holoUrl ? (
@@ -742,6 +743,11 @@ export default function JobDetail() {
                     <QRCodeCanvas value={holoUrl} size={128} />
                     <Typography variant="caption" color="text.secondary">Scan on your Quest 3</Typography>
                   </>
+                ) : building ? (
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <CircularProgress size={18} />
+                    <Typography variant="body2" color="text.secondary">Building hologram…</Typography>
+                  </Box>
                 ) : (
                   <Button size="small" variant="outlined" fullWidth startIcon={<ViewInAr />} onClick={() => setHoloOpen(true)}>
                     Make Hologram
