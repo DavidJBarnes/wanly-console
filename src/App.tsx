@@ -14,6 +14,7 @@ import PromptLibrary from "./pages/PromptLibrary";
 import ImageRepo from "./pages/ImageRepo";
 import SuccessfulConfigs from "./pages/SuccessfulConfigs";
 import SettingsPage from "./pages/SettingsPage";
+import HologramPlayer from "./pages/HologramPlayer";
 
 export default function App() {
   return (
@@ -22,6 +23,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* Full-screen WebXR player — outside MainLayout (no nav chrome) */}
+          <Route path="/holo/:id" element={<HologramPlayer />} />
           <Route element={<MainLayout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/jobs" element={<JobQueue />} />

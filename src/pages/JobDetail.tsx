@@ -51,6 +51,7 @@ import {
   Face,
   Star,
   StarBorder,
+  ViewInAr,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -61,6 +62,7 @@ import {
   retrySegment,
   cancelSegment,
   reprocessSegment,
+  makeHologram,
   deleteSegment,
   deleteJob,
   reopenJob,
@@ -90,6 +92,8 @@ import type {
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
+import HologramConfig from "../components/HologramConfig";
+import { QRCodeCanvas } from "qrcode.react";
 import {
   DEFAULT_DURATION,
   DEFAULT_SPEED,
@@ -256,6 +260,8 @@ export default function JobDetail() {
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
   const [reprocessSeg, setReprocessSeg] = useState<SegmentResponse | null>(null);
+  const [holoOpen, setHoloOpen] = useState(false);
+  const [holoBusy, setHoloBusy] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [trimValues, setTrimValues] = useState<Record<string, { start: number; end: number }>>({});
   const trimTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -286,6 +292,23 @@ export default function JobDetail() {
       setLoading(false);
     }
   }, [id]);
+
+  const handleMakeHologram = useCallback(
+    async (body: { subject_height_m?: number; key_color?: string }) => {
+      if (!id) return;
+      setHoloBusy(true);
+      try {
+        await makeHologram(id, body);
+        setHoloOpen(false);
+        await fetchJob();
+      } catch {
+        setError("Failed to start hologram");
+      } finally {
+        setHoloBusy(false);
+      }
+    },
+    [id, fetchJob],
+  );
 
   useEffect(() => {
     fetchJob();
@@ -706,10 +729,37 @@ export default function JobDetail() {
               </IconButton>
             </Box>
           </Box>
+          {(() => {
+            const holoSeg = job.segments?.find((s) => s.hologram_video_path);
+            const holoUrl = holoSeg ? `${window.location.origin}/holo/${holoSeg.id}` : null;
+            return (
+              <Box sx={{ mt: 1.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                {holoUrl ? (
+                  <>
+                    <Button size="small" variant="contained" startIcon={<ViewInAr />} component="a" href={holoUrl} target="_blank">
+                      Open in AR
+                    </Button>
+                    <QRCodeCanvas value={holoUrl} size={128} />
+                    <Typography variant="caption" color="text.secondary">Scan on your Quest 3</Typography>
+                  </>
+                ) : (
+                  <Button size="small" variant="outlined" fullWidth startIcon={<ViewInAr />} onClick={() => setHoloOpen(true)}>
+                    Make Hologram
+                  </Button>
+                )}
+              </Box>
+            );
+          })()}
               </CardContent>
             </Card>
           );
         })()}
+        <HologramConfig
+          open={holoOpen}
+          onClose={() => setHoloOpen(false)}
+          onSubmit={handleMakeHologram}
+          busy={holoBusy}
+        />
       </Box>
 
       {/* Tags editor — always visible */}
