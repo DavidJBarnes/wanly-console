@@ -7,6 +7,7 @@ import type {
   JobUpdate,
   SegmentCreate,
   SegmentResponse,
+  HologramRequest,
   SegmentReprocessRequest,
   FramePreviewResponse,
   WorkerResponse,
@@ -225,6 +226,21 @@ export async function reprocessSegment(
 
 export async function deleteSegment(segmentId: string): Promise<void> {
   await api.delete(`/segments/${segmentId}`);
+}
+
+export async function makeHologram(
+  jobId: string,
+  body: HologramRequest,
+): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(`/jobs/${jobId}/hologram`, body);
+  return data;
+}
+
+export async function getHologram(
+  segmentId: string,
+): Promise<{ video_path: string; manifest_path: string; poster_path: string }> {
+  const { data } = await api.get(`/segments/${segmentId}/hologram`);
+  return data;
 }
 
 export async function getWorkerSegments(workerId: string): Promise<WorkerSegmentResponse[]> {

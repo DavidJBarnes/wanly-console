@@ -172,12 +172,44 @@ export interface SegmentResponse {
   worker_name: string | null;
   output_path: string | null;
   last_frame_path: string | null;
+  hologram_video_path: string | null;
+  hologram_manifest_path: string | null;
+  hologram_poster_path: string | null;
   created_at: string;
   claimed_at: string | null;
   completed_at: string | null;
   error_message: string | null;
   progress_log: string | null;
   estimated_run_time: number | null;
+}
+
+export interface HologramRequest {
+  subject_height_m?: number;
+  key_color?: string;
+}
+
+export interface HologramUvRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface HologramManifest {
+  tier: number;
+  layout: string;
+  codec: string;
+  fps: number;
+  video_width: number;
+  video_height: number;
+  region_color_uv: HologramUvRect;
+  region_alpha_uv: HologramUvRect;
+  guard_px: number;
+  crop_rect: { x: number; y: number; w: number; h: number };
+  subject_px_height: number;
+  subject_height_m: number;
+  premultiplied: boolean;
+  alpha_encoding: string;
 }
 
 export interface WorkerSegmentResponse {
