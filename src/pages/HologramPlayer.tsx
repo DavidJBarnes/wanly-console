@@ -55,6 +55,7 @@ async function startArSession(
   manifest: HologramManifest,
   videoUrl: string,
   onEnd: () => void,
+  onSession: (s: XRSession) => void,
 ): Promise<void> {
   const xr = (navigator as unknown as { xr: XRSystem }).xr;
 
@@ -133,6 +134,7 @@ async function startArSession(
     domOverlay: { root: overlay },
   } as XRSessionInit);
   await renderer.xr.setSession(session);
+  onSession(session);
   video.play().catch(() => undefined);
 
   const viewerSpace = await session.requestReferenceSpace("viewer");
@@ -184,6 +186,7 @@ export default function HologramPlayer() {
   const { id } = useParams<{ id: string }>();
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const sessionRef = useRef<XRSession | null>(null);
   const [manifest, setManifest] = useState<HologramManifest | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
@@ -228,8 +231,18 @@ export default function HologramPlayer() {
     if (!manifest || !videoUrl || !containerRef.current || !overlayRef.current) return;
     try {
       setInAr(true);
-      await startArSession(containerRef.current, overlayRef.current, manifest, videoUrl, () =>
-        setInAr(false),
+      await startArSession(
+        containerRef.current,
+        overlayRef.current,
+        manifest,
+        videoUrl,
+        () => {
+          sessionRef.current = null;
+          setInAr(false);
+        },
+        (s) => {
+          sessionRef.current = s;
+        },
       );
     } catch (e) {
       setInAr(false);
@@ -257,9 +270,30 @@ export default function HologramPlayer() {
       {/* dom-overlay content (transport UI could live here during AR) */}
       <div ref={overlayRef} style={{ position: "fixed", inset: 0, pointerEvents: "none" }}>
         {inAr && (
-          <div style={{ position: "absolute", bottom: 24, width: "100%", textAlign: "center", color: "#fff" }}>
-            Point at your floor and tap to place • pinch/exit to leave
-          </div>
+          <>
+            <button
+              onClick={() => sessionRef.current?.end()}
+              style={{
+                position: "absolute",
+                top: 20,
+                right: 20,
+                pointerEvents: "auto",
+                fontSize: 16,
+                padding: "10px 18px",
+                borderRadius: 8,
+                border: "none",
+                background: "rgba(0,0,0,0.65)",
+                color: "#fff",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Exit AR
+            </button>
+            <div style={{ position: "absolute", bottom: 24, width: "100%", textAlign: "center", color: "#fff" }}>
+              Point at your floor and tap to place • tap “Exit AR” (top-right) to leave
+            </div>
+          </>
         )}
       </div>
 
