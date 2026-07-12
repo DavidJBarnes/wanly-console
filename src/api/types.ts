@@ -168,6 +168,7 @@ export interface SegmentResponse {
   reference_frames: string[] | null;
   negative_prompt: string | null;
   status: SegmentStatus;
+  reprocess_type: string | null;
   worker_id: string | null;
   worker_name: string | null;
   output_path: string | null;
