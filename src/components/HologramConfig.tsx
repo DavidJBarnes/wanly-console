@@ -30,8 +30,9 @@ export default function HologramConfig({
       <DialogTitle>Make Hologram</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Matte this clip’s subject off its (green) background and pack it as a color+alpha
-          hologram you can place life-size in your room on the Quest 3.
+          Matte this clip’s subject and pack it as a color+alpha hologram you can place life-size
+          in your room on the Quest 3. Green-screen clips are chroma-keyed; any other background is
+          matted automatically (RVM).
         </Typography>
         <Typography gutterBottom>Subject height: {height.toFixed(2)} m</Typography>
         <Slider
@@ -49,7 +50,7 @@ export default function HologramConfig({
           fullWidth
           size="small"
           sx={{ mt: 2 }}
-          helperText="Hex like 0x00b140 — the background the clip was generated on."
+          helperText="Only used for green-screen clips (e.g. 0x00b140). Other backgrounds are matted automatically."
         />
       </DialogContent>
       <DialogActions>
