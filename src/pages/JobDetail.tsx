@@ -147,6 +147,11 @@ function resolveSegmentStartImage(
   );
 }
 
+// AR hologram work rides a dedicated carrier segment at this sentinel index; hide it from the
+// video-segment list (the "Building hologram…" card is its only surface).
+const HOLOGRAM_CARRIER_INDEX = 1000;
+const isVideoSegment = (s: SegmentResponse) => s.index < HOLOGRAM_CARRIER_INDEX;
+
 function buildGroups(segments: SegmentResponse[], job: JobDetailResponse): BranchGroup[] {
   const counts = new Map<string, number>();
   const firstIdx = new Map<string, number>();
@@ -552,7 +557,7 @@ export default function JobDetail() {
     loadFramePreview(framePreview.segId, framePreview.position, newTrim);
   };
 
-  const groups = useMemo(() => job ? buildGroups(job.segments, job) : [], [job]);
+  const groups = useMemo(() => job ? buildGroups(job.segments.filter(isVideoSegment), job) : [], [job]);
 
   if (loading) {
     return (
@@ -572,10 +577,11 @@ export default function JobDetail() {
 
   if (!job) return null;
 
-  const lastSegment = job.segments[job.segments.length - 1];
+  const videoSegments = job.segments.filter(isVideoSegment);
+  const lastSegment = videoSegments[videoSegments.length - 1];
   const canAddSegment =
     job.status === "awaiting" &&
-    !job.segments.some((s) =>
+    !videoSegments.some((s) =>
       ["pending", "claimed", "processing"].includes(s.status),
     );
   const laneWidth = groups.length > 0 ? groups.length * 24 + 24 : 0;
@@ -926,7 +932,7 @@ export default function JobDetail() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {job.segments.flatMap((seg) => {
+                {videoSegments.flatMap((seg) => {
                   const rows = [
                   <TableRow key={seg.id}>
                     {groups.length > 0 && (
