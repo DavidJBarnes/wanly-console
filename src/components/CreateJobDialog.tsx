@@ -25,7 +25,7 @@ import { useLoraStore } from "../stores/loraStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTagStore } from "../stores/tagStore";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
-import SettingsSignatureInputs from "./SettingsSignatureInputs";
+import SettingsSignature from "./SettingsSignature";
 import { createJob, getFileUrl, getFaceswapPresets, sha256Hex, checkStartingImageExists } from "../api/client";
 import type { JobCreate, LoraListItem, FaceswapPreset } from "../api/types";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "./FaceswapConfig";
@@ -342,6 +342,10 @@ export default function CreateJobDialog({
   const handleSubmit = async () => {
     if (!name.trim() || !prompt.trim()) {
       setError("Name and prompt are required");
+      return;
+    }
+    if (!videoPresetId) {
+      setError("Select a video preset");
       return;
     }
     if (!startingImage && !startingImageUri) {
@@ -679,38 +683,26 @@ export default function CreateJobDialog({
                 value={videoPresetId}
                 onChange={(e) => applyVideoPreset(e.target.value)}
                 sx={{ minWidth: 240 }}
-                helperText="Job default — manage in Video Presets. Custom = raw values below."
+                error={!videoPresetId}
+                helperText="Required — the recipe this job runs. Edit values in Video Presets."
               >
-                <MenuItem value="">Custom</MenuItem>
+                <MenuItem value="" disabled>Select a preset…</MenuItem>
                 {videoPresets.map((p) => (
                   <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
                 ))}
               </TextField>
             </Box>
             <Box sx={{ mt: 1.5 }}>
-              <SettingsSignatureInputs
-                values={{
-                  lightx2v_strength_high: lightx2vHigh,
-                  lightx2v_strength_low: lightx2vLow,
-                  cfg_high: cfgHigh,
-                  cfg_low: cfgLow,
-                  steps_total: stepsTotal,
-                  high_noise_steps: highNoiseSteps,
-                  flow_shift: flowShift,
-                }}
-                onChange={(k, v) => {
-                  const setters: Record<string, (val: string) => void> = {
-                    lightx2v_strength_high: setLightx2vHigh,
-                    lightx2v_strength_low: setLightx2vLow,
-                    cfg_high: setCfgHigh,
-                    cfg_low: setCfgLow,
-                    steps_total: setStepsTotal,
-                    high_noise_steps: setHighNoiseSteps,
-                    flow_shift: setFlowShift,
-                  };
-                  setters[k]?.(v);
-                }}
-              />
+              {(() => {
+                const p = videoPresets.find((v) => v.id === videoPresetId);
+                return p ? (
+                  <SettingsSignature values={p} />
+                ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    Select a preset to see its settings.
+                  </Typography>
+                );
+              })()}
             </Box>
           </AccordionDetails>
         </Accordion>
