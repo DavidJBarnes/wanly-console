@@ -40,15 +40,12 @@ import {
   Replay,
   DeleteOutline,
   ClearOutlined,
-  InfoOutlined,
-  StopCircle,
   Download,
   ExpandMore,
   Repeat,
   Visibility,
   ChevronLeft,
   ChevronRight,
-  Face,
   Star,
   StarBorder,
   ViewInAr,
@@ -60,11 +57,7 @@ import {
   addSegment,
   uploadFile,
   retrySegment,
-  cancelSegment,
-  reprocessSegment,
   makeHologram,
-  updateSegmentVideoPreset,
-  deleteSegment,
   deleteJob,
   reopenJob,
   getFileUrl,
@@ -77,13 +70,12 @@ import {
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
-import SettingsSignature from "../components/SettingsSignature";
+import SettingsSignature, { type SignatureValues } from "../components/SettingsSignature";
 import { useSettingsStore } from "../stores/settingsStore";
 import type {
   JobDetailResponse,
   SegmentResponse,
   SegmentCreate,
-  SegmentReprocessRequest,
   LoraConfig,
   LoraListItem,
   FaceswapPreset,
@@ -249,6 +241,7 @@ function BranchLane({ groups, laneWidth, activeFilename, segIndex }: { groups: B
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { presets: videoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
   const [job, setJob] = useState<JobDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -256,16 +249,11 @@ export default function JobDetail() {
   const [loopVideo, setLoopVideo] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [segmentModalOpen, setSegmentModalOpen] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<SegmentResponse | null>(
-    null,
-  );
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deleteJobConfirm, setDeleteJobConfirm] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
-  const [detailSeg, setDetailSeg] = useState<SegmentResponse | null>(null);
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
-  const [reprocessSeg, setReprocessSeg] = useState<SegmentResponse | null>(null);
   const [holoOpen, setHoloOpen] = useState(false);
   const [holoBusy, setHoloBusy] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -321,6 +309,31 @@ export default function JobDetail() {
     const interval = setInterval(fetchJob, POLL_INTERVAL_FAST);
     return () => clearInterval(interval);
   }, [fetchJob]);
+
+  useEffect(() => {
+    fetchVideoPresets();
+  }, [fetchVideoPresets]);
+
+  // Effective video settings for a segment: its own preset override, else the job's default
+  // preset, else the job's raw sampler values. Returns a name (if a preset applies) + the 7
+  // params for the signature table.
+  const segVideoSettings = (seg: SegmentResponse): { presetName: string | null; values: SignatureValues } => {
+    const presetId = seg.video_preset_id ?? job?.video_preset_id ?? null;
+    const preset = presetId ? videoPresets.find((p) => p.id === presetId) ?? null : null;
+    const src = preset ?? job;
+    return {
+      presetName: preset?.name ?? null,
+      values: {
+        lightx2v_strength_high: src?.lightx2v_strength_high ?? null,
+        lightx2v_strength_low: src?.lightx2v_strength_low ?? null,
+        cfg_high: src?.cfg_high ?? null,
+        cfg_low: src?.cfg_low ?? null,
+        steps_total: src?.steps_total ?? null,
+        high_noise_steps: src?.high_noise_steps ?? null,
+        flow_shift: src?.flow_shift ?? null,
+      },
+    };
+  };
 
   const handleFinalize = async () => {
     if (!id) return;
@@ -400,30 +413,6 @@ export default function JobDetail() {
     }
   };
 
-  const handleCancel = async (seg: SegmentResponse) => {
-    setActionLoading(seg.id);
-    try {
-      await cancelSegment(seg.id);
-      fetchJob();
-    } catch {
-      setError("Failed to cancel segment");
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleDelete = async (seg: SegmentResponse) => {
-    setDeleteConfirm(null);
-    setActionLoading(seg.id);
-    try {
-      await deleteSegment(seg.id);
-      fetchJob();
-    } catch {
-      setError("Failed to delete segment");
-    } finally {
-      setActionLoading(null);
-    }
-  };
 
   const handleDeleteJob = async () => {
     if (!id) return;
@@ -894,14 +883,13 @@ export default function JobDetail() {
                     <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth }} />
                   )}
                   <TableCell sx={{ width: 120, ...(groups.length > 0 ? { pl: 0 } : {}) }}>Start Image</TableCell>
-                  <TableCell>Prompt</TableCell>
+                  <TableCell sx={{ width: 300 }}>Video Settings</TableCell>
                   <TableCell sx={{ width: 120 }}>Output</TableCell>
-                  <TableCell sx={{ width: 80 }}>Swapped</TableCell>
                   <TableCell sx={{ width: 100 }}>Status</TableCell>
                   <TableCell sx={{ width: 120 }}>Worker</TableCell>
                   <TableCell sx={{ width: 140 }}>Created</TableCell>
                   <TableCell sx={{ width: 80 }}>Run Time</TableCell>
-                  <TableCell sx={{ width: 80 }}>Actions</TableCell>
+                  <TableCell sx={{ width: 56 }} />
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -950,30 +938,19 @@ export default function JobDetail() {
                       })()}
                     </TableCell>
                     <TableCell>
-                      <Typography
-                        variant="body2"
-                        sx={{ whiteSpace: "pre-wrap" }}
-                      >
-                        {seg.prompt_template ?? seg.prompt}
-                      </Typography>
-                      {seg.prompt_template && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}
-                        >
-                          Resolved: {seg.prompt}
-                        </Typography>
-                      )}
-                      {seg.negative_prompt && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}
-                        >
-                          Negative: {seg.negative_prompt}
-                        </Typography>
-                      )}
+                      {(() => {
+                        const vs = segVideoSettings(seg);
+                        return (
+                          <>
+                            {vs.presetName && (
+                              <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mb: 0.5 }}>
+                                {vs.presetName}
+                              </Typography>
+                            )}
+                            <SettingsSignature values={vs.values} />
+                          </>
+                        );
+                      })()}
                       {seg.error_message && (
                         <Alert severity="error" sx={{ mt: 1 }}>
                           {seg.error_message}
@@ -1020,27 +997,6 @@ export default function JobDetail() {
                         seg.status === "claimed" ||
                         seg.status === "processing" ? (
                         <CircularProgress size={24} />
-                      ) : (
-                        <Typography variant="caption" color="text.secondary">
-                          -
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {seg.faceswap_enabled && seg.faceswap_image ? (
-                        <Box
-                          component="img"
-                          src={getFileUrl(seg.faceswap_image)}
-                          alt="Faceswap"
-                          sx={{
-                            width: 40,
-                            height: 40,
-                            objectFit: "cover",
-                            borderRadius: 1,
-                            bgcolor: "#f5f5f5",
-                            display: "block",
-                          }}
-                        />
                       ) : (
                         <Typography variant="caption" color="text.secondary">
                           -
@@ -1095,76 +1051,23 @@ export default function JobDetail() {
                         </Typography>
                       )}
                     </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: "flex", gap: 0.5 }}>
-                        <Tooltip title="Details">
+                    <TableCell padding="none" align="center">
+                      {seg.status === "failed" && (
+                        <Tooltip title="Retry">
                           <IconButton
                             size="small"
-                            onClick={() => setDetailSeg(seg)}
+                            color="primary"
+                            onClick={() => handleRetry(seg)}
+                            disabled={actionLoading === seg.id}
                           >
-                            <InfoOutlined fontSize="small" />
+                            {actionLoading === seg.id ? (
+                              <CircularProgress size={18} />
+                            ) : (
+                              <Replay fontSize="small" />
+                            )}
                           </IconButton>
                         </Tooltip>
-                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing") && (
-                          <Tooltip title="Cancel">
-                            <IconButton
-                              size="small"
-                              color="warning"
-                              onClick={() => handleCancel(seg)}
-                              disabled={actionLoading === seg.id}
-                            >
-                              {actionLoading === seg.id ? (
-                                <CircularProgress size={18} />
-                              ) : (
-                                <StopCircle fontSize="small" />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {seg.status === "failed" && (
-                          <Tooltip title="Retry">
-                            <IconButton
-                              size="small"
-                              color="primary"
-                              onClick={() => handleRetry(seg)}
-                              disabled={actionLoading === seg.id}
-                            >
-                              {actionLoading === seg.id ? (
-                                <CircularProgress size={18} />
-                              ) : (
-                                <Replay fontSize="small" />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {seg.status === "completed" && (
-                          <Tooltip title="Re-process with Faceswap">
-                            <IconButton
-                              size="small"
-                              color="secondary"
-                              onClick={() => setReprocessSeg(seg)}
-                              aria-label="Re-process segment with faceswap"
-                            >
-                              <Face fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {job.status !== "finalized" &&
-                          (seg.status === "failed" ||
-                            seg.status === "completed") &&
-                          job.segments.length > 1 && (
-                            <Tooltip title="Delete">
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={() => setDeleteConfirm(seg)}
-                                disabled={actionLoading === seg.id}
-                              >
-                                <DeleteOutline fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                      </Box>
+                      )}
                     </TableCell>
                   </TableRow>
                   ];
@@ -1182,7 +1085,7 @@ export default function JobDetail() {
                           </div>
                         </TableCell>
                       )}
-                      <TableCell colSpan={9} sx={{ py: 0.5 }}>
+                      <TableCell colSpan={8} sx={{ py: 0.5 }}>
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                             <Typography variant="caption" color="text.secondary">Trim #{seg.index} Start:</Typography>
@@ -1295,26 +1198,6 @@ export default function JobDetail() {
                             {segmentRunTime(seg)}
                           </Typography>
                         )}
-                        <IconButton
-                          size="small"
-                          onClick={() => setDetailSeg(seg)}
-                        >
-                          <InfoOutlined fontSize="small" />
-                        </IconButton>
-                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing") && (
-                          <IconButton
-                            size="small"
-                            color="warning"
-                            onClick={() => handleCancel(seg)}
-                            disabled={actionLoading === seg.id}
-                          >
-                            {actionLoading === seg.id ? (
-                              <CircularProgress size={18} />
-                            ) : (
-                              <StopCircle fontSize="small" />
-                            )}
-                          </IconButton>
-                        )}
                         {seg.status === "failed" && (
                           <IconButton
                             size="small"
@@ -1329,28 +1212,6 @@ export default function JobDetail() {
                             )}
                           </IconButton>
                         )}
-                        {seg.status === "completed" && (
-                          <IconButton
-                            size="small"
-                            color="secondary"
-                            onClick={() => setReprocessSeg(seg)}
-                            aria-label="Re-process segment with faceswap"
-                          >
-                            <Face fontSize="small" />
-                          </IconButton>
-                        )}
-                        {job.status !== "finalized" &&
-                          (seg.status === "failed" || seg.status === "completed") &&
-                          job.segments.length > 1 && (
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => setDeleteConfirm(seg)}
-                              disabled={actionLoading === seg.id}
-                            >
-                              <DeleteOutline fontSize="small" />
-                            </IconButton>
-                          )}
                       </Box>
                     </Box>
 
@@ -1433,24 +1294,20 @@ export default function JobDetail() {
                       )}
                     </Box>
 
-                    {/* Prompt */}
-                    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mb: 0.5 }}>
-                      {seg.prompt_template ?? seg.prompt}
-                    </Typography>
-                    {seg.prompt_template && (
-                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic", display: "block" }}>
-                        Resolved: {seg.prompt}
-                      </Typography>
-                    )}
-                    {seg.negative_prompt && (
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ fontStyle: "italic", display: "block" }}
-                      >
-                        Negative: {seg.negative_prompt}
-                      </Typography>
-                    )}
+                    {/* Video settings */}
+                    {(() => {
+                      const vs = segVideoSettings(seg);
+                      return (
+                        <Box sx={{ mb: 0.5 }}>
+                          {vs.presetName && (
+                            <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mb: 0.5 }}>
+                              {vs.presetName}
+                            </Typography>
+                          )}
+                          <SettingsSignature values={vs.values} />
+                        </Box>
+                      );
+                    })()}
                     {seg.error_message && (
                       <Alert severity="error" sx={{ mt: 1 }}>
                         {seg.error_message}
@@ -1599,45 +1456,6 @@ export default function JobDetail() {
         }}
       />
 
-      {/* Reprocess dialog */}
-      {reprocessSeg && (
-        <ReprocessDialog
-          open={!!reprocessSeg}
-          segment={reprocessSeg}
-          onClose={() => setReprocessSeg(null)}
-          onSubmitted={() => {
-            setReprocessSeg(null);
-            fetchJob();
-          }}
-        />
-      )}
-
-      {/* Delete confirm dialog */}
-      <Dialog
-        open={!!deleteConfirm}
-        onClose={() => setDeleteConfirm(null)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Delete Segment</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Delete segment #{deleteConfirm?.index}? This will remove the segment
-            and its S3 assets. This cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
-          >
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       {/* Delete job confirm dialog */}
       <Dialog
         open={deleteJobConfirm}
@@ -1755,13 +1573,6 @@ export default function JobDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Segment detail modal */}
-      <SegmentDetailModal
-        seg={detailSeg}
-        job={job}
-        onClose={() => setDetailSeg(null)}
-      />
-
       {/* Frame preview popover */}
       <Popover
         open={!!framePreview}
@@ -1845,263 +1656,6 @@ function MetaItem({ label, value }: { label: string; value: string }) {
         {value}
       </Typography>
     </Box>
-  );
-}
-
-function SegmentDetailModal({
-  seg,
-  job,
-  onClose,
-}: {
-  seg: SegmentResponse | null;
-  job: JobDetailResponse;
-  onClose: () => void;
-}) {
-  const { loras: loraLibrary } = useLoraStore();
-  const { presets: videoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
-  const [presetId, setPresetId] = useState<string>("");
-  const [savingPreset, setSavingPreset] = useState(false);
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
-
-  useEffect(() => {
-    if (seg) {
-      fetchVideoPresets();
-      setPresetId(seg.video_preset_id ?? "");
-    }
-  }, [seg, fetchVideoPresets]);
-
-  if (!seg) return null;
-
-  const startImage =
-    seg.start_image ??
-    (seg.index === 0
-      ? job.starting_image
-      : job.segments[seg.index - 1]?.last_frame_path) ??
-    null;
-
-  const loraNames = (seg.loras ?? []).map((l) => {
-    const lib = loraLibrary.find((item) => item.id === l.lora_id);
-    return {
-      name: lib?.name ?? l.lora_id?.slice(0, 8) ?? "unknown",
-      high_weight: l.high_weight,
-      low_weight: l.low_weight,
-    };
-  });
-
-  return (
-    <Dialog open onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
-      <DialogTitle>Segment #{seg.index} Details</DialogTitle>
-      <DialogContent dividers>
-        {/* Prompt */}
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-          Prompt
-        </Typography>
-        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mb: 2 }}>
-          {seg.prompt_template ?? seg.prompt}
-        </Typography>
-        {seg.prompt_template && (
-          <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic", display: "block", mb: 2, mt: -1 }}>
-            Resolved: {seg.prompt}
-          </Typography>
-        )}
-
-        {/* Duration / Speed */}
-        <Box sx={{ display: "flex", gap: 4, mb: 2, flexWrap: "wrap" }}>
-          <Box>
-            <Typography variant="subtitle2" color="text.secondary">Duration</Typography>
-            <Typography variant="body2">{seg.duration_seconds}s</Typography>
-          </Box>
-          <Box>
-            <Typography variant="subtitle2" color="text.secondary">Speed</Typography>
-            <Typography variant="body2">{seg.speed}x</Typography>
-          </Box>
-          <Box>
-            <Typography variant="subtitle2" color="text.secondary">Status</Typography>
-            <StatusChip status={seg.status} />
-          </Box>
-          {seg.worker_name && (
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary">Worker</Typography>
-              <Typography variant="body2">{seg.worker_name}</Typography>
-            </Box>
-          )}
-        </Box>
-
-        {/* Video settings (per-segment override, in place) */}
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            Video Settings
-          </Typography>
-          <TextField
-            select
-            fullWidth
-            size="small"
-            value={presetId}
-            disabled={savingPreset}
-            onChange={async (e) => {
-              const val = e.target.value;
-              setPresetId(val);
-              setSavingPreset(true);
-              try {
-                await updateSegmentVideoPreset(seg.id, val || null);
-              } finally {
-                setSavingPreset(false);
-              }
-            }}
-            helperText="Applies on the next run — retry this segment to test it."
-          >
-            <MenuItem value="">Inherit from job</MenuItem>
-            {videoPresets.map((p) => (
-              <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
-            ))}
-          </TextField>
-          {(() => {
-            const p = videoPresets.find((v) => v.id === presetId);
-            return p ? (
-              <Box sx={{ mt: 1 }}>
-                <SettingsSignature values={p} />
-              </Box>
-            ) : null;
-          })()}
-        </Box>
-
-        {/* Thumbnails */}
-        <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
-          {startImage && (
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>Start Image</Typography>
-              <Box
-                component="img"
-                src={getFileUrl(startImage)}
-                alt="Start"
-                sx={{ width: 100, height: 100, objectFit: "cover", borderRadius: 1, bgcolor: "#f5f5f5", display: "block" }}
-              />
-            </Box>
-          )}
-          {seg.last_frame_path && (
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>Output</Typography>
-              <Box
-                component="img"
-                src={getFileUrl(seg.last_frame_path, seg.completed_at ?? undefined)}
-                alt="Output"
-                sx={{ width: 100, height: 100, objectFit: "cover", borderRadius: 1, bgcolor: "#f5f5f5", display: "block" }}
-              />
-            </Box>
-          )}
-        </Box>
-
-        {/* LoRAs */}
-        {loraNames.length > 0 && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>LoRAs</Typography>
-            {loraNames.map((l, i) => (
-              <Typography key={i} variant="body2">
-                {l.name} (H: {l.high_weight}, L: {l.low_weight})
-              </Typography>
-            ))}
-          </Box>
-        )}
-
-        {/* Faceswap */}
-        {seg.faceswap_enabled && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Faceswap</Typography>
-            <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-              {seg.faceswap_image && (
-                <Box
-                  component="img"
-                  src={getFileUrl(seg.faceswap_image)}
-                  alt="Faceswap"
-                  sx={{ width: 48, height: 48, objectFit: "cover", borderRadius: 1, bgcolor: "#f5f5f5" }}
-                />
-              )}
-              <Box>
-                <Typography variant="body2">Method: {seg.faceswap_method ?? "-"}</Typography>
-                <Typography variant="body2">Source: {seg.faceswap_source_type ?? "-"}</Typography>
-                {seg.faceswap_faces_index && (
-                  <Typography variant="body2">Faces: {seg.faceswap_faces_index} ({seg.faceswap_faces_order})</Typography>
-                )}
-              </Box>
-            </Box>
-          </Box>
-        )}
-
-        {/* Timing */}
-        <Box sx={{ display: "flex", gap: 4, mb: 2, flexWrap: "wrap" }}>
-          <Box>
-            <Typography variant="subtitle2" color="text.secondary">Created</Typography>
-            <Typography variant="body2">{formatDate(seg.created_at)}</Typography>
-          </Box>
-          {seg.claimed_at && seg.completed_at && (
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary">Run Time</Typography>
-              <Typography variant="body2">{segmentRunTime(seg)}</Typography>
-            </Box>
-          )}
-        </Box>
-
-        {/* Motion Keywords */}
-        {seg.motion_keywords && seg.motion_keywords.length > 0 && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Motion Keywords</Typography>
-            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-              {seg.motion_keywords.map((kw, i) => (
-                <Typography
-                  key={i}
-                  variant="body2"
-                  sx={{
-                    px: 1,
-                    py: 0.25,
-                    bgcolor: "primary.light",
-                    color: "primary.contrastText",
-                    borderRadius: 1,
-                    fontSize: 12,
-                  }}
-                >
-                  {kw}
-                </Typography>
-              ))}
-            </Box>
-          </Box>
-        )}
-
-        {/* Reference Frames */}
-        {seg.reference_frames && seg.reference_frames.length > 0 && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Reference Frames ({seg.reference_frames.length})</Typography>
-            <Box sx={{ display: "flex", gap: 1 }}>
-              {seg.reference_frames.map((frame, i) => (
-                <Tooltip key={i} title={`Reference frame ${i + 1}`}>
-                  <Box
-                    component="img"
-                    src={getFileUrl(frame)}
-                    alt={`Reference ${i + 1}`}
-                    sx={{
-                      width: 48,
-                      height: 48,
-                      objectFit: "cover",
-                      borderRadius: 1,
-                      bgcolor: "#f5f5f5",
-                      cursor: "pointer",
-                    }}
-                  />
-                </Tooltip>
-              ))}
-            </Box>
-          </Box>
-        )}
-
-        {/* Error */}
-        {seg.error_message && (
-          <Alert severity="error">{seg.error_message}</Alert>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
   );
 }
 
@@ -2934,131 +2488,6 @@ function SegmentModal({
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="contained" onClick={handleSubmit} disabled={submitting}>
           {submitting ? "Submitting..." : "Submit"}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
-
-function ReprocessDialog({
-  open,
-  segment,
-  onClose,
-  onSubmitted,
-}: {
-  open: boolean;
-  segment: SegmentResponse;
-  onClose: () => void;
-  onSubmitted: () => void;
-}) {
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
-  const [faceswap, setFaceswap] = useState<FaceswapConfigState>(() => defaultFaceswapState());
-  const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const accordionSx = { "&:before": { display: "none" }, boxShadow: "none", border: "1px solid", borderColor: "divider", borderRadius: "8px !important", mb: 1 };
-
-  useEffect(() => {
-    if (open) {
-      const srcType = segment.faceswap_source_type === "preset"
-        ? "preset" as const
-        : segment.faceswap_source_type === "start_frame"
-          ? "start_frame" as const
-          : "upload" as const;
-      setFaceswap(defaultFaceswapState({
-        enabled: true,
-        sourceType: segment.faceswap_source_type ? srcType : "upload",
-        method: segment.faceswap_method ?? DEFAULT_FACESWAP_METHOD,
-        presetUri: srcType === "preset" ? segment.faceswap_image ?? null : null,
-        facesIndex: segment.faceswap_faces_index ?? DEFAULT_FACESWAP_FACES_INDEX,
-        facesOrder: segment.faceswap_faces_order ?? DEFAULT_FACESWAP_FACES_ORDER,
-      }));
-      setError("");
-      getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
-    }
-  }, [open, segment]);
-
-  const existingFaceswapName = segment.faceswap_image
-    ? segment.faceswap_image.split("/").pop() ?? "existing image"
-    : null;
-
-  const handleSubmit = async () => {
-    setError("");
-    setSubmitting(true);
-    try {
-      let faceswapImageUri: string | null = null;
-      if (faceswap.enabled) {
-        if (faceswap.sourceType === "preset") {
-          faceswapImageUri = faceswap.presetUri;
-        } else if (faceswap.sourceType === "start_frame") {
-          faceswapImageUri = segment.start_image ?? null;
-        } else if (faceswap.file) {
-          // New file — let the API endpoint handle upload
-        } else {
-          faceswapImageUri = segment.faceswap_image ?? null;
-        }
-      }
-
-      const body: SegmentReprocessRequest = {
-        faceswap_enabled: faceswap.enabled,
-        faceswap_method: faceswap.enabled ? faceswap.method : null,
-        faceswap_source_type: faceswap.enabled ? faceswap.sourceType : null,
-        faceswap_image: faceswapImageUri,
-        faceswap_faces_index: faceswap.enabled ? faceswap.facesIndex : null,
-        faceswap_faces_order: faceswap.enabled ? faceswap.facesOrder : null,
-      };
-
-      await reprocessSegment(
-        segment.id,
-        body,
-        faceswap.enabled && faceswap.sourceType === "upload" && faceswap.file
-          ? faceswap.file
-          : undefined,
-      );
-      onSubmitted();
-    } catch {
-      setError("Failed to reprocess segment");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
-      <DialogTitle>Re-process Segment #{segment.index} with Faceswap</DialogTitle>
-      <DialogContent>
-        {error && (
-          <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
-            {error}
-          </Alert>
-        )}
-
-        <Box sx={{ mt: 1, mb: 2 }}>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-            Prompt: {segment.prompt.length > 120 ? segment.prompt.slice(0, 120) + "..." : segment.prompt}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Duration: {segment.duration_seconds}s / Speed: {segment.speed}x
-          </Typography>
-        </Box>
-
-        <FaceswapConfig
-          state={faceswap}
-          onChange={setFaceswap}
-          presets={faceswapPresets}
-          accordionSx={accordionSx}
-          defaultExpanded
-          disableStartFrame={!segment.start_image}
-          existingImageName={existingFaceswapName && segment.faceswap_source_type !== "preset" ? existingFaceswapName : null}
-        />
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={submitting}>
-          {submitting ? "Re-processing..." : "Re-process"}
         </Button>
       </DialogActions>
     </Dialog>
