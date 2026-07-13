@@ -1863,6 +1863,16 @@ function SegmentModal({
     setLoraSlots(loraSlots.filter((_, i) => i !== idx));
   };
 
+  // Selecting a video preset live-links its sampler/LoRAs (resolved at claim) and fills the
+  // prompt from the preset's default (a snapshot you can still edit before submitting).
+  const applySegVideoPreset = (id: string) => {
+    setSegVideoPresetId(id);
+    const p = segVideoPresets.find((v) => v.id === id);
+    if (!p) return;
+    if (p.prompt) setPrompt(p.prompt);
+    if (p.loras && p.loras.length > 0) setLoraSlots(lorasToSlots(p.loras, loraLibrary));
+  };
+
   // Display name for existing faceswap image
   const existingFaceswapName = lastSegment?.faceswap_image
     ? lastSegment.faceswap_image.split("/").pop() ?? "existing image"
@@ -2303,7 +2313,7 @@ function SegmentModal({
               label="Preset"
               size="small"
               value={segVideoPresetId}
-              onChange={(e) => setSegVideoPresetId(e.target.value)}
+              onChange={(e) => applySegVideoPreset(e.target.value)}
               helperText="Inherit the job's default, or override this segment with a preset."
               sx={{ mb: 2 }}
             >
