@@ -23,6 +23,7 @@ export interface SegmentCreate {
   negative_prompt?: string | null;
   auto_finalize?: boolean;
   transition?: string | null;
+  video_preset_id?: string | null;
 }
 
 export interface LoraConfig {
@@ -100,6 +101,7 @@ export interface JobCreate {
   steps_total?: number | null;
   high_noise_steps?: number | null;
   flow_shift?: number | null;
+  video_preset_id?: string | null;
   starting_image_uri?: string | null;
   starting_image_hash?: string | null;
   first_segment: SegmentCreate;
@@ -130,6 +132,7 @@ export interface JobResponse {
   steps_total: number | null;
   high_noise_steps: number | null;
   flow_shift: number | null;
+  video_preset_id?: string | null;
   priority: number;
   config_starred: boolean;
   status: JobStatus;
@@ -171,6 +174,7 @@ export interface SegmentResponse {
   reprocess_type: string | null;
   worker_id: string | null;
   worker_name: string | null;
+  video_preset_id: string | null;
   output_path: string | null;
   last_frame_path: string | null;
   hologram_video_path: string | null;
@@ -358,6 +362,33 @@ export interface PromptPresetUpdate {
   prompt?: string;
   loras?: PromptPresetLoraSlot[] | null;
 }
+
+export interface VideoSettingsPreset {
+  id: string;
+  name: string;
+  lightx2v_strength_high: number | null;
+  lightx2v_strength_low: number | null;
+  cfg_high: number | null;
+  cfg_low: number | null;
+  steps_total: number | null;
+  high_noise_steps: number | null;
+  flow_shift: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VideoSettingsPresetCreate {
+  name: string;
+  lightx2v_strength_high?: number | null;
+  lightx2v_strength_low?: number | null;
+  cfg_high?: number | null;
+  cfg_low?: number | null;
+  steps_total?: number | null;
+  high_noise_steps?: number | null;
+  flow_shift?: number | null;
+}
+
+export type VideoSettingsPresetUpdate = Partial<VideoSettingsPresetCreate>;
 
 export interface WildcardResponse {
   id: string;

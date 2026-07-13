@@ -15,6 +15,7 @@ import ImageRepo from "./pages/ImageRepo";
 import SuccessfulConfigs from "./pages/SuccessfulConfigs";
 import SettingsPage from "./pages/SettingsPage";
 import HologramPlayer from "./pages/HologramPlayer";
+import VideoPresetLibrary from "./pages/VideoPresetLibrary";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/videos" element={<Videos />} />
             <Route path="/loras" element={<LoraLibrary />} />
             <Route path="/prompts" element={<PromptLibrary />} />
+            <Route path="/video-presets" element={<VideoPresetLibrary />} />
             <Route path="/images" element={<ImageRepo />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

@@ -76,6 +76,7 @@ import {
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
+import { useVideoPresetStore } from "../stores/videoPresetStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import type {
   JobDetailResponse,
@@ -2130,6 +2131,8 @@ function SegmentModal({
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const { presets: promptPresets, fetchPresets } = usePromptPresetStore();
+  const { presets: segVideoPresets, fetchPresets: fetchSegVideoPresets } = useVideoPresetStore();
+  const [segVideoPresetId, setSegVideoPresetId] = useState("");
   const { negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
@@ -2208,6 +2211,7 @@ function SegmentModal({
     if (open) {
       fetchLoras();
       fetchPresets();
+      fetchSegVideoPresets();
       fetchSettings();
       getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
     }
@@ -2323,6 +2327,7 @@ function SegmentModal({
               }))
             : null,
         negative_prompt: negativePrompt.trim() || null,
+        video_preset_id: segVideoPresetId || null,
       };
       await addSegment(jobId, body);
       onSubmitted();
@@ -2665,6 +2670,24 @@ function SegmentModal({
           >
             <ClearOutlined sx={{ fontSize: 14 }} />
           </IconButton>
+        </Box>
+
+        {/* ── Video Settings (per-segment override) ── */}
+        <Box sx={{ mt: 2 }}>
+          <TextField
+            select
+            fullWidth
+            label="Video Settings"
+            size="small"
+            value={segVideoPresetId}
+            onChange={(e) => setSegVideoPresetId(e.target.value)}
+            helperText="Inherit the job's settings, or override this segment with a preset."
+          >
+            <MenuItem value="">Inherit from job</MenuItem>
+            {segVideoPresets.map((p) => (
+              <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+            ))}
+          </TextField>
         </Box>
 
         {/* ── Negative Prompt (accordion) ── */}

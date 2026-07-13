@@ -18,6 +18,7 @@ import {
   Image,
   Settings,
   Star,
+  Tune,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router";
 
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { label: "Videos", icon: <VideoLibrary />, path: "/videos" },
   { label: "LoRA Library", icon: <AutoFixHigh />, path: "/loras" },
   { label: "Prompts", icon: <TextSnippet />, path: "/prompts" },
+  { label: "Video Presets", icon: <Tune />, path: "/video-presets" },
   { label: "Image Repo", icon: <Image />, path: "/images" },
   { label: "Settings", icon: <Settings />, path: "/settings" },
 ];
