@@ -370,6 +370,22 @@ export default function CreateJobDialog({
     setStepsTotal(s(p.steps_total));
     setHighNoiseSteps(s(p.high_noise_steps));
     setFlowShift(s(p.flow_shift));
+    // A full-recipe preset owns its LoRAs — load them into the picker (and override whatever
+    // the start-image tags auto-added). A sampler-only preset leaves the current LoRAs alone.
+    if (p.loras && p.loras.length > 0) {
+      setLoras(
+        p.loras.map((l) => {
+          const lib = loraLibrary.find((item) => item.id === l.lora_id);
+          return {
+            lora_id: l.lora_id,
+            name: lib?.name ?? l.lora_id.slice(0, 8),
+            high_weight: l.high_weight,
+            low_weight: l.low_weight,
+            preview_image: lib?.preview_image ?? null,
+          };
+        }),
+      );
+    }
   };
 
   const handleSubmit = async () => {
