@@ -127,7 +127,7 @@ export default function CreateJobDialog({
   const [highNoiseSteps, setHighNoiseSteps] = useState(defaultHighNoiseSteps);
   const [flowShift, setFlowShift] = useState(defaultFlowShift);
   const [videoPresetId, setVideoPresetId] = useState("");
-  const [vaceContinuation, setVaceContinuation] = useState(false);
+  const [vaceContinuation, setVaceContinuation] = useState(true);
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -286,7 +286,7 @@ export default function CreateJobDialog({
     setImagePreview(null);
     setStartingImageUri(null);
     setFaceswap(defaultFaceswapState({ sourceType: DEFAULT_FACESWAP_SOURCE_TYPE }));
-    setVaceContinuation(false);
+    setVaceContinuation(true);
     setLoras([]);
     setSelectedTag1("");
     setSelectedTag2("");
@@ -387,7 +387,7 @@ export default function CreateJobDialog({
         high_noise_steps: highNoiseSteps ? parseInt(highNoiseSteps, 10) : null,
         flow_shift: flowShift ? parseFloat(flowShift) : null,
         video_preset_id: videoPresetId || null,
-        continuation_mode: vaceContinuation ? "vace" : null,
+        continuation_mode: vaceContinuation ? "vace" : "traditional",
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         starting_image_hash: reuseHash,
         tags: tags || null,
