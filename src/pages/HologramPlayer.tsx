@@ -54,15 +54,17 @@ const DEPTH_FRAGMENT = /* glsl */ `
   uniform sampler2D map;
   uniform vec4 colorRect;
   uniform vec4 alphaRect;
-  uniform float edgeMin;
-  uniform float edgeMax;
   in vec2 vUv;
   out vec4 fragColor;
   void main() {
     vec2 cuv = vec2(colorRect.x + vUv.x * colorRect.z, colorRect.y + (1.0 - vUv.y) * colorRect.w);
     vec2 auv = vec2(alphaRect.x + vUv.x * alphaRect.z, alphaRect.y + (1.0 - vUv.y) * alphaRect.w);
+    float ra = texture(map, auv).r;
+    // Hard-clip at the matte boundary (alpha 0.5 = the crop threshold). Kills the translucent
+    // "skirt" of stretched triangles the displaced mesh drapes across the subject's silhouette.
+    if (ra < 0.5) discard;
     vec3 color = texture(map, cuv).rgb;
-    float a = smoothstep(edgeMin, edgeMax, texture(map, auv).r);
+    float a = smoothstep(0.5, 0.72, ra); // tight inner AA only, no wide soft halo
     fragColor = vec4(color * a, a); // premultiplied
   }
 `;
