@@ -997,11 +997,18 @@ export default function JobDetail() {
                         const vs = segVideoSettings(seg);
                         return (
                           <>
-                            {vs.presetName && (
-                              <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mb: 0.5 }}>
-                                {vs.presetName}
-                              </Typography>
-                            )}
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                display: "block",
+                                mb: 0.5,
+                                fontWeight: vs.presetName ? 600 : 400,
+                                fontStyle: vs.presetName ? "normal" : "italic",
+                                color: vs.presetName ? "text.primary" : "text.secondary",
+                              }}
+                            >
+                              {vs.presetName ?? "Custom"}
+                            </Typography>
                             <SettingsSignature values={vs.values} />
                             {vs.loras.length > 0 && (
                               <Box sx={{ mt: 0.5 }}>
@@ -1421,11 +1428,18 @@ export default function JobDetail() {
                       const vs = segVideoSettings(seg);
                       return (
                         <Box sx={{ mb: 0.5 }}>
-                          {vs.presetName && (
-                            <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mb: 0.5 }}>
-                              {vs.presetName}
-                            </Typography>
-                          )}
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              display: "block",
+                              mb: 0.5,
+                              fontWeight: vs.presetName ? 600 : 400,
+                              fontStyle: vs.presetName ? "normal" : "italic",
+                              color: vs.presetName ? "text.primary" : "text.secondary",
+                            }}
+                          >
+                            {vs.presetName ?? "Custom"}
+                          </Typography>
                           <SettingsSignature values={vs.values} />
                           {vs.loras.length > 0 && (
                             <Box sx={{ mt: 0.5 }}>
