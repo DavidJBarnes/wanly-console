@@ -2713,24 +2713,6 @@ function SegmentModal({
           </IconButton>
         </Box>
 
-        {/* ── Video Settings (per-segment override) ── */}
-        <Box sx={{ mt: 2 }}>
-          <TextField
-            select
-            fullWidth
-            label="Video Settings"
-            size="small"
-            value={segVideoPresetId}
-            onChange={(e) => setSegVideoPresetId(e.target.value)}
-            helperText="Inherit the job's settings, or override this segment with a preset."
-          >
-            <MenuItem value="">Inherit from job</MenuItem>
-            {segVideoPresets.map((p) => (
-              <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
-            ))}
-          </TextField>
-        </Box>
-
         {/* ── Negative Prompt (accordion) ── */}
         <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
           <AccordionSummary expandIcon={<ExpandMore />}>
@@ -2779,6 +2761,21 @@ function SegmentModal({
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0 }}>
+            <TextField
+              select
+              fullWidth
+              label="Preset"
+              size="small"
+              value={segVideoPresetId}
+              onChange={(e) => setSegVideoPresetId(e.target.value)}
+              helperText="Inherit the job's default, or override this segment with a preset."
+              sx={{ mb: 2 }}
+            >
+              <MenuItem value="">Inherit from job</MenuItem>
+              {segVideoPresets.map((p) => (
+                <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+              ))}
+            </TextField>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
               <TextField
                 label="Duration"
