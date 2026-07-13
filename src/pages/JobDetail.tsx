@@ -656,34 +656,6 @@ export default function JobDetail() {
               <MetaItem label="FPS" value={`${job.fps}`} />
               <MetaItem label="Seed" value={`${job.seed}`} />
               <MetaItem
-                label="LightX2V High"
-                value={`${job.lightx2v_strength_high ?? 2.0}`}
-              />
-              <MetaItem
-                label="LightX2V Low"
-                value={`${job.lightx2v_strength_low ?? 1.0}`}
-              />
-              <MetaItem
-                label="CFG High"
-                value={`${job.cfg_high ?? 1}`}
-              />
-              <MetaItem
-                label="CFG Low"
-                value={`${job.cfg_low ?? 1}`}
-              />
-              <MetaItem
-                label="Steps"
-                value={job.steps_total != null ? `${job.steps_total}` : "—"}
-              />
-              <MetaItem
-                label="High-Noise Steps"
-                value={job.high_noise_steps != null ? `${job.high_noise_steps}` : "—"}
-              />
-              <MetaItem
-                label="Flow Shift"
-                value={job.flow_shift != null ? `${job.flow_shift}` : "—"}
-              />
-              <MetaItem
                 label="Segments"
                 value={`${job.completed_segment_count}`}
               />
