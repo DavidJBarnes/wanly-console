@@ -23,11 +23,10 @@ import { ClearOutlined, ExpandMore } from "@mui/icons-material";
 import { useLoraStore } from "../stores/loraStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTagStore } from "../stores/tagStore";
-import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
 import SettingsSignatureInputs from "./SettingsSignatureInputs";
 import { createJob, getFileUrl, getFaceswapPresets, sha256Hex, checkStartingImageExists } from "../api/client";
-import type { JobCreate, LoraListItem, FaceswapPreset, PromptPreset } from "../api/types";
+import type { JobCreate, LoraListItem, FaceswapPreset } from "../api/types";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "./FaceswapConfig";
 import {
   DEFAULT_WIDTH,
@@ -38,14 +37,6 @@ import {
   DEFAULT_FACESWAP_SOURCE_TYPE,
   MAX_LORAS,
 } from "../constants";
-
-function splitAtoms(s: string): string[] {
-  return s
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .split(/[^a-zA-Z0-9]+/g)
-    .filter(Boolean)
-    .map((a) => a.toLowerCase());
-}
 
 interface CreateJobDialogProps {
   open: boolean;
@@ -158,7 +149,6 @@ export default function CreateJobDialog({
   }, [selectedTag1, selectedTag2, fps, nameManuallyEdited]);
 
   const autoSelectApplied = useRef(false);
-  const presetAutoSelectApplied = useRef(false);
 
   // Reset dropdowns when dialog opens with image tags
   useEffect(() => {
@@ -167,7 +157,6 @@ export default function CreateJobDialog({
       setSelectedTag2("");
       setTags(initialImageTags);
       autoSelectApplied.current = false;
-      presetAutoSelectApplied.current = false;
     }
   }, [open, initialImageTags]);
 
@@ -190,7 +179,6 @@ export default function CreateJobDialog({
   }, [open, initialImageTags, titleTags1, titleTags2]);
 
   // Preset state
-  const { presets, fetchPresets } = usePromptPresetStore();
   const { presets: videoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
 
   // LoRA state
@@ -202,7 +190,6 @@ export default function CreateJobDialog({
   useEffect(() => {
     if (open) {
       fetchLoras();
-      fetchPresets();
       fetchVideoPresets();
       fetchTags();
       fetchSettings();
@@ -236,47 +223,6 @@ export default function CreateJobDialog({
       loadImageFromUrl(getFileUrl(initialStartingImageUri));
     }
   }, [open, initialStartingImageUri, loadImageFromUrl]);
-
-  const applyPreset = (preset: PromptPreset | null) => {
-    if (!preset) return;
-    setPrompt(preset.prompt);
-    if (preset.loras && preset.loras.length > 0) {
-      setLoras(
-        preset.loras.map((l) => {
-          const lib = loraLibrary.find((item) => item.id === l.lora_id);
-          return {
-            lora_id: l.lora_id,
-            name: lib?.name ?? l.lora_id.slice(0, 8),
-            high_weight: l.high_weight,
-            low_weight: l.low_weight,
-            preview_image: lib?.preview_image ?? null,
-          };
-        }),
-      );
-    } else {
-      setLoras([]);
-    }
-  };
-
-  // Auto-select preset from selected Tag 2 value via atom-based matching
-  useEffect(() => {
-    if (!open || !initialImageTags) return;
-    if (presetAutoSelectApplied.current) return;
-    if (!selectedTag2) return;
-    if (presets.length === 0) return;
-
-    const tagAtoms = splitAtoms(selectedTag2);
-    if (tagAtoms.length === 0) return;
-
-    const match = presets.find((p) => {
-      const presetAtoms = new Set(splitAtoms(p.name));
-      return tagAtoms.every((a) => presetAtoms.has(a));
-    });
-
-    if (match) applyPreset(match);
-
-    presetAutoSelectApplied.current = true;
-  }, [open, initialImageTags, selectedTag2, presets]);
 
   const addLoraFromLibrary = (item: LoraListItem | null) => {
     if (!item || loras.length >= MAX_LORAS) return;
@@ -371,6 +317,9 @@ export default function CreateJobDialog({
     setStepsTotal(s(p.steps_total));
     setHighNoiseSteps(s(p.high_noise_steps));
     setFlowShift(s(p.flow_shift));
+    // The preset's default prompt fills the field (overridable at submit). Only overwrite when
+    // the preset actually carries one, so picking a sampler-only preset won't wipe typed text.
+    if (p.prompt) setPrompt(p.prompt);
     // A full-recipe preset owns its LoRAs — load them into the picker (and override whatever
     // the start-image tags auto-added). A sampler-only preset leaves the current LoRAs alone.
     if (p.loras && p.loras.length > 0) {
@@ -579,20 +528,6 @@ export default function CreateJobDialog({
         </Box>
 
         {/* ── Prompt ── */}
-        {presets.length > 0 && (
-          <Autocomplete
-            options={presets}
-            getOptionLabel={(o) => o.name}
-            onChange={(_, val) => applyPreset(val)}
-            value={null}
-            renderInput={(params) => (
-              <TextField {...params} label="Load Preset" size="small" margin="dense" />
-            )}
-            size="small"
-            blurOnSelect
-            clearOnBlur
-          />
-        )}
         <TextField
           label="Prompt"
           fullWidth

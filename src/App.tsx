@@ -10,7 +10,6 @@ import Workers from "./pages/Workers";
 import WorkerDetail from "./pages/WorkerDetail";
 import Videos from "./pages/Videos";
 import LoraLibrary from "./pages/LoraLibrary";
-import PromptLibrary from "./pages/PromptLibrary";
 import ImageRepo from "./pages/ImageRepo";
 import SuccessfulConfigs from "./pages/SuccessfulConfigs";
 import SettingsPage from "./pages/SettingsPage";
@@ -35,7 +34,6 @@ export default function App() {
             <Route path="/workers/:id" element={<WorkerDetail />} />
             <Route path="/videos" element={<Videos />} />
             <Route path="/loras" element={<LoraLibrary />} />
-            <Route path="/prompts" element={<PromptLibrary />} />
             <Route path="/video-presets" element={<VideoPresetLibrary />} />
             <Route path="/images" element={<ImageRepo />} />
             <Route path="/settings" element={<SettingsPage />} />

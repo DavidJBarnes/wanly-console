@@ -17,12 +17,9 @@ import type {
   LoraUpdate,
   StatsResponse,
   WorkerSegmentResponse,
-  PromptPreset,
   VideoSettingsPreset,
   VideoSettingsPresetCreate,
   VideoSettingsPresetUpdate,
-  PromptPresetCreate,
-  PromptPresetUpdate,
   WildcardResponse,
   WildcardCreate,
   WildcardUpdate,
@@ -310,30 +307,6 @@ export async function updateLora(
 
 export async function deleteLora(id: string): Promise<void> {
   await api.delete(`/loras/${id}`);
-}
-
-// --- Prompt Presets ---
-
-export async function getPromptPresets(): Promise<PromptPreset[]> {
-  const { data } = await api.get<PromptPreset[]>("/prompt-presets");
-  return data;
-}
-
-export async function createPromptPreset(body: PromptPresetCreate): Promise<PromptPreset> {
-  const { data } = await api.post<PromptPreset>("/prompt-presets", body);
-  return data;
-}
-
-export async function updatePromptPreset(
-  id: string,
-  body: PromptPresetUpdate,
-): Promise<PromptPreset> {
-  const { data } = await api.patch<PromptPreset>(`/prompt-presets/${id}`, body);
-  return data;
-}
-
-export async function deletePromptPreset(id: string): Promise<void> {
-  await api.delete(`/prompt-presets/${id}`);
 }
 
 export async function getVideoPresets(): Promise<VideoSettingsPreset[]> {

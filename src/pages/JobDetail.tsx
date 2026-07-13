@@ -76,7 +76,6 @@ import {
   getImageFolder,
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
-import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
 import SettingsSignature from "../components/SettingsSignature";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -88,7 +87,6 @@ import type {
   LoraConfig,
   LoraListItem,
   FaceswapPreset,
-  PromptPreset,
   FramePreviewResponse,
   ImageFolder,
   ImageFile,
@@ -2152,7 +2150,6 @@ function SegmentModal({
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
-  const { presets: promptPresets, fetchPresets } = usePromptPresetStore();
   const { presets: segVideoPresets, fetchPresets: fetchSegVideoPresets } = useVideoPresetStore();
   const [segVideoPresetId, setSegVideoPresetId] = useState("");
   const { negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
@@ -2176,27 +2173,6 @@ function SegmentModal({
   const [submitting, setSubmitting] = useState(false);
 
   const accordionSx = { "&:before": { display: "none" }, boxShadow: "none", border: "1px solid", borderColor: "divider", borderRadius: "8px !important", mb: 1 };
-
-  const applyPreset = (preset: PromptPreset | null) => {
-    if (!preset) return;
-    setPrompt(preset.prompt);
-    if (preset.loras && preset.loras.length > 0) {
-      setLoraSlots(
-        preset.loras.map((l) => {
-          const lib = loraLibrary.find((item) => item.id === l.lora_id);
-          return {
-            lora_id: l.lora_id,
-            name: lib?.name ?? l.lora_id.slice(0, 8),
-            high_weight: l.high_weight,
-            low_weight: l.low_weight,
-            preview_image: lib?.preview_image ?? null,
-          };
-        }),
-      );
-    } else {
-      setLoraSlots([]);
-    }
-  };
 
   // Pre-populate from last segment when modal opens (use template if available)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on open, not on poll refetch
@@ -2232,12 +2208,11 @@ function SegmentModal({
   useEffect(() => {
     if (open) {
       fetchLoras();
-      fetchPresets();
       fetchSegVideoPresets();
       fetchSettings();
       getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
     }
-  }, [open, fetchLoras, fetchPresets, fetchSettings]);
+  }, [open, fetchLoras, fetchSegVideoPresets, fetchSettings]);
 
   // Pre-populate negative prompt from settings default when modal opens
   useEffect(() => {
@@ -2658,20 +2633,6 @@ function SegmentModal({
         </Box>
 
         {/* ── Prompt ── */}
-        {promptPresets.length > 0 && (
-          <Autocomplete
-            options={promptPresets}
-            getOptionLabel={(o) => o.name}
-            onChange={(_, val) => applyPreset(val)}
-            value={null}
-            renderInput={(params) => (
-              <TextField {...params} label="Load Preset" size="small" margin="dense" />
-            )}
-            size="small"
-            blurOnSelect
-            clearOnBlur
-          />
-        )}
         <TextField
           label="Prompt"
           fullWidth

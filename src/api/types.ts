@@ -336,31 +336,10 @@ export interface WorkerStatsItem {
   last_seen: string | null;
 }
 
-export interface PromptPresetLoraSlot {
+export interface PresetLoraSlot {
   lora_id: string;
   high_weight: number;
   low_weight: number;
-}
-
-export interface PromptPreset {
-  id: string;
-  name: string;
-  prompt: string;
-  loras: PromptPresetLoraSlot[] | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface PromptPresetCreate {
-  name: string;
-  prompt: string;
-  loras?: PromptPresetLoraSlot[] | null;
-}
-
-export interface PromptPresetUpdate {
-  name?: string;
-  prompt?: string;
-  loras?: PromptPresetLoraSlot[] | null;
 }
 
 export interface VideoSettingsPreset {
@@ -375,7 +354,8 @@ export interface VideoSettingsPreset {
   flow_shift: number | null;
   sampler_name: string | null;
   scheduler: string | null;
-  loras: PromptPresetLoraSlot[] | null;
+  loras: PresetLoraSlot[] | null;
+  prompt: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -391,7 +371,8 @@ export interface VideoSettingsPresetCreate {
   flow_shift?: number | null;
   sampler_name?: string | null;
   scheduler?: string | null;
-  loras?: PromptPresetLoraSlot[] | null;
+  loras?: PresetLoraSlot[] | null;
+  prompt?: string | null;
 }
 
 export type VideoSettingsPresetUpdate = Partial<VideoSettingsPresetCreate>;
