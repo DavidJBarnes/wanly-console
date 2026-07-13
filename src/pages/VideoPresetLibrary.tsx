@@ -16,6 +16,7 @@ import {
   Chip,
   Stack,
   Autocomplete,
+  MenuItem,
 } from "@mui/material";
 import { Add, Edit, DeleteOutline } from "@mui/icons-material";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
@@ -47,14 +48,17 @@ const FIELDS: { key: ParamKey; label: string }[] = [
 
 type FormState = Record<string, string>;
 
+const SAMPLERS = ["euler", "dpmpp_2m", "dpmpp_sde", "dpmpp_2m_sde", "unipc", "res_multistep"];
+const SCHEDULERS = ["simple", "normal", "karras", "beta", "sgm_uniform"];
+
 function emptyForm(): FormState {
-  const f: FormState = { name: "" };
+  const f: FormState = { name: "", sampler_name: "", scheduler: "" };
   FIELDS.forEach((x) => (f[x.key] = ""));
   return f;
 }
 
 function presetToForm(p: VideoSettingsPreset): FormState {
-  const f: FormState = { name: p.name };
+  const f: FormState = { name: p.name, sampler_name: p.sampler_name ?? "", scheduler: p.scheduler ?? "" };
   FIELDS.forEach((x) => (f[x.key] = p[x.key] == null ? "" : String(p[x.key])));
   return f;
 }
@@ -133,6 +137,8 @@ export default function VideoPresetLibrary() {
       const v = form[x.key].trim();
       body[x.key] = v === "" ? null : Number(v);
     });
+    body.sampler_name = form.sampler_name || null;
+    body.scheduler = form.scheduler || null;
     body.loras = loraSlots.map((l) => ({
       lora_id: l.lora_id,
       high_weight: l.high_weight,
@@ -227,6 +233,36 @@ export default function VideoPresetLibrary() {
                 onChange={(e) => setForm({ ...form, [x.key]: e.target.value })}
               />
             ))}
+          </Box>
+
+          <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+            <TextField
+              select
+              label="Sampler"
+              size="small"
+              sx={{ width: 190 }}
+              value={form.sampler_name}
+              onChange={(e) => setForm({ ...form, sampler_name: e.target.value })}
+            >
+              <MenuItem value="">(default — euler)</MenuItem>
+              {SAMPLERS.map((s) => (
+                <MenuItem key={s} value={s}>{s}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Scheduler"
+              size="small"
+              sx={{ width: 190 }}
+              value={form.scheduler}
+              onChange={(e) => setForm({ ...form, scheduler: e.target.value })}
+              helperText="VACE always uses unipc unless overridden"
+            >
+              <MenuItem value="">(default — simple)</MenuItem>
+              {SCHEDULERS.map((s) => (
+                <MenuItem key={s} value={s}>{s}</MenuItem>
+              ))}
+            </TextField>
           </Box>
 
           <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>

@@ -373,6 +373,8 @@ export interface VideoSettingsPreset {
   steps_total: number | null;
   high_noise_steps: number | null;
   flow_shift: number | null;
+  sampler_name: string | null;
+  scheduler: string | null;
   loras: PromptPresetLoraSlot[] | null;
   created_at: string;
   updated_at: string;
@@ -387,6 +389,8 @@ export interface VideoSettingsPresetCreate {
   steps_total?: number | null;
   high_noise_steps?: number | null;
   flow_shift?: number | null;
+  sampler_name?: string | null;
+  scheduler?: string | null;
   loras?: PromptPresetLoraSlot[] | null;
 }
 
