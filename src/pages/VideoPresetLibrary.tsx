@@ -15,11 +15,16 @@ import {
   CircularProgress,
   Chip,
   Stack,
+  Autocomplete,
 } from "@mui/material";
 import { Add, Edit, DeleteOutline } from "@mui/icons-material";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
-import { createVideoPreset, updateVideoPreset, deleteVideoPreset } from "../api/client";
-import type { VideoSettingsPreset, VideoSettingsPresetCreate } from "../api/types";
+import { useLoraStore } from "../stores/loraStore";
+import { createVideoPreset, updateVideoPreset, deleteVideoPreset, getFileUrl } from "../api/client";
+import type { VideoSettingsPreset, VideoSettingsPresetCreate, LoraListItem } from "../api/types";
+import { MAX_LORAS } from "../constants";
+
+type LoraSlot = { lora_id: string; name: string; high_weight: number; low_weight: number; preview_image: string | null };
 
 type ParamKey =
   | "lightx2v_strength_high"
@@ -56,26 +61,62 @@ function presetToForm(p: VideoSettingsPreset): FormState {
 
 export default function VideoPresetLibrary() {
   const { presets, loading, error, fetchPresets } = useVideoPresetStore();
+  const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<VideoSettingsPreset | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
+  const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<VideoSettingsPreset | null>(null);
 
   useEffect(() => {
     fetchPresets();
-  }, [fetchPresets]);
+    fetchLoras();
+  }, [fetchPresets, fetchLoras]);
+
+  const loadLoraSlots = (p: VideoSettingsPreset | null) =>
+    setLoraSlots(
+      (p?.loras ?? []).map((l) => {
+        const lib = loraLibrary.find((item) => item.id === l.lora_id);
+        return {
+          lora_id: l.lora_id,
+          name: lib?.name ?? l.lora_id.slice(0, 8),
+          high_weight: l.high_weight,
+          low_weight: l.low_weight,
+          preview_image: lib?.preview_image ?? null,
+        };
+      }),
+    );
+
+  const addLora = (item: LoraListItem | null) => {
+    if (!item || loraSlots.length >= MAX_LORAS || loraSlots.some((l) => l.lora_id === item.id)) return;
+    setLoraSlots([
+      ...loraSlots,
+      {
+        lora_id: item.id,
+        name: item.name,
+        high_weight: item.default_high_weight,
+        low_weight: item.default_low_weight,
+        preview_image: item.preview_image,
+      },
+    ]);
+  };
+  const updateWeight = (idx: number, field: "high_weight" | "low_weight", value: number) =>
+    setLoraSlots((prev) => prev.map((s, i) => (i === idx ? { ...s, [field]: value } : s)));
+  const removeLora = (idx: number) => setLoraSlots((prev) => prev.filter((_, i) => i !== idx));
 
   const openNew = () => {
     setEditing(null);
     setForm(emptyForm());
+    loadLoraSlots(null);
     setFormError(null);
     setDialogOpen(true);
   };
   const openEdit = (p: VideoSettingsPreset) => {
     setEditing(p);
     setForm(presetToForm(p));
+    loadLoraSlots(p);
     setFormError(null);
     setDialogOpen(true);
   };
@@ -92,6 +133,11 @@ export default function VideoPresetLibrary() {
       const v = form[x.key].trim();
       body[x.key] = v === "" ? null : Number(v);
     });
+    body.loras = loraSlots.map((l) => ({
+      lora_id: l.lora_id,
+      high_weight: l.high_weight,
+      low_weight: l.low_weight,
+    }));
     try {
       if (editing) await updateVideoPreset(editing.id, body);
       else await createVideoPreset(body);
@@ -182,6 +228,64 @@ export default function VideoPresetLibrary() {
               />
             ))}
           </Box>
+
+          <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
+            LoRAs (optional)
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
+            Part of the recipe. High weight = motion expert, Low weight = identity expert. When this
+            preset is selected, these LoRAs are used (replacing per-segment LoRAs).
+          </Typography>
+          {loraSlots.length < MAX_LORAS && (
+            <Autocomplete
+              options={loraLibrary
+                .filter((l) => !loraSlots.some((s) => s.lora_id === l.id))
+                .sort((a, b) => a.name.localeCompare(b.name))}
+              getOptionLabel={(o) => o.name}
+              onChange={(_, val) => addLora(val)}
+              value={null}
+              renderInput={(params) => <TextField {...params} size="small" placeholder="Add a LoRA…" />}
+              size="small"
+              blurOnSelect
+              clearOnBlur
+            />
+          )}
+          {loraSlots.map((lora, idx) => (
+            <Card key={lora.lora_id} variant="outlined" sx={{ p: 1.5, mt: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                {lora.preview_image ? (
+                  <Box
+                    component="img"
+                    src={getFileUrl(lora.preview_image)}
+                    alt=""
+                    sx={{ width: 36, height: 36, objectFit: "cover", borderRadius: 0.5 }}
+                  />
+                ) : (
+                  <Box sx={{ width: 36, height: 36, bgcolor: "#eee", borderRadius: 0.5 }} />
+                )}
+                <Typography variant="body2" sx={{ fontWeight: 600, flex: 1 }}>{lora.name}</Typography>
+                <Button size="small" color="error" onClick={() => removeLora(idx)}>Remove</Button>
+              </Box>
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <TextField
+                  label="High (motion)"
+                  type="number"
+                  size="small"
+                  sx={{ width: 150 }}
+                  value={lora.high_weight}
+                  onChange={(e) => updateWeight(idx, "high_weight", Number(e.target.value))}
+                />
+                <TextField
+                  label="Low (identity)"
+                  type="number"
+                  size="small"
+                  sx={{ width: 150 }}
+                  value={lora.low_weight}
+                  onChange={(e) => updateWeight(idx, "low_weight", Number(e.target.value))}
+                />
+              </Box>
+            </Card>
+          ))}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)} disabled={saving}>Cancel</Button>
