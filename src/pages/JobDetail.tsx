@@ -16,6 +16,7 @@ import {
   CircularProgress,
   IconButton,
   Dialog,
+  Divider,
   DialogTitle,
   DialogContent,
   DialogActions,
@@ -2331,43 +2332,6 @@ function SegmentModal({
           </IconButton>
         </Box>
 
-        {/* ── Negative Prompt (accordion) ── */}
-        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMore />}>
-            <Typography variant="subtitle2">
-              Negative Prompt
-              {negativePrompt && (
-                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                  {negativePrompt.length > 60 ? negativePrompt.slice(0, 60) + '…' : negativePrompt}
-                </Typography>
-              )}
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            <TextField
-              label="Negative Prompt"
-              fullWidth
-              multiline
-              rows={3}
-              value={negativePrompt}
-              onChange={(e) => setNegativePrompt(e.target.value)}
-              helperText="Passed as negative conditioning to ComfyUI"
-            />
-            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
-              <IconButton
-                size="small"
-                onClick={() => setNegativePrompt("")}
-                disabled={!negativePrompt}
-                sx={{ color: "text.disabled", p: 0.25 }}
-                title="Clear negative prompt"
-                aria-label="Clear negative prompt"
-              >
-                <ClearOutlined sx={{ fontSize: 14 }} />
-              </IconButton>
-            </Box>
-          </AccordionDetails>
-        </Accordion>
-
         {/* ── Video Settings (accordion) ── */}
         <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
           <AccordionSummary expandIcon={<ExpandMore />}>
@@ -2596,14 +2560,47 @@ function SegmentModal({
           </AccordionDetails>
         </Accordion>
 
-        {/* ── Faceswap (accordion) ── */}
-        <FaceswapConfig
-          state={faceswap}
-          onChange={setFaceswap}
-          presets={faceswapPresets}
-          accordionSx={accordionSx}
-          existingImageName={existingFaceswapName && lastSegment?.faceswap_source_type !== "preset" ? existingFaceswapName : null}
-        />
+        {/* ── Extra (accordion): Negative Prompt · Faceswap ── */}
+        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
+          <AccordionSummary expandIcon={<ExpandMore />}>
+            <Typography variant="subtitle2">Extra</Typography>
+          </AccordionSummary>
+          <AccordionDetails sx={{ pt: 0 }}>
+            {/* Negative Prompt */}
+            <TextField
+              label="Negative Prompt"
+              fullWidth
+              multiline
+              rows={3}
+              value={negativePrompt}
+              onChange={(e) => setNegativePrompt(e.target.value)}
+              helperText="Passed as negative conditioning to ComfyUI"
+            />
+            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
+              <IconButton
+                size="small"
+                onClick={() => setNegativePrompt("")}
+                disabled={!negativePrompt}
+                sx={{ color: "text.disabled", p: 0.25 }}
+                title="Clear negative prompt"
+                aria-label="Clear negative prompt"
+              >
+                <ClearOutlined sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Faceswap */}
+            <FaceswapConfig
+              state={faceswap}
+              onChange={setFaceswap}
+              presets={faceswapPresets}
+              existingImageName={existingFaceswapName && lastSegment?.faceswap_source_type !== "preset" ? existingFaceswapName : null}
+              inline
+            />
+          </AccordionDetails>
+        </Accordion>
 
       </DialogContent>
       <DialogActions>
