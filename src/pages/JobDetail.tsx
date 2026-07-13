@@ -57,6 +57,7 @@ import {
   addSegment,
   uploadFile,
   retrySegment,
+  deleteSegment,
   makeHologram,
   deleteJob,
   reopenJob,
@@ -250,6 +251,7 @@ export default function JobDetail() {
   const [loopVideo, setLoopVideo] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [segmentModalOpen, setSegmentModalOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<SegmentResponse | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deleteJobConfirm, setDeleteJobConfirm] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
@@ -435,6 +437,18 @@ export default function JobDetail() {
     }
   };
 
+  const handleDelete = async (seg: SegmentResponse) => {
+    setDeleteConfirm(null);
+    setActionLoading(seg.id);
+    try {
+      await deleteSegment(seg.id);
+      fetchJob();
+    } catch {
+      setError("Failed to delete segment");
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const handleDeleteJob = async () => {
     if (!id) return;
@@ -911,7 +925,7 @@ export default function JobDetail() {
                   <TableCell sx={{ width: 120 }}>Worker</TableCell>
                   <TableCell sx={{ width: 140 }}>Created</TableCell>
                   <TableCell sx={{ width: 80 }}>Run Time</TableCell>
-                  <TableCell sx={{ width: 56 }} />
+                  <TableCell sx={{ width: 92 }} />
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1083,22 +1097,38 @@ export default function JobDetail() {
                       )}
                     </TableCell>
                     <TableCell padding="none" align="center">
-                      {seg.status === "failed" && (
-                        <Tooltip title="Retry">
-                          <IconButton
-                            size="small"
-                            color="primary"
-                            onClick={() => handleRetry(seg)}
-                            disabled={actionLoading === seg.id}
-                          >
-                            {actionLoading === seg.id ? (
-                              <CircularProgress size={18} />
-                            ) : (
-                              <Replay fontSize="small" />
-                            )}
-                          </IconButton>
-                        </Tooltip>
-                      )}
+                      <Box sx={{ display: "flex", gap: 0.25, justifyContent: "center" }}>
+                        {seg.status === "failed" && (
+                          <Tooltip title="Retry">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handleRetry(seg)}
+                              disabled={actionLoading === seg.id}
+                            >
+                              {actionLoading === seg.id ? (
+                                <CircularProgress size={18} />
+                              ) : (
+                                <Replay fontSize="small" />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {job.status !== "finalized" &&
+                          (seg.status === "failed" || seg.status === "completed") &&
+                          job.segments.length > 1 && (
+                            <Tooltip title="Delete">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => setDeleteConfirm(seg)}
+                                disabled={actionLoading === seg.id}
+                              >
+                                <DeleteOutline fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                      </Box>
                     </TableCell>
                   </TableRow>
                   ];
@@ -1243,6 +1273,18 @@ export default function JobDetail() {
                             )}
                           </IconButton>
                         )}
+                        {job.status !== "finalized" &&
+                          (seg.status === "failed" || seg.status === "completed") &&
+                          job.segments.length > 1 && (
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setDeleteConfirm(seg)}
+                              disabled={actionLoading === seg.id}
+                            >
+                              <DeleteOutline fontSize="small" />
+                            </IconButton>
+                          )}
                       </Box>
                     </Box>
 
@@ -1495,6 +1537,32 @@ export default function JobDetail() {
           fetchJob();
         }}
       />
+
+      {/* Delete segment confirm dialog */}
+      <Dialog
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Segment</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Delete segment #{deleteConfirm?.index}? This will remove the segment
+            and its S3 assets. This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Delete job confirm dialog */}
       <Dialog
