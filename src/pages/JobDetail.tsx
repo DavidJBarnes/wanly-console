@@ -39,6 +39,7 @@ import {
   PlayCircleOutline,
   Close,
   Replay,
+  StopCircle,
   DeleteOutline,
   ClearOutlined,
   Download,
@@ -58,6 +59,7 @@ import {
   addSegment,
   uploadFile,
   retrySegment,
+  cancelSegment,
   deleteSegment,
   makeHologram,
   deleteJob,
@@ -433,6 +435,18 @@ export default function JobDetail() {
       fetchJob();
     } catch {
       setError("Failed to retry segment");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCancel = async (seg: SegmentResponse) => {
+    setActionLoading(seg.id);
+    try {
+      await cancelSegment(seg.id);
+      fetchJob();
+    } catch {
+      setError("Failed to cancel segment");
     } finally {
       setActionLoading(null);
     }
@@ -1103,6 +1117,22 @@ export default function JobDetail() {
                     </TableCell>
                     <TableCell padding="none" align="center">
                       <Box sx={{ display: "flex", gap: 0.25, justifyContent: "center" }}>
+                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing") && (
+                          <Tooltip title="Stop">
+                            <IconButton
+                              size="small"
+                              color="warning"
+                              onClick={() => handleCancel(seg)}
+                              disabled={actionLoading === seg.id}
+                            >
+                              {actionLoading === seg.id ? (
+                                <CircularProgress size={18} />
+                              ) : (
+                                <StopCircle fontSize="small" />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {seg.status === "failed" && (
                           <Tooltip title="Retry">
                             <IconButton
@@ -1263,6 +1293,20 @@ export default function JobDetail() {
                           <Typography variant="caption" color="text.secondary">
                             {segmentRunTime(seg)}
                           </Typography>
+                        )}
+                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing") && (
+                          <IconButton
+                            size="small"
+                            color="warning"
+                            onClick={() => handleCancel(seg)}
+                            disabled={actionLoading === seg.id}
+                          >
+                            {actionLoading === seg.id ? (
+                              <CircularProgress size={18} />
+                            ) : (
+                              <StopCircle fontSize="small" />
+                            )}
+                          </IconButton>
                         )}
                         {seg.status === "failed" && (
                           <IconButton
