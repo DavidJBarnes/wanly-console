@@ -24,6 +24,7 @@ import { useLoraStore } from "../stores/loraStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTagStore } from "../stores/tagStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
+import { useVideoPresetStore } from "../stores/videoPresetStore";
 import { createJob, getFileUrl, getFaceswapPresets, sha256Hex, checkStartingImageExists } from "../api/client";
 import type { JobCreate, LoraListItem, FaceswapPreset, PromptPreset } from "../api/types";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "./FaceswapConfig";
@@ -130,7 +131,7 @@ export default function CreateJobDialog({
   const [stepsTotal, setStepsTotal] = useState(defaultStepsTotal);
   const [highNoiseSteps, setHighNoiseSteps] = useState(defaultHighNoiseSteps);
   const [flowShift, setFlowShift] = useState(defaultFlowShift);
-  const [samplerPreset, setSamplerPreset] = useState("");
+  const [videoPresetId, setVideoPresetId] = useState("");
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -189,6 +190,7 @@ export default function CreateJobDialog({
 
   // Preset state
   const { presets, fetchPresets } = usePromptPresetStore();
+  const { presets: videoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
 
   // LoRA state
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
@@ -200,6 +202,7 @@ export default function CreateJobDialog({
     if (open) {
       fetchLoras();
       fetchPresets();
+      fetchVideoPresets();
       fetchTags();
       fetchSettings();
       getFaceswapPresets().then((presets) => {
@@ -354,22 +357,19 @@ export default function CreateJobDialog({
     }
   }, [open, defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, defaultStepsTotal, defaultHighNoiseSteps, defaultFlowShift]);
 
-  const SAMPLER_PRESETS: Record<string, Record<string, string>> = {
-    Lightning: { lightx2vHigh: "1", lightx2vLow: "1", cfgHigh: "1", cfgLow: "1", stepsTotal: "4", highNoiseSteps: "2", flowShift: "5" },
-    "Prompt-Aware": { lightx2vHigh: "0", lightx2vLow: "1", cfgHigh: "2.75", cfgLow: "1", stepsTotal: "12", highNoiseSteps: "8", flowShift: "5" },
-    "High Motion": { lightx2vHigh: "0", lightx2vLow: "1", cfgHigh: "3.5", cfgLow: "1", stepsTotal: "12", highNoiseSteps: "8", flowShift: "5" },
-  };
-  const applySamplerPreset = (name: string) => {
-    setSamplerPreset(name);
-    const p = SAMPLER_PRESETS[name];
+  // Select a user-defined video-settings preset (live link). "" = Custom (raw fields below).
+  const applyVideoPreset = (id: string) => {
+    setVideoPresetId(id);
+    const p = videoPresets.find((v) => v.id === id);
     if (!p) return;
-    setLightx2vHigh(p.lightx2vHigh);
-    setLightx2vLow(p.lightx2vLow);
-    setCfgHigh(p.cfgHigh);
-    setCfgLow(p.cfgLow);
-    setStepsTotal(p.stepsTotal);
-    setHighNoiseSteps(p.highNoiseSteps);
-    setFlowShift(p.flowShift);
+    const s = (v: number | null) => (v == null ? "" : String(v));
+    setLightx2vHigh(s(p.lightx2v_strength_high));
+    setLightx2vLow(s(p.lightx2v_strength_low));
+    setCfgHigh(s(p.cfg_high));
+    setCfgLow(s(p.cfg_low));
+    setStepsTotal(s(p.steps_total));
+    setHighNoiseSteps(s(p.high_noise_steps));
+    setFlowShift(s(p.flow_shift));
   };
 
   const handleSubmit = async () => {
@@ -411,6 +411,7 @@ export default function CreateJobDialog({
         steps_total: stepsTotal ? parseInt(stepsTotal, 10) : null,
         high_noise_steps: highNoiseSteps ? parseInt(highNoiseSteps, 10) : null,
         flow_shift: flowShift ? parseFloat(flowShift) : null,
+        video_preset_id: videoPresetId || null,
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         starting_image_hash: reuseHash,
         tags: tags || null,
@@ -757,17 +758,17 @@ export default function CreateJobDialog({
             <Box sx={{ mt: 1.5 }}>
               <TextField
                 select
-                label="Preset"
+                label="Video Preset"
                 size="small"
-                value={samplerPreset}
-                onChange={(e) => applySamplerPreset(e.target.value)}
+                value={videoPresetId}
+                onChange={(e) => applyVideoPreset(e.target.value)}
                 sx={{ minWidth: 240 }}
-                helperText="Load a known-good sampler bundle"
+                helperText="Job default — manage in Video Presets. Custom = raw values below."
               >
                 <MenuItem value="">Custom</MenuItem>
-                <MenuItem value="Lightning">Lightning — fast, cfg 1</MenuItem>
-                <MenuItem value="Prompt-Aware">Prompt-Aware — cfg 2.75, motion</MenuItem>
-                <MenuItem value="High Motion">High Motion — cfg 3.5</MenuItem>
+                {videoPresets.map((p) => (
+                  <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+                ))}
               </TextField>
             </Box>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
