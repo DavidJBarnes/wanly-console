@@ -1904,6 +1904,10 @@ function SegmentModal({
   useEffect(() => {
     if (open && lastSegment) {
       setPrompt(lastSegment.prompt_template ?? lastSegment.prompt);
+      // Carry the recipe forward: pre-select the previous segment's (or job's) preset so every
+      // segment explicitly names a recipe. Set directly (no applySegVideoPreset) to keep the
+      // continuation prompt from being overwritten by the preset's default prompt.
+      setSegVideoPresetId(lastSegment.video_preset_id ?? job?.video_preset_id ?? "");
       setDuration(lastSegment.duration_seconds);
       setSpeed(lastSegment.speed);
       const srcType = lastSegment.faceswap_source_type === "preset"
