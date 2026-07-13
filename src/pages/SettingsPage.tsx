@@ -13,6 +13,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { useTagStore } from "../stores/tagStore";
+import SettingsSignatureInputs from "../components/SettingsSignatureInputs";
 import { useSettingsStore } from "../stores/settingsStore";
 
 export default function SettingsPage() {
@@ -204,80 +205,29 @@ export default function SettingsPage() {
             </Box>
           ) : (
             <>
-              <Box sx={{ display: "flex", gap: 2, maxWidth: 500, flexWrap: "wrap" }}>
-                <TextField
-                  label="LightX2V High"
-                  type="number"
-                  size="small"
-                  value={defaultLightx2vHigh}
-                  onChange={(e) => setDefaultLightx2vHigh(e.target.value)}
-                  slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
-                  helperText="Range: 1.0–5.6"
-                  sx={{ flex: 1, minWidth: 110 }}
-                />
-                <TextField
-                  label="LightX2V Low"
-                  type="number"
-                  size="small"
-                  value={defaultLightx2vLow}
-                  onChange={(e) => setDefaultLightx2vLow(e.target.value)}
-                  slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
-                  helperText="Range: 1.0–2.0"
-                  sx={{ flex: 1, minWidth: 110 }}
-                />
-              </Box>
-              <Box sx={{ display: "flex", gap: 2, maxWidth: 500, mt: 2, flexWrap: "wrap" }}>
-                <TextField
-                  label="CFG High"
-                  type="number"
-                  size="small"
-                  value={defaultCfgHigh}
-                  onChange={(e) => setDefaultCfgHigh(e.target.value)}
-                  slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
-                  helperText="High noise sampler"
-                  sx={{ flex: 1, minWidth: 110 }}
-                />
-                <TextField
-                  label="CFG Low"
-                  type="number"
-                  size="small"
-                  value={defaultCfgLow}
-                  onChange={(e) => setDefaultCfgLow(e.target.value)}
-                  slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
-                  helperText="Low noise sampler"
-                  sx={{ flex: 1, minWidth: 110 }}
-                />
-              </Box>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 2 }}>
-                <TextField
-                  label="Steps Total"
-                  type="number"
-                  size="small"
-                  value={defaultStepsTotal}
-                  onChange={(e) => setDefaultStepsTotal(e.target.value)}
-                  slotProps={{ htmlInput: { step: 1, min: 1 } }}
-                  helperText="Total sampler steps"
-                  sx={{ flex: 1, minWidth: 110 }}
-                />
-                <TextField
-                  label="High-Noise Steps"
-                  type="number"
-                  size="small"
-                  value={defaultHighNoiseSteps}
-                  onChange={(e) => setDefaultHighNoiseSteps(e.target.value)}
-                  slotProps={{ htmlInput: { step: 1, min: 0 } }}
-                  helperText="High/low split boundary"
-                  sx={{ flex: 1, minWidth: 110 }}
-                />
-                <TextField
-                  label="Flow Shift"
-                  type="number"
-                  size="small"
-                  value={defaultFlowShift}
-                  onChange={(e) => setDefaultFlowShift(e.target.value)}
-                  slotProps={{ htmlInput: { step: 0.5, min: 1 } }}
-                  helperText="Motion schedule shift"
-                  sx={{ flex: 1, minWidth: 110 }}
+              <Box sx={{ maxWidth: 560 }}>
+                <SettingsSignatureInputs
+                  values={{
+                    lightx2v_strength_high: defaultLightx2vHigh,
+                    lightx2v_strength_low: defaultLightx2vLow,
+                    cfg_high: defaultCfgHigh,
+                    cfg_low: defaultCfgLow,
+                    steps_total: defaultStepsTotal,
+                    high_noise_steps: defaultHighNoiseSteps,
+                    flow_shift: defaultFlowShift,
+                  }}
+                  onChange={(k, v) => {
+                    const setters: Record<string, (val: string) => void> = {
+                      lightx2v_strength_high: setDefaultLightx2vHigh,
+                      lightx2v_strength_low: setDefaultLightx2vLow,
+                      cfg_high: setDefaultCfgHigh,
+                      cfg_low: setDefaultCfgLow,
+                      steps_total: setDefaultStepsTotal,
+                      high_noise_steps: setDefaultHighNoiseSteps,
+                      flow_shift: setDefaultFlowShift,
+                    };
+                    setters[k]?.(v);
+                  }}
                 />
               </Box>
               <TextField
