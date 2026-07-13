@@ -13,8 +13,6 @@ import {
   TextField,
   Alert,
   CircularProgress,
-  Chip,
-  Stack,
   Autocomplete,
   MenuItem,
 } from "@mui/material";
@@ -24,6 +22,7 @@ import { useLoraStore } from "../stores/loraStore";
 import { createVideoPreset, updateVideoPreset, deleteVideoPreset, getFileUrl } from "../api/client";
 import type { VideoSettingsPreset, VideoSettingsPresetCreate, LoraListItem } from "../api/types";
 import { MAX_LORAS } from "../constants";
+import SettingsSignature, { parseSignature } from "../components/SettingsSignature";
 
 type LoraSlot = { lora_id: string; name: string; high_weight: number; low_weight: number; preview_image: string | null };
 
@@ -70,6 +69,7 @@ export default function VideoPresetLibrary() {
   const [editing, setEditing] = useState<VideoSettingsPreset | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
   const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
+  const [sigInput, setSigInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<VideoSettingsPreset | null>(null);
@@ -114,6 +114,7 @@ export default function VideoPresetLibrary() {
     setEditing(null);
     setForm(emptyForm());
     loadLoraSlots(null);
+    setSigInput("");
     setFormError(null);
     setDialogOpen(true);
   };
@@ -121,6 +122,7 @@ export default function VideoPresetLibrary() {
     setEditing(p);
     setForm(presetToForm(p));
     loadLoraSlots(p);
+    setSigInput("");
     setFormError(null);
     setDialogOpen(true);
   };
@@ -195,11 +197,16 @@ export default function VideoPresetLibrary() {
                     </IconButton>
                   </Box>
                 </Box>
-                <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 1 }}>
-                  {FIELDS.map((x) => (
-                    <Chip key={x.key} size="small" label={`${x.label}: ${p[x.key] ?? "—"}`} />
-                  ))}
-                </Stack>
+                <Box sx={{ mt: 1 }}>
+                  <SettingsSignature values={p} />
+                </Box>
+                {(p.loras?.length || p.sampler_name || p.scheduler) && (
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                    {p.loras?.length ? `${p.loras.length} LoRA${p.loras.length > 1 ? "s" : ""}` : ""}
+                    {p.sampler_name ? ` · ${p.sampler_name}` : ""}
+                    {p.scheduler ? `/${p.scheduler}` : ""}
+                  </Typography>
+                )}
               </CardContent>
             </Card>
           ))}
@@ -220,6 +227,26 @@ export default function VideoPresetLibrary() {
             sx={{ mt: 1, mb: 2 }}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+          <TextField
+            label="Quick set — paste a signature"
+            fullWidth
+            size="small"
+            sx={{ mb: 2 }}
+            value={sigInput}
+            placeholder="1,1,3,1,8,4,5"
+            helperText="Order: LX-H, LX-L, CFG-H, CFG-L, Steps, St-H, Flow  (commas, ·, or / all work)"
+            onChange={(e) => {
+              setSigInput(e.target.value);
+              const parsed = parseSignature(e.target.value);
+              if (parsed) {
+                setForm((f) => {
+                  const nf = { ...f };
+                  Object.entries(parsed).forEach(([k, v]) => (nf[k] = String(v)));
+                  return nf;
+                });
+              }
+            }}
           />
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
             {FIELDS.map((x) => (

@@ -78,6 +78,7 @@ import {
 import { useLoraStore } from "../stores/loraStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
+import SettingsSignature from "../components/SettingsSignature";
 import { useSettingsStore } from "../stores/settingsStore";
 import type {
   JobDetailResponse,
@@ -1985,6 +1986,14 @@ function SegmentDetailModal({
               <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
             ))}
           </TextField>
+          {(() => {
+            const p = videoPresets.find((v) => v.id === presetId);
+            return p ? (
+              <Box sx={{ mt: 1 }}>
+                <SettingsSignature values={p} />
+              </Box>
+            ) : null;
+          })()}
         </Box>
 
         {/* Thumbnails */}
@@ -2776,6 +2785,14 @@ function SegmentModal({
                 <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
               ))}
             </TextField>
+            {(() => {
+              const p = segVideoPresets.find((v) => v.id === segVideoPresetId);
+              return p ? (
+                <Box sx={{ mb: 2 }}>
+                  <SettingsSignature values={p} />
+                </Box>
+              ) : null;
+            })()}
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
               <TextField
                 label="Duration"
