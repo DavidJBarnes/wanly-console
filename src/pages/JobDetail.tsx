@@ -242,6 +242,7 @@ export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { presets: videoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
+  const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [job, setJob] = useState<JobDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -312,15 +313,35 @@ export default function JobDetail() {
 
   useEffect(() => {
     fetchVideoPresets();
-  }, [fetchVideoPresets]);
+    fetchLoras();
+  }, [fetchVideoPresets, fetchLoras]);
 
   // Effective video settings for a segment: its own preset override, else the job's default
-  // preset, else the job's raw sampler values. Returns a name (if a preset applies) + the 7
-  // params for the signature table.
-  const segVideoSettings = (seg: SegmentResponse): { presetName: string | null; values: SignatureValues } => {
+  // preset, else the job's raw sampler values. Returns a name (if a preset applies), the 7
+  // params for the signature table, and the effective LoRAs (preset's live-linked LoRAs win
+  // when the applied preset carries any, else the segment's own explicit LoRAs).
+  const segVideoSettings = (
+    seg: SegmentResponse,
+  ): {
+    presetName: string | null;
+    values: SignatureValues;
+    loras: { name: string; high_weight: number; low_weight: number }[];
+  } => {
     const presetId = seg.video_preset_id ?? job?.video_preset_id ?? null;
     const preset = presetId ? videoPresets.find((p) => p.id === presetId) ?? null : null;
     const src = preset ?? job;
+    const rawLoras =
+      preset?.loras && preset.loras.length > 0 ? preset.loras : seg.loras ?? [];
+    const loras = rawLoras
+      .filter((l) => l.lora_id)
+      .map((l) => {
+        const lib = loraLibrary.find((item) => item.id === l.lora_id);
+        return {
+          name: lib?.name ?? l.lora_id!.slice(0, 8),
+          high_weight: l.high_weight,
+          low_weight: l.low_weight,
+        };
+      });
     return {
       presetName: preset?.name ?? null,
       values: {
@@ -332,6 +353,7 @@ export default function JobDetail() {
         high_noise_steps: src?.high_noise_steps ?? null,
         flow_shift: src?.flow_shift ?? null,
       },
+      loras,
     };
   };
 
@@ -948,6 +970,15 @@ export default function JobDetail() {
                               </Typography>
                             )}
                             <SettingsSignature values={vs.values} />
+                            {vs.loras.length > 0 && (
+                              <Box sx={{ mt: 0.5 }}>
+                                {vs.loras.map((l, i) => (
+                                  <Typography key={i} variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+                                    {l.name} · H {l.high_weight} / L {l.low_weight}
+                                  </Typography>
+                                ))}
+                              </Box>
+                            )}
                           </>
                         );
                       })()}
@@ -1305,6 +1336,15 @@ export default function JobDetail() {
                             </Typography>
                           )}
                           <SettingsSignature values={vs.values} />
+                          {vs.loras.length > 0 && (
+                            <Box sx={{ mt: 0.5 }}>
+                              {vs.loras.map((l, i) => (
+                                <Typography key={i} variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+                                  {l.name} · H {l.high_weight} / L {l.low_weight}
+                                </Typography>
+                              ))}
+                            </Box>
+                          )}
                         </Box>
                       );
                     })()}
