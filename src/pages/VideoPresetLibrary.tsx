@@ -52,13 +52,13 @@ const SAMPLERS = ["euler", "dpmpp_2m", "dpmpp_sde", "dpmpp_2m_sde", "uni_pc", "r
 const SCHEDULERS = ["simple", "normal", "karras", "beta", "sgm_uniform"];
 
 function emptyForm(): FormState {
-  const f: FormState = { name: "", sampler_name: "", scheduler: "" };
+  const f: FormState = { name: "", sampler_name: "", scheduler: "", prompt: "" };
   FIELDS.forEach((x) => (f[x.key] = ""));
   return f;
 }
 
 function presetToForm(p: VideoSettingsPreset): FormState {
-  const f: FormState = { name: p.name, sampler_name: p.sampler_name ?? "", scheduler: p.scheduler ?? "" };
+  const f: FormState = { name: p.name, sampler_name: p.sampler_name ?? "", scheduler: p.scheduler ?? "", prompt: p.prompt ?? "" };
   FIELDS.forEach((x) => (f[x.key] = p[x.key] == null ? "" : String(p[x.key])));
   return f;
 }
@@ -142,6 +142,7 @@ export default function VideoPresetLibrary() {
     });
     body.sampler_name = form.sampler_name || null;
     body.scheduler = form.scheduler || null;
+    body.prompt = form.prompt.trim() || null;
     body.loras = loraSlots.map((l) => ({
       lora_id: l.lora_id,
       high_weight: l.high_weight,
@@ -228,6 +229,18 @@ export default function VideoPresetLibrary() {
             sx={{ mt: 1, mb: 2 }}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+          <TextField
+            label="Default Prompt (optional)"
+            fullWidth
+            multiline
+            minRows={2}
+            maxRows={6}
+            size="small"
+            sx={{ mb: 2 }}
+            value={form.prompt}
+            onChange={(e) => setForm({ ...form, prompt: e.target.value })}
+            helperText="Fills the prompt field when this preset is picked at job creation — you can still edit it before submitting."
           />
           <TextField
             label="Quick set — paste a signature"
