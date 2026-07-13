@@ -63,6 +63,7 @@ import {
   cancelSegment,
   reprocessSegment,
   makeHologram,
+  updateSegmentVideoPreset,
   deleteSegment,
   deleteJob,
   reopenJob,
@@ -1886,8 +1887,18 @@ function SegmentDetailModal({
   onClose: () => void;
 }) {
   const { loras: loraLibrary } = useLoraStore();
+  const { presets: videoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
+  const [presetId, setPresetId] = useState<string>("");
+  const [savingPreset, setSavingPreset] = useState(false);
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+
+  useEffect(() => {
+    if (seg) {
+      fetchVideoPresets();
+      setPresetId(seg.video_preset_id ?? "");
+    }
+  }, [seg, fetchVideoPresets]);
 
   if (!seg) return null;
 
@@ -1944,6 +1955,36 @@ function SegmentDetailModal({
               <Typography variant="body2">{seg.worker_name}</Typography>
             </Box>
           )}
+        </Box>
+
+        {/* Video settings (per-segment override, in place) */}
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Video Settings
+          </Typography>
+          <TextField
+            select
+            fullWidth
+            size="small"
+            value={presetId}
+            disabled={savingPreset}
+            onChange={async (e) => {
+              const val = e.target.value;
+              setPresetId(val);
+              setSavingPreset(true);
+              try {
+                await updateSegmentVideoPreset(seg.id, val || null);
+              } finally {
+                setSavingPreset(false);
+              }
+            }}
+            helperText="Applies on the next run — retry this segment to test it."
+          >
+            <MenuItem value="">Inherit from job</MenuItem>
+            {videoPresets.map((p) => (
+              <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+            ))}
+          </TextField>
         </Box>
 
         {/* Thumbnails */}
