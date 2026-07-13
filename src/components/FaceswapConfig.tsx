@@ -52,6 +52,8 @@ interface FaceswapConfigProps {
   defaultExpanded?: boolean;
   disableStartFrame?: boolean;
   existingImageName?: string | null;
+  /** Render the controls inline (a labelled section) instead of wrapped in an Accordion. */
+  inline?: boolean;
 }
 
 export default function FaceswapConfig({
@@ -62,21 +64,13 @@ export default function FaceswapConfig({
   defaultExpanded = false,
   disableStartFrame = false,
   existingImageName,
+  inline = false,
 }: FaceswapConfigProps) {
   const update = (patch: Partial<FaceswapConfigState>) =>
     onChange({ ...state, ...patch });
 
-  return (
-    <Accordion defaultExpanded={defaultExpanded} disableGutters sx={accordionSx}>
-      <AccordionSummary expandIcon={<ExpandMore />}>
-        <Typography variant="subtitle2">
-          Faceswap
-          <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-            {state.enabled ? `ON — ${state.method}` : "OFF"}
-          </Typography>
-        </Typography>
-      </AccordionSummary>
-      <AccordionDetails sx={{ pt: 0 }}>
+  const body = (
+    <>
         <FormControlLabel
           control={
             <Switch
@@ -201,7 +195,31 @@ export default function FaceswapConfig({
             )}
           </Box>
         )}
-      </AccordionDetails>
+    </>
+  );
+
+  const header = (
+    <Typography variant="subtitle2">
+      Faceswap
+      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+        {state.enabled ? `ON — ${state.method}` : "OFF"}
+      </Typography>
+    </Typography>
+  );
+
+  if (inline) {
+    return (
+      <Box>
+        <Box sx={{ mb: 1 }}>{header}</Box>
+        {body}
+      </Box>
+    );
+  }
+
+  return (
+    <Accordion defaultExpanded={defaultExpanded} disableGutters sx={accordionSx}>
+      <AccordionSummary expandIcon={<ExpandMore />}>{header}</AccordionSummary>
+      <AccordionDetails sx={{ pt: 0 }}>{body}</AccordionDetails>
     </Accordion>
   );
 }

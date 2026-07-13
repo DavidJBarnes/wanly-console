@@ -9,6 +9,7 @@ import {
   Card,
   Button,
   Dialog,
+  Divider,
   DialogTitle,
   DialogContent,
   DialogActions,
@@ -549,43 +550,6 @@ export default function CreateJobDialog({
           </IconButton>
         </Box>
 
-        {/* ── Negative Prompt (accordion) ── */}
-        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMore />}>
-            <Typography variant="subtitle2">
-              Negative Prompt
-              {negativePrompt && (
-                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                  {negativePrompt.length > 60 ? negativePrompt.slice(0, 60) + '…' : negativePrompt}
-                </Typography>
-              )}
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            <TextField
-              label="Negative Prompt"
-              fullWidth
-              multiline
-              rows={3}
-              value={negativePrompt}
-              onChange={(e) => setNegativePrompt(e.target.value)}
-              helperText="Passed as negative conditioning to ComfyUI"
-            />
-            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
-              <IconButton
-                size="small"
-                onClick={() => setNegativePrompt("")}
-                disabled={!negativePrompt}
-                sx={{ color: "text.disabled", p: 0.25 }}
-                title="Clear negative prompt"
-                aria-label="Clear negative prompt"
-              >
-                <ClearOutlined sx={{ fontSize: 14 }} />
-              </IconButton>
-            </Box>
-          </AccordionDetails>
-        </Accordion>
-
         {/* ── Video Settings (accordion) ── */}
         <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
           <AccordionSummary expandIcon={<ExpandMore />}>
@@ -920,12 +884,49 @@ export default function CreateJobDialog({
           </AccordionDetails>
         </Accordion>
 
-        {/* ── Tags (accordion, collapsed by default) ── */}
-        <Accordion defaultExpanded={false} sx={accordionSx}>
+        {/* ── Extra (accordion): Negative Prompt · Faceswap · Tags ── */}
+        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
           <AccordionSummary expandIcon={<ExpandMore />}>
-            <Typography variant="subtitle2">Tags</Typography>
+            <Typography variant="subtitle2">Extra</Typography>
           </AccordionSummary>
-          <AccordionDetails>
+          <AccordionDetails sx={{ pt: 0 }}>
+            {/* Negative Prompt */}
+            <TextField
+              label="Negative Prompt"
+              fullWidth
+              multiline
+              rows={3}
+              value={negativePrompt}
+              onChange={(e) => setNegativePrompt(e.target.value)}
+              helperText="Passed as negative conditioning to ComfyUI"
+            />
+            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
+              <IconButton
+                size="small"
+                onClick={() => setNegativePrompt("")}
+                disabled={!negativePrompt}
+                sx={{ color: "text.disabled", p: 0.25 }}
+                title="Clear negative prompt"
+                aria-label="Clear negative prompt"
+              >
+                <ClearOutlined sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Faceswap */}
+            <FaceswapConfig
+              state={faceswap}
+              onChange={setFaceswap}
+              presets={faceswapPresets}
+              disableStartFrame={!startingImage && !startingImageUri}
+              inline
+            />
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Tags */}
             <TextField
               label="Tags"
               fullWidth
@@ -937,15 +938,6 @@ export default function CreateJobDialog({
             />
           </AccordionDetails>
         </Accordion>
-
-        {/* ── Faceswap (accordion) ── */}
-        <FaceswapConfig
-          state={faceswap}
-          onChange={setFaceswap}
-          presets={faceswapPresets}
-          accordionSx={accordionSx}
-          disableStartFrame={!startingImage && !startingImageUri}
-        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
