@@ -25,6 +25,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { useTagStore } from "../stores/tagStore";
 import { usePromptPresetStore } from "../stores/promptPresetStore";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
+import SettingsSignatureInputs from "./SettingsSignatureInputs";
 import { createJob, getFileUrl, getFaceswapPresets, sha256Hex, checkStartingImageExists } from "../api/client";
 import type { JobCreate, LoraListItem, FaceswapPreset, PromptPreset } from "../api/types";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "./FaceswapConfig";
@@ -787,80 +788,29 @@ export default function CreateJobDialog({
                 ))}
               </TextField>
             </Box>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
-              <TextField
-                label="LightX2V High"
-                type="number"
-                size="small"
-                value={lightx2vHigh}
-                onChange={(e) => setLightx2vHigh(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
-                helperText="1.0–5.6"
-              />
-              <TextField
-                label="LightX2V Low"
-                type="number"
-                size="small"
-                value={lightx2vLow}
-                onChange={(e) => setLightx2vLow(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 0.1, min: 0 } }}
-                helperText="1.0–2.0"
-              />
-            </Box>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
-              <TextField
-                label="CFG High"
-                type="number"
-                size="small"
-                value={cfgHigh}
-                onChange={(e) => setCfgHigh(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
-                helperText="High noise"
-              />
-              <TextField
-                label="CFG Low"
-                type="number"
-                size="small"
-                value={cfgLow}
-                onChange={(e) => setCfgLow(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 0.5, min: 0 } }}
-                helperText="Low noise"
-              />
-            </Box>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
-              <TextField
-                label="Steps Total"
-                type="number"
-                size="small"
-                value={stepsTotal}
-                onChange={(e) => setStepsTotal(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 1, min: 1 } }}
-                helperText="Total steps (4=distilled; raise + drop Lightning for CFG)"
-              />
-              <TextField
-                label="High-Noise Steps"
-                type="number"
-                size="small"
-                value={highNoiseSteps}
-                onChange={(e) => setHighNoiseSteps(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 1, min: 0 } }}
-                helperText="High/low split boundary"
-              />
-              <TextField
-                label="Flow Shift"
-                type="number"
-                size="small"
-                value={flowShift}
-                onChange={(e) => setFlowShift(e.target.value)}
-                sx={{ flex: 1, minWidth: 100 }}
-                slotProps={{ htmlInput: { step: 0.5, min: 1 } }}
-                helperText="Motion: 5=default, raise ~8-10 for more"
+            <Box sx={{ mt: 1.5 }}>
+              <SettingsSignatureInputs
+                values={{
+                  lightx2v_strength_high: lightx2vHigh,
+                  lightx2v_strength_low: lightx2vLow,
+                  cfg_high: cfgHigh,
+                  cfg_low: cfgLow,
+                  steps_total: stepsTotal,
+                  high_noise_steps: highNoiseSteps,
+                  flow_shift: flowShift,
+                }}
+                onChange={(k, v) => {
+                  const setters: Record<string, (val: string) => void> = {
+                    lightx2v_strength_high: setLightx2vHigh,
+                    lightx2v_strength_low: setLightx2vLow,
+                    cfg_high: setCfgHigh,
+                    cfg_low: setCfgLow,
+                    steps_total: setStepsTotal,
+                    high_noise_steps: setHighNoiseSteps,
+                    flow_shift: setFlowShift,
+                  };
+                  setters[k]?.(v);
+                }}
               />
             </Box>
           </AccordionDetails>

@@ -23,6 +23,7 @@ import { createVideoPreset, updateVideoPreset, deleteVideoPreset, getFileUrl } f
 import type { VideoSettingsPreset, VideoSettingsPresetCreate, LoraListItem } from "../api/types";
 import { MAX_LORAS } from "../constants";
 import SettingsSignature, { parseSignature } from "../components/SettingsSignature";
+import SettingsSignatureInputs from "../components/SettingsSignatureInputs";
 
 type LoraSlot = { lora_id: string; name: string; high_weight: number; low_weight: number; preview_image: string | null };
 
@@ -47,7 +48,7 @@ const FIELDS: { key: ParamKey; label: string }[] = [
 
 type FormState = Record<string, string>;
 
-const SAMPLERS = ["euler", "dpmpp_2m", "dpmpp_sde", "dpmpp_2m_sde", "unipc", "res_multistep"];
+const SAMPLERS = ["euler", "dpmpp_2m", "dpmpp_sde", "dpmpp_2m_sde", "uni_pc", "res_multistep"];
 const SCHEDULERS = ["simple", "normal", "karras", "beta", "sgm_uniform"];
 
 function emptyForm(): FormState {
@@ -248,19 +249,10 @@ export default function VideoPresetLibrary() {
               }
             }}
           />
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-            {FIELDS.map((x) => (
-              <TextField
-                key={x.key}
-                label={x.label}
-                type="number"
-                size="small"
-                sx={{ width: 150 }}
-                value={form[x.key]}
-                onChange={(e) => setForm({ ...form, [x.key]: e.target.value })}
-              />
-            ))}
-          </Box>
+          <SettingsSignatureInputs
+            values={form}
+            onChange={(k, v) => setForm((f) => ({ ...f, [k]: v }))}
+          />
 
           <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
             <TextField
