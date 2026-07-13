@@ -102,6 +102,7 @@ export interface JobCreate {
   high_noise_steps?: number | null;
   flow_shift?: number | null;
   video_preset_id?: string | null;
+  continuation_mode?: string | null; // "vace" | "traditional"
   starting_image_uri?: string | null;
   starting_image_hash?: string | null;
   first_segment: SegmentCreate;
@@ -125,6 +126,8 @@ export interface JobResponse {
   fps: number;
   seed: number;
   starting_image: string | null;
+  continuation_mode?: string | null;
+  identity_reference_image?: string | null;
   lightx2v_strength_high: number | null;
   lightx2v_strength_low: number | null;
   cfg_high: number | null;
