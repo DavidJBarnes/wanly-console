@@ -33,6 +33,40 @@ const FRAGMENT = /* glsl */ `
   }
 `;
 
+// 2.5d_depth: subdivided plane whose vertices are pushed toward the viewer by the packed depth
+// region (bright = near). GLSL3 so we can use textureLod (vertex-stage texture fetch needs an
+// explicit LOD). The 2d path above stays on the default GLSL1 shaders.
+const DEPTH_VERTEX = /* glsl */ `
+  uniform sampler2D map;
+  uniform vec4 depthRect;
+  uniform float depthScale;
+  out vec2 vUv;
+  void main() {
+    vUv = uv;
+    vec2 duv = vec2(depthRect.x + uv.x * depthRect.z, depthRect.y + (1.0 - uv.y) * depthRect.w);
+    float d = textureLod(map, duv, 0.0).r; // 0 = far/background, 1 = nearest
+    vec3 p = position + vec3(0.0, 0.0, d * depthScale);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }
+`;
+
+const DEPTH_FRAGMENT = /* glsl */ `
+  uniform sampler2D map;
+  uniform vec4 colorRect;
+  uniform vec4 alphaRect;
+  uniform float edgeMin;
+  uniform float edgeMax;
+  in vec2 vUv;
+  out vec4 fragColor;
+  void main() {
+    vec2 cuv = vec2(colorRect.x + vUv.x * colorRect.z, colorRect.y + (1.0 - vUv.y) * colorRect.w);
+    vec2 auv = vec2(alphaRect.x + vUv.x * alphaRect.z, alphaRect.y + (1.0 - vUv.y) * alphaRect.w);
+    vec3 color = texture(map, cuv).rgb;
+    float a = smoothstep(edgeMin, edgeMax, texture(map, auv).r);
+    fragColor = vec4(color * a, a); // premultiplied
+  }
+`;
+
 function radialShadowTexture(): THREE.Texture {
   const s = 128;
   const cv = document.createElement("canvas");
@@ -74,27 +108,40 @@ async function startArSession(
 
   const c = manifest.region_color_uv;
   const a = manifest.region_alpha_uv;
+  const depthRect = manifest.region_depth_uv;
+  const isDepth = manifest.flavor === "2.5d_depth" && !!depthRect;
+
+  const uniforms: Record<string, { value: unknown }> = {
+    map: { value: videoTex },
+    colorRect: { value: new THREE.Vector4(c.x, c.y, c.w, c.h) },
+    alphaRect: { value: new THREE.Vector4(a.x, a.y, a.w, a.h) },
+    edgeMin: { value: 0.05 },
+    edgeMax: { value: 0.95 },
+  };
+  if (isDepth && depthRect) {
+    uniforms.depthRect = { value: new THREE.Vector4(depthRect.x, depthRect.y, depthRect.w, depthRect.h) };
+    uniforms.depthScale = { value: manifest.depth_scale_m ?? 0.12 };
+  }
   const material = new THREE.ShaderMaterial({
-    uniforms: {
-      map: { value: videoTex },
-      colorRect: { value: new THREE.Vector4(c.x, c.y, c.w, c.h) },
-      alphaRect: { value: new THREE.Vector4(a.x, a.y, a.w, a.h) },
-      edgeMin: { value: 0.05 },
-      edgeMax: { value: 0.95 },
-    },
-    vertexShader: VERTEX,
-    fragmentShader: FRAGMENT,
+    uniforms,
+    vertexShader: isDepth ? DEPTH_VERTEX : VERTEX,
+    fragmentShader: isDepth ? DEPTH_FRAGMENT : FRAGMENT,
+    glslVersion: isDepth ? THREE.GLSL3 : undefined,
     transparent: true,
     premultipliedAlpha: true,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
 
-  // Life-size quad: height = subject_height_m, width from crop aspect.
+  // Life-size mesh: height = subject_height_m, width from crop aspect. The depth flavor uses a
+  // subdivided plane so the vertex shader can displace it into relief; 2d stays a single quad.
   const height = manifest.subject_height_m || 1.7;
   const aspect = manifest.crop_rect.w / manifest.crop_rect.h;
   const width = height * aspect;
-  const quad = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+  const geometry = isDepth
+    ? new THREE.PlaneGeometry(width, height, 96, 160)
+    : new THREE.PlaneGeometry(width, height);
+  const quad = new THREE.Mesh(geometry, material);
   quad.position.y = height / 2; // base sits on the floor
 
   const shadow = new THREE.Mesh(
@@ -176,6 +223,7 @@ async function startArSession(
     video.pause();
     videoTex.dispose();
     material.dispose();
+    geometry.dispose();
     renderer.dispose();
     if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement);
     onEnd();

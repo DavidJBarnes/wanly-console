@@ -177,6 +177,7 @@ export interface SegmentResponse {
   video_preset_id: string | null;
   output_path: string | null;
   last_frame_path: string | null;
+  hologram_flavor: string | null;
   hologram_video_path: string | null;
   hologram_manifest_path: string | null;
   hologram_poster_path: string | null;
@@ -191,6 +192,7 @@ export interface SegmentResponse {
 export interface HologramRequest {
   subject_height_m?: number;
   key_color?: string;
+  flavor?: string; // "2d_matte" (default) | "2.5d_depth"
 }
 
 export interface HologramUvRect {
@@ -202,6 +204,7 @@ export interface HologramUvRect {
 
 export interface HologramManifest {
   tier: number;
+  flavor?: string; // "2d_matte" | "2.5d_depth"
   layout: string;
   codec: string;
   fps: number;
@@ -209,6 +212,10 @@ export interface HologramManifest {
   video_height: number;
   region_color_uv: HologramUvRect;
   region_alpha_uv: HologramUvRect;
+  region_depth_uv?: HologramUvRect; // 2.5d_depth only
+  depth_encoding?: string;
+  depth_near_is?: string; // "bright"
+  depth_scale_m?: number; // relief in meters
   guard_px: number;
   crop_rect: { x: number; y: number; w: number; h: number };
   subject_px_height: number;
