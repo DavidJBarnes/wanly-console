@@ -9,10 +9,17 @@ import {
   CircularProgress,
   Stack,
   Typography,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
 } from "@mui/material";
 import { Star } from "@mui/icons-material";
-import { getJobs, getFileUrl } from "../api/client";
+import { getJobs, getFileUrl, createVideoPreset } from "../api/client";
 import StatusChip from "../components/StatusChip";
+import SettingsSignature from "../components/SettingsSignature";
 import type { JobResponse, JobLoraSummary } from "../api/types";
 
 function loraLabel(l: JobLoraSummary): string {
@@ -40,6 +47,50 @@ function ConfigChip({ label, value }: { label: string; value: string | number })
 export default function SuccessfulConfigs() {
   const [jobs, setJobs] = useState<JobResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [presetFromJob, setPresetFromJob] = useState<JobResponse | null>(null);
+  const [presetName, setPresetName] = useState("");
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetError, setPresetError] = useState<string | null>(null);
+  const [presetDone, setPresetDone] = useState(false);
+
+  const handleMakePreset = async () => {
+    if (!presetFromJob || !presetName.trim()) {
+      setPresetError("Name is required");
+      return;
+    }
+    setSavingPreset(true);
+    setPresetError(null);
+    const j = presetFromJob;
+    try {
+      await createVideoPreset({
+        name: presetName.trim(),
+        lightx2v_strength_high: j.lightx2v_strength_high,
+        lightx2v_strength_low: j.lightx2v_strength_low,
+        cfg_high: j.cfg_high,
+        cfg_low: j.cfg_low,
+        steps_total: j.steps_total,
+        high_noise_steps: j.high_noise_steps,
+        flow_shift: j.flow_shift,
+        loras: j.loras
+          .filter((l) => l.lora_id)
+          .map((l) => ({
+            lora_id: l.lora_id as string,
+            high_weight: l.high_weight ?? 1,
+            low_weight: l.low_weight ?? 1,
+          })),
+      });
+      setPresetDone(true);
+      setTimeout(() => {
+        setPresetFromJob(null);
+        setPresetDone(false);
+      }, 900);
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setPresetError(detail || (e instanceof Error ? e.message : "Failed to create preset"));
+    } finally {
+      setSavingPreset(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -109,16 +160,10 @@ export default function SuccessfulConfigs() {
                       </Typography>
                       <StatusChip status={job.status} />
                     </Stack>
+                    <Box sx={{ mb: 0.75 }}>
+                      <SettingsSignature values={job} />
+                    </Box>
                     <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                      <ConfigChip label="CFG" value={`${job.cfg_high ?? 1}/${job.cfg_low ?? 1}`} />
-                      <ConfigChip
-                        label="LX2V"
-                        value={`${job.lightx2v_strength_high ?? 2.0}/${job.lightx2v_strength_low ?? 1.0}`}
-                      />
-                      {job.steps_total != null && (
-                        <ConfigChip label="Steps" value={`${job.steps_total} (${job.high_noise_steps ?? "?"}h)`} />
-                      )}
-                      {job.flow_shift != null && <ConfigChip label="Shift" value={job.flow_shift} />}
                       <ConfigChip label="" value={`${job.width}x${job.height}`} />
                     </Box>
                     {job.loras.length > 0 && (
@@ -144,10 +189,67 @@ export default function SuccessfulConfigs() {
                   </CardContent>
                 </Box>
               </CardActionArea>
+              <Box sx={{ px: 1.5, pb: 1 }}>
+                <Button
+                  size="small"
+                  startIcon={<Star fontSize="small" />}
+                  onClick={() => {
+                    setPresetFromJob(job);
+                    setPresetName(job.name);
+                    setPresetError(null);
+                    setPresetDone(false);
+                  }}
+                >
+                  Make preset from this config
+                </Button>
+              </Box>
             </Card>
           ))}
         </Box>
       )}
+
+      <Dialog
+        open={!!presetFromJob}
+        onClose={() => !savingPreset && setPresetFromJob(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Make preset from config</DialogTitle>
+        <DialogContent>
+          {presetError && (
+            <Typography color="error" variant="body2" sx={{ mb: 1 }}>{presetError}</Typography>
+          )}
+          {presetDone ? (
+            <Typography color="success.main">Preset created ✓</Typography>
+          ) : (
+            <>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Captures this config's sampler settings
+                {presetFromJob && presetFromJob.loras.length > 0
+                  ? ` + ${presetFromJob.loras.length} LoRA${presetFromJob.loras.length > 1 ? "s" : ""}`
+                  : ""}{" "}
+                as a reusable preset.
+              </Typography>
+              <TextField
+                autoFocus
+                fullWidth
+                size="small"
+                label="Preset name"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+              />
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPresetFromJob(null)} disabled={savingPreset}>Cancel</Button>
+          {!presetDone && (
+            <Button variant="contained" onClick={handleMakePreset} disabled={savingPreset}>
+              {savingPreset ? "Saving…" : "Create Preset"}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
