@@ -343,6 +343,22 @@ export default function CreateJobDialog({
     }
   };
 
+  // Set the SHORT side to `target` (480/720) while preserving the start image's aspect ratio, so
+  // the preset buttons never crop (the old buttons forced a fixed 480x832 / 720x1280 → clipped
+  // subjects whose image wasn't that exact ratio). Rounded to a multiple of 16 for the model.
+  const setShortSide = (target: number) => {
+    const ow = origWidth || width;
+    const oh = origHeight || height;
+    const r16 = (n: number) => Math.max(16, Math.round(n / 16) * 16);
+    if (oh >= ow) {
+      setWidth(r16(target));
+      setHeight(r16((target * oh) / ow));
+    } else {
+      setHeight(r16(target));
+      setWidth(r16((target * ow) / oh));
+    }
+  };
+
   const handleSubmit = async () => {
     if (!name.trim() || !prompt.trim()) {
       setError("Name and prompt are required");
@@ -622,14 +638,14 @@ export default function CreateJobDialog({
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => { const p = height >= width; setWidth(p ? 480 : 832); setHeight(p ? 832 : 480); }}
+                onClick={() => setShortSide(480)}
               >
                 480p
               </Button>
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => { const p = height >= width; setWidth(p ? 720 : 1280); setHeight(p ? 1280 : 720); }}
+                onClick={() => setShortSide(720)}
               >
                 720p
               </Button>
