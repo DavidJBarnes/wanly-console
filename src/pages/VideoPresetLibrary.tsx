@@ -129,6 +129,15 @@ export default function VideoPresetLibrary() {
     setFormError(null);
     setDialogOpen(true);
   };
+  const openCopy = (p: VideoSettingsPreset) => {
+    // Duplicate as a NEW preset (editing=null): pre-fill every field + LoRAs, suffix the name.
+    setEditing(null);
+    setForm({ ...presetToForm(p), name: `${p.name} (copy)` });
+    loadLoraSlots(p);
+    setSigInput("");
+    setFormError(null);
+    setDialogOpen(true);
+  };
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -193,6 +202,11 @@ export default function VideoPresetLibrary() {
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <Typography variant="subtitle1" fontWeight={600}>{p.name}</Typography>
                   <Box>
+                    <Tooltip title="Duplicate this preset" arrow>
+                      <IconButton size="small" onClick={() => openCopy(p)}>
+                        <ContentCopy fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <IconButton size="small" onClick={() => openEdit(p)}>
                       <Edit fontSize="small" />
                     </IconButton>
