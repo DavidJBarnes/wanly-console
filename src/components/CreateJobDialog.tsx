@@ -305,6 +305,25 @@ export default function CreateJobDialog({
     }
   }, [open, defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, defaultStepsTotal, defaultHighNoiseSteps, defaultFlowShift]);
 
+  // On open, re-apply the retained preset so its prompt/sampler/LoRAs match the shown
+  // selection. The Select keeps the last-used preset, but only onChange applied it — so a
+  // reopened dialog showed a preset with a blank prompt and settings-default sampler values.
+  // Runs after the settings re-sync above (declaration order) so the preset wins. Guarded to
+  // fire once per open, and waits until presets have loaded.
+  const didApplyPresetOnOpen = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      didApplyPresetOnOpen.current = false;
+      return;
+    }
+    if (didApplyPresetOnOpen.current) return;
+    if (videoPresetId && videoPresets.some((v) => v.id === videoPresetId)) {
+      applyVideoPreset(videoPresetId);
+      didApplyPresetOnOpen.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, videoPresetId, videoPresets]);
+
   // Select a user-defined video-settings preset (live link). "" = Custom (raw fields below).
   const applyVideoPreset = (id: string) => {
     setVideoPresetId(id);
