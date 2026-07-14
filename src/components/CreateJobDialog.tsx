@@ -10,8 +10,6 @@ import {
   Button,
   Dialog,
   Divider,
-  FormControlLabel,
-  Switch,
   DialogTitle,
   DialogContent,
   DialogActions,
@@ -127,7 +125,6 @@ export default function CreateJobDialog({
   const [highNoiseSteps, setHighNoiseSteps] = useState(defaultHighNoiseSteps);
   const [flowShift, setFlowShift] = useState(defaultFlowShift);
   const [videoPresetId, setVideoPresetId] = useState("");
-  const [vaceContinuation, setVaceContinuation] = useState(true);
   const [startingImage, setStartingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [startingImageUri, setStartingImageUri] = useState<string | null>(null);
@@ -286,7 +283,6 @@ export default function CreateJobDialog({
     setImagePreview(null);
     setStartingImageUri(null);
     setFaceswap(defaultFaceswapState({ sourceType: DEFAULT_FACESWAP_SOURCE_TYPE }));
-    setVaceContinuation(true);
     setLoras([]);
     setSelectedTag1("");
     setSelectedTag2("");
@@ -403,7 +399,7 @@ export default function CreateJobDialog({
         high_noise_steps: highNoiseSteps ? parseInt(highNoiseSteps, 10) : null,
         flow_shift: flowShift ? parseFloat(flowShift) : null,
         video_preset_id: videoPresetId || null,
-        continuation_mode: vaceContinuation ? "vace" : "traditional",
+        continuation_mode: "traditional",
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         starting_image_hash: reuseHash,
         tags: tags || null,
@@ -724,22 +720,6 @@ export default function CreateJobDialog({
                   </Typography>
                 );
               })()}
-            </Box>
-            <Box sx={{ mt: 1 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={vaceContinuation}
-                    onChange={(e) => setVaceContinuation(e.target.checked)}
-                    size="small"
-                  />
-                }
-                label="VACE continuation (identity-anchored)"
-              />
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -0.5 }}>
-                Multi-segment: continue motion from the last frame but anchor the face to a canonical
-                crop from seg0 (holds identity across cuts). ≤480–512p, 3090-only.
-              </Typography>
             </Box>
           </AccordionDetails>
         </Accordion>
