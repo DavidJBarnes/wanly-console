@@ -31,6 +31,8 @@ interface PresetSize {
 }
 
 const PRESETS: PresetSize[] = [
+  { label: "480 × 853",   sub: "Video 9:16 (portrait)",   width: 480,  height: 853  },
+  { label: "853 × 480",   sub: "Video 16:9 (landscape)",  width: 853,  height: 480  },
   { label: "240 × 320",   width: 240,  height: 320  },
   { label: "480 × 640",   sub: "Feature Phone",          width: 480,  height: 640  },
   { label: "600 × 800",   width: 600,  height: 800  },
@@ -98,7 +100,7 @@ export default function CropResizeDialog({ open, image, onClose, onSaved }: Prop
   const [selectedPreset, setSelectedPreset] = useState<PresetSize | null>(null);
   const [customW, setCustomW] = useState("512");
   const [customH, setCustomH] = useState("512");
-  const [aspectLocked, setAspectLocked] = useState(true);
+  const [aspectLocked, setAspectLocked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,10 +121,10 @@ export default function CropResizeDialog({ open, image, onClose, onSaved }: Prop
     setCrop({ x: 0, y: 0 });
     setZoom(1);
     setCroppedAreaPixels(null);
-    setSelectedPreset(PRESETS[4]); // default: 768×1024
+    setSelectedPreset(PRESETS[0]); // default: 480×853 (video portrait)
     setCustomW("512");
     setCustomH("512");
-    setAspectLocked(true);
+    setAspectLocked(false);
     setError(null);
     setImageUrl(getFileUrl(image.path));
   }, [open, image]);
