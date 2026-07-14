@@ -7,6 +7,8 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  FormControlLabel,
+  Switch,
   TextField,
   Typography,
   useMediaQuery,
@@ -32,9 +34,11 @@ export default function SettingsPage() {
     defaultHighNoiseSteps,
     defaultFlowShift,
     negativePrompt,
+    seedFaceswap,
     loaded,
     fetchSettings,
     saveSettings,
+    setSeedFaceswap,
     setDefaultLightx2vHigh,
     setDefaultLightx2vLow,
     setDefaultCfgHigh,
@@ -77,6 +81,7 @@ export default function SettingsPage() {
         high_noise_steps: parseInt(defaultHighNoiseSteps, 10) || 2,
         flow_shift: parseFloat(defaultFlowShift) || 5,
         negative_prompt: negativePrompt,
+        seed_faceswap: seedFaceswap,
       });
       setSaved(true);
     } catch (err) {
@@ -241,6 +246,22 @@ export default function SettingsPage() {
                 helperText="Sent as negative conditioning to ComfyUI"
                 sx={{ mt: 2, width: "100%", maxWidth: 500 }}
               />
+              <Box sx={{ mt: 2 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={seedFaceswap}
+                      onChange={(e) => setSeedFaceswap(e.target.checked)}
+                    />
+                  }
+                  label="Seed re-anchor (faceswap continuation seed)"
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -0.5 }}>
+                  Multi-segment: faceswap each segment's last frame to the canonical identity before it
+                  seeds the next segment. Falls back to the raw frame when no face is detected. Only fires
+                  when a later segment exists.
+                </Typography>
+              </Box>
               <Box sx={{ mt: 2 }}>
                 <Button
                   variant="contained"

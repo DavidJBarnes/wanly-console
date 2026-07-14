@@ -482,6 +482,7 @@ export interface AppSettingsResponse {
   high_noise_steps: number;
   flow_shift: number;
   negative_prompt: string;
+  seed_faceswap: boolean;
 }
 
 export interface FavoriteToggleRequest {
@@ -507,6 +508,7 @@ export interface AppSettingsUpdate {
   high_noise_steps?: number;
   flow_shift?: number;
   negative_prompt?: string;
+  seed_faceswap?: boolean;
 }
 
 export interface SegmentReprocessRequest {

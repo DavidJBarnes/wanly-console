@@ -11,6 +11,7 @@ interface SettingsState {
   defaultHighNoiseSteps: string;
   defaultFlowShift: string;
   negativePrompt: string;
+  seedFaceswap: boolean;
   loaded: boolean;
   fetchSettings: () => Promise<void>;
   saveSettings: (updates: AppSettingsUpdate) => Promise<void>;
@@ -22,6 +23,7 @@ interface SettingsState {
   setDefaultHighNoiseSteps: (value: string) => void;
   setDefaultFlowShift: (value: string) => void;
   setNegativePrompt: (value: string) => void;
+  setSeedFaceswap: (value: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()((set) => ({
@@ -33,6 +35,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   defaultHighNoiseSteps: "2",
   defaultFlowShift: "5",
   negativePrompt: "",
+  seedFaceswap: false,
   loaded: false,
   fetchSettings: async () => {
     try {
@@ -46,6 +49,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
         defaultHighNoiseSteps: String(s.high_noise_steps),
         defaultFlowShift: String(s.flow_shift),
         negativePrompt: s.negative_prompt,
+        seedFaceswap: s.seed_faceswap,
         loaded: true,
       });
     } catch {
@@ -64,6 +68,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
       defaultHighNoiseSteps: String(s.high_noise_steps),
       defaultFlowShift: String(s.flow_shift),
       negativePrompt: s.negative_prompt,
+      seedFaceswap: s.seed_faceswap,
     });
   },
   setDefaultLightx2vHigh: (value) => set({ defaultLightx2vHigh: value }),
@@ -74,4 +79,5 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   setDefaultHighNoiseSteps: (value) => set({ defaultHighNoiseSteps: value }),
   setDefaultFlowShift: (value) => set({ defaultFlowShift: value }),
   setNegativePrompt: (value) => set({ negativePrompt: value }),
+  setSeedFaceswap: (value) => set({ seedFaceswap: value }),
 }));
