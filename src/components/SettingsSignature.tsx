@@ -11,14 +11,16 @@ export type SignatureValues = {
 };
 
 // Canonical order + abbreviated headers for the 7 sampler params.
-export const SIG_COLS: { key: keyof SignatureValues; label: string; full: string }[] = [
-  { key: "lightx2v_strength_high", label: "LX-H", full: "LightX2V High" },
-  { key: "lightx2v_strength_low", label: "LX-L", full: "LightX2V Low" },
-  { key: "cfg_high", label: "CFG-H", full: "CFG High" },
-  { key: "cfg_low", label: "CFG-L", full: "CFG Low" },
-  { key: "steps_total", label: "Steps", full: "Steps Total" },
-  { key: "high_noise_steps", label: "St-H", full: "High-Noise Steps (high/low split)" },
-  { key: "flow_shift", label: "Flow", full: "Flow Shift" },
+// step: 0.1 for the continuous knobs (weights/cfg/flow); 1 for the integer step-count fields
+// (steps_total / high_noise_steps must stay whole — the API rejects fractional ints).
+export const SIG_COLS: { key: keyof SignatureValues; label: string; full: string; step: number }[] = [
+  { key: "lightx2v_strength_high", label: "LX-H", full: "LightX2V High", step: 0.1 },
+  { key: "lightx2v_strength_low", label: "LX-L", full: "LightX2V Low", step: 0.1 },
+  { key: "cfg_high", label: "CFG-H", full: "CFG High", step: 0.1 },
+  { key: "cfg_low", label: "CFG-L", full: "CFG Low", step: 0.1 },
+  { key: "steps_total", label: "Steps", full: "Steps Total", step: 1 },
+  { key: "high_noise_steps", label: "St-H", full: "High-Noise Steps (high/low split)", step: 1 },
+  { key: "flow_shift", label: "Flow", full: "Flow Shift", step: 0.1 },
 ];
 
 // Parse "1,1,3,1,8,4,5" or grouped "1,1 · 3,1 · 8/4 · 5" into the 7 keyed values.

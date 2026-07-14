@@ -32,7 +32,7 @@ export default function SettingsSignatureInputs({
           size="small"
           value={values[c.key] ?? ""}
           onChange={(e) => onChange(c.key, e.target.value)}
-          slotProps={{ htmlInput: { style: { textAlign: "center", padding: "6px 4px" } } }}
+          slotProps={{ htmlInput: { step: c.step, style: { textAlign: "center", padding: "6px 4px" } } }}
         />
       ))}
     </Box>
