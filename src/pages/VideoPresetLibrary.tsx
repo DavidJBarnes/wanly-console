@@ -342,6 +342,7 @@ export default function VideoPresetLibrary() {
                   sx={{ width: 150 }}
                   value={lora.high_weight}
                   onChange={(e) => updateWeight(idx, "high_weight", Number(e.target.value))}
+                  slotProps={{ htmlInput: { step: 0.1 } }}
                 />
                 <TextField
                   label="Low (identity)"
@@ -350,6 +351,7 @@ export default function VideoPresetLibrary() {
                   sx={{ width: 150 }}
                   value={lora.low_weight}
                   onChange={(e) => updateWeight(idx, "low_weight", Number(e.target.value))}
+                  slotProps={{ htmlInput: { step: 0.1 } }}
                 />
               </Box>
             </Card>
