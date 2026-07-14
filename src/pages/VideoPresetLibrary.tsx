@@ -15,14 +15,15 @@ import {
   CircularProgress,
   Autocomplete,
   MenuItem,
+  Tooltip,
 } from "@mui/material";
-import { Add, Edit, DeleteOutline } from "@mui/icons-material";
+import { Add, Edit, DeleteOutline, ContentCopy } from "@mui/icons-material";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
 import { useLoraStore } from "../stores/loraStore";
 import { createVideoPreset, updateVideoPreset, deleteVideoPreset, getFileUrl } from "../api/client";
 import type { VideoSettingsPreset, VideoSettingsPresetCreate, LoraListItem } from "../api/types";
 import { MAX_LORAS } from "../constants";
-import SettingsSignature, { parseSignature } from "../components/SettingsSignature";
+import SettingsSignature, { parseSignature, SIG_COLS } from "../components/SettingsSignature";
 import SettingsSignatureInputs from "../components/SettingsSignatureInputs";
 
 type LoraSlot = { lora_id: string; name: string; high_weight: number; low_weight: number; preview_image: string | null };
@@ -71,6 +72,7 @@ export default function VideoPresetLibrary() {
   const [form, setForm] = useState<FormState>(emptyForm());
   const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
   const [sigInput, setSigInput] = useState("");
+  const [sigCopied, setSigCopied] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<VideoSettingsPreset | null>(null);
@@ -242,26 +244,42 @@ export default function VideoPresetLibrary() {
             onChange={(e) => setForm({ ...form, prompt: e.target.value })}
             helperText="Fills the prompt field when this preset is picked at job creation — you can still edit it before submitting."
           />
-          <TextField
-            label="Quick set — paste a signature"
-            fullWidth
-            size="small"
-            sx={{ mb: 2 }}
-            value={sigInput}
-            placeholder="1,1,3,1,8,4,5"
-            helperText="Order: LX-H, LX-L, CFG-H, CFG-L, Steps, St-H, Flow  (commas, ·, or / all work)"
-            onChange={(e) => {
-              setSigInput(e.target.value);
-              const parsed = parseSignature(e.target.value);
-              if (parsed) {
-                setForm((f) => {
-                  const nf = { ...f };
-                  Object.entries(parsed).forEach(([k, v]) => (nf[k] = String(v)));
-                  return nf;
-                });
-              }
-            }}
-          />
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 2 }}>
+            <TextField
+              label="Quick set — paste a signature"
+              fullWidth
+              size="small"
+              value={sigInput}
+              placeholder="1,1,3,1,8,4,5"
+              helperText="Order: LX-H, LX-L, CFG-H, CFG-L, Steps, St-H, Flow  (commas, ·, or / all work)"
+              onChange={(e) => {
+                setSigInput(e.target.value);
+                const parsed = parseSignature(e.target.value);
+                if (parsed) {
+                  setForm((f) => {
+                    const nf = { ...f };
+                    Object.entries(parsed).forEach(([k, v]) => (nf[k] = String(v)));
+                    return nf;
+                  });
+                }
+              }}
+            />
+            <Tooltip title={sigCopied ? "Copied!" : "Copy current settings"} arrow>
+              <IconButton
+                size="small"
+                sx={{ mt: 0.5 }}
+                onClick={() => {
+                  const sig = SIG_COLS.map((c) => form[c.key] ?? "").join(",");
+                  navigator.clipboard.writeText(sig);
+                  setSigInput(sig);
+                  setSigCopied(true);
+                  setTimeout(() => setSigCopied(false), 1500);
+                }}
+              >
+                <ContentCopy fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
           <SettingsSignatureInputs
             values={form}
             onChange={(k, v) => setForm((f) => ({ ...f, [k]: v }))}
