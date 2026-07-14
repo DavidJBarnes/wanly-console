@@ -15,7 +15,6 @@ import {
   useTheme,
 } from "@mui/material";
 import { useTagStore } from "../stores/tagStore";
-import SettingsSignatureInputs from "../components/SettingsSignatureInputs";
 import { useSettingsStore } from "../stores/settingsStore";
 
 export default function SettingsPage() {
@@ -26,26 +25,12 @@ export default function SettingsPage() {
   const [input1, setInput1] = useState("");
   const [input2, setInput2] = useState("");
   const {
-    defaultLightx2vHigh,
-    defaultLightx2vLow,
-    defaultCfgHigh,
-    defaultCfgLow,
-    defaultStepsTotal,
-    defaultHighNoiseSteps,
-    defaultFlowShift,
     negativePrompt,
     seedFaceswap,
     loaded,
     fetchSettings,
     saveSettings,
     setSeedFaceswap,
-    setDefaultLightx2vHigh,
-    setDefaultLightx2vLow,
-    setDefaultCfgHigh,
-    setDefaultCfgLow,
-    setDefaultStepsTotal,
-    setDefaultHighNoiseSteps,
-    setDefaultFlowShift,
     setNegativePrompt,
   } = useSettingsStore();
   const [saving, setSaving] = useState(false);
@@ -73,13 +58,6 @@ export default function SettingsPage() {
     setSaveError(null);
     try {
       await saveSettings({
-        lightx2v_strength_high: parseFloat(defaultLightx2vHigh) || 2.0,
-        lightx2v_strength_low: parseFloat(defaultLightx2vLow) || 1.0,
-        cfg_high: parseFloat(defaultCfgHigh) || 1,
-        cfg_low: parseFloat(defaultCfgLow) || 1,
-        steps_total: parseInt(defaultStepsTotal, 10) || 4,
-        high_noise_steps: parseInt(defaultHighNoiseSteps, 10) || 2,
-        flow_shift: parseFloat(defaultFlowShift) || 5,
         negative_prompt: negativePrompt,
         seed_faceswap: seedFaceswap,
       });
@@ -210,31 +188,6 @@ export default function SettingsPage() {
             </Box>
           ) : (
             <>
-              <Box sx={{ maxWidth: 560 }}>
-                <SettingsSignatureInputs
-                  values={{
-                    lightx2v_strength_high: defaultLightx2vHigh,
-                    lightx2v_strength_low: defaultLightx2vLow,
-                    cfg_high: defaultCfgHigh,
-                    cfg_low: defaultCfgLow,
-                    steps_total: defaultStepsTotal,
-                    high_noise_steps: defaultHighNoiseSteps,
-                    flow_shift: defaultFlowShift,
-                  }}
-                  onChange={(k, v) => {
-                    const setters: Record<string, (val: string) => void> = {
-                      lightx2v_strength_high: setDefaultLightx2vHigh,
-                      lightx2v_strength_low: setDefaultLightx2vLow,
-                      cfg_high: setDefaultCfgHigh,
-                      cfg_low: setDefaultCfgLow,
-                      steps_total: setDefaultStepsTotal,
-                      high_noise_steps: setDefaultHighNoiseSteps,
-                      flow_shift: setDefaultFlowShift,
-                    };
-                    setters[k]?.(v);
-                  }}
-                />
-              </Box>
               <TextField
                 label="Negative Prompt"
                 size="small"
