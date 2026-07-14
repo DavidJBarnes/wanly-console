@@ -267,6 +267,8 @@ export default function JobDetail() {
   const trimTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [jobTags, setJobTags] = useState("");
   const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
   const [framePreview, setFramePreview] = useState<{
     anchorEl: HTMLElement | null;
     segId: string;
@@ -425,6 +427,20 @@ export default function JobDetail() {
     } catch {
       setJob((prev) => (prev ? { ...prev, config_starred: !next } : prev)); // revert
       setError("Failed to update config flag");
+    }
+  };
+
+  const handleRenameJob = async () => {
+    setEditingName(false);
+    const next = nameDraft.trim();
+    if (!id || !job || !next || next === job.name) return;
+    const prevName = job.name;
+    setJob((prev) => (prev ? { ...prev, name: next } : prev)); // optimistic
+    try {
+      await updateJob(id, { name: next });
+    } catch {
+      setJob((prev) => (prev ? { ...prev, name: prevName } : prev)); // revert
+      setError("Failed to rename job");
     }
   };
 
@@ -633,18 +649,41 @@ export default function JobDetail() {
         <IconButton onClick={() => navigate("/jobs")} size={isMobile ? "small" : "medium"}>
           <ArrowBack />
         </IconButton>
-        <Typography
-          variant={isMobile ? "h6" : "h4"}
-          sx={{
-            flex: 1,
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {job.name}
-        </Typography>
+        {editingName ? (
+          <TextField
+            autoFocus
+            fullWidth
+            variant="standard"
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={handleRenameJob}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              else if (e.key === "Escape") setEditingName(false);
+            }}
+            sx={{ flex: 1, minWidth: 0 }}
+            inputProps={{ style: { fontSize: isMobile ? "1.25rem" : "2.125rem", fontWeight: 400 } }}
+          />
+        ) : (
+          <Typography
+            variant={isMobile ? "h6" : "h4"}
+            onClick={() => { setNameDraft(job.name); setEditingName(true); }}
+            title="Click to rename"
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              cursor: "text",
+              borderRadius: 1,
+              px: 0.5,
+              "&:hover": { bgcolor: "action.hover" },
+            }}
+          >
+            {job.name}
+          </Typography>
+        )}
         <Tooltip title="Delete job">
           <IconButton
             color="error"
