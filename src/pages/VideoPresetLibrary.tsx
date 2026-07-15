@@ -53,13 +53,13 @@ const SAMPLERS = ["euler", "dpmpp_2m", "dpmpp_sde", "dpmpp_2m_sde", "uni_pc", "r
 const SCHEDULERS = ["simple", "normal", "karras", "beta", "sgm_uniform"];
 
 function emptyForm(): FormState {
-  const f: FormState = { name: "", sampler_name: "", scheduler: "", prompt: "" };
+  const f: FormState = { name: "", sampler_name: "", scheduler: "", prompt: "", notes: "" };
   FIELDS.forEach((x) => (f[x.key] = ""));
   return f;
 }
 
 function presetToForm(p: VideoSettingsPreset): FormState {
-  const f: FormState = { name: p.name, sampler_name: p.sampler_name ?? "", scheduler: p.scheduler ?? "", prompt: p.prompt ?? "" };
+  const f: FormState = { name: p.name, sampler_name: p.sampler_name ?? "", scheduler: p.scheduler ?? "", prompt: p.prompt ?? "", notes: p.notes ?? "" };
   FIELDS.forEach((x) => (f[x.key] = p[x.key] == null ? "" : String(p[x.key])));
   return f;
 }
@@ -154,6 +154,7 @@ export default function VideoPresetLibrary() {
     body.sampler_name = form.sampler_name || null;
     body.scheduler = form.scheduler || null;
     body.prompt = form.prompt.trim() || null;
+    body.notes = form.notes.trim() || null;
     body.loras = loraSlots.map((l) => ({
       lora_id: l.lora_id,
       high_weight: l.high_weight,
@@ -257,6 +258,17 @@ export default function VideoPresetLibrary() {
             value={form.prompt}
             onChange={(e) => setForm({ ...form, prompt: e.target.value })}
             helperText="Fills the prompt field when this preset is picked at job creation — you can still edit it before submitting."
+          />
+          <TextField
+            label="Notes (optional)"
+            fullWidth
+            multiline
+            minRows={1}
+            size="small"
+            sx={{ mb: 2 }}
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            helperText="Free-form notes about this recipe — what it's for, gotchas. Not used by generation."
           />
           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 2 }}>
             <TextField
