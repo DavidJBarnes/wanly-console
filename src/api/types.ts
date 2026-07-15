@@ -486,8 +486,29 @@ export interface AppSettingsResponse {
 }
 
 export interface FavoriteToggleRequest {
-  item_type: "video" | "image";
+  item_type: "video" | "image" | "segment";
   item_ref: string;
+}
+
+export interface SegmentClip {
+  id: string;
+  job_id: string;
+  job_name: string;
+  index: number;
+  output_path: string | null;
+  thumbnail_path: string | null;
+  width: number;
+  height: number;
+  fps: number;
+  duration_seconds: number;
+  motion_magnitude: number | null;
+  favorite: boolean;
+}
+
+export interface SmashcutBody {
+  name: string;
+  segment_ids: string[];
+  transition: "seamless" | "black";
 }
 
 export interface FavoriteToggleResponse {
