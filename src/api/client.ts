@@ -31,6 +31,8 @@ import type {
   ImageJobInfo,
   ImageSearchResponse,
   FavoriteToggleRequest,
+  SegmentClip,
+  SmashcutBody,
   FavoriteToggleResponse,
   FavoriteListResponse,
   AppSettingsResponse,
@@ -523,9 +525,25 @@ export async function toggleFavorite(body: FavoriteToggleRequest): Promise<Favor
   return data;
 }
 
-export async function getFavorites(itemType?: "video" | "image"): Promise<FavoriteListResponse> {
+export async function getFavorites(itemType?: "video" | "image" | "segment"): Promise<FavoriteListResponse> {
   const { data } = await api.get<FavoriteListResponse>("/favorites", {
     params: itemType ? { item_type: itemType } : undefined,
   });
+  return data;
+}
+
+export async function getSegmentClips(params?: {
+  favorites_only?: boolean;
+  width?: number;
+  height?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<SegmentClip[]> {
+  const { data } = await api.get<SegmentClip[]>("/segments/clips", { params });
+  return data;
+}
+
+export async function createSmashcut(body: SmashcutBody): Promise<{ id: string; job_id: string }> {
+  const { data } = await api.post<{ id: string; job_id: string }>("/smashcut", body);
   return data;
 }
