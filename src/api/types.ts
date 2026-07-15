@@ -366,6 +366,7 @@ export interface VideoSettingsPreset {
   scheduler: string | null;
   loras: PresetLoraSlot[] | null;
   prompt: string | null;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -383,6 +384,7 @@ export interface VideoSettingsPresetCreate {
   scheduler?: string | null;
   loras?: PresetLoraSlot[] | null;
   prompt?: string | null;
+  notes?: string | null;
 }
 
 export type VideoSettingsPresetUpdate = Partial<VideoSettingsPresetCreate>;
