@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { getHologram, getFileUrl } from "../api/client";
 import type { HologramManifest } from "../api/types";
 
@@ -103,16 +104,9 @@ function radialShadowTexture(): THREE.Texture {
   return tex;
 }
 
-async function startArSession(
-  container: HTMLDivElement,
-  overlay: HTMLElement,
-  manifest: HologramManifest,
-  videoUrl: string,
-  onEnd: () => void,
-  onSession: (s: XRSession) => void,
-): Promise<void> {
-  const xr = (navigator as unknown as { xr: XRSystem }).xr;
-
+// The life-size subject mesh (video texture + tier shaders), shared by the AR session and
+// the desktop 3D preview so both render the exact same thing.
+function buildHologramMesh(manifest: HologramManifest, videoUrl: string) {
   // Video → texture (packed color+alpha). crossOrigin so the texture is CORS-clean.
   const video = document.createElement("video");
   video.src = videoUrl;
@@ -190,9 +184,89 @@ async function startArSession(
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.005;
 
+  const dispose = () => {
+    video.pause();
+    videoTex.dispose();
+    material.dispose();
+    geometry.dispose();
+    shadow.geometry.dispose();
+    (shadow.material as THREE.Material).dispose();
+  };
+  return { video, quad, shadow, width, height, isDepth, dispose };
+}
+
+function startPreview(
+  container: HTMLDivElement,
+  manifest: HologramManifest,
+  videoUrl: string,
+): () => void {
+  const holo = buildHologramMesh(manifest, videoUrl);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x14181c);
+  scene.add(new THREE.GridHelper(6, 12, 0x2a3138, 0x20262c));
+  scene.add(holo.shadow);
+  scene.add(holo.quad);
+
+  const camera = new THREE.PerspectiveCamera(
+    50,
+    container.clientWidth / container.clientHeight,
+    0.05,
+    50,
+  );
+  camera.position.set(0, holo.height * 0.6, Math.max(holo.height * 1.4, 1.5));
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, holo.height * 0.55, 0);
+  controls.enableDamping = true;
+  controls.minDistance = 0.4;
+  controls.maxDistance = 8;
+  controls.update();
+
+  holo.video.play().catch(() => undefined);
+  renderer.setAnimationLoop(() => {
+    controls.update();
+    renderer.render(scene, camera);
+  });
+
+  const onResize = () => {
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+  };
+  window.addEventListener("resize", onResize);
+
+  return () => {
+    window.removeEventListener("resize", onResize);
+    renderer.setAnimationLoop(null);
+    controls.dispose();
+    holo.dispose();
+    renderer.dispose();
+    if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement);
+  };
+}
+
+async function startArSession(
+  container: HTMLDivElement,
+  overlay: HTMLElement,
+  manifest: HologramManifest,
+  videoUrl: string,
+  onEnd: () => void,
+  onSession: (s: XRSession) => void,
+): Promise<void> {
+  const xr = (navigator as unknown as { xr: XRSystem }).xr;
+
+  const holo = buildHologramMesh(manifest, videoUrl);
+  const { video } = holo;
+
   const group = new THREE.Group();
-  group.add(quad);
-  group.add(shadow);
+  group.add(holo.quad);
+  group.add(holo.shadow);
   group.visible = false;
 
   const reticle = new THREE.Mesh(
@@ -260,10 +334,7 @@ async function startArSession(
 
   session.addEventListener("end", () => {
     renderer.setAnimationLoop(null);
-    video.pause();
-    videoTex.dispose();
-    material.dispose();
-    geometry.dispose();
+    holo.dispose();
     renderer.dispose();
     if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement);
     onEnd();
@@ -280,6 +351,7 @@ export default function HologramPlayer() {
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
   const [arSupported, setArSupported] = useState<boolean | null>(null);
   const [inAr, setInAr] = useState(false);
+  const [inPreview, setInPreview] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -317,6 +389,13 @@ export default function HologramPlayer() {
       .then((ok) => setArSupported(ok))
       .catch(() => setArSupported(false));
   }, []);
+
+  // Desktop 3D preview: same mesh + shaders as AR, orbited with the mouse instead of your feet.
+  useEffect(() => {
+    if (!inPreview || !manifest || !videoUrl || !containerRef.current) return;
+    const stop = startPreview(containerRef.current, manifest, videoUrl);
+    return stop;
+  }, [inPreview, manifest, videoUrl]);
 
   const enterAR = async () => {
     if (!manifest || !videoUrl || !containerRef.current || !overlayRef.current) return;
@@ -412,7 +491,61 @@ export default function HologramPlayer() {
         )}
       </div>
 
-      {!inAr && (
+      {inPreview && (
+        <>
+          {tierLabel && (
+            <div
+              style={{
+                position: "absolute",
+                top: 20,
+                left: 20,
+                zIndex: 2,
+                padding: "6px 12px",
+                borderRadius: 8,
+                background: "rgba(0,0,0,0.65)",
+                color: "#fff",
+                fontSize: 13,
+              }}
+            >
+              {tierLabel}
+            </div>
+          )}
+          <button
+            onClick={() => setInPreview(false)}
+            style={{
+              position: "absolute",
+              top: 20,
+              right: 20,
+              zIndex: 2,
+              fontSize: 16,
+              padding: "10px 18px",
+              borderRadius: 8,
+              border: "none",
+              background: "rgba(0,0,0,0.65)",
+              color: "#fff",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Exit Preview
+          </button>
+          <div
+            style={{
+              position: "absolute",
+              bottom: 24,
+              width: "100%",
+              textAlign: "center",
+              zIndex: 2,
+              color: "rgba(255,255,255,0.75)",
+              fontSize: 14,
+            }}
+          >
+            Drag to orbit • scroll to zoom — move around to see the relief
+          </div>
+        </>
+      )}
+
+      {!inAr && !inPreview && (
         <div style={wrap}>
           {error && <div style={{ color: "#ff6b6b" }}>⚠ {error}</div>}
           {posterUrl && (
@@ -451,6 +584,23 @@ export default function HologramPlayer() {
               }}
             >
               Enter AR
+            </button>
+          )}
+          {manifest && videoUrl && (
+            <button
+              onClick={() => setInPreview(true)}
+              style={{
+                fontSize: 16,
+                padding: "10px 22px",
+                borderRadius: 10,
+                border: "1px solid #00e5ff",
+                background: "transparent",
+                color: "#00e5ff",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              3D Preview
             </button>
           )}
           {arSupported === false && (
