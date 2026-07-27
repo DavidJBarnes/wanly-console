@@ -71,17 +71,19 @@ const DEPTH_FRAGMENT = /* glsl */ `
     vec3 color = texture(map, cuv).rgb;
     // Cheap lambert from the depth gradient: without it the displaced surface is unlit and the
     // relief is invisible unless the viewer moves — shading gives a monocular depth cue.
+    // Wide stencil + flattened normal + mostly-ambient light: the depth region is 8-bit and
+    // h264-compressed, and aggressive shading amplifies that noise into contour streaks.
     vec2 duv = vec2(depthRect.x + vUv.x * depthRect.z, depthRect.y + (1.0 - vUv.y) * depthRect.w);
-    vec2 s = depthTexel * 2.0; // 2-texel step damps 8-bit + h264 gradient noise
+    vec2 s = depthTexel * 3.0;
     float dl = texture(map, duv - vec2(s.x, 0.0)).r;
     float dr = texture(map, duv + vec2(s.x, 0.0)).r;
     float dt = texture(map, duv - vec2(0.0, s.y)).r; // smaller v = up on the mesh
     float db = texture(map, duv + vec2(0.0, s.y)).r;
-    float dzdx = (dr - dl) * depthScale / (4.0 * worldPerTexel.x);
-    float dzdy = (dt - db) * depthScale / (4.0 * worldPerTexel.y);
-    vec3 normal = normalize(vec3(-dzdx, -dzdy, 1.0));
+    float dzdx = (dr - dl) * depthScale / (6.0 * worldPerTexel.x);
+    float dzdy = (dt - db) * depthScale / (6.0 * worldPerTexel.y);
+    vec3 normal = normalize(vec3(-dzdx, -dzdy, 1.5));
     vec3 lightDir = normalize(vec3(0.35, 0.6, 1.0)); // upper-front, mesh-local
-    float shade = clamp(0.55 + 0.55 * max(dot(normal, lightDir), 0.0), 0.0, 1.1);
+    float shade = clamp(0.7 + 0.35 * max(dot(normal, lightDir), 0.0), 0.0, 1.05);
     color *= shade;
     float a = smoothstep(0.5, 0.72, ra); // tight inner AA only, no wide soft halo
     fragColor = vec4(color * a, a); // premultiplied
@@ -106,11 +108,21 @@ function radialShadowTexture(): THREE.Texture {
 
 // The life-size subject mesh (video texture + tier shaders), shared by the AR session and
 // the desktop 3D preview so both render the exact same thing.
-function buildHologramMesh(manifest: HologramManifest, videoUrl: string) {
-  // Video → texture (packed color+alpha). crossOrigin so the texture is CORS-clean.
+function buildHologramMesh(
+  manifest: HologramManifest,
+  videoUrl: string,
+  onVideoError?: (message: string) => void,
+) {
+  // Video → texture (packed color+alpha). crossOrigin BEFORE src so the fetch is CORS-mode
+  // from the start — the WebGL texture upload requires a CORS-clean video.
   const video = document.createElement("video");
-  video.src = videoUrl;
   video.crossOrigin = "anonymous";
+  video.addEventListener("error", () => {
+    const msg = `hologram video failed to load${video.error ? `: ${video.error.message}` : ""}`;
+    console.error(msg, video.error);
+    onVideoError?.(msg);
+  });
+  video.src = videoUrl;
   video.loop = true;
   video.muted = true;
   video.playsInline = true;
@@ -199,8 +211,9 @@ function startPreview(
   container: HTMLDivElement,
   manifest: HologramManifest,
   videoUrl: string,
+  onVideoError?: (message: string) => void,
 ): () => void {
-  const holo = buildHologramMesh(manifest, videoUrl);
+  const holo = buildHologramMesh(manifest, videoUrl, onVideoError);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x14181c);
@@ -393,7 +406,10 @@ export default function HologramPlayer() {
   // Desktop 3D preview: same mesh + shaders as AR, orbited with the mouse instead of your feet.
   useEffect(() => {
     if (!inPreview || !manifest || !videoUrl || !containerRef.current) return;
-    const stop = startPreview(containerRef.current, manifest, videoUrl);
+    const stop = startPreview(containerRef.current, manifest, videoUrl, (msg) => {
+      setInPreview(false);
+      setError(msg);
+    });
     return stop;
   }, [inPreview, manifest, videoUrl]);
 
@@ -610,8 +626,13 @@ export default function HologramPlayer() {
                 Immersive AR isn’t available in this browser. Preview below.
               </p>
               {videoUrl && (
+                // crossOrigin here too: this element and the WebGL paths share the browser's
+                // HTTP cache for the same URL, and a cached no-CORS response (no
+                // Access-Control-Allow-Origin stored) poisons the later CORS-mode texture
+                // fetch — the mesh then renders invisible in preview AND emulated AR.
                 <video
                   src={videoUrl}
+                  crossOrigin="anonymous"
                   controls
                   loop
                   muted
