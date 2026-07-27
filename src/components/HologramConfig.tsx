@@ -19,21 +19,27 @@ export default function HologramConfig({
   onSubmit,
   busy,
   initialFlavor = "2d_matte",
+  initialDepthScale = 0.3,
 }: {
   open: boolean;
   onClose: () => void;
   onSubmit: (body: HologramRequest) => void;
   busy?: boolean;
   initialFlavor?: string;
+  initialDepthScale?: number;
 }) {
   const [height, setHeight] = useState(1.7);
   const [keyColor, setKeyColor] = useState("0x00b140");
   const [flavor, setFlavor] = useState(initialFlavor);
+  const [depthScale, setDepthScale] = useState(initialDepthScale);
 
-  // Reflect the current hologram's flavor each time the dialog opens (e.g. "Remake…").
+  // Reflect the current hologram's settings each time the dialog opens (e.g. "Remake…").
   useEffect(() => {
-    if (open) setFlavor(initialFlavor);
-  }, [open, initialFlavor]);
+    if (open) {
+      setFlavor(initialFlavor);
+      setDepthScale(initialDepthScale);
+    }
+  }, [open, initialFlavor, initialDepthScale]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -61,6 +67,24 @@ export default function HologramConfig({
             ? "Adds head-motion parallax + volume via a depth-displaced mesh (front-view only; 3090-only, slower to build)."
             : "Flat photoreal standee — fastest, works from every angle but reads flat when you move."}
         </Typography>
+        {flavor === "2.5d_depth" && (
+          <>
+            <Typography gutterBottom>Relief depth: {depthScale.toFixed(2)} m</Typography>
+            <Slider
+              value={depthScale}
+              min={0.05}
+              max={0.5}
+              step={0.05}
+              onChange={(_, v) => setDepthScale(v as number)}
+              valueLabelDisplay="auto"
+              sx={{ mb: 1 }}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
+              How far the nearest parts push toward you. ~0.30 m reads like a real torso; the old
+              0.12 m default was near-invisible.
+            </Typography>
+          </>
+        )}
         <Typography gutterBottom>Subject height: {height.toFixed(2)} m</Typography>
         <Slider
           value={height}
@@ -87,7 +111,14 @@ export default function HologramConfig({
         <Button
           variant="contained"
           disabled={busy}
-          onClick={() => onSubmit({ subject_height_m: height, key_color: keyColor, flavor })}
+          onClick={() =>
+            onSubmit({
+              subject_height_m: height,
+              key_color: keyColor,
+              flavor,
+              depth_scale_m: flavor === "2.5d_depth" ? depthScale : undefined,
+            })
+          }
         >
           {busy ? "Starting…" : "Make Hologram"}
         </Button>

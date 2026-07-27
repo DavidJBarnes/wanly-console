@@ -827,6 +827,9 @@ export default function JobDetail() {
           onSubmit={handleMakeHologram}
           busy={holoBusy}
           initialFlavor={job.segments?.find((s) => s.hologram_video_path)?.hologram_flavor ?? "2d_matte"}
+          initialDepthScale={
+            job.segments?.find((s) => s.hologram_video_path)?.hologram_depth_scale_m ?? 0.3
+          }
         />
       </Box>
 

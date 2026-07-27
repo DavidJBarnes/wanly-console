@@ -54,6 +54,10 @@ const DEPTH_FRAGMENT = /* glsl */ `
   uniform sampler2D map;
   uniform vec4 colorRect;
   uniform vec4 alphaRect;
+  uniform vec4 depthRect;
+  uniform float depthScale;
+  uniform vec2 depthTexel;     // one packed-texture texel in UV
+  uniform vec2 worldPerTexel;  // meters one depth texel spans on the mesh
   in vec2 vUv;
   out vec4 fragColor;
   void main() {
@@ -64,6 +68,20 @@ const DEPTH_FRAGMENT = /* glsl */ `
     // "skirt" of stretched triangles the displaced mesh drapes across the subject's silhouette.
     if (ra < 0.5) discard;
     vec3 color = texture(map, cuv).rgb;
+    // Cheap lambert from the depth gradient: without it the displaced surface is unlit and the
+    // relief is invisible unless the viewer moves — shading gives a monocular depth cue.
+    vec2 duv = vec2(depthRect.x + vUv.x * depthRect.z, depthRect.y + (1.0 - vUv.y) * depthRect.w);
+    vec2 s = depthTexel * 2.0; // 2-texel step damps 8-bit + h264 gradient noise
+    float dl = texture(map, duv - vec2(s.x, 0.0)).r;
+    float dr = texture(map, duv + vec2(s.x, 0.0)).r;
+    float dt = texture(map, duv - vec2(0.0, s.y)).r; // smaller v = up on the mesh
+    float db = texture(map, duv + vec2(0.0, s.y)).r;
+    float dzdx = (dr - dl) * depthScale / (4.0 * worldPerTexel.x);
+    float dzdy = (dt - db) * depthScale / (4.0 * worldPerTexel.y);
+    vec3 normal = normalize(vec3(-dzdx, -dzdy, 1.0));
+    vec3 lightDir = normalize(vec3(0.35, 0.6, 1.0)); // upper-front, mesh-local
+    float shade = clamp(0.55 + 0.55 * max(dot(normal, lightDir), 0.0), 0.0, 1.1);
+    color *= shade;
     float a = smoothstep(0.5, 0.72, ra); // tight inner AA only, no wide soft halo
     fragColor = vec4(color * a, a); // premultiplied
   }
@@ -111,18 +129,41 @@ async function startArSession(
   const c = manifest.region_color_uv;
   const a = manifest.region_alpha_uv;
   const depthRect = manifest.region_depth_uv;
-  const isDepth = manifest.flavor === "2.5d_depth" && !!depthRect;
+  // Tier decision: trust the manifest's structural fields, not just the flavor label.
+  const isDepth = !!depthRect && (manifest.tier === 1 || manifest.flavor === "2.5d_depth");
+
+  // Life-size mesh: height = subject_height_m, width from crop aspect. The depth flavor uses a
+  // subdivided plane so the vertex shader can displace it into relief; 2d stays a single quad.
+  const height = manifest.subject_height_m || 1.7;
+  const aspect = manifest.crop_rect.w / manifest.crop_rect.h;
+  const width = height * aspect;
+
+  // Half-texel inset: the manifest rects span texel edges, so sampling at uv 0/1 lands on the
+  // boundary with the black guard band and linear filtering blends it in (dark edge column).
+  const tx = 0.5 / manifest.video_width;
+  const inset = (r: { x: number; y: number; w: number; h: number }) =>
+    new THREE.Vector4(r.x + tx, r.y, r.w - 2 * tx, r.h);
 
   const uniforms: Record<string, { value: unknown }> = {
     map: { value: videoTex },
-    colorRect: { value: new THREE.Vector4(c.x, c.y, c.w, c.h) },
-    alphaRect: { value: new THREE.Vector4(a.x, a.y, a.w, a.h) },
+    colorRect: { value: inset(c) },
+    alphaRect: { value: inset(a) },
     edgeMin: { value: 0.05 },
     edgeMax: { value: 0.95 },
   };
   if (isDepth && depthRect) {
-    uniforms.depthRect = { value: new THREE.Vector4(depthRect.x, depthRect.y, depthRect.w, depthRect.h) };
-    uniforms.depthScale = { value: manifest.depth_scale_m ?? 0.12 };
+    uniforms.depthRect = { value: inset(depthRect) };
+    uniforms.depthScale = { value: manifest.depth_scale_m ?? 0.3 };
+    uniforms.depthTexel = {
+      value: new THREE.Vector2(1 / manifest.video_width, 1 / manifest.video_height),
+    };
+    // Meters spanned by one depth-region texel on the mesh (for the shading gradient).
+    uniforms.worldPerTexel = {
+      value: new THREE.Vector2(
+        (width * (1 / manifest.video_width)) / depthRect.w,
+        (height * (1 / manifest.video_height)) / depthRect.h,
+      ),
+    };
   }
   const material = new THREE.ShaderMaterial({
     uniforms,
@@ -132,14 +173,10 @@ async function startArSession(
     transparent: true,
     premultipliedAlpha: true,
     side: THREE.DoubleSide,
-    depthWrite: false,
+    // Tier-1 writes depth so the displaced relief self-occludes (a real monocular cue);
+    // the flat quad keeps depthWrite off as before.
+    depthWrite: isDepth,
   });
-
-  // Life-size mesh: height = subject_height_m, width from crop aspect. The depth flavor uses a
-  // subdivided plane so the vertex shader can displace it into relief; 2d stays a single quad.
-  const height = manifest.subject_height_m || 1.7;
-  const aspect = manifest.crop_rect.w / manifest.crop_rect.h;
-  const width = height * aspect;
   const geometry = isDepth
     ? new THREE.PlaneGeometry(width, height, 96, 160)
     : new THREE.PlaneGeometry(width, height);
@@ -200,6 +237,7 @@ async function startArSession(
     const camPos = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
     group.rotation.y = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
     group.visible = true;
+    reticle.visible = false; // done placing — don't leave a cyan ring on the floor
   };
   session.addEventListener("select", place);
 
@@ -250,13 +288,16 @@ export default function HologramPlayer() {
       try {
         if (!id) return;
         const paths = await getHologram(id);
-        const res = await fetch(getFileUrl(paths.manifest_path));
+        // Version param busts the cached /files redirect: hologram artifacts live at fixed S3
+        // keys, so without it a remake replays the previous flavor's video + manifest for hours.
+        const v = paths.version ?? undefined;
+        const res = await fetch(getFileUrl(paths.manifest_path, v));
         if (!res.ok) throw new Error(`manifest ${res.status}`);
         const m: HologramManifest = await res.json();
         if (cancelled) return;
         setManifest(m);
-        setVideoUrl(getFileUrl(paths.video_path));
-        setPosterUrl(getFileUrl(paths.poster_path));
+        setVideoUrl(getFileUrl(paths.video_path, v));
+        setPosterUrl(getFileUrl(paths.poster_path, v));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load hologram");
       }
@@ -300,6 +341,14 @@ export default function HologramPlayer() {
     }
   };
 
+  // What's ACTUALLY playing (from the fetched manifest, not the DB label) — makes a stale
+  // cache or silent tier downgrade visible instead of a mystery "looks the same".
+  const tierLabel = manifest
+    ? manifest.tier === 1 && manifest.region_depth_uv
+      ? `2.5D depth · relief ${(manifest.depth_scale_m ?? 0.3).toFixed(2)} m`
+      : "2D flat"
+    : null;
+
   const wrap: React.CSSProperties = {
     position: "fixed",
     inset: 0,
@@ -321,6 +370,22 @@ export default function HologramPlayer() {
       <div ref={overlayRef} style={{ position: "fixed", inset: 0, pointerEvents: "none" }}>
         {inAr && (
           <>
+            {tierLabel && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 20,
+                  left: 20,
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  background: "rgba(0,0,0,0.65)",
+                  color: "#fff",
+                  fontSize: 13,
+                }}
+              >
+                {tierLabel}
+              </div>
+            )}
             <button
               onClick={() => sessionRef.current?.end()}
               style={{
@@ -356,6 +421,20 @@ export default function HologramPlayer() {
               alt="hologram poster"
               style={{ maxHeight: "45vh", maxWidth: "80vw", objectFit: "contain" }}
             />
+          )}
+          {tierLabel && (
+            <div
+              style={{
+                padding: "4px 12px",
+                borderRadius: 12,
+                border: "1px solid #2b3b44",
+                background: "#11202a",
+                color: "#7fdcff",
+                fontSize: 13,
+              }}
+            >
+              {tierLabel}
+            </div>
           )}
           {arSupported === true && manifest && (
             <button
