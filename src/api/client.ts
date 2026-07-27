@@ -238,9 +238,13 @@ export async function makeHologram(
   return data;
 }
 
-export async function getHologram(
-  segmentId: string,
-): Promise<{ video_path: string; manifest_path: string; poster_path: string }> {
+export async function getHologram(segmentId: string): Promise<{
+  flavor: string;
+  video_path: string;
+  manifest_path: string;
+  poster_path: string;
+  version: string | null; // carrier completed_at — cache-buster for the fixed-key artifacts
+}> {
   const { data } = await api.get(`/segments/${segmentId}/hologram`);
   return data;
 }

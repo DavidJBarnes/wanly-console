@@ -181,6 +181,7 @@ export interface SegmentResponse {
   output_path: string | null;
   last_frame_path: string | null;
   hologram_flavor: string | null;
+  hologram_depth_scale_m: number | null;
   hologram_video_path: string | null;
   hologram_manifest_path: string | null;
   hologram_poster_path: string | null;
@@ -196,6 +197,7 @@ export interface HologramRequest {
   subject_height_m?: number;
   key_color?: string;
   flavor?: string; // "2d_matte" (default) | "2.5d_depth"
+  depth_scale_m?: number; // 2.5d relief depth in meters
 }
 
 export interface HologramUvRect {
