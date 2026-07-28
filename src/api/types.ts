@@ -107,7 +107,72 @@ export interface JobCreate {
   starting_image_hash?: string | null;
   first_segment: SegmentCreate;
   tags?: string | null;
+  // Lynx identity-preserving engine. generation_engine="lynx" routes the job to the
+  // Lynx graph builder; every lynx_* value is optional and null means "use the
+  // daemon's settings default".
+  generation_engine?: string | null;
+  lynx_subject_image?: string | null;
+  lynx_ip_scale?: number | null;
+  lynx_ref_scale?: number | null;
+  lynx_cfg_scale?: number | null;
+  lynx_start_percent?: number | null;
+  lynx_end_percent?: number | null;
+  lynx_ref_blocks_to_use?: string | null;
+  lynx_ip_layers?: string | null;
+  lynx_resampler?: string | null;
+  lynx_steps?: number | null;
+  lynx_cfg?: number | null;
+  lynx_shift?: number | null;
+  lynx_scheduler?: string | null;
+  lynx_distill_strength?: number | null;
 }
+
+/** The Lynx knobs the create-job form collects. Mirrors the JobCreate lynx_* fields. */
+export interface LynxSettings {
+  ip_scale: number;
+  ref_scale: number;
+  arm: "lite" | "full";
+  steps: number;
+  cfg: number;
+  shift: number;
+  start_percent: number;
+  end_percent: number;
+  ref_blocks_to_use: string;
+}
+
+/** Matched ip-layer/resampler pairs. Mixing arms loads without error and produces
+ *  garbage identity, so the two files are always chosen together. */
+export const LYNX_ARMS: Record<"lite" | "full", { ip_layers: string; resampler: string; label: string }> = {
+  lite: {
+    ip_layers: "Wan2_1-T2V-14B-Lynx_lite_ip_layers_fp16.safetensors",
+    resampler: "lynx_lite_resampler_fp32.safetensors",
+    label: "Lite ip (default)",
+  },
+  full: {
+    ip_layers: "Wan2_1-T2V-14B-Lynx_full_ip_layers_fp16.safetensors",
+    resampler: "lynx_full_resampler_fp32.safetensors",
+    label: "Full ip (A/B arm)",
+  },
+};
+
+/** Wan native buckets Lynx is validated at — the daemon rejects anything else. */
+export const LYNX_RESOLUTIONS = [
+  { width: 832, height: 480, label: "832 × 480" },
+  { width: 1280, height: 720, label: "1280 × 720" },
+];
+
+/** Kijai's reference-workflow values, which are the daemon's settings defaults. */
+export const LYNX_DEFAULTS: LynxSettings = {
+  ip_scale: 0.7,
+  ref_scale: 0.6,
+  arm: "lite",
+  steps: 6,
+  cfg: 1.0,
+  shift: 8.0,
+  start_percent: 0.0,
+  end_percent: 1.0,
+  ref_blocks_to_use: "",
+};
 
 export interface JobLoraSummary {
   lora_id?: string | null;

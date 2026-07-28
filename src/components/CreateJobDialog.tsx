@@ -16,6 +16,8 @@ import {
   TextField,
   MenuItem,
   Slider,
+  ToggleButton,
+  ToggleButtonGroup,
   Alert,
   IconButton,
 } from "@mui/material";
@@ -27,7 +29,9 @@ import { useTagStore } from "../stores/tagStore";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
 import SettingsSignature from "./SettingsSignature";
 import { createJob, getFileUrl, getFaceswapPresets, sha256Hex, checkStartingImageExists } from "../api/client";
-import type { JobCreate, LoraListItem, FaceswapPreset } from "../api/types";
+import type { JobCreate, LoraListItem, FaceswapPreset, LynxSettings } from "../api/types";
+import { LYNX_ARMS, LYNX_DEFAULTS, LYNX_RESOLUTIONS } from "../api/types";
+import LynxConfig from "./LynxConfig";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "./FaceswapConfig";
 import {
   DEFAULT_WIDTH,
@@ -139,6 +143,11 @@ export default function CreateJobDialog({
   const [selectedTag2, setSelectedTag2] = useState("");
   const [tags, setTags] = useState("");
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
+  // Engine selection. "wan22" = the default i2v path; "lynx" = identity-preserving
+  // Wan2.1 T2V, which uses a different set of controls entirely.
+  const [engine, setEngine] = useState<"wan22" | "lynx">("wan22");
+  const [lynx, setLynx] = useState<LynxSettings>(LYNX_DEFAULTS);
+  const isLynx = engine === "lynx";
 
   // Auto-generate name from tags + fps
   useEffect(() => {
@@ -379,12 +388,18 @@ export default function CreateJobDialog({
       setError("Name and prompt are required");
       return;
     }
-    if (!videoPresetId) {
+    // Lynx carries its own sampler settings, so it does not need a video preset.
+    if (!isLynx && !videoPresetId) {
       setError("Select a video preset");
       return;
     }
     if (!startingImage && !startingImageUri) {
-      setError("Starting image is required");
+      setError(isLynx ? "Subject image is required" : "Starting image is required");
+      return;
+    }
+    if (isLynx && !LYNX_RESOLUTIONS.some((r) => r.width === width && r.height === height)) {
+      // The daemon rejects off-bucket resolutions rather than snapping them, so catch it here.
+      setError(`Lynx supports only ${LYNX_RESOLUTIONS.map((r) => r.label).join(" or ")}`);
       return;
     }
 
@@ -417,8 +432,21 @@ export default function CreateJobDialog({
         steps_total: stepsTotal ? parseInt(stepsTotal, 10) : null,
         high_noise_steps: highNoiseSteps ? parseInt(highNoiseSteps, 10) : null,
         flow_shift: flowShift ? parseFloat(flowShift) : null,
-        video_preset_id: videoPresetId || null,
+        video_preset_id: isLynx ? null : videoPresetId || null,
         continuation_mode: "traditional",
+        // Lynx: the API maps the uploaded starting image to lynx_subject_image, so the
+        // same upload path is reused. ip layers and resampler always travel as a pair.
+        generation_engine: isLynx ? "lynx" : null,
+        lynx_ip_scale: isLynx ? lynx.ip_scale : null,
+        lynx_ref_scale: isLynx ? lynx.ref_scale : null,
+        lynx_start_percent: isLynx ? lynx.start_percent : null,
+        lynx_end_percent: isLynx ? lynx.end_percent : null,
+        lynx_ref_blocks_to_use: isLynx && lynx.ref_blocks_to_use ? lynx.ref_blocks_to_use : null,
+        lynx_ip_layers: isLynx ? LYNX_ARMS[lynx.arm].ip_layers : null,
+        lynx_resampler: isLynx ? LYNX_ARMS[lynx.arm].resampler : null,
+        lynx_steps: isLynx ? lynx.steps : null,
+        lynx_cfg: isLynx ? lynx.cfg : null,
+        lynx_shift: isLynx ? lynx.shift : null,
         starting_image_uri: !startingImage && startingImageUri ? startingImageUri : null,
         starting_image_hash: reuseHash,
         tags: tags || null,
@@ -541,11 +569,41 @@ export default function CreateJobDialog({
           autoFocus
         />
 
-        {/* ── Starting Image (moved up — needed for auto-generate) ── */}
+        {/* ── Engine ── */}
+        <Box sx={{ mt: 2, mb: 1 }}>
+          <Typography variant="subtitle2" gutterBottom>Engine</Typography>
+          <ToggleButtonGroup
+            value={engine}
+            exclusive
+            fullWidth
+            size="small"
+            onChange={(_, v) => {
+              if (!v) return;
+              setEngine(v);
+              // Lynx only runs at the Wan native buckets, so snap to the nearest valid one
+              // when switching in (the daemon rejects anything else outright).
+              if (v === "lynx" && !LYNX_RESOLUTIONS.some((r) => r.width === width && r.height === height)) {
+                setWidth(LYNX_RESOLUTIONS[0].width);
+                setHeight(LYNX_RESOLUTIONS[0].height);
+              }
+            }}
+          >
+            <ToggleButton value="wan22">Wan 2.2 i2v</ToggleButton>
+            <ToggleButton value="lynx">Lynx (identity)</ToggleButton>
+          </ToggleButtonGroup>
+          {isLynx && (
+            <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 1 }}>
+              Lynx runs on RunPod only — the local 3090's WanVideoWrapper predates it. The image
+              below conditions identity and is <strong>not</strong> used as the first frame.
+            </Typography>
+          )}
+        </Box>
+
+        {/* ── Starting / Subject Image (moved up — needed for auto-generate) ── */}
         <Box sx={{ mt: 1, mb: 1 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", "& > .MuiButton-root": { minWidth: { xs: "100%", sm: 0 } } }}>
             <Button variant="outlined" component="label" size="small">
-              {startingImage ? startingImage.name : startingImageUri ? "Image from repo" : "Choose Image *"}
+              {startingImage ? startingImage.name : startingImageUri ? "Image from repo" : isLynx ? "Choose Subject Image *" : "Choose Image *"}
               <input
                 type="file"
                 hidden
@@ -567,6 +625,12 @@ export default function CreateJobDialog({
             )}
           </Box>
         </Box>
+
+        {isLynx && (
+          <Box sx={{ mt: 1, mb: 2 }}>
+            <LynxConfig value={lynx} onChange={setLynx} />
+          </Box>
+        )}
 
         {/* ── Prompt ── */}
         <TextField
