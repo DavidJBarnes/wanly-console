@@ -19,6 +19,7 @@ import {
   Star,
   Tune,
   Movie,
+  Casino,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router";
 
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { label: "Smashcut", icon: <Movie />, path: "/smashcut" },
   { label: "LoRA Library", icon: <AutoFixHigh />, path: "/loras" },
   { label: "Video Presets", icon: <Tune />, path: "/video-presets" },
+  { label: "Wildcards", icon: <Casino />, path: "/wildcards" },
   { label: "Image Repo", icon: <Image />, path: "/images" },
   { label: "Settings", icon: <Settings />, path: "/settings" },
 ];

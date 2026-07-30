@@ -251,6 +251,7 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [videoModal, setVideoModal] = useState<{ path: string; v?: string; segIndex?: number } | null>(null);
+  const [imageModal, setImageModal] = useState<{ path: string; segIndex: number } | null>(null);
   const [loopVideo, setLoopVideo] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [segmentModalOpen, setSegmentModalOpen] = useState(false);
@@ -1018,6 +1019,7 @@ export default function JobDetail() {
                             component="img"
                             src={getFileUrl(img)}
                             alt="Start"
+                            onClick={() => setImageModal({ path: img, segIndex: seg.index })}
                             sx={{
                               width: 80,
                               height: 80,
@@ -1025,6 +1027,8 @@ export default function JobDetail() {
                               borderRadius: 1,
                               bgcolor: "#f5f5f5",
                               display: "block",
+                              cursor: "pointer",
+                              "&:hover": { opacity: 0.85 },
                             }}
                           />
                         ) : (
@@ -1393,12 +1397,15 @@ export default function JobDetail() {
                           component="img"
                           src={getFileUrl(startImg)}
                           alt="Start"
+                          onClick={() => setImageModal({ path: startImg, segIndex: seg.index })}
                           sx={{
                             width: 64,
                             height: 64,
                             objectFit: "cover",
                             borderRadius: 1,
                             bgcolor: "#f5f5f5",
+                            cursor: "pointer",
+                            "&:hover": { opacity: 0.85 },
                           }}
                         />
                       ) : (
@@ -1782,6 +1789,51 @@ export default function JobDetail() {
             >
               <Repeat fontSize="small" />
             </IconButton>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      {/* Start image modal */}
+      <Dialog
+        open={!!imageModal}
+        onClose={() => setImageModal(null)}
+        maxWidth="md"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
+          <IconButton
+            onClick={() => {
+              if (!imageModal || !job) return;
+              const a = document.createElement("a");
+              a.href = getFileUrl(imageModal.path);
+              a.download = `${job.name}_segment${imageModal.segIndex}_start${
+                imageModal.path.match(/\.[a-z0-9]+$/i)?.[0] ?? ".png"
+              }`;
+              a.click();
+            }}
+            sx={{ position: "absolute", top: 8, right: 48, color: "white", zIndex: 1 }}
+          >
+            <Download />
+          </IconButton>
+          <IconButton
+            onClick={() => setImageModal(null)}
+            sx={{ position: "absolute", top: 8, right: 8, color: "white", zIndex: 1 }}
+          >
+            <Close />
+          </IconButton>
+          {imageModal && (
+            <Box
+              component="img"
+              src={getFileUrl(imageModal.path)}
+              alt={`Segment ${imageModal.segIndex} start image`}
+              sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
+            />
+          )}
+          <Box sx={{ px: 1.5, py: 1, bgcolor: "rgba(0,0,0,0.8)" }}>
+            <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.7)", wordBreak: "break-all" }}>
+              {imageModal ? `#${imageModal.segIndex} — ${imageModal.path.split("/").pop()}` : ""}
+            </Typography>
           </Box>
         </DialogContent>
       </Dialog>

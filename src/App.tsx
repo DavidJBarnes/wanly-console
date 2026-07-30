@@ -16,6 +16,7 @@ import SuccessfulConfigs from "./pages/SuccessfulConfigs";
 import SettingsPage from "./pages/SettingsPage";
 import HologramPlayer from "./pages/HologramPlayer";
 import VideoPresetLibrary from "./pages/VideoPresetLibrary";
+import Wildcards from "./pages/Wildcards";
 
 export default function App() {
   return (
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="/smashcut" element={<SmashcutBuilder />} />
             <Route path="/loras" element={<LoraLibrary />} />
             <Route path="/video-presets" element={<VideoPresetLibrary />} />
+            <Route path="/wildcards" element={<Wildcards />} />
             <Route path="/images" element={<ImageRepo />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
