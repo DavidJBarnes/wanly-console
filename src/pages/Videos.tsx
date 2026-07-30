@@ -24,6 +24,10 @@ import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite } from "../ap
 import type { JobDetailResponse, JobResponse } from "../api/types";
 import { DEFAULT_JOB_FETCH_LIMIT, POLL_INTERVAL_FAST } from "../constants";
 import FavoriteHeart from "../components/FavoriteHeart";
+import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
+
+const ROWS_PER_PAGE_OPTIONS = [12, 24, 48];
+const DEFAULT_ROWS_PER_PAGE = 12;
 
 function formatDuration(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -48,34 +52,53 @@ export default function Videos() {
   const [loading, setLoading] = useState(true);
   const [videoModal, setVideoModal] = useState<{ jobId: string } | null>(null);
   const [jobDetails, setJobDetails] = useState<Record<string, JobDetailResponse>>({});
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(12);
   const [playlist, setPlaylist] = useState<{ jobId: string; videoPath: string; jobName: string }[]>([]);
   const [playlistIndex, setPlaylistIndex] = useState(0);
   const [loadingRandom, setLoadingRandom] = useState(false);
   const [loopVideo, setLoopVideo] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
+
+  // List state lives in the URL (?page=3&per=24&q=…&fav=1) so it survives the
+  // unmount caused by clicking through to /jobs/:id — and browser back/forward.
+  const { params, setQuery } = useQueryState();
+  const page = getPage(params, "page");
+  const rowsPerPage = getPerPage(params, "per", ROWS_PER_PAGE_OPTIONS, DEFAULT_ROWS_PER_PAGE);
+  const favoritesOnly = params.get("fav") === "1";
+  // The committed (debounced) search term *is* the URL param.
+  const debouncedQuery = params.get("q") ?? "";
+  // The text field keeps its own state so typing stays instant and does not
+  // rewrite the URL on every keystroke; it is seeded from the URL on mount.
+  const [searchQuery, setSearchQuery] = useState(debouncedQuery);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Scroll to top when page changes
   useEffect(() => {
     document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
   }, [page]);
 
-  // Debounce search input to avoid hammering the API on every keystroke
+  // Debounce search input to avoid hammering the API on every keystroke.
+  // The equality guard means a remount (restored ?q=…) does not re-commit the
+  // same term — which would wipe the restored ?page= along with it.
   useEffect(() => {
+    if (searchQuery === debouncedQuery) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-      setPage(0);
+      setQuery({ q: searchQuery || null, page: null });
     }, 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [searchQuery]);
+  }, [searchQuery, debouncedQuery, setQuery]);
+
+  // A restored/bookmarked page can end up past the end of the list (e.g. jobs
+  // were removed while away). The pagination control is only rendered when the
+  // page has results, so clamp back into range instead of stranding the user on
+  // an empty screen. Guarded on `total` so it never fires before the first fetch.
+  useEffect(() => {
+    if (total === 0) return;
+    const maxPage = Math.max(0, Math.ceil(total / rowsPerPage) - 1);
+    if (page > maxPage) setQuery({ page: pageValue(maxPage) });
+  }, [total, rowsPerPage, page, setQuery]);
 
   const fetchVideos = useCallback(async () => {
     try {
@@ -225,7 +248,7 @@ export default function Videos() {
           color={favoritesOnly ? "error" : "inherit"}
           startIcon={<Favorite />}
           size="small"
-          onClick={() => setFavoritesOnly((v) => !v)}
+          onClick={() => setQuery({ fav: favoritesOnly ? null : "1" })}
           sx={{ textTransform: "none" }}
         >
           Favorites
@@ -235,10 +258,7 @@ export default function Videos() {
           size="small"
           placeholder="Search videos…"
           value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            setPage(0);
-          }}
+          onChange={(e) => setSearchQuery(e.target.value)}
           slotProps={{
             input: {
               startAdornment: (
@@ -419,13 +439,15 @@ export default function Videos() {
             component="div"
             count={total}
             page={page}
-            onPageChange={(_, p) => setPage(p)}
+            onPageChange={(_, p) => setQuery({ page: pageValue(p) })}
             rowsPerPage={rowsPerPage}
             onRowsPerPageChange={(e) => {
-              setRowsPerPage(parseInt(e.target.value, 10));
-              setPage(0);
+              setQuery({
+                per: perPageValue(parseInt(e.target.value, 10), DEFAULT_ROWS_PER_PAGE),
+                page: null,
+              });
             }}
-            rowsPerPageOptions={[12, 24, 48]}
+            rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
           />
         )}
         </>
