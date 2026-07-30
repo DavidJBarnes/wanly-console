@@ -64,6 +64,12 @@ import CreateJobDialog from "../components/CreateJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
+import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
+
+const FOLDER_ROWS_OPTIONS = [12, 24, 48];
+const DEFAULT_FOLDER_ROWS = 12;
+const IMAGE_ROWS_OPTIONS = [24, 48, 96];
+const DEFAULT_IMAGE_ROWS = 24;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -83,7 +89,6 @@ function shuffleArray<T>(arr: T[]): T[] {
 export default function ImageRepo() {
   const [folders, setFolders] = useState<ImageFolder[]>([]);
   const [images, setImages] = useState<ImageFile[]>([]);
-  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [lightboxImage, setLightboxImage] = useState<ImageFile | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ImageFile | null>(null);
@@ -91,10 +96,6 @@ export default function ImageRepo() {
   const [jobDialogImageUri, setJobDialogImageUri] = useState<string | null>(null);
   const [jobDialogImageTags, setJobDialogImageTags] = useState<string | null>(null);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
-  const [folderPage, setFolderPage] = useState(0);
-  const [foldersPerPage, setFoldersPerPage] = useState(12);
-  const [imagePage, setImagePage] = useState(0);
-  const [imagesPerPage, setImagesPerPage] = useState(24);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -115,7 +116,6 @@ export default function ImageRepo() {
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoritesView, setFavoritesView] = useState(false);
   const [favImages, setFavImages] = useState<ImageFile[]>([]);
   const [loadingFavImages, setLoadingFavImages] = useState(false);
@@ -124,13 +124,9 @@ export default function ImageRepo() {
   const [loadingUntagged, setLoadingUntagged] = useState(false);
   const [lightboxTags, setLightboxTags] = useState("");
   const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [searchResults, setSearchResults] = useState<ImageFile[]>([]);
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [searchPage, setSearchPage] = useState(0);
-  const [searchRowsPerPage, setSearchRowsPerPage] = useState(24);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [screensaverOpen, setScreensaverOpen] = useState(false);
   const [screensaverIndex, setScreensaverIndex] = useState(0);
@@ -140,6 +136,26 @@ export default function ImageRepo() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const btnSize = isMobile ? "small" : "medium";
+
+  // Browsing state lives in the URL (?folder=…&fpage=2&ipage=3&spage=1&q=…&fav=1)
+  // so it survives the unmount caused by clicking through to /jobs/:id, plus
+  // browser back/forward and refresh. Page params are 1-based and omitted when
+  // on the first page; MUI's TablePagination is 0-based, converted here.
+  const { params, setQuery } = useQueryState();
+  // `|| null` so an empty ?folder= is treated as "no folder open".
+  const currentFolder = params.get("folder") || null;
+  const folderPage = getPage(params, "fpage");
+  const foldersPerPage = getPerPage(params, "fper", FOLDER_ROWS_OPTIONS, DEFAULT_FOLDER_ROWS);
+  const imagePage = getPage(params, "ipage");
+  const imagesPerPage = getPerPage(params, "iper", IMAGE_ROWS_OPTIONS, DEFAULT_IMAGE_ROWS);
+  const searchPage = getPage(params, "spage");
+  const searchRowsPerPage = getPerPage(params, "sper", IMAGE_ROWS_OPTIONS, DEFAULT_IMAGE_ROWS);
+  const favoritesOnly = params.get("fav") === "1";
+  // The committed (debounced) search term *is* the URL param; the text field
+  // keeps local state so typing stays instant and does not rewrite the URL on
+  // every keystroke.
+  const debouncedSearch = params.get("q") ?? "";
+  const [searchQuery, setSearchQuery] = useState(debouncedSearch);
 
   // Scroll the main scroll container to the top on any pagination change
   // (folders, in-folder images, AND search results).
@@ -165,16 +181,19 @@ export default function ImageRepo() {
     setLightboxTags(lightboxImage?.tags ?? "");
   }, [lightboxImage]);
 
+  // Commit the search box to the URL after a pause. The equality guard means a
+  // remount (restored ?q=…) does not re-commit the same term — which would wipe
+  // the restored page params along with it.
   useEffect(() => {
+    if (searchQuery === debouncedSearch) return;
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-      setSearchPage(0);
+      setQuery({ q: searchQuery || null, spage: null });
     }, 300);
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-  }, [searchQuery]);
+  }, [searchQuery, debouncedSearch, setQuery]);
 
   useEffect(() => {
     fetchTags();
@@ -195,6 +214,14 @@ export default function ImageRepo() {
     }, 5000);
     return () => clearInterval(timer);
   }, [screensaverOpen]);
+
+  // Same "clamp back into range" guard as the folder list, for search results
+  // (whose pagination control only renders when the page has results).
+  useEffect(() => {
+    if (!debouncedSearch || searchTotal === 0) return;
+    const maxPage = Math.max(0, Math.ceil(searchTotal / searchRowsPerPage) - 1);
+    if (searchPage > maxPage) setQuery({ spage: pageValue(maxPage) });
+  }, [debouncedSearch, searchTotal, searchRowsPerPage, searchPage, setQuery]);
 
   const fetchSearchResults = useCallback(async () => {
     if (!debouncedSearch) {
@@ -267,18 +294,32 @@ export default function ImageRepo() {
 
   // Keep folderPage in range if the list shrinks (e.g. after a delete), but never
   // reset it on navigation — resetting was what snapped "page 2 -> folder -> back" to page 1.
+  // The guards matter: `folders` is empty before the first fetch resolves and
+  // while a folder is open, and clamping against an empty list would throw away
+  // a page restored from the URL.
   useEffect(() => {
+    if (currentFolder !== null || folders.length === 0) return;
     const maxPage = Math.max(0, Math.ceil(folders.length / foldersPerPage) - 1);
-    if (folderPage > maxPage) setFolderPage(maxPage);
-  }, [folders.length, foldersPerPage, folderPage]);
+    if (folderPage > maxPage) setQuery({ fpage: pageValue(maxPage) });
+  }, [currentFolder, folders.length, foldersPerPage, folderPage, setQuery]);
+
+  // Same idea for the in-folder image page. `images` is empty while loading and
+  // while the folder list is showing, so both are guarded out.
+  useEffect(() => {
+    if (currentFolder === null || images.length === 0) return;
+    const count = favoritesOnly
+      ? images.filter((img) => favoritesSet.has(img.path)).length
+      : images.length;
+    const maxPage = Math.max(0, Math.ceil(count / imagesPerPage) - 1);
+    if (imagePage > maxPage) setQuery({ ipage: pageValue(maxPage) });
+  }, [currentFolder, images, favoritesOnly, favoritesSet, imagesPerPage, imagePage, setQuery]);
 
   const handleFolderClick = (name: string) => {
-    setCurrentFolder(name);
-    setImagePage(0);
+    setQuery({ folder: name, ipage: null });
   };
 
   const handleBack = () => {
-    setCurrentFolder(null);
+    setQuery({ folder: null, ipage: null });
     setImages([]);
   };
 
@@ -1023,10 +1064,7 @@ export default function ImageRepo() {
             size="small"
             placeholder="Search images by tag…"
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setSearchPage(0);
-            }}
+            onChange={(e) => setSearchQuery(e.target.value)}
             slotProps={{
               input: {
                 startAdornment: (
@@ -1108,13 +1146,15 @@ export default function ImageRepo() {
                   component="div"
                   count={searchTotal}
                   page={searchPage}
-                  onPageChange={(_, p) => setSearchPage(p)}
+                  onPageChange={(_, p) => setQuery({ spage: pageValue(p) })}
                   rowsPerPage={searchRowsPerPage}
                   onRowsPerPageChange={(e) => {
-                    setSearchRowsPerPage(parseInt(e.target.value, 10));
-                    setSearchPage(0);
+                    setQuery({
+                      sper: perPageValue(parseInt(e.target.value, 10), DEFAULT_IMAGE_ROWS),
+                      spage: null,
+                    });
                   }}
-                  rowsPerPageOptions={[24, 48, 96]}
+                  rowsPerPageOptions={IMAGE_ROWS_OPTIONS}
                   showFirstButton
                   showLastButton
                   sx={{
@@ -1300,13 +1340,15 @@ export default function ImageRepo() {
             component="div"
             count={folders.length}
             page={folderPage}
-            onPageChange={(_, p) => setFolderPage(p)}
+            onPageChange={(_, p) => setQuery({ fpage: pageValue(p) })}
             rowsPerPage={foldersPerPage}
             onRowsPerPageChange={(e) => {
-              setFoldersPerPage(parseInt(e.target.value, 10));
-              setFolderPage(0);
+              setQuery({
+                fper: perPageValue(parseInt(e.target.value, 10), DEFAULT_FOLDER_ROWS),
+                fpage: null,
+              });
             }}
-            rowsPerPageOptions={[12, 24, 48]}
+            rowsPerPageOptions={FOLDER_ROWS_OPTIONS}
             showFirstButton
             showLastButton
             sx={{
@@ -1406,10 +1448,7 @@ export default function ImageRepo() {
           size="small"
           placeholder="Search images by tag…"
           value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            setSearchPage(0);
-          }}
+          onChange={(e) => setSearchQuery(e.target.value)}
           slotProps={{
             input: {
               startAdornment: (
@@ -1454,7 +1493,7 @@ export default function ImageRepo() {
           size={isMobile ? "small" : "medium"}
           onClick={() => {
             setSortDesc((prev) => !prev);
-            setImagePage(0);
+            setQuery({ ipage: null });
           }}
           title={sortDesc ? "Newest first" : "Oldest first"}
         >
@@ -1466,8 +1505,7 @@ export default function ImageRepo() {
           startIcon={isMobile ? undefined : <Favorite />}
           size={isMobile ? "small" : "medium"}
           onClick={() => {
-            setFavoritesOnly((v) => !v);
-            setImagePage(0);
+            setQuery({ fav: favoritesOnly ? null : "1", ipage: null });
           }}
         >
           {isMobile ? (favoritesOnly ? "Fav" : "Fav") : "Favorites"}
@@ -1677,13 +1715,15 @@ export default function ImageRepo() {
                 component="div"
                 count={searchTotal}
                 page={searchPage}
-                onPageChange={(_, p) => setSearchPage(p)}
+                onPageChange={(_, p) => setQuery({ spage: pageValue(p) })}
                 rowsPerPage={searchRowsPerPage}
                 onRowsPerPageChange={(e) => {
-                  setSearchRowsPerPage(parseInt(e.target.value, 10));
-                  setSearchPage(0);
+                  setQuery({
+                    sper: perPageValue(parseInt(e.target.value, 10), DEFAULT_IMAGE_ROWS),
+                    spage: null,
+                  });
                 }}
-                rowsPerPageOptions={[24, 48, 96]}
+                rowsPerPageOptions={IMAGE_ROWS_OPTIONS}
                 showFirstButton
                 showLastButton
                 sx={{
@@ -1839,13 +1879,15 @@ export default function ImageRepo() {
           component="div"
           count={favoritesOnly ? images.filter((img) => favoritesSet.has(img.path)).length : images.length}
           page={imagePage}
-          onPageChange={(_, p) => setImagePage(p)}
+          onPageChange={(_, p) => setQuery({ ipage: pageValue(p) })}
           rowsPerPage={imagesPerPage}
           onRowsPerPageChange={(e) => {
-            setImagesPerPage(parseInt(e.target.value, 10));
-            setImagePage(0);
+            setQuery({
+              iper: perPageValue(parseInt(e.target.value, 10), DEFAULT_IMAGE_ROWS),
+              ipage: null,
+            });
           }}
-          rowsPerPageOptions={[24, 48, 96]}
+          rowsPerPageOptions={IMAGE_ROWS_OPTIONS}
           showFirstButton
           showLastButton
           sx={{
