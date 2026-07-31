@@ -412,9 +412,10 @@ export interface WildcardUpdate {
 export interface StatsResponse {
   jobs_by_status: Record<string, number>;
   segments_by_status: Record<string, number>;
-  avg_segment_run_time: number | null;
-  total_segments_completed: number;
-  total_video_time: number;
+  /** Rolling 24h window, not lifetime. */
+  avg_segment_run_time_24h: number | null;
+  /** Estimated seconds of work still queued across all active jobs. */
+  total_queue_time: number;
   worker_stats: WorkerStatsItem[];
 }
 
