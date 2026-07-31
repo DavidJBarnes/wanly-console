@@ -10,6 +10,7 @@ import {
   CircularProgress,
   FormControlLabel,
   IconButton,
+  MenuItem,
   Radio,
   RadioGroup,
   Switch,
@@ -20,6 +21,9 @@ import { Close, Favorite, FavoriteBorder } from "@mui/icons-material";
 import { getSegmentClips, getFavorites, toggleFavorite, createSmashcut, getFileUrl } from "../api/client";
 import type { SegmentClip } from "../api/types";
 
+// Playback speeds offered per clip. Must stay inside the API's 0.25x-4x bounds.
+const SMASHCUT_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+
 export default function SmashcutBuilder() {
   const navigate = useNavigate();
   const [clips, setClips] = useState<SegmentClip[]>([]);
@@ -29,6 +33,9 @@ export default function SmashcutBuilder() {
   const [transition, setTransition] = useState<"seamless" | "black">("seamless");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [firstSegmentOnly, setFirstSegmentOnly] = useState(false);
+  // Per-clip playback speed, keyed by clip id — safe because toggleSelect makes a clip
+  // appear in `selected` at most once. Absent means 1x.
+  const [speeds, setSpeeds] = useState<Record<string, number>>({});
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,9 +73,18 @@ export default function SmashcutBuilder() {
     return true;
   });
 
+  const speedOf = (id: string) => speeds[id] ?? 1;
+
   const toggleSelect = (clip: SegmentClip) => {
     if (selectedIds.has(clip.id)) {
       setSelected((s) => s.filter((c) => c.id !== clip.id));
+      // Drop the speed too, so removing a clip is a clean reset rather than a setting
+      // that silently comes back if it is picked again later.
+      setSpeeds((s) => {
+        const next = { ...s };
+        delete next[clip.id];
+        return next;
+      });
     } else {
       if (lockRes && (clip.width !== lockRes.w || clip.height !== lockRes.h)) return;
       setSelected((s) => [...s, clip]);
@@ -90,7 +106,12 @@ export default function SmashcutBuilder() {
     setBuilding(true);
     setError(null);
     try {
-      await createSmashcut({ name: name.trim(), segment_ids: selected.map((c) => c.id), transition });
+      await createSmashcut({
+        name: name.trim(),
+        segment_ids: selected.map((c) => c.id),
+        transition,
+        clip_speeds: selected.map((c) => speedOf(c.id)),
+      });
       navigate("/videos");
     } catch (e) {
       setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Failed to build smashcut");
@@ -121,6 +142,7 @@ export default function SmashcutBuilder() {
       </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Pick clips in the order you want them. The first pick locks the resolution; others are filtered to match.
+        Each picked clip can be retimed — below 1x is slow-motion, above is fast-forward.
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
@@ -129,7 +151,7 @@ export default function SmashcutBuilder() {
       {selected.length > 0 && (
         <Box sx={{ display: "flex", gap: 1, overflowX: "auto", mb: 2, p: 1, border: 1, borderColor: "divider", borderRadius: 1 }}>
           {selected.map((c, i) => (
-            <Box key={c.id} sx={{ position: "relative", flexShrink: 0 }}>
+            <Box key={c.id} sx={{ position: "relative", flexShrink: 0, minWidth: 76 }}>
               <Chip label={`${i + 1}`} size="small" sx={{ position: "absolute", top: 2, left: 2, zIndex: 1 }} />
               {c.thumbnail_path && (
                 <Box component="img" src={getFileUrl(c.thumbnail_path)} sx={{ height: 72, borderRadius: 1, display: "block" }} />
@@ -137,6 +159,18 @@ export default function SmashcutBuilder() {
               <IconButton size="small" onClick={() => toggleSelect(c)} sx={{ position: "absolute", top: 0, right: 0, bgcolor: "rgba(0,0,0,0.5)" }}>
                 <Close fontSize="small" sx={{ color: "#fff" }} />
               </IconButton>
+              <TextField
+                select
+                size="small"
+                value={speedOf(c.id)}
+                onChange={(e) => setSpeeds((s) => ({ ...s, [c.id]: Number(e.target.value) }))}
+                sx={{ mt: 0.5, width: "100%" }}
+                slotProps={{ htmlInput: { "aria-label": `Playback speed for clip ${i + 1}` } }}
+              >
+                {SMASHCUT_SPEEDS.map((s) => (
+                  <MenuItem key={s} value={s}>{s}x</MenuItem>
+                ))}
+              </TextField>
             </Box>
           ))}
         </Box>
