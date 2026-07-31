@@ -12,6 +12,7 @@ import {
   IconButton,
   Radio,
   RadioGroup,
+  Switch,
   TextField,
   Typography,
 } from "@mui/material";
@@ -27,6 +28,7 @@ export default function SmashcutBuilder() {
   const [name, setName] = useState("");
   const [transition, setTransition] = useState<"seamless" | "black">("seamless");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [firstSegmentOnly, setFirstSegmentOnly] = useState(false);
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,9 +57,14 @@ export default function SmashcutBuilder() {
   const lockRes = selected.length > 0 ? { w: selected[0].width, h: selected[0].height } : null;
   const selectedIds = useMemo(() => new Set(selected.map((c) => c.id)), [selected]);
 
-  const visible = clips.filter(
-    (c) => !lockRes || (c.width === lockRes.w && c.height === lockRes.h) || selectedIds.has(c.id),
-  );
+  // A clip that is already picked always stays visible, whatever the filters say — otherwise
+  // it vanishes from the grid while still counting toward the build, which reads as a bug.
+  const visible = clips.filter((c) => {
+    if (selectedIds.has(c.id)) return true;
+    if (lockRes && (c.width !== lockRes.w || c.height !== lockRes.h)) return false;
+    if (firstSegmentOnly && c.index !== 0) return false;
+    return true;
+  });
 
   const toggleSelect = (clip: SegmentClip) => {
     if (selectedIds.has(clip.id)) {
@@ -95,10 +102,22 @@ export default function SmashcutBuilder() {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
         <Typography variant="h5">Smashcut Builder</Typography>
-        <FormControlLabel
-          control={<Radio checked={favoritesOnly} onClick={() => setFavoritesOnly((v) => !v)} />}
-          label="Favorites only"
-        />
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={firstSegmentOnly}
+                onChange={(e) => setFirstSegmentOnly(e.target.checked)}
+              />
+            }
+            label="Only show first segment video clips"
+          />
+          <FormControlLabel
+            control={<Radio checked={favoritesOnly} onClick={() => setFavoritesOnly((v) => !v)} />}
+            label="Favorites only"
+          />
+        </Box>
       </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Pick clips in the order you want them. The first pick locks the resolution; others are filtered to match.
