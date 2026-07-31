@@ -513,6 +513,8 @@ export interface SmashcutBody {
   name: string;
   segment_ids: string[];
   transition: "seamless" | "black";
+  /** Per-clip playback speed, aligned 1:1 with segment_ids. <1 slow-motion, >1 fast-forward. */
+  clip_speeds?: number[];
 }
 
 export interface FavoriteToggleResponse {
