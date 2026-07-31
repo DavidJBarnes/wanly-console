@@ -15,13 +15,10 @@ import {
 } from "@mui/material";
 import {
   Groups,
-  PlayArrow,
   HourglassEmpty,
   QuestionAnswer,
-  ErrorOutline,
   Timer,
-  Movie,
-  CheckCircle,
+  Schedule,
 } from "@mui/icons-material";
 import { getStats, getWorkers } from "../api/client";
 import type { StatsResponse, WorkerResponse } from "../api/types";
@@ -34,7 +31,8 @@ function formatRunTime(seconds: number): string {
   return `${m}m ${s}s`;
 }
 
-function formatVideoTime(seconds: number): string {
+/** Longer-form duration for totals that can run to hours. */
+function formatLongDuration(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
@@ -129,14 +127,10 @@ export default function Dashboard() {
   }
 
   const onlineWorkers = workers.filter((w) => w.status !== "offline").length;
-  const runningSegments =
-    (stats?.segments_by_status.processing ?? 0) + (stats?.segments_by_status.claimed ?? 0);
   const pendingJobs = stats?.jobs_by_status.pending ?? 0;
   const awaitingJobs = stats?.jobs_by_status.awaiting ?? 0;
-  const failedSegments = stats?.segments_by_status.failed ?? 0;
-  const avgRunTime = stats?.avg_segment_run_time;
-  const totalVideoTime = stats?.total_video_time ?? 0;
-  const totalCompleted = stats?.total_segments_completed ?? 0;
+  const avgRunTime = stats?.avg_segment_run_time_24h;
+  const totalQueueTime = stats?.total_queue_time ?? 0;
 
   return (
     <Box>
@@ -151,14 +145,6 @@ export default function Dashboard() {
             value={onlineWorkers}
             color="#4caf50"
             icon={<Groups />}
-          />
-        </Grid>
-        <Grid size={{ xs: 6, sm: 4, md: 3 }}>
-          <StatCard
-            label="Running Segments"
-            value={runningSegments}
-            color="#2196f3"
-            icon={<PlayArrow />}
           />
         </Grid>
         <Grid size={{ xs: 6, sm: 4, md: 3 }}>
@@ -179,15 +165,7 @@ export default function Dashboard() {
         </Grid>
         <Grid size={{ xs: 6, sm: 4, md: 3 }}>
           <StatCard
-            label="Failed Segments"
-            value={failedSegments}
-            color="#f44336"
-            icon={<ErrorOutline />}
-          />
-        </Grid>
-        <Grid size={{ xs: 6, sm: 4, md: 3 }}>
-          <StatCard
-            label="Avg Run Time"
+            label="Avg Run Time (last 24 hrs)"
             value={avgRunTime != null ? formatRunTime(avgRunTime) : "-"}
             color="#ff9800"
             icon={<Timer />}
@@ -195,18 +173,10 @@ export default function Dashboard() {
         </Grid>
         <Grid size={{ xs: 6, sm: 4, md: 3 }}>
           <StatCard
-            label="Total Video Time"
-            value={formatVideoTime(totalVideoTime)}
+            label="Total Queue Time"
+            value={formatLongDuration(totalQueueTime)}
             color="#9c27b0"
-            icon={<Movie />}
-          />
-        </Grid>
-        <Grid size={{ xs: 6, sm: 4, md: 3 }}>
-          <StatCard
-            label="Total Completed"
-            value={totalCompleted}
-            color="#4caf50"
-            icon={<CheckCircle />}
+            icon={<Schedule />}
           />
         </Grid>
       </Grid>
