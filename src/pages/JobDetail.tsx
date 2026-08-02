@@ -2016,6 +2016,7 @@ function SegmentModal({
         presetUri: srcType === "preset" ? lastSegment.faceswap_image ?? null : null,
         facesIndex: lastSegment.faceswap_faces_index ?? DEFAULT_FACESWAP_FACES_INDEX,
         facesOrder: lastSegment.faceswap_faces_order ?? DEFAULT_FACESWAP_FACES_ORDER,
+        seedFaceswap: lastSegment.seed_faceswap ?? false,
       }));
       setStartImageMode("auto");
       setStartImagePath(null);
@@ -2148,6 +2149,7 @@ function SegmentModal({
         faceswap_image: faceswapImageUri,
         faceswap_faces_index: faceswap.enabled ? faceswap.facesIndex : null,
         faceswap_faces_order: faceswap.enabled ? faceswap.facesOrder : null,
+        seed_faceswap: faceswap.enabled && faceswap.seedFaceswap,
         loras:
           loraSlots.length > 0
             ? loraSlots.map((l) => ({

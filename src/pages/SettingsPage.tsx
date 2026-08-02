@@ -7,8 +7,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  FormControlLabel,
-  Switch,
   TextField,
   Typography,
   useMediaQuery,
@@ -26,11 +24,9 @@ export default function SettingsPage() {
   const [input2, setInput2] = useState("");
   const {
     negativePrompt,
-    seedFaceswap,
     loaded,
     fetchSettings,
     saveSettings,
-    setSeedFaceswap,
     setNegativePrompt,
   } = useSettingsStore();
   const [saving, setSaving] = useState(false);
@@ -59,7 +55,6 @@ export default function SettingsPage() {
     try {
       await saveSettings({
         negative_prompt: negativePrompt,
-        seed_faceswap: seedFaceswap,
       });
       setSaved(true);
     } catch (err) {
@@ -199,22 +194,6 @@ export default function SettingsPage() {
                 helperText="Sent as negative conditioning to ComfyUI"
                 sx={{ mt: 2, width: "100%", maxWidth: 500 }}
               />
-              <Box sx={{ mt: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={seedFaceswap}
-                      onChange={(e) => setSeedFaceswap(e.target.checked)}
-                    />
-                  }
-                  label="Seed re-anchor (faceswap continuation seed)"
-                />
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -0.5 }}>
-                  Multi-segment: faceswap each segment's last frame to the canonical identity before it
-                  seeds the next segment. Falls back to the raw frame when no face is detected. Only fires
-                  when a later segment exists.
-                </Typography>
-              </Box>
               <Box sx={{ mt: 2 }}>
                 <Button
                   variant="contained"
