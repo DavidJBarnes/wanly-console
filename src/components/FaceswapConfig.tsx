@@ -101,48 +101,54 @@ export default function FaceswapConfig({
           segment, so identity does not drift across a continuation. Does not alter the video
           itself. Falls back to the raw frame when no face is detected.
         </Typography>
+        {state.enabled && state.seedFaceswap && (
+          <Typography variant="caption" color="warning.main" sx={{ display: "block", mb: 1 }}>
+            Both are on. The whole-video swap already swaps the frame the next segment seeds
+            from, so re-anchoring swaps an already-swapped face a second time — redundant, and
+            it can soften the result. Re-anchor is meant for when the video swap is off.
+          </Typography>
+        )}
         {(state.enabled || state.seedFaceswap) && (
           <Box sx={{ mt: 1 }}>
-            {state.enabled && (
-              <>
-                <TextField
-                  label="Method"
-                  select
-                  size="small"
-                  fullWidth
-                  value={state.method}
-                  onChange={(e) => update({ method: e.target.value })}
-                  sx={{ mb: 1 }}
-                >
-                  <MenuItem value="reactor">ReActor</MenuItem>
-                  <MenuItem value="facefusion">FaceFusion</MenuItem>
-                </TextField>
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
-                  <TextField
-                    label="Faces Index"
-                    size="small"
-                    value={state.facesIndex}
-                    onChange={(e) => update({ facesIndex: e.target.value })}
-                    sx={{ flex: 1, minWidth: 120 }}
-                  />
-                  <TextField
-                    label="Faces Order"
-                    size="small"
-                    select
-                    value={state.facesOrder}
-                    onChange={(e) => update({ facesOrder: e.target.value })}
-                    sx={{ flex: 1, minWidth: 120 }}
-                  >
-                    <MenuItem value="left-right">Left → Right</MenuItem>
-                    <MenuItem value="right-left">Right → Left</MenuItem>
-                    <MenuItem value="top-bottom">Top → Bottom</MenuItem>
-                    <MenuItem value="bottom-top">Bottom → Top</MenuItem>
-                    <MenuItem value="large-small">Large → Small</MenuItem>
-                    <MenuItem value="small-large">Small → Large</MenuItem>
-                  </TextField>
-                </Box>
-              </>
-            )}
+            {/* Method and face selection apply to BOTH swaps: the seed re-anchor runs the
+                same node stack on one still. With two people in frame, faces order/index is
+                what stops the swap landing on the wrong face. */}
+            <TextField
+              label="Method"
+              select
+              size="small"
+              fullWidth
+              value={state.method}
+              onChange={(e) => update({ method: e.target.value })}
+              sx={{ mb: 1 }}
+            >
+              <MenuItem value="reactor">ReActor</MenuItem>
+              <MenuItem value="facefusion">FaceFusion</MenuItem>
+            </TextField>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
+              <TextField
+                label="Faces Index"
+                size="small"
+                value={state.facesIndex}
+                onChange={(e) => update({ facesIndex: e.target.value })}
+                sx={{ flex: 1, minWidth: 120 }}
+              />
+              <TextField
+                label="Faces Order"
+                size="small"
+                select
+                value={state.facesOrder}
+                onChange={(e) => update({ facesOrder: e.target.value })}
+                sx={{ flex: 1, minWidth: 120 }}
+              >
+                <MenuItem value="left-right">Left → Right</MenuItem>
+                <MenuItem value="right-left">Right → Left</MenuItem>
+                <MenuItem value="top-bottom">Top → Bottom</MenuItem>
+                <MenuItem value="bottom-top">Bottom → Top</MenuItem>
+                <MenuItem value="large-small">Large → Small</MenuItem>
+                <MenuItem value="small-large">Small → Large</MenuItem>
+              </TextField>
+            </Box>
             <ToggleButtonGroup
               value={state.sourceType}
               exclusive
