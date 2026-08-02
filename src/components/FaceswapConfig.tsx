@@ -29,6 +29,9 @@ export interface FaceswapConfigState {
   presetUri: string | null;
   facesIndex: string;
   facesOrder: string;
+  /** Also re-anchor the continuation seed: faceswap this segment's last frame to the same
+   *  face before it seeds the next segment. Uses the face selected above. */
+  seedFaceswap: boolean;
 }
 
 export function defaultFaceswapState(overrides?: Partial<FaceswapConfigState>): FaceswapConfigState {
@@ -40,6 +43,7 @@ export function defaultFaceswapState(overrides?: Partial<FaceswapConfigState>): 
     presetUri: null,
     facesIndex: DEFAULT_FACESWAP_FACES_INDEX,
     facesOrder: DEFAULT_FACESWAP_FACES_ORDER,
+    seedFaceswap: false,
     ...overrides,
   };
 }
@@ -118,6 +122,21 @@ export default function FaceswapConfig({
                 <MenuItem value="small-large">Small → Large</MenuItem>
               </TextField>
             </Box>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={state.seedFaceswap}
+                  onChange={(e) => update({ seedFaceswap: e.target.checked })}
+                />
+              }
+              label="Re-anchor continuation seed"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -0.5, mb: 1 }}>
+              Faceswaps this segment's last frame to the face above before it seeds the next
+              segment, so identity does not drift across a continuation. Falls back to the raw
+              frame when no face is detected.
+            </Typography>
             <ToggleButtonGroup
               value={state.sourceType}
               exclusive

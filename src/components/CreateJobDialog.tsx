@@ -441,6 +441,7 @@ export default function CreateJobDialog({
           faceswap_faces_index: faceswap.enabled ? faceswap.facesIndex : null,
           negative_prompt: negativePrompt.trim() || null,
           faceswap_faces_order: faceswap.enabled ? faceswap.facesOrder : null,
+          seed_faceswap: faceswap.enabled && faceswap.seedFaceswap,
         },
       };
 
