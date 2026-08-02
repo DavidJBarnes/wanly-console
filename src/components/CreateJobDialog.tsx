@@ -435,13 +435,13 @@ export default function CreateJobDialog({
                 }))
               : null,
           faceswap_enabled: faceswap.enabled,
-          faceswap_method: faceswap.enabled ? faceswap.method : null,
-          faceswap_source_type: faceswap.enabled ? faceswap.sourceType : null,
-          faceswap_image: faceswap.enabled && faceswap.sourceType === "preset" ? faceswap.presetUri : null,
+          faceswap_method: faceswap.enabled || faceswap.seedFaceswap ? faceswap.method : null,
+          faceswap_source_type: faceswap.enabled || faceswap.seedFaceswap ? faceswap.sourceType : null,
+          faceswap_image: (faceswap.enabled || faceswap.seedFaceswap) && faceswap.sourceType === "preset" ? faceswap.presetUri : null,
           faceswap_faces_index: faceswap.enabled ? faceswap.facesIndex : null,
           negative_prompt: negativePrompt.trim() || null,
           faceswap_faces_order: faceswap.enabled ? faceswap.facesOrder : null,
-          seed_faceswap: faceswap.enabled && faceswap.seedFaceswap,
+          seed_faceswap: faceswap.seedFaceswap,
         },
       };
 
@@ -450,10 +450,11 @@ export default function CreateJobDialog({
       if (startingImage && !reuseHash) {
         formData.append("starting_image", startingImage);
       }
-      if (faceswap.enabled && faceswap.sourceType === "upload" && faceswap.file) {
+      // a face is needed for a whole-video swap OR a seed-only re-anchor
+      if ((faceswap.enabled || faceswap.seedFaceswap) && faceswap.sourceType === "upload" && faceswap.file) {
         formData.append("faceswap_image", faceswap.file);
       }
-      if (faceswap.enabled && faceswap.sourceType === "start_frame" && startingImage) {
+      if ((faceswap.enabled || faceswap.seedFaceswap) && faceswap.sourceType === "start_frame" && startingImage) {
         formData.append("faceswap_image", startingImage);
       }
 
