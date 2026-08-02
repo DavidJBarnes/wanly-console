@@ -2148,8 +2148,8 @@ function SegmentModal({
         faceswap_method: faceswap.enabled || faceswap.seedFaceswap ? faceswap.method : null,
         faceswap_source_type: faceswap.enabled || faceswap.seedFaceswap ? faceswap.sourceType : null,
         faceswap_image: faceswapImageUri,
-        faceswap_faces_index: faceswap.enabled ? faceswap.facesIndex : null,
-        faceswap_faces_order: faceswap.enabled ? faceswap.facesOrder : null,
+        faceswap_faces_index: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesIndex : null,
+        faceswap_faces_order: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesOrder : null,
         seed_faceswap: faceswap.seedFaceswap,
         loras:
           loraSlots.length > 0
