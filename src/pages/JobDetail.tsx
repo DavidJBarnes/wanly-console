@@ -2117,7 +2117,8 @@ function SegmentModal({
     setSubmitting(true);
     try {
       let faceswapImageUri: string | null = null;
-      if (faceswap.enabled) {
+      // face is needed for a whole-video swap OR a seed-only re-anchor
+      if (faceswap.enabled || faceswap.seedFaceswap) {
         if (faceswap.sourceType === "preset") {
           faceswapImageUri = faceswap.presetUri;
         } else if (faceswap.sourceType === "start_frame") {
@@ -2144,12 +2145,12 @@ function SegmentModal({
         speed,
         start_image: startImageUri,
         faceswap_enabled: faceswap.enabled,
-        faceswap_method: faceswap.enabled ? faceswap.method : null,
-        faceswap_source_type: faceswap.enabled ? faceswap.sourceType : null,
+        faceswap_method: faceswap.enabled || faceswap.seedFaceswap ? faceswap.method : null,
+        faceswap_source_type: faceswap.enabled || faceswap.seedFaceswap ? faceswap.sourceType : null,
         faceswap_image: faceswapImageUri,
         faceswap_faces_index: faceswap.enabled ? faceswap.facesIndex : null,
         faceswap_faces_order: faceswap.enabled ? faceswap.facesOrder : null,
-        seed_faceswap: faceswap.enabled && faceswap.seedFaceswap,
+        seed_faceswap: faceswap.seedFaceswap,
         loras:
           loraSlots.length > 0
             ? loraSlots.map((l) => ({

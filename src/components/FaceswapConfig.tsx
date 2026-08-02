@@ -29,8 +29,9 @@ export interface FaceswapConfigState {
   presetUri: string | null;
   facesIndex: string;
   facesOrder: string;
-  /** Also re-anchor the continuation seed: faceswap this segment's last frame to the same
-   *  face before it seeds the next segment. Uses the face selected above. */
+  /** Re-anchor the continuation seed: faceswap this segment's last frame to the selected
+   *  face before it seeds the next segment. INDEPENDENT of `enabled` — the seed can be
+   *  re-anchored without swapping the video. Both share the same face source picker. */
   seedFaceswap: boolean;
 }
 
@@ -84,59 +85,64 @@ export default function FaceswapConfig({
           }
           label="Enable Faceswap"
         />
-        {state.enabled && (
-          <Box sx={{ mt: 1 }}>
-            <TextField
-              label="Method"
-              select
-              size="small"
-              fullWidth
-              value={state.method}
-              onChange={(e) => update({ method: e.target.value })}
-              sx={{ mb: 1 }}
-            >
-              <MenuItem value="reactor">ReActor</MenuItem>
-              <MenuItem value="facefusion">FaceFusion</MenuItem>
-            </TextField>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
-              <TextField
-                label="Faces Index"
-                size="small"
-                value={state.facesIndex}
-                onChange={(e) => update({ facesIndex: e.target.value })}
-                sx={{ flex: 1, minWidth: 120 }}
-              />
-              <TextField
-                label="Faces Order"
-                size="small"
-                select
-                value={state.facesOrder}
-                onChange={(e) => update({ facesOrder: e.target.value })}
-                sx={{ flex: 1, minWidth: 120 }}
-              >
-                <MenuItem value="left-right">Left → Right</MenuItem>
-                <MenuItem value="right-left">Right → Left</MenuItem>
-                <MenuItem value="top-bottom">Top → Bottom</MenuItem>
-                <MenuItem value="bottom-top">Bottom → Top</MenuItem>
-                <MenuItem value="large-small">Large → Small</MenuItem>
-                <MenuItem value="small-large">Small → Large</MenuItem>
-              </TextField>
-            </Box>
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={state.seedFaceswap}
-                  onChange={(e) => update({ seedFaceswap: e.target.checked })}
-                />
-              }
-              label="Re-anchor continuation seed"
+        {/* Independent of the whole-video swap: re-anchoring only touches the single frame
+            that seeds the next segment. Both switches share the face source picker below. */}
+        <FormControlLabel
+          control={
+            <Switch
+              checked={state.seedFaceswap}
+              onChange={(e) => update({ seedFaceswap: e.target.checked })}
             />
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -0.5, mb: 1 }}>
-              Faceswaps this segment's last frame to the face above before it seeds the next
-              segment, so identity does not drift across a continuation. Falls back to the raw
-              frame when no face is detected.
-            </Typography>
+          }
+          label="Re-anchor continuation seed"
+        />
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -0.5, mb: 1 }}>
+          Faceswaps this segment's last frame to the face below before it seeds the next
+          segment, so identity does not drift across a continuation. Does not alter the video
+          itself. Falls back to the raw frame when no face is detected.
+        </Typography>
+        {(state.enabled || state.seedFaceswap) && (
+          <Box sx={{ mt: 1 }}>
+            {state.enabled && (
+              <>
+                <TextField
+                  label="Method"
+                  select
+                  size="small"
+                  fullWidth
+                  value={state.method}
+                  onChange={(e) => update({ method: e.target.value })}
+                  sx={{ mb: 1 }}
+                >
+                  <MenuItem value="reactor">ReActor</MenuItem>
+                  <MenuItem value="facefusion">FaceFusion</MenuItem>
+                </TextField>
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
+                  <TextField
+                    label="Faces Index"
+                    size="small"
+                    value={state.facesIndex}
+                    onChange={(e) => update({ facesIndex: e.target.value })}
+                    sx={{ flex: 1, minWidth: 120 }}
+                  />
+                  <TextField
+                    label="Faces Order"
+                    size="small"
+                    select
+                    value={state.facesOrder}
+                    onChange={(e) => update({ facesOrder: e.target.value })}
+                    sx={{ flex: 1, minWidth: 120 }}
+                  >
+                    <MenuItem value="left-right">Left → Right</MenuItem>
+                    <MenuItem value="right-left">Right → Left</MenuItem>
+                    <MenuItem value="top-bottom">Top → Bottom</MenuItem>
+                    <MenuItem value="bottom-top">Bottom → Top</MenuItem>
+                    <MenuItem value="large-small">Large → Small</MenuItem>
+                    <MenuItem value="small-large">Small → Large</MenuItem>
+                  </TextField>
+                </Box>
+              </>
+            )}
             <ToggleButtonGroup
               value={state.sourceType}
               exclusive
@@ -221,7 +227,7 @@ export default function FaceswapConfig({
     <Typography variant="subtitle2">
       Faceswap
       <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-        {state.enabled ? `ON — ${state.method}` : "OFF"}
+        {state.enabled ? `ON — ${state.method}` : state.seedFaceswap ? "seed re-anchor only" : "OFF"}
       </Typography>
     </Typography>
   );
