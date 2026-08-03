@@ -173,6 +173,15 @@ export interface SegmentResponse {
   trim_end_frames: number;
   motion_keywords: string[] | null;
   motion_magnitude: number | null;
+  identity_mean_cos: number | null;
+  identity_mean_cos_ref: number | null;
+  identity_min_cos: number | null;
+  identity_slope: number | null;
+  identity_frames: number | null;
+  identity_no_face: number | null;
+  identity_face_px_p50: number | null;
+  identity_yaw_max: number | null;
+  identity_metrics: Record<string, unknown> | null;
   reference_frames: string[] | null;
   negative_prompt: string | null;
   status: SegmentStatus;
@@ -263,6 +272,19 @@ export interface JobListResponse {
   offset: number;
 }
 
+/** Job-level identity, derived from per-segment scores. Two means kept separate:
+ *  mean_cos = drift from the start frame, mean_cos_ref = is it the character. */
+export interface IdentityAggregate {
+  mean_cos: number | null;
+  mean_cos_ref: number | null;
+  slope: number | null;
+  frames: number;
+  no_face: number;
+  scored_segments: number;
+  worst_segment_index: number | null;
+  worst_segment_slope: number | null;
+}
+
 export interface JobDetailResponse extends JobResponse {
   segments: SegmentResponse[];
   videos: VideoResponse[];
@@ -270,6 +292,7 @@ export interface JobDetailResponse extends JobResponse {
   completed_segment_count: number;
   total_run_time: number;
   total_video_time: number;
+  identity: IdentityAggregate | null;
 }
 
 export interface JobUpdate {

@@ -22,6 +22,7 @@ import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, Play
 import { useNavigate } from "react-router";
 import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite } from "../api/client";
 import type { JobDetailResponse, JobResponse } from "../api/types";
+import IdentityChip from "../components/IdentityChip";
 import { DEFAULT_JOB_FETCH_LIMIT, POLL_INTERVAL_FAST } from "../constants";
 import FavoriteHeart from "../components/FavoriteHeart";
 import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
@@ -406,9 +407,12 @@ export default function Videos() {
                     </Box>
                   </CardActionArea>
                   <CardContent sx={{ pb: "12px !important" }}>
-                    <Typography variant="subtitle2" noWrap sx={{ mb: 0.5 }}>
-                      {job.name}
-                    </Typography>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.5 }}>
+                      <Typography variant="subtitle2" noWrap sx={{ flex: 1, minWidth: 0 }}>
+                        {job.name}
+                      </Typography>
+                      <IdentityChip aggregate={jobDetails[job.id]?.identity ?? null} />
+                    </Box>
                     {job.tags && (
                       <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.5 }}>
                         {job.tags.split(",").map((tag, i) => {
