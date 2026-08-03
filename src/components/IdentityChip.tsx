@@ -62,9 +62,17 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
   // For a job badge, headline the worst segment's cumulative score rather than the average:
   // an average over segments hides a late collapse, which is the shape multi-segment drift
   // actually takes.
-  const cumulative = aggregate
-    ? aggregate.min_cos_ref ?? aggregate.mean_cos_ref ?? aggregate.mean_cos
-    : meanRef ?? mean;
+  // Trajectory against the job's ground truth: seg0 frame 0. Loss is start - end, and a
+  // continuation begins where the previous segment ended, so these chain across the job.
+  const startRef = segment ? segment.identity_start_cos_ref : aggregate?.start_cos_ref ?? null;
+  const endRef = segment ? segment.identity_end_cos_ref : aggregate?.end_cos_ref ?? null;
+  const loss = startRef != null && endRef != null ? startRef - endRef : null;
+
+  const cumulative =
+    endRef ??
+    (aggregate
+      ? aggregate.min_cos_ref ?? aggregate.mean_cos_ref ?? aggregate.mean_cos
+      : meanRef ?? mean);
   const local = mean;
   const showsBoth = meanRef != null && mean != null && Math.abs(meanRef - mean) > 0.005;
   const slope = segment ? segment.identity_slope : aggregate?.slope ?? null;
@@ -108,7 +116,11 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
           color={band(cumulative)}
           variant="outlined"
           icon={drifting ? <TrendingDownIcon /> : <TrendingFlatIcon />}
-          label={`${label ? `${label} ` : ""}${fmt(cumulative, 2)}${showsBoth ? ` (${fmt(local, 2)})` : ""}`}
+          label={
+            startRef != null && endRef != null
+              ? `${label ? `${label} ` : ""}${fmt(startRef, 2)}→${fmt(endRef, 2)}`
+              : `${label ? `${label} ` : ""}${fmt(cumulative, 2)}${showsBoth ? ` (${fmt(local, 2)})` : ""}`
+          }
           onClick={() => setOpen(true)}
           sx={{ cursor: "pointer" }}
         />
@@ -126,6 +138,17 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
 
           <Table size="small">
             <TableBody>
+              {startRef != null && endRef != null && (
+                <TableRow>
+                  <TableCell>trajectory</TableCell>
+                  <TableCell align="right">
+                    <strong>{fmt(startRef)} → {fmt(endRef)}</strong>
+                  </TableCell>
+                  <TableCell sx={{ color: "text.secondary" }}>
+                    lost {loss == null ? "—" : loss.toFixed(3)} against ground truth
+                  </TableCell>
+                </TableRow>
+              )}
               <TableRow>
                 <TableCell>vs job reference</TableCell>
                 <TableCell align="right"><strong>{fmt(meanRef)}</strong></TableCell>
