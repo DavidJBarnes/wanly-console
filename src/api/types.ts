@@ -283,6 +283,10 @@ export interface IdentityAggregate {
   scored_segments: number;
   worst_segment_index: number | null;
   worst_segment_slope: number | null;
+  /** Cumulative low point across the job's segments, and where it happened. A job can
+   *  average well while a late segment has lost the character entirely. */
+  min_cos_ref: number | null;
+  min_cos_ref_segment_index: number | null;
 }
 
 export interface JobDetailResponse extends JobResponse {
