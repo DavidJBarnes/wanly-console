@@ -50,6 +50,23 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
 
   const mean = segment ? segment.identity_mean_cos : aggregate?.mean_cos ?? null;
   const meanRef = segment ? segment.identity_mean_cos_ref : aggregate?.mean_cos_ref ?? null;
+
+  // HEADLINE THE CUMULATIVE NUMBER, not the per-segment one.
+  //
+  // "vs start" measures drift within a segment, from ITS OWN first frame. For a
+  // continuation that first frame is the previous segment's LAST frame, which has already
+  // drifted - so a segment can look internally stable while identity has collapsed since
+  // the job began. Observed on a real 2-segment job: seg1 read 0.785 vs start (green,
+  // "healthy") while sitting at 0.544 vs the job's original image - visibly a different
+  // person. Showing the reassuring number is worse than showing none.
+  // For a job badge, headline the worst segment's cumulative score rather than the average:
+  // an average over segments hides a late collapse, which is the shape multi-segment drift
+  // actually takes.
+  const cumulative = aggregate
+    ? aggregate.min_cos_ref ?? aggregate.mean_cos_ref ?? aggregate.mean_cos
+    : meanRef ?? mean;
+  const local = mean;
+  const showsBoth = meanRef != null && mean != null && Math.abs(meanRef - mean) > 0.005;
   const slope = segment ? segment.identity_slope : aggregate?.slope ?? null;
   const frames = segment ? segment.identity_frames : aggregate?.frames ?? null;
   const noFace = segment ? segment.identity_no_face : aggregate?.no_face ?? null;
@@ -71,8 +88,16 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
       <Tooltip
         title={
           <>
-            <div>{fmt(mean)} vs start frame — how far this generation drifted</div>
-            <div>{fmt(meanRef)} vs identity reference — is it the character</div>
+            <div>
+              <strong>{fmt(meanRef)}</strong> vs the job's reference — cumulative, since the job began
+            </div>
+            <div>{fmt(mean)} vs this segment's own start frame — drift within this segment only</div>
+            {showsBoth && (
+              <div style={{ marginTop: 4 }}>
+                A continuation starts from the previous segment's last frame, so the second
+                number can look healthy while identity has already been lost.
+              </div>
+            )}
             {drift != null && <div>drift {drift >= 0 ? "+" : ""}{drift.toFixed(3)} over {frames} frames</div>}
             {!!noFace && <div>{noFace} frames with no face detected</div>}
           </>
@@ -80,10 +105,10 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
       >
         <Chip
           size={size}
-          color={band(mean)}
+          color={band(cumulative)}
           variant="outlined"
           icon={drifting ? <TrendingDownIcon /> : <TrendingFlatIcon />}
-          label={`${label ? `${label} ` : ""}${fmt(mean, 2)}`}
+          label={`${label ? `${label} ` : ""}${fmt(cumulative, 2)}${showsBoth ? ` (${fmt(local, 2)})` : ""}`}
           onClick={() => setOpen(true)}
           sx={{ cursor: "pointer" }}
         />
@@ -93,22 +118,27 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
         <DialogTitle>Identity{segment ? ` — segment ${segment.index}` : ""}</DialogTitle>
         <DialogContent>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-            Two references, because they answer different questions. A low mean with a flat
-            line is a weak-identity problem (dataset or LoRA); a good mean with a steep line is
-            drift over time. The fixes are different.
+            The headline is the CUMULATIVE number — how far identity has moved since the job
+            started. A continuation segment begins from the previous segment's last frame, so
+            its "own start frame" score can look healthy while the character has already been
+            lost. Judge a job by the cumulative column.
           </Typography>
 
           <Table size="small">
             <TableBody>
               <TableRow>
-                <TableCell>vs start frame</TableCell>
-                <TableCell align="right"><strong>{fmt(mean)}</strong></TableCell>
-                <TableCell sx={{ color: "text.secondary" }}>drift of this generation</TableCell>
+                <TableCell>vs job reference</TableCell>
+                <TableCell align="right"><strong>{fmt(meanRef)}</strong></TableCell>
+                <TableCell sx={{ color: "text.secondary" }}>
+                  cumulative — since the job began
+                </TableCell>
               </TableRow>
               <TableRow>
-                <TableCell>vs identity reference</TableCell>
-                <TableCell align="right"><strong>{fmt(meanRef)}</strong></TableCell>
-                <TableCell sx={{ color: "text.secondary" }}>is it the character</TableCell>
+                <TableCell>vs own start frame</TableCell>
+                <TableCell align="right">{fmt(mean)}</TableCell>
+                <TableCell sx={{ color: "text.secondary" }}>
+                  within this segment only
+                </TableCell>
               </TableRow>
               <TableRow>
                 <TableCell>drift over clip</TableCell>
@@ -132,6 +162,15 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
                   <TableCell align="right">{Math.round(segment.identity_face_px_p50)} px</TableCell>
                   <TableCell sx={{ color: "text.secondary" }}>
                     max yaw {segment.identity_yaw_max == null ? "—" : `${Math.round(segment.identity_yaw_max)}°`}
+                  </TableCell>
+                </TableRow>
+              )}
+              {aggregate?.min_cos_ref != null && (
+                <TableRow>
+                  <TableCell>lowest segment</TableCell>
+                  <TableCell align="right"><strong>{fmt(aggregate.min_cos_ref)}</strong></TableCell>
+                  <TableCell sx={{ color: "text.secondary" }}>
+                    segment #{aggregate.min_cos_ref_segment_index} — cumulative low point
                   </TableCell>
                 </TableRow>
               )}
