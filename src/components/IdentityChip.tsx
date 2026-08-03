@@ -96,17 +96,19 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
       <Tooltip
         title={
           <>
-            <div>
-              <strong>{fmt(meanRef)}</strong> vs the job's reference — cumulative, since the job began
-            </div>
-            <div>{fmt(mean)} vs this segment's own start frame — drift within this segment only</div>
+            {startRef != null && endRef != null ? (
+              <div>
+                <strong>{fmt(startRef)} → {fmt(endRef)}</strong> against segment 0's start
+                frame — lost {loss == null ? "—" : loss.toFixed(3)}
+              </div>
+            ) : (
+              <div><strong>{fmt(meanRef)}</strong> against segment 0's start frame (mean)</div>
+            )}
             {showsBoth && (
-              <div style={{ marginTop: 4 }}>
-                A continuation starts from the previous segment's last frame, so the second
-                number can look healthy while identity has already been lost.
+              <div>{fmt(mean)} within this segment only — a continuation starts from the
+                previous segment's last frame, so this can look healthy when identity is gone
               </div>
             )}
-            {drift != null && <div>drift {drift >= 0 ? "+" : ""}{drift.toFixed(3)} over {frames} frames</div>}
             {!!noFace && <div>{noFace} frames with no face detected</div>}
           </>
         }
@@ -130,10 +132,9 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
         <DialogTitle>Identity{segment ? ` — segment ${segment.index}` : ""}</DialogTitle>
         <DialogContent>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-            The headline is the CUMULATIVE number — how far identity has moved since the job
-            started. A continuation segment begins from the previous segment's last frame, so
-            its "own start frame" score can look healthy while the character has already been
-            lost. Judge a job by the cumulative column.
+            Everything here is measured against <strong>segment 0's start frame</strong> —
+            that image defines the character, and nothing else is used. The headline is the
+            trajectory: where identity started and where it ended. Judge by the loss.
           </Typography>
 
           <Table size="small">
@@ -145,24 +146,28 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
                     <strong>{fmt(startRef)} → {fmt(endRef)}</strong>
                   </TableCell>
                   <TableCell sx={{ color: "text.secondary" }}>
-                    lost {loss == null ? "—" : loss.toFixed(3)} against ground truth
+                    lost {loss == null ? "—" : loss.toFixed(3)} across this segment
                   </TableCell>
                 </TableRow>
               )}
               <TableRow>
-                <TableCell>vs job reference</TableCell>
-                <TableCell align="right"><strong>{fmt(meanRef)}</strong></TableCell>
+                <TableCell>mean vs seg 0 start</TableCell>
+                <TableCell align="right">{fmt(meanRef)}</TableCell>
                 <TableCell sx={{ color: "text.secondary" }}>
-                  cumulative — since the job began
+                  averaged over every frame
                 </TableCell>
               </TableRow>
-              <TableRow>
-                <TableCell>vs own start frame</TableCell>
-                <TableCell align="right">{fmt(mean)}</TableCell>
-                <TableCell sx={{ color: "text.secondary" }}>
-                  within this segment only
-                </TableCell>
-              </TableRow>
+              {/* For segment 0 these two are the SAME image, so one number measured twice.
+                  Showing both implies two independent readings. */}
+              {showsBoth && (
+                <TableRow>
+                  <TableCell>mean vs own start</TableCell>
+                  <TableCell align="right">{fmt(mean)}</TableCell>
+                  <TableCell sx={{ color: "text.secondary" }}>
+                    within this segment only
+                  </TableCell>
+                </TableRow>
+              )}
               <TableRow>
                 <TableCell>drift over clip</TableCell>
                 <TableCell align="right">
