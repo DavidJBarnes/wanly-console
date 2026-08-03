@@ -88,6 +88,7 @@ import type {
   ImageFile,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
+import IdentityChip from "../components/IdentityChip";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import HologramConfig from "../components/HologramConfig";
 import { QRCodeCanvas } from "qrcode.react";
@@ -696,6 +697,7 @@ export default function JobDetail() {
           </IconButton>
         </Tooltip>
         <StatusChip status={job.status} />
+        <IdentityChip aggregate={job.identity} label="identity" size="medium" />
       </Box>
 
       {error && (
@@ -1121,7 +1123,10 @@ export default function JobDetail() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <StatusChip status={seg.status} />
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+                        <StatusChip status={seg.status} />
+                        <IdentityChip segment={seg} />
+                      </Box>
                     </TableCell>
                     <TableCell>
                       {seg.worker_id ? (
@@ -1326,6 +1331,7 @@ export default function JobDetail() {
                         #{seg.index}
                       </Typography>
                       <StatusChip status={seg.status} />
+                      <IdentityChip segment={seg} />
                       <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
                         {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at && (
                           <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
