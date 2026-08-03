@@ -181,6 +181,8 @@ export interface SegmentResponse {
   identity_no_face: number | null;
   identity_face_px_p50: number | null;
   identity_yaw_max: number | null;
+  identity_start_cos_ref: number | null;
+  identity_end_cos_ref: number | null;
   identity_metrics: Record<string, unknown> | null;
   reference_frames: string[] | null;
   negative_prompt: string | null;
@@ -287,6 +289,9 @@ export interface IdentityAggregate {
    *  average well while a late segment has lost the character entirely. */
   min_cos_ref: number | null;
   min_cos_ref_segment_index: number | null;
+  /** Job trajectory: first segment's opening frame -> last segment's closing frame. */
+  start_cos_ref: number | null;
+  end_cos_ref: number | null;
 }
 
 export interface JobDetailResponse extends JobResponse {
