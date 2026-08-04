@@ -16,6 +16,7 @@ import {
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import TrendingFlatIcon from "@mui/icons-material/TrendingFlat";
 import type { SegmentResponse, IdentityAggregate } from "../api/types";
+import IdentityTrajectory from "./IdentityTrajectory";
 
 /** Cosine bands. ArcFace on buffalo_l: ~0.4 is the same-person threshold, 0.6+ is a solid
  *  match, 0.8+ is strong. These are deliberately not "good/bad" — a profile-heavy clip
@@ -133,8 +134,10 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
         <DialogContent>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
             Everything here is measured against <strong>segment 0's start frame</strong> —
-            that image defines the character, and nothing else is used. The headline is the
-            trajectory: where identity started and where it ended. Judge by the loss.
+            that image defines the character, and nothing else is used. Judge by{" "}
+            <strong>mean and min</strong>, not the loss: loss is start minus end, so on a clip
+            that dips and recovers it can point the wrong way. One real segment scored a mean of
+            0.609 while sitting <em>above</em> that at both endpoints.
           </Typography>
 
           <Table size="small">
@@ -213,6 +216,8 @@ export default function IdentityChip({ segment, aggregate, label, size = "small"
               )}
             </TableBody>
           </Table>
+
+          <IdentityTrajectory metrics={segment?.identity_metrics} />
 
           {yawBands && Object.keys(yawBands).length > 0 && (
             <Box sx={{ mt: 2 }}>
