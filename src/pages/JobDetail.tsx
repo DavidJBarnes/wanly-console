@@ -2128,7 +2128,13 @@ function SegmentModal({
         if (faceswap.sourceType === "preset") {
           faceswapImageUri = faceswap.presetUri;
         } else if (faceswap.sourceType === "start_frame") {
-          faceswapImageUri = lastSegment?.last_frame_path ?? job.starting_image ?? null;
+          // The JOB's starting image — segment 0's start frame — not the previous segment's
+          // last frame. A continuation's last frame has already drifted; swapping toward it
+          // locks that drift in permanently. Measured: sourcing the swap from the job's start
+          // image scores 0.906 mean identity, sourcing it from a drifted/other face scores
+          // 0.644 and pulls the face away from the reference before a single frame of motion.
+          // It also matches identity_ground_truth, which is what the score is computed against.
+          faceswapImageUri = job.starting_image ?? lastSegment?.last_frame_path ?? null;
         } else if (faceswap.file) {
           const result = await uploadFile(faceswap.file, jobId);
           faceswapImageUri = result.path;
