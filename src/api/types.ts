@@ -20,6 +20,8 @@ export interface SegmentCreate {
   faceswap_image?: string | null;
   faceswap_faces_order?: string | null;
   faceswap_faces_index?: string | null;
+  faceswap_model?: string | null;
+  faceswap_pixel_boost?: string | null;
   seed_faceswap?: boolean;
   negative_prompt?: string | null;
   auto_finalize?: boolean;
@@ -166,6 +168,8 @@ export interface SegmentResponse {
   faceswap_image: string | null;
   faceswap_faces_order: string | null;
   faceswap_faces_index: string | null;
+  faceswap_model: string | null;
+  faceswap_pixel_boost: string | null;
   seed_faceswap: boolean;
   auto_finalize: boolean;
   transition: string | null;
@@ -578,4 +582,6 @@ export interface SegmentReprocessRequest {
   faceswap_image?: string | null;
   faceswap_faces_order?: string | null;
   faceswap_faces_index?: string | null;
+  faceswap_model?: string | null;
+  faceswap_pixel_boost?: string | null;
 }

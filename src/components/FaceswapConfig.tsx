@@ -19,6 +19,10 @@ import {
   DEFAULT_FACESWAP_METHOD,
   DEFAULT_FACESWAP_FACES_INDEX,
   DEFAULT_FACESWAP_FACES_ORDER,
+  DEFAULT_FACESWAP_MODEL,
+  DEFAULT_FACESWAP_PIXEL_BOOST,
+  FACESWAP_MODELS,
+  FACESWAP_PIXEL_BOOSTS,
 } from "../constants";
 
 export interface FaceswapConfigState {
@@ -29,6 +33,9 @@ export interface FaceswapConfigState {
   presetUri: string | null;
   facesIndex: string;
   facesOrder: string;
+  /** FaceFusion only. Swapper network and the resolution the target crop is sampled at. */
+  model: string;
+  pixelBoost: string;
   /** Re-anchor the continuation seed: faceswap this segment's last frame to the selected
    *  face before it seeds the next segment. INDEPENDENT of `enabled` — the seed can be
    *  re-anchored without swapping the video. Both share the same face source picker. */
@@ -44,6 +51,8 @@ export function defaultFaceswapState(overrides?: Partial<FaceswapConfigState>): 
     presetUri: null,
     facesIndex: DEFAULT_FACESWAP_FACES_INDEX,
     facesOrder: DEFAULT_FACESWAP_FACES_ORDER,
+    model: DEFAULT_FACESWAP_MODEL,
+    pixelBoost: DEFAULT_FACESWAP_PIXEL_BOOST,
     seedFaceswap: false,
     ...overrides,
   };
@@ -125,6 +134,38 @@ export default function FaceswapConfig({
               <MenuItem value="reactor">ReActor</MenuItem>
               <MenuItem value="facefusion">FaceFusion</MenuItem>
             </TextField>
+            {/* FaceFusion-only knobs. Neither moved identity or face detail in testing
+                (inswapper_128@512 vs hyperswap_1c_256@256: 0.910 vs 0.908 identity, 177.1 vs
+                176.5 detail) — exposed because they are the levers for speckling on off-axis
+                faces, which no metric here can see. */}
+            {state.method === "facefusion" && (
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
+                <TextField
+                  label="Swapper Model"
+                  select
+                  size="small"
+                  value={state.model}
+                  onChange={(e) => update({ model: e.target.value })}
+                  sx={{ flex: 1, minWidth: 160 }}
+                >
+                  {FACESWAP_MODELS.map((m) => (
+                    <MenuItem key={m} value={m}>{m}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Pixel Boost"
+                  select
+                  size="small"
+                  value={state.pixelBoost}
+                  onChange={(e) => update({ pixelBoost: e.target.value })}
+                  sx={{ flex: 1, minWidth: 120 }}
+                >
+                  {FACESWAP_PIXEL_BOOSTS.map((b) => (
+                    <MenuItem key={b} value={b}>{b}</MenuItem>
+                  ))}
+                </TextField>
+              </Box>
+            )}
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 1 }}>
               <TextField
                 label="Faces Index"

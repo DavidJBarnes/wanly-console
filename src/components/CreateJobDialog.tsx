@@ -439,6 +439,8 @@ export default function CreateJobDialog({
           faceswap_source_type: faceswap.enabled || faceswap.seedFaceswap ? faceswap.sourceType : null,
           faceswap_image: (faceswap.enabled || faceswap.seedFaceswap) && faceswap.sourceType === "preset" ? faceswap.presetUri : null,
           faceswap_faces_index: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesIndex : null,
+          faceswap_model: faceswap.enabled || faceswap.seedFaceswap ? faceswap.model : null,
+          faceswap_pixel_boost: faceswap.enabled || faceswap.seedFaceswap ? faceswap.pixelBoost : null,
           negative_prompt: negativePrompt.trim() || null,
           faceswap_faces_order: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesOrder : null,
           seed_faceswap: faceswap.seedFaceswap,
