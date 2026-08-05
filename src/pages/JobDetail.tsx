@@ -97,6 +97,8 @@ import {
   DEFAULT_SPEED,
   DEFAULT_FACESWAP_METHOD,
   DEFAULT_FACESWAP_FACES_INDEX,
+  DEFAULT_FACESWAP_MODEL,
+  DEFAULT_FACESWAP_PIXEL_BOOST,
   DEFAULT_FACESWAP_FACES_ORDER,
   MAX_LORAS,
   POLL_INTERVAL_FAST,
@@ -2021,6 +2023,8 @@ function SegmentModal({
         method: lastSegment.faceswap_method ?? DEFAULT_FACESWAP_METHOD,
         presetUri: srcType === "preset" ? lastSegment.faceswap_image ?? null : null,
         facesIndex: lastSegment.faceswap_faces_index ?? DEFAULT_FACESWAP_FACES_INDEX,
+        model: lastSegment.faceswap_model ?? DEFAULT_FACESWAP_MODEL,
+        pixelBoost: lastSegment.faceswap_pixel_boost ?? DEFAULT_FACESWAP_PIXEL_BOOST,
         facesOrder: lastSegment.faceswap_faces_order ?? DEFAULT_FACESWAP_FACES_ORDER,
         seedFaceswap: lastSegment.seed_faceswap ?? false,
       }));
@@ -2161,6 +2165,8 @@ function SegmentModal({
         faceswap_source_type: faceswap.enabled || faceswap.seedFaceswap ? faceswap.sourceType : null,
         faceswap_image: faceswapImageUri,
         faceswap_faces_index: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesIndex : null,
+        faceswap_model: faceswap.enabled || faceswap.seedFaceswap ? faceswap.model : null,
+        faceswap_pixel_boost: faceswap.enabled || faceswap.seedFaceswap ? faceswap.pixelBoost : null,
         faceswap_faces_order: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesOrder : null,
         seed_faceswap: faceswap.seedFaceswap,
         loras:
