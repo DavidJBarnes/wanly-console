@@ -437,7 +437,20 @@ export default function CreateJobDialog({
           faceswap_enabled: faceswap.enabled,
           faceswap_method: faceswap.enabled || faceswap.seedFaceswap ? faceswap.method : null,
           faceswap_source_type: faceswap.enabled || faceswap.seedFaceswap ? faceswap.sourceType : null,
-          faceswap_image: (faceswap.enabled || faceswap.seedFaceswap) && faceswap.sourceType === "preset" ? faceswap.presetUri : null,
+          // "Start Frame" has two shapes: a freshly uploaded File, which goes up as multipart
+          // below, and an image picked from the repo, which is only ever a URI. The multipart
+          // branch is guarded on `startingImage` (the File), so picking from the repo used to
+          // send NO face at all -- and the daemon gates on
+          // `faceswap_enabled AND faceswap_image`, so the swap silently did not run while the
+          // UI still showed Start Frame selected. Pass the URI through here.
+          faceswap_image:
+            (faceswap.enabled || faceswap.seedFaceswap)
+              ? faceswap.sourceType === "preset"
+                ? faceswap.presetUri
+                : faceswap.sourceType === "start_frame" && !startingImage && startingImageUri
+                  ? startingImageUri
+                  : null
+              : null,
           faceswap_faces_index: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesIndex : null,
           faceswap_model: faceswap.enabled || faceswap.seedFaceswap ? faceswap.model : null,
           faceswap_pixel_boost: faceswap.enabled || faceswap.seedFaceswap ? faceswap.pixelBoost : null,
