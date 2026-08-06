@@ -14,6 +14,9 @@ import {
 } from "@mui/material";
 import { ExpandMore } from "@mui/icons-material";
 import { getFileUrl } from "../api/client";
+import type { FaceswapConfigState } from "../lib/faceswapPayload";
+
+export type { FaceswapConfigState };
 import type { FaceswapPreset } from "../api/types";
 import {
   DEFAULT_FACESWAP_METHOD,
@@ -26,22 +29,6 @@ import {
   FACESWAP_PIXEL_BOOSTS,
 } from "../constants";
 
-export interface FaceswapConfigState {
-  enabled: boolean;
-  method: string;
-  sourceType: "upload" | "preset" | "start_frame";
-  file: File | null;
-  presetUri: string | null;
-  facesIndex: string;
-  facesOrder: string;
-  /** FaceFusion only. Swapper network and the resolution the target crop is sampled at. */
-  model: string;
-  pixelBoost: string;
-  /** Re-anchor the continuation seed: faceswap this segment's last frame to the selected
-   *  face before it seeds the next segment. INDEPENDENT of `enabled` — the seed can be
-   *  re-anchored without swapping the video. Both share the same face source picker. */
-  seedFaceswap: boolean;
-}
 
 export function defaultFaceswapState(overrides?: Partial<FaceswapConfigState>): FaceswapConfigState {
   return {

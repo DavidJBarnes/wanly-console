@@ -89,6 +89,7 @@ import type {
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 import IdentityChip from "../components/IdentityChip";
+import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import HologramConfig from "../components/HologramConfig";
 import { QRCodeCanvas } from "qrcode.react";
@@ -2127,23 +2128,20 @@ function SegmentModal({
     setSubmitting(true);
     try {
       let faceswapImageUri: string | null = null;
-      // face is needed for a whole-video swap OR a seed-only re-anchor
+      // face is needed for a whole-video swap OR a seed-only re-anchor.
+      // buildFaceswapFields covers preset and start_frame; only the upload branch needs an
+      // await, and the carry-forward keeps a face the previous segment already resolved.
       if (faceswap.enabled || faceswap.seedFaceswap) {
-        if (faceswap.sourceType === "preset") {
-          faceswapImageUri = faceswap.presetUri;
-        } else if (faceswap.sourceType === "start_frame") {
-          // The JOB's starting image — segment 0's start frame — not the previous segment's
-          // last frame. A continuation's last frame has already drifted; swapping toward it
-          // locks that drift in permanently. Measured: sourcing the swap from the job's start
-          // image scores 0.906 mean identity, sourcing it from a drifted/other face scores
-          // 0.644 and pulls the face away from the reference before a single frame of motion.
-          // It also matches identity_ground_truth, which is what the score is computed against.
-          faceswapImageUri = job.starting_image ?? lastSegment?.last_frame_path ?? null;
-        } else if (faceswap.file) {
-          const result = await uploadFile(faceswap.file, jobId);
-          faceswapImageUri = result.path;
-        } else {
-          faceswapImageUri = lastSegment?.faceswap_image ?? null;
+        faceswapImageUri = resolveFaceswapImage(faceswap, {
+          jobStartingImage: job.starting_image,
+        });
+        if (faceswapImageUri === null) {
+          if (faceswap.file) {
+            const result = await uploadFile(faceswap.file, jobId);
+            faceswapImageUri = result.path;
+          } else {
+            faceswapImageUri = lastSegment?.faceswap_image ?? null;
+          }
         }
       }
 
@@ -2160,15 +2158,9 @@ function SegmentModal({
         duration_seconds: duration,
         speed,
         start_image: startImageUri,
-        faceswap_enabled: faceswap.enabled,
-        faceswap_method: faceswap.enabled || faceswap.seedFaceswap ? faceswap.method : null,
-        faceswap_source_type: faceswap.enabled || faceswap.seedFaceswap ? faceswap.sourceType : null,
+        ...buildFaceswapFields(faceswap, { jobStartingImage: job.starting_image }),
+        // the upload / carry-forward branches above can override what the builder resolved
         faceswap_image: faceswapImageUri,
-        faceswap_faces_index: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesIndex : null,
-        faceswap_model: faceswap.enabled || faceswap.seedFaceswap ? faceswap.model : null,
-        faceswap_pixel_boost: faceswap.enabled || faceswap.seedFaceswap ? faceswap.pixelBoost : null,
-        faceswap_faces_order: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesOrder : null,
-        seed_faceswap: faceswap.seedFaceswap,
         loras:
           loraSlots.length > 0
             ? loraSlots.map((l) => ({

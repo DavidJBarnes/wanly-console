@@ -29,6 +29,7 @@ import SettingsSignature from "./SettingsSignature";
 import { createJob, getFileUrl, getFaceswapPresets, sha256Hex, checkStartingImageExists } from "../api/client";
 import type { JobCreate, LoraListItem, FaceswapPreset } from "../api/types";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "./FaceswapConfig";
+import { buildFaceswapFields, shouldAttachStartImageAsFace } from "../lib/faceswapPayload";
 import {
   DEFAULT_WIDTH,
   DEFAULT_HEIGHT,
@@ -434,29 +435,11 @@ export default function CreateJobDialog({
                   low_weight: l.low_weight,
                 }))
               : null,
-          faceswap_enabled: faceswap.enabled,
-          faceswap_method: faceswap.enabled || faceswap.seedFaceswap ? faceswap.method : null,
-          faceswap_source_type: faceswap.enabled || faceswap.seedFaceswap ? faceswap.sourceType : null,
-          // "Start Frame" has two shapes: a freshly uploaded File, which goes up as multipart
-          // below, and an image picked from the repo, which is only ever a URI. The multipart
-          // branch is guarded on `startingImage` (the File), so picking from the repo used to
-          // send NO face at all -- and the daemon gates on
-          // `faceswap_enabled AND faceswap_image`, so the swap silently did not run while the
-          // UI still showed Start Frame selected. Pass the URI through here.
-          faceswap_image:
-            (faceswap.enabled || faceswap.seedFaceswap)
-              ? faceswap.sourceType === "preset"
-                ? faceswap.presetUri
-                : faceswap.sourceType === "start_frame" && !startingImage && startingImageUri
-                  ? startingImageUri
-                  : null
-              : null,
-          faceswap_faces_index: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesIndex : null,
-          faceswap_model: faceswap.enabled || faceswap.seedFaceswap ? faceswap.model : null,
-          faceswap_pixel_boost: faceswap.enabled || faceswap.seedFaceswap ? faceswap.pixelBoost : null,
+          ...buildFaceswapFields(faceswap, {
+            startingImageFile: startingImage,
+            startingImageUri,
+          }),
           negative_prompt: negativePrompt.trim() || null,
-          faceswap_faces_order: faceswap.enabled || faceswap.seedFaceswap ? faceswap.facesOrder : null,
-          seed_faceswap: faceswap.seedFaceswap,
         },
       };
 
@@ -469,7 +452,7 @@ export default function CreateJobDialog({
       if ((faceswap.enabled || faceswap.seedFaceswap) && faceswap.sourceType === "upload" && faceswap.file) {
         formData.append("faceswap_image", faceswap.file);
       }
-      if ((faceswap.enabled || faceswap.seedFaceswap) && faceswap.sourceType === "start_frame" && startingImage) {
+      if (shouldAttachStartImageAsFace(faceswap, { startingImageFile: startingImage }) && startingImage) {
         formData.append("faceswap_image", startingImage);
       }
 
