@@ -18,6 +18,7 @@ import type { FaceswapPreset } from "../api/types";
 import {
   DEFAULT_FACESWAP_METHOD,
   DEFAULT_FACESWAP_FACES_INDEX,
+  DEFAULT_FACESWAP_SOURCE_TYPE,
   DEFAULT_FACESWAP_FACES_ORDER,
   DEFAULT_FACESWAP_MODEL,
   DEFAULT_FACESWAP_PIXEL_BOOST,
@@ -46,7 +47,7 @@ export function defaultFaceswapState(overrides?: Partial<FaceswapConfigState>): 
   return {
     enabled: false,
     method: DEFAULT_FACESWAP_METHOD,
-    sourceType: "upload",
+    sourceType: DEFAULT_FACESWAP_SOURCE_TYPE,
     file: null,
     presetUri: null,
     facesIndex: DEFAULT_FACESWAP_FACES_INDEX,
@@ -210,6 +211,16 @@ export default function FaceswapConfig({
                 Start Frame
               </ToggleButton>
             </ToggleButtonGroup>
+            {/* start_frame is the default, but it is disabled until a starting image exists.
+                Say so rather than rendering an empty panel under a greyed-out selection. */}
+            {state.sourceType === "start_frame" && (
+              <Typography variant="caption" color={disableStartFrame ? "warning.main" : "text.secondary"}
+                sx={{ display: "block", mb: 1 }}>
+                {disableStartFrame
+                  ? "Choose a starting image first — the swap uses it as the face."
+                  : "Using the job's starting image as the face. This is what identity is scored against."}
+              </Typography>
+            )}
             {state.sourceType === "upload" && (
               <>
                 <Button variant="outlined" size="small" component="label">

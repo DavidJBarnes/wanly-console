@@ -7,7 +7,11 @@ export const DEFAULT_SPEED = 1.0;
 
 // Faceswap defaults
 export const DEFAULT_FACESWAP_ENABLED = false;
-export const DEFAULT_FACESWAP_SOURCE_TYPE = "preset" as const;
+// Start Frame is the validated source: the swap must target the same image identity is
+// scored against (identity_ground_truth = the job's starting image). Sourcing it from a
+// separate portrait measured 0.644 mean identity against 0.906 for the start frame, and
+// dropped start cosine from 0.955 to 0.686 before a single frame of motion.
+export const DEFAULT_FACESWAP_SOURCE_TYPE = "start_frame" as const;
 // FaceFusion selects the target face by MATCHING the source identity (face_selector_mode
 // "reference"). ReActor selects by POSITION (faces index 0, left-right), so on a two-person
 // frame it swaps whichever face is furthest left - frequently the wrong person - while still
