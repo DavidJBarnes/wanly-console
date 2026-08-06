@@ -24,6 +24,12 @@ export default function IdentityTrajectory({ metrics }: Props) {
 
   const series = (metrics?.series as number[] | undefined) ?? undefined;
   const stride = (metrics?.stride as number | undefined) ?? 1;
+  // Clips scored before 2026-08-06 measured this against the segment's OWN start frame, which
+  // on a continuation is the already-drifted last frame -- so the graph opened near 0.95 while
+  // the trajectory above it read 0.851. New clips declare the reference; old ones have no
+  // field and are all own_start. Say which, rather than letting the two be conflated.
+  const seriesRef = (metrics?.series_ref as string | undefined) ?? "own_start";
+  const vsGroundTruth = seriesRef === "ground_truth";
   if (!series || series.length < 8) return null;
 
   const lo = Math.min(...series);
@@ -56,8 +62,11 @@ export default function IdentityTrajectory({ metrics }: Props) {
     <Box sx={{ mt: 2 }}>
       <Typography variant="subtitle2">Per-frame trajectory</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-        Cosine for every scored frame. The next segment is seeded from the <strong>last</strong>{" "}
-        frame, so a dip at the right-hand edge propagates into everything that follows.
+        Cosine for every scored frame, against{" "}
+        <strong>{vsGroundTruth ? "segment 0's start frame" : "this segment's own start frame"}</strong>
+        {!vsGroundTruth && " — so on a continuation it shows drift WITHIN this segment, not since the job began"}
+        . The next segment is seeded from the <strong>last</strong> frame, so a dip at the
+        right-hand edge propagates into everything that follows.
         {stride > 1 && ` Sampled every ${stride} frames.`}
       </Typography>
 
