@@ -250,7 +250,7 @@ function BranchLane({ groups, laneWidth, activeFilename, segIndex }: { groups: B
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { presets: videoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
+  const { allPresets: allVideoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [job, setJob] = useState<JobDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -341,7 +341,8 @@ export default function JobDetail() {
     loras: { name: string; high_weight: number; low_weight: number }[];
   } => {
     const presetId = seg.video_preset_id ?? job?.video_preset_id ?? null;
-    const preset = presetId ? videoPresets.find((p) => p.id === presetId) ?? null : null;
+    // allPresets, not presets: a job whose preset was archived must still show what it ran with.
+    const preset = presetId ? allVideoPresets.find((p) => p.id === presetId) ?? null : null;
     const src = preset ?? job;
     const rawLoras =
       preset?.loras && preset.loras.length > 0 ? preset.loras : seg.loras ?? [];
@@ -1990,7 +1991,8 @@ function SegmentModal({
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
-  const { presets: segVideoPresets, fetchPresets: fetchSegVideoPresets } = useVideoPresetStore();
+  const { presets: segVideoPresets, allPresets: allSegVideoPresets, fetchPresets: fetchSegVideoPresets } =
+    useVideoPresetStore();
   const [segVideoPresetId, setSegVideoPresetId] = useState("");
   const { negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
   const [prompt, setPrompt] = useState("");
@@ -2120,7 +2122,7 @@ function SegmentModal({
   // prompt from the preset's default (a snapshot you can still edit before submitting).
   const applySegVideoPreset = (id: string) => {
     setSegVideoPresetId(id);
-    const p = segVideoPresets.find((v) => v.id === id);
+    const p = allSegVideoPresets.find((v) => v.id === id);
     if (!p) return;
     if (p.prompt) setPrompt(p.prompt);
     if (p.loras && p.loras.length > 0) setLoraSlots(lorasToSlots(p.loras, loraLibrary));
@@ -2540,7 +2542,7 @@ function SegmentModal({
               ))}
             </TextField>
             {(() => {
-              const p = segVideoPresets.find((v) => v.id === segVideoPresetId);
+              const p = allSegVideoPresets.find((v) => v.id === segVideoPresetId);
               return p ? (
                 <Box sx={{ mb: 2 }}>
                   <SettingsSignature values={p} />

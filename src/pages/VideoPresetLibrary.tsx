@@ -16,11 +16,13 @@ import {
   Autocomplete,
   MenuItem,
   Tooltip,
+  FormControlLabel,
+  Switch,
 } from "@mui/material";
-import { Add, Edit, DeleteOutline, ContentCopy } from "@mui/icons-material";
+import { Add, Edit, DeleteOutline, ContentCopy, Archive, Unarchive } from "@mui/icons-material";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
 import { useLoraStore } from "../stores/loraStore";
-import { createVideoPreset, updateVideoPreset, deleteVideoPreset, getFileUrl } from "../api/client";
+import { createVideoPreset, updateVideoPreset, deleteVideoPreset, setVideoPresetArchived, getFileUrl } from "../api/client";
 import type { VideoSettingsPreset, VideoSettingsPresetCreate, LoraListItem } from "../api/types";
 import { MAX_LORAS } from "../constants";
 import SettingsSignature, { parseSignature, SIG_COLS } from "../components/SettingsSignature";
@@ -65,7 +67,7 @@ function presetToForm(p: VideoSettingsPreset): FormState {
 }
 
 export default function VideoPresetLibrary() {
-  const { presets, loading, error, fetchPresets } = useVideoPresetStore();
+  const { presets, allPresets, loading, error, fetchPresets } = useVideoPresetStore();
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<VideoSettingsPreset | null>(null);
@@ -76,6 +78,7 @@ export default function VideoPresetLibrary() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<VideoSettingsPreset | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     fetchPresets();
@@ -180,13 +183,32 @@ export default function VideoPresetLibrary() {
     await fetchPresets();
   };
 
+  const toggleArchived = async (p: VideoSettingsPreset) => {
+    await setVideoPresetArchived(p.id, !p.archived);
+    // With "show archived" off the card vanishes, which is the intended feedback: the list
+    // it disappears from is the same list the pickers offer.
+    await fetchPresets();
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
         <Typography variant="h5">Video Presets</Typography>
-        <Button variant="contained" startIcon={<Add />} onClick={openNew}>
-          New Preset
-        </Button>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+              />
+            }
+            label={<Typography variant="body2">Show archived</Typography>}
+          />
+          <Button variant="contained" startIcon={<Add />} onClick={openNew}>
+            New Preset
+          </Button>
+        </Box>
       </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Named bundles of sampler settings. Choose one per-job (default) or per-segment (override) —
@@ -197,8 +219,8 @@ export default function VideoPresetLibrary() {
         <CircularProgress />
       ) : (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-          {presets.map((p) => (
-            <Card key={p.id} sx={{ width: 340 }}>
+          {(showArchived ? allPresets : presets).map((p) => (
+            <Card key={p.id} sx={{ width: 340, opacity: p.archived ? 0.55 : 1 }}>
               <CardContent>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <Typography variant="subtitle1" fontWeight={600}>{p.name}</Typography>
@@ -211,9 +233,19 @@ export default function VideoPresetLibrary() {
                     <IconButton size="small" onClick={() => openEdit(p)}>
                       <Edit fontSize="small" />
                     </IconButton>
-                    <IconButton size="small" onClick={() => setDeleteConfirm(p)}>
-                      <DeleteOutline fontSize="small" />
-                    </IconButton>
+                    {/* Archive, not delete, is the right default here: jobs reference a preset
+                        by id, so deleting destroys the record of which config produced which
+                        result. Archiving only hides it from the picker. */}
+                    <Tooltip title={p.archived ? "Restore to the picker" : "Archive — hides it from the picker, keeps it resolvable by past jobs"} arrow>
+                      <IconButton size="small" onClick={() => toggleArchived(p)}>
+                        {p.archived ? <Unarchive fontSize="small" /> : <Archive fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete permanently — past jobs lose their config" arrow>
+                      <IconButton size="small" onClick={() => setDeleteConfirm(p)}>
+                        <DeleteOutline fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </Box>
                 </Box>
                 <Box sx={{ mt: 1 }}>

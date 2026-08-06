@@ -181,7 +181,8 @@ export default function CreateJobDialog({
   }, [open, initialImageTags, titleTags1, titleTags2]);
 
   // Preset state
-  const { presets: videoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
+  const { presets: videoPresets, allPresets: allVideoPresets, fetchPresets: fetchVideoPresets } =
+    useVideoPresetStore();
 
   // LoRA state
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
@@ -328,7 +329,7 @@ export default function CreateJobDialog({
   // Select a user-defined video-settings preset (live link). "" = Custom (raw fields below).
   const applyVideoPreset = (id: string) => {
     setVideoPresetId(id);
-    const p = videoPresets.find((v) => v.id === id);
+    const p = allVideoPresets.find((v) => v.id === id);
     if (!p) return;
     const s = (v: number | null) => (v == null ? "" : String(v));
     setLightx2vHigh(s(p.lightx2v_strength_high));
@@ -730,7 +731,7 @@ export default function CreateJobDialog({
             </Box>
             <Box sx={{ mt: 1.5 }}>
               {(() => {
-                const p = videoPresets.find((v) => v.id === videoPresetId);
+                const p = allVideoPresets.find((v) => v.id === videoPresetId);
                 return p ? (
                   <SettingsSignature values={p} />
                 ) : (

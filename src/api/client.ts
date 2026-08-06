@@ -315,8 +315,20 @@ export async function deleteLora(id: string): Promise<void> {
   await api.delete(`/loras/${id}`);
 }
 
-export async function getVideoPresets(): Promise<VideoSettingsPreset[]> {
-  const { data } = await api.get<VideoSettingsPreset[]>("/video-presets");
+export async function getVideoPresets(includeArchived = false): Promise<VideoSettingsPreset[]> {
+  const { data } = await api.get<VideoSettingsPreset[]>("/video-presets", {
+    params: includeArchived ? { include_archived: true } : undefined,
+  });
+  return data;
+}
+
+/** Archiving hides a preset from the picker without breaking the jobs that used it —
+ *  they resolve it by id, which still works. Deleting would lose that record. */
+export async function setVideoPresetArchived(
+  id: string,
+  archived: boolean,
+): Promise<VideoSettingsPreset> {
+  const { data } = await api.patch<VideoSettingsPreset>(`/video-presets/${id}`, { archived });
   return data;
 }
 
