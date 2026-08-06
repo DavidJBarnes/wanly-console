@@ -89,6 +89,7 @@ import type {
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 import IdentityChip from "../components/IdentityChip";
+import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import HologramConfig from "../components/HologramConfig";
@@ -986,6 +987,7 @@ export default function JobDetail() {
                     <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth }} />
                   )}
                   <TableCell sx={{ width: 120, ...(groups.length > 0 ? { pl: 0 } : {}) }}>Start Image</TableCell>
+                  <TableCell sx={{ width: 48 }} align="center">Prompt</TableCell>
                   <TableCell sx={{ width: 300 }}>Video Settings</TableCell>
                   <TableCell sx={{ width: 120 }}>Output</TableCell>
                   <TableCell sx={{ width: 100 }}>Status</TableCell>
@@ -1042,6 +1044,14 @@ export default function JobDetail() {
                           </Typography>
                         );
                       })()}
+                    </TableCell>
+                    <TableCell align="center" padding="none">
+                      <SegmentPromptPopover
+                        index={seg.index}
+                        prompt={seg.prompt}
+                        promptTemplate={seg.prompt_template}
+                        negativePrompt={seg.negative_prompt}
+                      />
                     </TableCell>
                     <TableCell>
                       {(() => {
@@ -1242,7 +1252,9 @@ export default function JobDetail() {
                           </div>
                         </TableCell>
                       )}
-                      <TableCell colSpan={8} sx={{ py: 0.5 }}>
+                      {/* 9 non-lane columns: Start Image, Prompt, Video Settings, Output,
+                          Status, Worker, Created, Run Time, actions */}
+                      <TableCell colSpan={9} sx={{ py: 0.5 }}>
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                             <Typography variant="caption" color="text.secondary">Trim #{seg.index} Start:</Typography>
