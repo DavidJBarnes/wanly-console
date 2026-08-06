@@ -409,6 +409,9 @@ export interface VideoSettingsPreset {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** Hidden from the picker but still resolvable by id, so historical jobs keep
+   *  their config. Presets accumulate fast during experiments. */
+  archived?: boolean;
 }
 
 export interface VideoSettingsPresetCreate {
