@@ -16,6 +16,10 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci || npm install
-      - run: npx tsc --noEmit
+      # `tsc --noEmit` at the root checks NOTHING: tsconfig.json has "files": [] and only
+      # project references, so src/ is never type-checked by it. Only `tsc -b` walks the
+      # references. This step passed on a file with an undefined identifier in it.
+      - run: npx tsc -b --force
       - run: npm run lint || echo "lint not configured — skipping"
+      - run: npm test
       - run: npm run build

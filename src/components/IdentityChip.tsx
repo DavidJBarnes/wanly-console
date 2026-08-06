@@ -17,26 +17,10 @@ import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import TrendingFlatIcon from "@mui/icons-material/TrendingFlat";
 import type { SegmentResponse, IdentityAggregate } from "../api/types";
 import IdentityTrajectory from "./IdentityTrajectory";
+import { band, fmt, totalDrift } from "../lib/identityHelpers";
 
-/** Cosine bands. ArcFace on buffalo_l: ~0.4 is the same-person threshold, 0.6+ is a solid
- *  match, 0.8+ is strong. These are deliberately not "good/bad" — a profile-heavy clip
- *  legitimately scores lower than a frontal one, so colour is a hint, not a verdict. */
-function band(v: number | null | undefined): "success" | "warning" | "error" | "default" {
-  if (v == null) return "default";
-  if (v >= 0.7) return "success";
-  if (v >= 0.5) return "warning";
-  return "error";
-}
 
-/** Total drift across the clip, which is more readable than a per-frame slope. */
-function totalDrift(slope: number | null, frames: number | null): number | null {
-  if (slope == null || !frames || frames < 2) return null;
-  return slope * (frames - 1);
-}
 
-function fmt(v: number | null | undefined, digits = 3): string {
-  return v == null ? "—" : v.toFixed(digits);
-}
 
 interface Props {
   /** A scored segment, or a job-level aggregate. */

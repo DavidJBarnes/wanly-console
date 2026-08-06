@@ -1,4 +1,5 @@
 import { Box, Typography, useTheme } from "@mui/material";
+import { DIP_THRESHOLD, TAIL, median } from "../lib/identityHelpers";
 
 /** Per-frame cosine, already stored by the daemon in identity_metrics.series.
  *
@@ -13,17 +14,6 @@ import { Box, Typography, useTheme } from "@mui/material";
  *  POSITIVE (+3.5e-4/frame). Endpoints falling while the trend rises is exactly the shape
  *  the summary stats cannot express. */
 
-/** How many trailing samples count as "the end" when judging whether the last frame is
- *  representative. Short enough to be local, long enough not to be one noisy sample. */
-const TAIL = 12;
-/** Below this the endpoint is just noise; a dip has to be worth acting on. */
-const DIP_THRESHOLD = 0.05;
-
-function median(xs: number[]): number {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
 
 interface Props {
   metrics: Record<string, unknown> | null | undefined;
