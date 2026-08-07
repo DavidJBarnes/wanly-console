@@ -505,6 +505,34 @@ export async function deleteWorker(id: string): Promise<void> {
   await api.delete(`/workers/${id}`);
 }
 
+export interface RunPodAvailability {
+  gpu_type_id: string;
+  datacenter_id: string;
+  available: boolean;
+  price_per_hr: number | null;
+  stock: string | null;
+}
+
+export interface RunPodWorker {
+  id: string;
+  name: string | null;
+  status: string | null;
+  cost_per_hr: number | null;
+  gpu_type_id: string | null;
+}
+
+/** Is the configured GPU purchasable right now? Point-in-time — availability genuinely flaps,
+ *  so a launch can still fail after this returns available. */
+export async function getRunPodAvailability(): Promise<RunPodAvailability> {
+  const { data } = await api.get<RunPodAvailability>("/runpod/availability");
+  return data;
+}
+
+export async function launchRunPodWorker(name: string): Promise<RunPodWorker> {
+  const { data } = await api.post<RunPodWorker>("/runpod/workers", { name });
+  return data;
+}
+
 export async function drainWorker(id: string, afterJobs?: number): Promise<void> {
   const body = afterJobs && afterJobs > 0 ? { after_jobs: afterJobs } : undefined;
   await api.post(`/workers/${id}/drain`, body);

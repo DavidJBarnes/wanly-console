@@ -27,12 +27,14 @@ import {
   Timer,
   DeleteOutline,
   PowerSettingsNew,
+  CloudUpload,
   Edit,
   Memory,
   Cancel,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { getWorkers, deleteWorker, drainWorker, cancelDrain, renameWorker } from "../api/client";
+import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
 
@@ -73,6 +75,7 @@ export default function Workers() {
   const [deleteConfirm, setDeleteConfirm] = useState<WorkerResponse | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [drainConfirm, setDrainConfirm] = useState<WorkerResponse | null>(null);
+  const [launchOpen, setLaunchOpen] = useState(false);
   const [draining, setDraining] = useState(false);
   const [drainMode, setDrainMode] = useState<"immediate" | "after">("immediate");
   const [drainCount, setDrainCount] = useState(3);
@@ -153,6 +156,15 @@ export default function Workers() {
         <Typography variant="body2" color="text.secondary">
           {onlineCount} online / {workers.length} total
         </Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        <Button
+          variant="contained"
+          size="small"
+          startIcon={<CloudUpload />}
+          onClick={() => setLaunchOpen(true)}
+        >
+          Launch RunPod
+        </Button>
       </Box>
 
       {error && (
@@ -270,6 +282,11 @@ export default function Workers() {
           </Button>
         </DialogActions>
       </Dialog>
+      <LaunchRunPodDialog
+        open={launchOpen}
+        onClose={() => setLaunchOpen(false)}
+        onLaunched={fetchWorkers}
+      />
     </Box>
   );
 }
