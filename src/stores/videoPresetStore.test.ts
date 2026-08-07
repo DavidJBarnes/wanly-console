@@ -48,4 +48,44 @@ describe("videoPresetStore — the picker/history split", () => {
     expect(useVideoPresetStore.getState().error).toBe("boom");
     expect(useVideoPresetStore.getState().loading).toBe(false);
   });
+
+  it("applyPreset updates both lists without a refetch — the postback fix", async () => {
+    // Archiving used to call fetchPresets(), which flips `loading` and makes the library swap
+    // its whole grid for a spinner. Folding the PATCH response in directly avoids that, so the
+    // network must NOT be touched.
+    getVideoPresets.mockResolvedValue([preset("keep", false), preset("target", false)]);
+    await useVideoPresetStore.getState().fetchPresets();
+    getVideoPresets.mockClear();
+
+    useVideoPresetStore.getState().applyPreset(preset("target", true));
+
+    const { presets, allPresets } = useVideoPresetStore.getState();
+    expect(getVideoPresets).not.toHaveBeenCalled();
+    expect(presets.map((p) => p.name)).toEqual(["keep"]);
+    expect(allPresets.map((p) => p.name)).toEqual(["keep", "target"]);
+    expect(allPresets.find((p) => p.id === "id-target")!.archived).toBe(true);
+  });
+
+  it("applyPreset does not disturb the order of the other presets", async () => {
+    // Same keys in the same order is what lets React leave the other cards mounted.
+    getVideoPresets.mockResolvedValue([preset("a", false), preset("b", false), preset("c", false)]);
+    await useVideoPresetStore.getState().fetchPresets();
+
+    useVideoPresetStore.getState().applyPreset(preset("b", true));
+
+    expect(useVideoPresetStore.getState().allPresets.map((p) => p.id)).toEqual([
+      "id-a",
+      "id-b",
+      "id-c",
+    ]);
+  });
+
+  it("restoring puts a preset back in the picker list", async () => {
+    getVideoPresets.mockResolvedValue([preset("old", true)]);
+    await useVideoPresetStore.getState().fetchPresets();
+    expect(useVideoPresetStore.getState().presets).toHaveLength(0);
+
+    useVideoPresetStore.getState().applyPreset(preset("old", false));
+    expect(useVideoPresetStore.getState().presets.map((p) => p.name)).toEqual(["old"]);
+  });
 });

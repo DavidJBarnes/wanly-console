@@ -67,7 +67,7 @@ function presetToForm(p: VideoSettingsPreset): FormState {
 }
 
 export default function VideoPresetLibrary() {
-  const { presets, allPresets, loading, error, fetchPresets } = useVideoPresetStore();
+  const { presets, allPresets, loading, error, fetchPresets, applyPreset } = useVideoPresetStore();
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<VideoSettingsPreset | null>(null);
@@ -79,6 +79,7 @@ export default function VideoPresetLibrary() {
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<VideoSettingsPreset | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPresets();
@@ -184,10 +185,25 @@ export default function VideoPresetLibrary() {
   };
 
   const toggleArchived = async (p: VideoSettingsPreset) => {
-    await setVideoPresetArchived(p.id, !p.archived);
-    // With "show archived" off the card vanishes, which is the intended feedback: the list
-    // it disappears from is the same list the pickers offer.
-    await fetchPresets();
+    // No refetch. fetchPresets() flips `loading`, which replaces the whole grid with a spinner
+    // and remounts every card — a full-postback flicker for a one-field change. The PATCH
+    // response is the updated preset, so fold it straight into the store.
+    //
+    // With "show archived" off the card still vanishes, which is the intended feedback: the
+    // list it disappears from is the list the pickers offer.
+    setRowError(null);
+    try {
+      const updated = await setVideoPresetArchived(p.id, !p.archived);
+      applyPreset(updated);
+    } catch (e) {
+      // Previously unhandled, so a failed archive looked identical to a successful one that
+      // simply had not refreshed yet.
+      setRowError(
+        `Could not ${p.archived ? "restore" : "archive"} "${p.name}": ${
+          e instanceof Error ? e.message : "request failed"
+        }`,
+      );
+    }
   };
 
   return (
@@ -215,6 +231,11 @@ export default function VideoPresetLibrary() {
         edits apply to future runs of anything using the preset.
       </Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {rowError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRowError(null)}>
+          {rowError}
+        </Alert>
+      )}
       {loading ? (
         <CircularProgress />
       ) : (
