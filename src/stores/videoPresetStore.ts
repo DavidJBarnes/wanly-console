@@ -14,6 +14,13 @@ interface VideoPresetState {
   loading: boolean;
   error: string | null;
   fetchPresets: () => Promise<void>;
+  /** Fold a single already-persisted preset back into both lists.
+   *
+   *  Mutating one preset used to be followed by fetchPresets(), which flips `loading` and makes
+   *  the library swap its whole grid for a spinner — every card unmounts and remounts, which
+   *  reads as a full page postback for what is a one-field change. The PATCH response already
+   *  contains the updated preset, so there is nothing to go back to the server for. */
+  applyPreset: (updated: VideoSettingsPreset) => void;
 }
 
 export const useVideoPresetStore = create<VideoPresetState>((set) => ({
@@ -41,4 +48,12 @@ export const useVideoPresetStore = create<VideoPresetState>((set) => ({
       });
     }
   },
+
+  applyPreset: (updated) =>
+    set((state) => {
+      // Replace in place so the existing sort order is preserved without re-sorting, and so
+      // React sees the same keys for every other card and leaves them mounted.
+      const allPresets = state.allPresets.map((p) => (p.id === updated.id ? updated : p));
+      return { allPresets, presets: allPresets.filter((p) => !p.archived) };
+    }),
 }));
