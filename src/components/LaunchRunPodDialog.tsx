@@ -13,22 +13,28 @@ import {
   Typography,
 } from "@mui/material";
 import {
-  getRunPodAvailability,
+  getRunPodGpuOptions,
   launchRunPodWorker,
   createReservation,
-  type RunPodAvailability,
+  type RunPodGpuOption,
 } from "../api/client";
 
 /**
  * Launch a RunPod worker.
  *
- * Availability is checked on open and shown before the button is usable, because launching
- * costs money per hour and "no 4090s right now" is a common, temporary answer — it should be
- * visible up front rather than discovered as a failure.
+ * Price and stock are fetched per GPU on open, because launching costs money per hour and that
+ * should be visible before the button is, not after.
  *
- * The GPU and datacenter are not choices. The network volume holding the ~39GB model set is
- * region-locked, so the pod must launch beside it; and 3090 inventory there is transient, so
- * offering it would produce launches that cannot be honoured.
+ * The GPU IS a choice, and has to be. Community 4090s are frequently unplaceable — RunPod
+ * matches a host and answers "this machine does not have the resources", a fit failure rather
+ * than an empty fleet — while a 3090 places immediately at roughly two thirds the price. With no
+ * choice offered, that state is a dead end.
+ *
+ * Launch is NOT gated on `available`. That flag means "RunPod prices this GPU here", which is a
+ * weaker claim than "a pod can be placed": community 4090 read available/"Low" continuously
+ * through an hour of failed creates. Gating on it would block launches that would have worked,
+ * and — worse — a green flag never made a doomed one succeed. The launch attempt itself is the
+ * only honest test, and its error message is far more specific than anything shown up front.
  */
 
 interface Props {
@@ -39,7 +45,8 @@ interface Props {
 
 export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props) {
   const [name, setName] = useState("");
-  const [availability, setAvailability] = useState<RunPodAvailability | null>(null);
+  const [gpus, setGpus] = useState<RunPodGpuOption[]>([]);
+  const [gpu, setGpu] = useState<string>("");
   const [checking, setChecking] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,10 +58,17 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setAvailability(null);
+    setGpus([]);
     setChecking(true);
-    getRunPodAvailability()
-      .then(setAvailability)
+    getRunPodGpuOptions()
+      .then((options) => {
+        setGpus(options);
+        // Prefer a GPU that is actually priced; fall back to the server default. Opening on an
+        // option we already know is unsellable would make the first click a guaranteed failure.
+        const priced = options.find((o) => o.available);
+        const fallback = options.find((o) => o.is_default) ?? options[0];
+        setGpu((priced ?? fallback)?.gpu_type_id ?? "");
+      })
       .catch((e) => setError(detail(e) ?? "Could not check RunPod availability"))
       .finally(() => setChecking(false));
   }, [open]);
@@ -63,7 +77,7 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
     setLaunching(true);
     setError(null);
     try {
-      await launchRunPodWorker(name.trim());
+      await launchRunPodWorker(name.trim(), gpu || undefined);
       onLaunched();
       onClose();
       setName("");
@@ -81,7 +95,7 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
     setError(null);
     try {
       const drain = drainAfter ? Number(drainAfter) : undefined;
-      await createReservation(name.trim(), minutes, drain);
+      await createReservation(name.trim(), minutes, drain, gpu || undefined);
       onLaunched();
       onClose();
       setName("");
@@ -93,7 +107,10 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
   };
 
   const nameOk = /^[a-zA-Z0-9][a-zA-Z0-9 ._-]{0,48}$/.test(name.trim());
-  const noCapacity = !!availability && !availability.available;
+  const selected = gpus.find((g) => g.gpu_type_id === gpu) ?? null;
+  // Only "RunPod does not sell this GPU here" switches the dialog to reserve-instead. A priced
+  // GPU always gets a real launch attempt, because pricing does not predict placement.
+  const noCapacity = !!selected && !selected.available;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -109,26 +126,62 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
             </Stack>
           )}
 
-          {availability && (
+          {gpus.length > 0 && (
+            <TextField
+              label="GPU"
+              size="small"
+              select
+              value={gpu}
+              onChange={(e) => setGpu(e.target.value)}
+              SelectProps={{ native: true }}
+              helperText="Price and stock are live. Stock is a band, not a guarantee of placement."
+              fullWidth
+            >
+              {gpus.map((g) => (
+                <option key={g.gpu_type_id} value={g.gpu_type_id}>
+                  {short(g.gpu_type_id)}
+                  {g.price_per_hr != null ? ` — $${g.price_per_hr}/hr` : ""}
+                  {g.stock ? ` · ${g.stock}` : g.available ? "" : " · not sold here"}
+                </option>
+              ))}
+            </TextField>
+          )}
+
+          {selected && (
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
               <Chip
                 size="small"
-                color={availability.available ? "success" : "default"}
-                label={availability.available ? `Available${availability.stock ? ` · ${availability.stock}` : ""}` : "No capacity"}
+                color={selected.available ? "success" : "default"}
+                label={
+                  selected.available
+                    ? `Priced${selected.stock ? ` · ${selected.stock}` : ""}`
+                    : "Not sold here"
+                }
               />
-              {availability.price_per_hr != null && (
-                <Chip size="small" variant="outlined" label={`$${availability.price_per_hr}/hr`} />
+              {selected.price_per_hr != null && (
+                <Chip size="small" variant="outlined" label={`$${selected.price_per_hr}/hr`} />
               )}
-              <Typography variant="caption" color="text.secondary">
-                {availability.gpu_type_id.replace("NVIDIA GeForce ", "")} · {availability.datacenter_id}
-              </Typography>
+              {selected.error && (
+                <Typography variant="caption" color="warning.main">
+                  price lookup failed
+                </Typography>
+              )}
             </Stack>
           )}
 
+          {selected?.available && (
+            <Alert severity="info" sx={{ py: 0 }}>
+              Stock is a price band, not a promise. In-demand GPUs can be priced here and still
+              refuse to place — if that happens, the error says so and another GPU usually works.
+            </Alert>
+          )}
+
           {noCapacity && (
-            <Alert severity="info">
-              No capacity right now. Availability changes minute to minute — a reservation keeps
-              checking and launches the moment one frees up.
+            <Alert severity="warning">
+              RunPod is not quoting a price for this GPU right now. That usually means no stock —
+              but it is not reliable: a 3090 pod placed on the first attempt minutes after this
+              same check reported nothing. Launching anyway is worth a try; a reservation keeps
+              retrying if you would rather walk away.
             </Alert>
           )}
 
@@ -188,22 +241,30 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
         <Button onClick={onClose} disabled={launching}>
           Cancel
         </Button>
-        {noCapacity ? (
-          <Button variant="contained" onClick={handleReserve} disabled={launching || !nameOk}>
+        {noCapacity && (
+          <Button onClick={handleReserve} disabled={launching || !nameOk}>
             {launching ? "Reserving…" : `Reserve for ${minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}`}
           </Button>
-        ) : (
-          <Button
-            variant="contained"
-            onClick={handleLaunch}
-            disabled={launching || checking || !nameOk || !availability?.available}
-          >
-            {launching ? "Launching…" : "Launch"}
-          </Button>
         )}
+        {/* Launch is ALWAYS offered. Pricing predicts placement in neither direction: measured
+            2026-08-08, community 4090 read priced/"Low" through an hour of failures, and minutes
+            after a 3090 pod placed on the first try the 3090 reported no price at all. Disabling
+            the button on that flag blocked launches that would have worked. */}
+        <Button
+          variant="contained"
+          onClick={handleLaunch}
+          disabled={launching || checking || !nameOk || !gpu}
+        >
+          {launching ? "Launching…" : noCapacity ? "Launch anyway" : "Launch"}
+        </Button>
       </DialogActions>
     </Dialog>
   );
+}
+
+/** RunPod's own ids are long and repetitive in a dropdown. */
+function short(gpuTypeId: string): string {
+  return gpuTypeId.replace("NVIDIA GeForce ", "").replace("NVIDIA ", "");
 }
 
 /** Pull the API's `detail` out of an axios error without dragging axios types in here. */

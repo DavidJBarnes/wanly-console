@@ -513,6 +513,27 @@ export interface RunPodAvailability {
   available: boolean;
   price_per_hr: number | null;
   stock: string | null;
+  cloud_type?: string | null;
+}
+
+/** One selectable GPU with its live price and stock.
+ *
+ *  `available` means RunPod quotes a price for this GPU here — NOT that a pod can be placed on
+ *  it. Measured 2026-08-08: community 4090 read available/"Low" for an hour while every create
+ *  failed with "this machine does not have the resources", because the hosts existed but were
+ *  all partially committed. So a false here is a reliable no; a true is not a yes. */
+export interface RunPodGpuOption {
+  gpu_type_id: string;
+  is_default: boolean;
+  available: boolean;
+  price_per_hr: number | null;
+  stock: string | null;
+  error?: string | null;
+}
+
+export async function getRunPodGpuOptions(): Promise<RunPodGpuOption[]> {
+  const { data } = await api.get<RunPodGpuOption[]>("/runpod/gpu-options");
+  return data;
 }
 
 export interface RunPodWorker {
@@ -546,8 +567,10 @@ export async function getSegmentRuntimes(minSamples = 1): Promise<SegmentRuntime
   return data;
 }
 
-export async function getRunPodAvailability(): Promise<RunPodAvailability> {
-  const { data } = await api.get<RunPodAvailability>("/runpod/availability");
+export async function getRunPodAvailability(gpuTypeId?: string): Promise<RunPodAvailability> {
+  const { data } = await api.get<RunPodAvailability>("/runpod/availability", {
+    params: gpuTypeId ? { gpu_type_id: gpuTypeId } : undefined,
+  });
   return data;
 }
 
@@ -560,6 +583,7 @@ export interface GpuReservation {
   status: string;
   expires_at: string;
   drain_after_jobs: number | null;
+  gpu_type_id: string | null;
   pod_id: string | null;
   error: string | null;
   attempts: number;
@@ -577,11 +601,13 @@ export async function createReservation(
   name: string,
   minutes: number,
   drainAfterJobs?: number,
+  gpuTypeId?: string,
 ): Promise<GpuReservation> {
   const { data } = await api.post<GpuReservation>("/runpod/reservations", {
     name,
     minutes,
     drain_after_jobs: drainAfterJobs ?? null,
+    gpu_type_id: gpuTypeId ?? null,
   });
   return data;
 }
@@ -595,8 +621,14 @@ export async function getRunPodWorkers(): Promise<RunPodWorker[]> {
   return data;
 }
 
-export async function launchRunPodWorker(name: string): Promise<RunPodWorker> {
-  const { data } = await api.post<RunPodWorker>("/runpod/workers", { name });
+export async function launchRunPodWorker(
+  name: string,
+  gpuTypeId?: string,
+): Promise<RunPodWorker> {
+  const { data } = await api.post<RunPodWorker>("/runpod/workers", {
+    name,
+    gpu_type_id: gpuTypeId ?? null,
+  });
   return data;
 }
 
