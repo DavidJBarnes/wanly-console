@@ -40,9 +40,13 @@ import {
   cancelDrain,
   renameWorker,
   getRunPodWorkers,
+  getReservations,
+  cancelReservation,
   type RunPodWorker,
+  type GpuReservation,
 } from "../api/client";
 import { findBootingPods, costForWorker } from "../lib/bootingPods";
+import { describeWindow, describePolicy } from "../lib/reservationDisplay";
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
@@ -86,6 +90,7 @@ export default function Workers() {
   const [drainConfirm, setDrainConfirm] = useState<WorkerResponse | null>(null);
   const [launchOpen, setLaunchOpen] = useState(false);
   const [pods, setPods] = useState<RunPodWorker[]>([]);
+  const [reservations, setReservations] = useState<GpuReservation[]>([]);
   const [draining, setDraining] = useState(false);
   const [drainMode, setDrainMode] = useState<"immediate" | "after">("immediate");
   const [drainCount, setDrainCount] = useState(3);
@@ -106,6 +111,11 @@ export default function Workers() {
       setPods(await getRunPodWorkers());
     } catch {
       setPods([]);
+    }
+    try {
+      setReservations(await getReservations());
+    } catch {
+      setReservations([]);
     }
   }, []);
 
@@ -211,6 +221,43 @@ export default function Workers() {
       )}
 
       <Grid container spacing={2}>
+        {reservations.map((r) => (
+          <Grid key={r.id} size={{ xs: 12, sm: 6, md: 4 }}>
+            <Card sx={{ opacity: 0.85, borderLeft: "3px solid", borderColor: "#f57f17" }}>
+              <CardContent>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                  <Typography variant="h6" sx={{ flexGrow: 1 }}>
+                    {r.name}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "#f57f17", fontWeight: 600 }}>
+                    Reserved
+                  </Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Waiting for a GPU · {describeWindow(r)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                  When it launches: {describePolicy(r)}
+                </Typography>
+                {r.error && (
+                  <Typography variant="caption" sx={{ display: "block", mt: 1, color: "warning.main" }}>
+                    Last attempt: {r.error}
+                  </Typography>
+                )}
+                <Button
+                  size="small"
+                  sx={{ mt: 1 }}
+                  onClick={async () => {
+                    await cancelReservation(r.id);
+                    fetchWorkers();
+                  }}
+                >
+                  Cancel
+                </Button>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
         {booting.map((p) => (
           <Grid key={p.id} size={{ xs: 12, sm: 6, md: 4 }}>
             <Card sx={{ opacity: 0.85 }}>
