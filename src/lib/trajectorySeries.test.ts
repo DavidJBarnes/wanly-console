@@ -7,14 +7,23 @@ describe("buildTracks", () => {
   it("normalises each axis to its own range so all four are comparable in shape", () => {
     // Identity is a 0-1 cosine, detail is in the hundreds. Plotted raw on one axis, identity
     // would be a flat line at the bottom.
-    const tracks = buildTracks({
+    const [identity, detail] = buildTracks({
       series: seq(20, (i) => 0.9 - i * 0.001),
       series_detail: seq(20, (i) => 200 + i),
     });
-    for (const t of tracks) {
-      expect(Math.min(...t.points)).toBeCloseTo(0, 5);
-      expect(Math.max(...t.points)).toBeCloseTo(1, 5);
+
+    // One falls, one rises, and their units differ by five orders of magnitude — but after
+    // normalisation they are the same shape reflected, which is what makes them plottable
+    // together. Asserted as a mirror rather than as exact 0-1 endpoints because the line is a
+    // rolling mean: it approaches the extremes without landing on them.
+    for (let i = 0; i < identity.points.length; i++) {
+      expect(identity.points[i] + detail.points[i]).toBeCloseTo(1, 5);
     }
+    expect(Math.min(...identity.points)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...identity.points)).toBeLessThanOrEqual(1);
+    // Not the full 0-1: averaging pulls the endpoints of a monotone ramp inward, more so on a
+    // short series like this one. A real trend still has to travel most of the plot.
+    expect(Math.max(...identity.points) - Math.min(...identity.points)).toBeGreaterThan(0.85);
   });
 
   it("keeps the real values alongside the normalised ones", () => {
@@ -41,6 +50,29 @@ describe("buildTracks", () => {
     const dirty = [...seq(10, (i) => i), null, undefined, "x"] as unknown[];
     const tracks = buildTracks({ series: dirty });
     expect(tracks[0].raw).toHaveLength(10);
+  });
+
+  it("smooths the plotted line but reports the raw extremes", () => {
+    // The real case (job 9c7243a7): motion swung 0.13-1.06 per frame around a mean that was
+    // flat at ~0.62 for the whole clip. Drawn raw it read as chaos. The chips must still say
+    // how extreme it actually got, or smoothing has hidden the thing worth knowing.
+    const spiky = seq(200, (i) => (i % 2 === 0 ? 0.2 : 1.0));
+    const [t] = buildTracks({ series_motion: spiky });
+
+    // The chips must still say how extreme it actually got.
+    expect(t.min).toBeCloseTo(0.2, 5);
+    expect(t.max).toBeCloseTo(1.0, 5);
+    // ...while the line stays near the middle, because nothing actually trended.
+    expect(t.points.every((p) => p > 0.35 && p < 0.65)).toBe(true);
+  });
+
+  it("still shows a sustained trend after smoothing", () => {
+    // Smoothing that flattened a genuine decay would defeat the panel entirely. This is the
+    // case the "stationary stays flat" test above must not be bought at the expense of.
+    const decay = seq(200, (i) => 0.95 - i * 0.001);
+    const [t] = buildTracks({ series: decay });
+    expect(t.points[0]).toBeGreaterThan(0.9);
+    expect(t.points[t.points.length - 1]).toBeLessThan(0.1);
   });
 
   it("returns nothing for absent metrics", () => {
