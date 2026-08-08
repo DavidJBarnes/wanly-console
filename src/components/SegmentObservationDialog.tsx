@@ -47,10 +47,25 @@ function groupOf(tag: string): string {
   const location = tag.split("-")[0];
   if (["face", "mouth", "teeth", "identity", "eyes", "brows"].includes(location)) return "Face";
   if (["him", "her"].includes(location)) return "Motion";
+  if (location === "pace") return "Pace";
   return "Body";
 }
 
-const GROUP_ORDER = ["Face", "Motion", "Body"];
+const GROUP_ORDER = ["Face", "Motion", "Pace", "Body"];
+
+/**
+ * Tags that contradict each other, mirrored from the API which rejects them.
+ *
+ * Enforced here too so the UI cannot compose a request the server will refuse — being told
+ * "contradictory tags" after clicking Save is a worse experience than the second click simply
+ * replacing the first. Declared per group rather than inferred from the prefix, because most
+ * locations are not exclusive: a face can be blurry and frozen at once.
+ */
+const EXCLUSIVE_GROUPS: string[][] = [
+  ["pace-slow", "pace-right", "pace-fast"],
+  ["him-static", "him-strong"],
+  ["her-static", "her-strong"],
+];
 
 export default function SegmentObservationDialog({ open, segment, onClose, onSaved }: Props) {
   const [vocabulary, setVocabulary] = useState<string[]>([]);
@@ -76,7 +91,13 @@ export default function SegmentObservationDialog({ open, segment, onClose, onSav
   const toggle = (tag: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
-      if (!next.delete(tag)) next.add(tag);
+      if (next.delete(tag)) return next;
+      // Selecting one member of an exclusive set clears the others, so pace behaves like a
+      // three-way switch rather than a set of checkboxes that can disagree.
+      for (const group of EXCLUSIVE_GROUPS) {
+        if (group.includes(tag)) group.forEach((other) => next.delete(other));
+      }
+      next.add(tag);
       return next;
     });
 
