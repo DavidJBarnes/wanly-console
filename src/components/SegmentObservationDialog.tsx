@@ -65,6 +65,7 @@ const EXCLUSIVE_GROUPS: string[][] = [
   ["pace-slow", "pace-right", "pace-fast"],
   ["him-static", "him-strong"],
   ["her-static", "her-strong"],
+  ["bodies-locked", "bodies-inout"],
 ];
 
 export default function SegmentObservationDialog({ open, segment, onClose, onSaved }: Props) {
