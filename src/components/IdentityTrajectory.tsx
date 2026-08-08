@@ -85,7 +85,13 @@ export default function IdentityTrajectory({ metrics }: Props) {
                 color: off ? "text.disabled" : colours[t.key],
                 textDecoration: off ? "line-through" : "none",
               }}
-              label={`${t.label} ${t.min.toFixed(t.precision)}–${t.max.toFixed(t.precision)}`}
+              // Mean first, extremes bracketed. "0.10-1.08" alone sat directly under the
+              // "0.919 -> 0.828" trajectory row and got read as start-to-end, which it never
+              // was: these are the lowest and highest single frames, in no particular order.
+              label={
+                `${t.label} ${t.mean.toFixed(t.precision)} ` +
+                `(${t.min.toFixed(t.precision)}–${t.max.toFixed(t.precision)})`
+              }
             />
           );
         })}

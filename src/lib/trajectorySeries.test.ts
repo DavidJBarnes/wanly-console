@@ -98,3 +98,18 @@ describe("sampleAt", () => {
     expect(sampleAt(t, 2)).toBe(9);
   });
 });
+
+describe("chip figures", () => {
+  it("reports the mean alongside the true extremes, not the endpoints", () => {
+    // "0.10-1.08" alone sat under the "0.919 -> 0.828" trajectory row and was read as
+    // start-to-end. It never was: these are the lowest and highest single frames, in no
+    // particular order. A series that ENDS at its minimum proves the distinction.
+    const s = [...Array(40).fill(1.0), ...Array(40).fill(0.2), 0.05];
+    const [t] = buildTracks({ series_motion: s });
+    expect(t.min).toBeCloseTo(0.05, 5);
+    expect(t.max).toBeCloseTo(1.0, 5);
+    expect(t.mean).toBeCloseTo((40 * 1.0 + 40 * 0.2 + 0.05) / 81, 5);
+    // The endpoints are 1.0 and 0.05 — neither is the mean, and max is not the start.
+    expect(t.mean).not.toBeCloseTo(t.raw[0], 2);
+  });
+});
