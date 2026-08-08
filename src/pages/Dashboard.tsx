@@ -44,16 +44,6 @@ function formatLongDuration(seconds: number): string {
   return `${m}m ${s}s`;
 }
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
 interface StatCardProps {
   label: string;
   value: string | number;
@@ -125,6 +115,11 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  // Segments claimed before the gpu_name column existed, or run by a pod whose worker row has
+  // since been deleted, report "unknown". They carry no information about hardware, so they
+  // would only pad the table with a row nobody can act on.
+  const known = runtimes.filter((r) => r.gpu_name !== "unknown");
+
   if (loading) {
     return (
       <Box sx={{ textAlign: "center", py: 8 }}>
@@ -188,45 +183,7 @@ export default function Dashboard() {
         </Grid>
       </Grid>
 
-      <Typography variant="h6" sx={{ mb: 2 }}>
-        Worker Performance
-      </Typography>
       <Card>
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Worker</TableCell>
-                <TableCell align="right">Segments</TableCell>
-                <TableCell align="right">Avg Run Time</TableCell>
-                <TableCell align="right">Last Active</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {stats?.worker_stats && stats.worker_stats.length > 0 ? (
-                stats.worker_stats.map((w) => (
-                  <TableRow key={w.worker_name}>
-                    <TableCell>{w.worker_name}</TableCell>
-                    <TableCell align="right">{w.segments_completed}</TableCell>
-                    <TableCell align="right">{formatRunTime(w.avg_run_time)}</TableCell>
-                    <TableCell align="right">
-                      {w.last_seen ? timeAgo(w.last_seen) : "-"}
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={4} sx={{ textAlign: "center", color: "text.secondary" }}>
-                    No worker data yet
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Card>
-
-      <Card sx={{ mt: 3 }}>
         <CardContent sx={{ pb: 1 }}>
           <Typography variant="h6">Run time by GPU and shape</Typography>
           <Typography variant="body2" color="text.secondary">
@@ -247,8 +204,8 @@ export default function Dashboard() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {runtimes.length > 0 ? (
-                runtimes.map((r) => (
+              {known.length > 0 ? (
+                known.map((r) => (
                   <TableRow key={`${r.gpu_name}-${r.width}x${r.height}-${r.clip_seconds}`}>
                     <TableCell>{r.gpu_name.replace("NVIDIA GeForce ", "")}</TableCell>
                     <TableCell>
@@ -267,7 +224,7 @@ export default function Dashboard() {
               ) : (
                 <TableRow>
                   <TableCell colSpan={6} sx={{ textAlign: "center", color: "text.secondary" }}>
-                    No completed segments recorded yet
+                    No completed segments with a known GPU yet
                   </TableCell>
                 </TableRow>
               )}
