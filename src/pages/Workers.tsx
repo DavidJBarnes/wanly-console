@@ -287,7 +287,7 @@ export default function Workers() {
           <Grid key={worker.id} size={{ xs: 12, sm: 6, md: 4 }}>
             <WorkerCard
               worker={worker}
-              costPerHr={costForWorker(worker.friendly_name, pods)}
+              costPerHr={costForWorker(worker, pods)}
               onDelete={setDeleteConfirm}
               onDrain={setDrainConfirm}
               onCancelDrain={handleCancelDrain}

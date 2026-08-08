@@ -362,6 +362,9 @@ export interface A1111 {
 }
 
 export interface WorkerResponse {
+  /** Set only by workers running on RunPod. The reliable way to pair a worker with its pod —
+   *  names diverge when a pod is launched from the template rather than the console. */
+  runpod_pod_id?: string | null;
   id: string;
   friendly_name: string;
   hostname: string;
