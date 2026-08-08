@@ -21,16 +21,31 @@ export interface BootingPod {
   costPerHr: number | null;
 }
 
+/** Has this pod already become a registered worker?
+ *
+ *  By pod id first, because that is the only identifier both sides agree on. Names diverge:
+ *  a pod launched from the RunPod template is auto-named (valid_chocolate_cockroach) while its
+ *  worker registers as runpod-<pod id>. Matching on name alone left such a pod showing as
+ *  "Starting" forever, beside the worker it had already become.
+ *
+ *  Name is kept as a fallback for workers whose daemon predates reporting the pod id. */
+function isRegistered(pod: RunPodWorker, workers: WorkerResponse[]): boolean {
+  return workers.some(
+    (w) =>
+      (w.runpod_pod_id && w.runpod_pod_id === pod.id) ||
+      (!!pod.name && w.friendly_name === pod.name),
+  );
+}
+
 export function findBootingPods(
   pods: RunPodWorker[],
   workers: WorkerResponse[],
 ): BootingPod[] {
-  const registered = new Set(workers.map((w) => w.friendly_name));
   return pods
     // A pod RunPod is deliberately shutting down is not "booting". Showing EXITED pods as
     // starting would be worse than showing nothing.
     .filter((p) => p.status === "RUNNING")
-    .filter((p) => !!p.name && !registered.has(p.name))
+    .filter((p) => !isRegistered(p, workers))
     .map((p) => ({
       id: p.id,
       name: p.name as string,
@@ -47,9 +62,13 @@ export function findBootingPods(
  * launch dialog — they are different numbers and only this one is what gets billed.
  */
 export function costForWorker(
-  workerName: string,
+  worker: WorkerResponse,
   pods: RunPodWorker[],
 ): number | null {
-  const pod = pods.find((p) => p.name === workerName);
+  const pod = pods.find(
+    (p) =>
+      (worker.runpod_pod_id && p.id === worker.runpod_pod_id) ||
+      p.name === worker.friendly_name,
+  );
   return pod?.cost_per_hr ?? null;
 }
