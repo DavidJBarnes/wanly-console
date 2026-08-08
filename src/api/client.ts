@@ -423,8 +423,10 @@ export async function getUntaggedImages(): Promise<ImageFile[]> {
   return data;
 }
 
-export async function deleteImage(path: string): Promise<void> {
-  await api.delete("/images", { params: { path } });
+/** Delete an image. Refused with 409 when a job or segment still references it; pass
+ *  force to delete anyway and accept the dangling reference. */
+export async function deleteImage(path: string, force = false): Promise<void> {
+  await api.delete("/images", { params: force ? { path, force: true } : { path } });
 }
 
 export async function createImageFolder(name: string): Promise<{ name: string }> {
