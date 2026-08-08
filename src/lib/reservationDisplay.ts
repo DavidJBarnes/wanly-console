@@ -16,11 +16,37 @@ export function minutesLeft(reservation: GpuReservation, now: Date = new Date())
 
 export function describeWindow(reservation: GpuReservation, now: Date = new Date()): string {
   const mins = minutesLeft(reservation, now);
-  if (mins <= 0) return "expiring";
+  if (mins <= 0) return "under a minute left";
   if (mins < 60) return `${mins}m left`;
   const hours = Math.floor(mins / 60);
   const rest = mins % 60;
   return rest ? `${hours}h ${rest}m left` : `${hours}h left`;
+}
+
+/**
+ * How hard this reservation has actually tried.
+ *
+ * `attempts` existed on the model and was never displayed, and that omission hid a real bug: a
+ * 3090 reservation sat through its entire window at attempts=0, never calling RunPod once,
+ * because decide() gated on a price check that reports nothing for a GPU that places fine. The
+ * card said "Waiting for a GPU", which described an activity that was not happening, and the
+ * failure was only found by querying the database directly.
+ *
+ * A reservation that is not attempting is indistinguishable from one that is, unless this is on
+ * screen. It is the difference between a silent failure and an obvious one.
+ */
+export function describeAttempts(reservation: GpuReservation): string {
+  const n = reservation.attempts ?? 0;
+  if (n === 0) return "no launch attempted yet";
+  return n === 1 ? "1 launch attempted" : `${n} launches attempted`;
+}
+
+/** Which GPU this reservation is holding out for. Selectable since wanly-api#169, so a card that
+ *  omits it cannot be read — "3090-1" is a name someone typed, not a fact about the request. */
+export function describeGpu(reservation: GpuReservation): string {
+  const gpu = reservation.gpu_type_id;
+  if (!gpu) return "default GPU";
+  return gpu.replace("NVIDIA GeForce ", "").replace("NVIDIA ", "");
 }
 
 /** What this reservation will do to the worker it eventually launches. */

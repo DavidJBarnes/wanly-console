@@ -46,7 +46,7 @@ import {
   type GpuReservation,
 } from "../api/client";
 import { findBootingPods, costForWorker } from "../lib/bootingPods";
-import { describeWindow, describePolicy } from "../lib/reservationDisplay";
+import { describeWindow, describePolicy, describeAttempts, describeGpu } from "../lib/reservationDisplay";
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
@@ -234,7 +234,16 @@ export default function Workers() {
                   </Typography>
                 </Box>
                 <Typography variant="body2" color="text.secondary">
-                  Waiting for a GPU · {describeWindow(r)}
+                  {describeGpu(r)} · {describeWindow(r)}
+                </Typography>
+                {/* Attempts, prominently. A reservation showing "no launch attempted yet" as its
+                    window drains is broken, and that must be visible without a database query. */}
+                <Typography
+                  variant="body2"
+                  sx={{ mt: 0.25 }}
+                  color={(r.attempts ?? 0) === 0 ? "warning.main" : "text.secondary"}
+                >
+                  {describeAttempts(r)}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
                   When it launches: {describePolicy(r)}
