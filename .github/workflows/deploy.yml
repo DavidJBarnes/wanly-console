@@ -9,6 +9,20 @@ env:
   ECR_REPOSITORY: wanly-console
   CONTAINER_NAME: wanly-console
 
+# One deploy at a time. The steps stop and remove the container before starting it, which is
+# idempotent alone but not against a concurrent run: both remove, both start, and the second gets
+# "the container name /wanly-console is already in use". The API repo hit exactly this on
+# 2026-08-08 with two merges nineteen seconds apart. The failure is worse than a red build --
+# whichever run loses is arbitrary, so a close pair can leave the OLDER image serving while CI
+# reports success on the newer commit.
+#
+# cancel-in-progress is false deliberately: cancelling mid-flight can leave the host with no
+# container, having already removed the previous one. Queueing still converges on the newest
+# commit, because a third run supersedes the one waiting.
+concurrency:
+  group: deploy-console
+  cancel-in-progress: false
+
 permissions:
   id-token: write
   contents: read
