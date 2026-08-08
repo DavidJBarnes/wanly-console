@@ -539,9 +539,15 @@ export async function getRunPodGpuOptions(): Promise<RunPodGpuOption[]> {
 export interface RunPodWorker {
   id: string;
   name: string | null;
+  /** What we ASKED RunPod for. Not evidence that anything is running — see runtime_ready. */
   status: string | null;
   cost_per_hr: number | null;
   gpu_type_id: string | null;
+  created_at?: string | null;
+  /** False means the pod is rented and billing but has no container. */
+  runtime_ready?: boolean;
+  /** Zero on a RUNNING pod means the host never attached a GPU. Fatal and immediate. */
+  gpu_count?: number;
 }
 
 /** Is the configured GPU purchasable right now? Point-in-time — availability genuinely flaps,
@@ -614,6 +620,12 @@ export async function createReservation(
 
 export async function cancelReservation(id: string): Promise<void> {
   await api.delete(`/runpod/reservations/${id}`);
+}
+
+/** Terminate a pod outright. Destructive and immediate — it does not wait for in-flight work.
+ *  Draining is the graceful path; this exists for a pod that cannot do work at all. */
+export async function terminateRunPodWorker(podId: string): Promise<void> {
+  await api.delete(`/runpod/workers/${podId}`);
 }
 
 export async function getRunPodWorkers(): Promise<RunPodWorker[]> {
