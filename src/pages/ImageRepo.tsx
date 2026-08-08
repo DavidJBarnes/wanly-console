@@ -23,6 +23,7 @@ import {
   ListItemText,
   useMediaQuery,
   useTheme,
+  Snackbar,
 } from "@mui/material";
 import {
   ArrowBack,
@@ -43,6 +44,11 @@ import {
   Search,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router";
+import {
+  parseImageInUse,
+  describeHolders,
+  type ImageInUse,
+} from "../lib/imageDeleteConflict";
 import {
   getImageFolders,
   getImageFolder,
@@ -92,6 +98,8 @@ export default function ImageRepo() {
   const [loading, setLoading] = useState(true);
   const [lightboxImage, setLightboxImage] = useState<ImageFile | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ImageFile | null>(null);
+  const [inUse, setInUse] = useState<{ image: ImageFile; conflict: ImageInUse } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [jobDialogOpen, setJobDialogOpen] = useState(false);
   const [jobDialogImageUri, setJobDialogImageUri] = useState<string | null>(null);
   const [jobDialogImageTags, setJobDialogImageTags] = useState<string | null>(null);
@@ -323,16 +331,28 @@ export default function ImageRepo() {
     setImages([]);
   };
 
-  const handleDeleteConfirm = async () => {
-    if (!deleteConfirm) return;
+  const removeFromView = (key: string) => {
+    setImages((prev) => prev.filter((img) => img.key !== key));
+    if (lightboxImage?.key === key) setLightboxImage(null);
+  };
+
+  const handleDeleteConfirm = async (force = false) => {
+    const target = deleteConfirm ?? inUse?.image ?? null;
+    if (!target) return;
     try {
-      await deleteImage(deleteConfirm.path);
-      setImages((prev) => prev.filter((img) => img.key !== deleteConfirm.key));
-      if (lightboxImage?.key === deleteConfirm.key) {
-        setLightboxImage(null);
+      await deleteImage(target.path, force);
+      removeFromView(target.key);
+      setInUse(null);
+    } catch (e) {
+      // A refusal is not a failure — the API declined because something still points at this
+      // image. Say what, instead of the previous silent swallow, which taught people to
+      // distrust the button rather than go look at the job.
+      const conflict = parseImageInUse(e);
+      if (conflict) {
+        setInUse({ image: target, conflict });
+      } else {
+        setError("Could not delete image");
       }
-    } catch {
-      // ignore
     }
     setDeleteConfirm(null);
   };
@@ -444,21 +464,38 @@ export default function ImageRepo() {
   const handleBulkDeleteConfirm = async () => {
     if (bulkDeleteKeys.length === 0) return;
     setBulkDeleting(true);
+    // Each image is attempted independently. Previously one failure aborted the loop and was
+    // swallowed, so images that HAD been deleted stayed on screen, the rest were never tried,
+    // and nothing was reported — the view and the bucket silently disagreed.
+    const deleted: string[] = [];
+    let refused = 0;
+    let failed = 0;
     try {
       for (const key of bulkDeleteKeys) {
         const img = images.find((i) => i.key === key);
-        if (img) await deleteImage(img.path);
+        if (!img) continue;
+        try {
+          await deleteImage(img.path);
+          deleted.push(key);
+        } catch (e) {
+          if (parseImageInUse(e)) refused += 1;
+          else failed += 1;
+        }
       }
-      setImages((prev) => prev.filter((img) => !bulkDeleteKeys.includes(img.key)));
-      if (lightboxImage && bulkDeleteKeys.includes(lightboxImage.key)) {
+      setImages((prev) => prev.filter((img) => !deleted.includes(img.key)));
+      if (lightboxImage && deleted.includes(lightboxImage.key)) {
         setLightboxImage(null);
       }
       setSelectedKeys(new Set());
       setSelectMode(false);
       setBulkDeleteOpen(false);
       setBulkDeleteKeys([]);
-    } catch {
-      // ignore
+      if (refused || failed) {
+        const parts = [`Deleted ${deleted.length}`];
+        if (refused) parts.push(`${refused} still in use`);
+        if (failed) parts.push(`${failed} failed`);
+        setError(parts.join(" · "));
+      }
     } finally {
       setBulkDeleting(false);
     }
@@ -731,11 +768,61 @@ export default function ImageRepo() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={handleDeleteConfirm}>
+          <Button color="error" variant="contained" onClick={() => handleDeleteConfirm()}>
             Delete
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Refused: something still points at this image (wanly-api#156). */}
+      <Dialog open={!!inUse} onClose={() => setInUse(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Image is still in use</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" gutterBottom>
+            <strong>{inUse?.image.filename}</strong> is referenced by{" "}
+            <strong>{inUse ? describeHolders(inUse.conflict) : ""}</strong>.
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Deleting it anyway leaves those pointing at a file that no longer exists. They will
+            fail when a worker picks them up, which is how images went missing before.
+          </Typography>
+          {!!inUse?.conflict.jobIds.length && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="caption" color="text.secondary">
+                Jobs
+              </Typography>
+              {inUse.conflict.jobIds.slice(0, 5).map((id) => (
+                <Typography
+                  key={id}
+                  variant="body2"
+                  sx={{ cursor: "pointer", color: "primary.main", wordBreak: "break-all" }}
+                  onClick={() => navigate(`/jobs/${id}`)}
+                >
+                  {id}
+                </Typography>
+              ))}
+              {inUse.conflict.jobIds.length > 5 && (
+                <Typography variant="caption" color="text.secondary">
+                  …and {inUse.conflict.jobIds.length - 5} more
+                </Typography>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInUse(null)}>Keep it</Button>
+          <Button color="error" onClick={() => handleDeleteConfirm(true)}>
+            Delete anyway
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+        message={error ?? ""}
+      />
 
       {/* Bulk Delete Confirmation */}
       <Dialog
