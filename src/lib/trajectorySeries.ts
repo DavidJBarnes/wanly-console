@@ -39,6 +39,36 @@ const SPECS: {
 /** A series shorter than this is noise, not a trajectory. */
 const MIN_POINTS = 8;
 
+/**
+ * Frame-to-frame values are far noisier than the trend inside them.
+ *
+ * Measured on job 9c7243a7: motion ranged 0.13–1.06 per frame while its eighth-by-eighth means
+ * sat between 0.57 and 0.67 — flat. Every axis behaved the same way. Drawn raw, four such series
+ * overlap into solid hatching that reads as chaos when the clip is in fact stationary, which is
+ * the opposite of what the chart is for.
+ *
+ * Two things make the raw signal noisier than the thing being measured. The video is scored
+ * after RIFE interpolation, so most frames are interpolated rather than generated; and the
+ * delta-based axes difference adjacent frames, which amplifies whatever jitter is left.
+ *
+ * So the LINE is smoothed and the RANGE CHIPS stay raw — the trend and the true extremes are
+ * different questions, and one series cannot answer both. Dip detection also stays on raw
+ * values: it asks about one specific frame, which a rolling mean would blur into its neighbours.
+ */
+function smooth(values: number[]): number[] {
+  // ~7% of the clip each side. On a 289-frame series that is about 0.35s of source footage:
+  // wide enough to clear the interpolation jitter, narrow enough that sub-second structure
+  // survives. Dip detection reads raw values, so this only has to serve the trend.
+  const half = Math.max(2, Math.round(values.length / 28));
+  return values.map((_, i) => {
+    const lo = Math.max(0, i - half);
+    const hi = Math.min(values.length, i + half + 1);
+    let sum = 0;
+    for (let j = lo; j < hi; j++) sum += values[j];
+    return sum / (hi - lo);
+  });
+}
+
 export function buildTracks(metrics: Record<string, unknown> | null | undefined): Track[] {
   if (!metrics) return [];
   const tracks: Track[] = [];
@@ -49,13 +79,23 @@ export function buildTracks(metrics: Record<string, unknown> | null | undefined)
     const values = raw.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     if (values.length < MIN_POINTS) continue;
 
+    // Ranges come from the raw values: the chips answer "how extreme did this get", and
+    // smoothing would quietly shrink both ends of that answer.
     const min = Math.min(...values);
     const max = Math.max(...values);
+
+    // The smoothed line is normalised against the RAW range, deliberately. Rescaling it to its
+    // own range instead would stretch whatever ripple survived smoothing back to full plot
+    // height, so a stationary clip would look identical to a collapsing one and the chart could
+    // never say "flat". Against the raw range, a series that only jitters stays near the middle
+    // and one that genuinely trends travels — which is the distinction being drawn.
+    //
     // A genuinely flat series would divide by zero. Render it down the middle rather than
     // dropping it — "this never changed" is information, and an absent line reads as missing
     // data instead.
     const span = max - min;
-    const points = span > 0 ? values.map((v) => (v - min) / span) : values.map(() => 0.5);
+    const line = smooth(values);
+    const points = span > 0 ? line.map((v) => (v - min) / span) : line.map(() => 0.5);
 
     tracks.push({ ...spec, points, raw: values, min, max });
   }

@@ -101,8 +101,9 @@ export default function IdentityTrajectory({ metrics }: Props) {
       </Box>
 
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-        Each axis normalised to its own range — the chart shows <em>when</em> something moved;
-        the ranges above carry <em>how much</em>. Identity is measured against{" "}
+        Lines are rolling means, each normalised to its own range — the chart shows <em>when</em>{" "}
+        something moved; the ranges above are the raw per-frame extremes and carry{" "}
+        <em>how much</em>. Identity is measured against{" "}
         {vsGroundTruth ? "segment 0's start frame" : "this segment's own start frame"}
         {stride > 1 && `, sampled every ${stride} frames`}.
       </Typography>
