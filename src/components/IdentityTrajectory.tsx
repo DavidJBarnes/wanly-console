@@ -1,148 +1,117 @@
-import { Box, Typography, useTheme } from "@mui/material";
+import { Box, Chip, Stack, Typography, useTheme } from "@mui/material";
 import { DIP_THRESHOLD, TAIL, median } from "../lib/identityHelpers";
+import { buildTracks, type Track } from "../lib/trajectorySeries";
 
-/** Per-frame cosine, already stored by the daemon in identity_metrics.series.
+/** The four axes a clip is judged on, over time, on one chart.
  *
- *  WHY THIS EXISTS: start and end alone cannot distinguish a clip that decayed steadily
- *  from one that held and then dipped on the final frames. Those two produce identical
- *  headline numbers and call for opposite fixes — and it matters more than a display
- *  detail, because the daemon seeds the NEXT segment from the LAST frame. If that frame
- *  is a blink or a motion blur, the continuation inherits the worst moment of the clip
- *  and every later segment compounds an artifact that was never really there.
+ *  Start and end alone cannot tell a clip that decayed steadily from one that held and then
+ *  dipped on the final frames. Those produce identical headline numbers and call for opposite
+ *  fixes — and it matters beyond display, because the next segment is seeded from the LAST
+ *  frame. A blink or motion blur there propagates into everything that follows.
  *
- *  Observed on a real 2-segment job: seg1 read 0.851 -> 0.506 while the fitted slope was
- *  POSITIVE (+3.5e-4/frame). Endpoints falling while the trend rises is exactly the shape
- *  the summary stats cannot express. */
-
+ *  All four together because they trade against each other: high motion with a dead face,
+ *  or identity held while detail collapses, are the failures that any single axis misses. */
 
 interface Props {
   metrics: Record<string, unknown> | null | undefined;
 }
 
+const W = 600;
+const H = 130;
+
 export default function IdentityTrajectory({ metrics }: Props) {
   const theme = useTheme();
+  const tracks = buildTracks(metrics);
+  const identity = tracks.find((t) => t.key === "identity");
+  if (tracks.length === 0) return null;
 
-  const series = (metrics?.series as number[] | undefined) ?? undefined;
+  const colours: Record<Track["key"], string> = {
+    identity: theme.palette.primary.main,
+    expression: theme.palette.secondary.main,
+    motion: theme.palette.warning.main,
+    detail: theme.palette.success.main,
+  };
+
   const stride = (metrics?.stride as number | undefined) ?? 1;
-  // Clips scored before 2026-08-06 measured this against the segment's OWN start frame, which
-  // on a continuation is the already-drifted last frame -- so the graph opened near 0.95 while
-  // the trajectory above it read 0.851. New clips declare the reference; old ones have no
-  // field and are all own_start. Say which, rather than letting the two be conflated.
-  const seriesRef = (metrics?.series_ref as string | undefined) ?? "own_start";
-  const vsGroundTruth = seriesRef === "ground_truth";
-  if (!series || series.length < 8) return null;
+  // Older clips measured identity against the segment's own start frame, which on a
+  // continuation is the already-drifted last frame. Say which, rather than letting the two be
+  // read as the same number.
+  const vsGroundTruth = (metrics?.series_ref as string | undefined) === "ground_truth";
 
-  const lo = Math.min(...series);
-  const hi = Math.max(...series);
-  const span = Math.max(hi - lo, 0.02); // guard a flat clip from dividing by ~0
-  const mean = series.reduce((a, b) => a + b, 0) / series.length;
-
-  const W = 600;
-  const H = 120;
-  const x = (i: number) => (i / (series.length - 1)) * W;
-  const y = (v: number) => H - ((v - lo) / span) * H;
-  const points = series.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-
-  // Is the final frame representative of where the clip actually settled?
-  const end = series[series.length - 1];
-  const body = series.slice(-TAIL, -2);
+  // Dip detection stays on identity alone: it exists to decide whether the seed frame for the
+  // NEXT segment is representative, and that is an identity question.
+  const s = identity?.raw ?? [];
+  const end = s.length ? s[s.length - 1] : null;
+  const body = s.slice(-TAIL, -2);
   const bodyMedian = body.length >= 4 ? median(body) : null;
-  const dip = bodyMedian != null ? bodyMedian - end : null;
+  const dip = bodyMedian != null && end != null ? bodyMedian - end : null;
   const isDip = dip != null && dip >= DIP_THRESHOLD;
 
-  // If it IS a dip, the fix is to seed the next segment from the best frame in the tail
-  // rather than strictly the last one — so show what that frame would have been worth.
-  const tail = series.slice(-TAIL);
-  const bestTail = Math.max(...tail);
-  const bestOffset = tail.length - 1 - tail.lastIndexOf(bestTail);
-
-  const line = theme.palette.mode === "dark" ? theme.palette.primary.light : theme.palette.primary.main;
+  const path = (t: Track) =>
+    t.points
+      .map((v, i) => `${((i / (t.points.length - 1)) * W).toFixed(1)},${(H - v * H).toFixed(1)}`)
+      .join(" ");
 
   return (
     <Box sx={{ mt: 2 }}>
-      <Typography variant="subtitle2">Per-frame trajectory</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-        Cosine for every scored frame, against{" "}
-        <strong>{vsGroundTruth ? "segment 0's start frame" : "this segment's own start frame"}</strong>
-        {!vsGroundTruth && " — so on a continuation it shows drift WITHIN this segment, not since the job began"}
-        . The next segment is seeded from the <strong>last</strong> frame, so a dip at the
-        right-hand edge propagates into everything that follows.
-        {stride > 1 && ` Sampled every ${stride} frames.`}
-      </Typography>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+        <Typography variant="subtitle2" sx={{ mr: 1 }}>
+          Per-frame trajectory
+        </Typography>
+        {tracks.map((t) => (
+          <Chip
+            key={t.key}
+            size="small"
+            variant="outlined"
+            sx={{ borderColor: colours[t.key], color: colours[t.key] }}
+            label={`${t.label} ${t.min.toFixed(t.precision)}–${t.max.toFixed(t.precision)}`}
+          />
+        ))}
+      </Stack>
 
-      <Box
-        sx={{
-          border: 1,
-          borderColor: "divider",
-          borderRadius: 1,
-          p: 1,
-          overflowX: "auto",
-        }}
-      >
+      <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1, overflowX: "auto" }}>
         <svg
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
-          style={{ width: "100%", height: 120, display: "block" }}
+          style={{ width: "100%", height: H, display: "block" }}
         >
-          {/* the clip's own mean — makes "the end is below typical" visible at a glance */}
-          <line
-            x1={0}
-            x2={W}
-            y1={y(mean)}
-            y2={y(mean)}
-            stroke={theme.palette.text.disabled}
-            strokeDasharray="4 4"
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-          />
-          <polyline
-            points={points}
-            fill="none"
-            stroke={line}
-            strokeWidth={1.5}
-            vectorEffect="non-scaling-stroke"
-          />
-          <circle
-            cx={x(series.length - 1)}
-            cy={y(end)}
-            r={3}
-            fill={isDip ? theme.palette.error.main : theme.palette.success.main}
-            vectorEffect="non-scaling-stroke"
-          />
+          {tracks.map((t) => (
+            <polyline
+              key={t.key}
+              points={path(t)}
+              fill="none"
+              stroke={colours[t.key]}
+              strokeWidth={t.key === "identity" ? 1.8 : 1.1}
+              // The non-identity axes sit behind, so the line that drives the seeding decision
+              // stays readable when all four overlap.
+              opacity={t.key === "identity" ? 1 : 0.65}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          {identity && end != null && (
+            <circle
+              cx={W}
+              cy={H - identity.points[identity.points.length - 1] * H}
+              r={3.5}
+              fill={isDip ? theme.palette.error.main : theme.palette.success.main}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
         </svg>
       </Box>
 
-      <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.5 }}>
-        <Typography variant="caption" color="text.secondary">
-          y-axis {lo.toFixed(3)} – {hi.toFixed(3)} (dashed = mean {mean.toFixed(3)})
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          {series.length} samples
-        </Typography>
-      </Box>
-
-      <Typography
-        variant="caption"
-        component="div"
-        sx={{ mt: 1, fontFamily: "monospace", wordBreak: "break-word" }}
-      >
-        last {TAIL}: {tail.map((v) => v.toFixed(3)).join("  ")}
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+        Each axis normalised to its own range — the chart shows <em>when</em> something moved;
+        the ranges above carry <em>how much</em>. Identity is measured against{" "}
+        {vsGroundTruth ? "segment 0's start frame" : "this segment's own start frame"}
+        {stride > 1 && `, sampled every ${stride} frames`}.
       </Typography>
 
-      {isDip ? (
+      {isDip && (
         <Typography variant="caption" component="div" color="error.main" sx={{ mt: 1 }}>
-          <strong>The final frame is a dip, not the settled state.</strong> The clip sits around{" "}
-          {bodyMedian!.toFixed(3)} through its tail and ends at {end.toFixed(3)} —{" "}
-          {dip!.toFixed(3)} lower. The next segment is seeded from that frame. The best frame in
-          the last {TAIL} scores {bestTail.toFixed(3)} ({bestOffset} frames from the end), so
-          re-anchoring — or seeding from the best tail frame instead of the last — would start the
-          continuation {(bestTail - end).toFixed(3)} higher.
-        </Typography>
-      ) : (
-        <Typography variant="caption" component="div" color="text.secondary" sx={{ mt: 1 }}>
-          The final frame is consistent with the tail (median {bodyMedian?.toFixed(3) ?? "—"}), so
-          the endpoint reflects where the clip actually settled — any loss here is real drift, not
-          a bad frame.
+          <strong>The final frame is a dip, not the settled state</strong> — tail median{" "}
+          {bodyMedian!.toFixed(3)} vs {end!.toFixed(3)} ending. The next segment seeds from that
+          frame, so this propagates.
         </Typography>
       )}
     </Box>
