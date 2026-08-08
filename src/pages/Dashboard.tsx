@@ -20,7 +20,7 @@ import {
   Timer,
   Schedule,
 } from "@mui/icons-material";
-import { getStats, getWorkers } from "../api/client";
+import { getStats, getWorkers, getSegmentRuntimes, type SegmentRuntimeGroup } from "../api/client";
 import type { StatsResponse, WorkerResponse } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
 
@@ -96,6 +96,7 @@ function StatCard({ label, value, color, icon }: StatCardProps) {
 export default function Dashboard() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [workers, setWorkers] = useState<WorkerResponse[]>([]);
+  const [runtimes, setRuntimes] = useState<SegmentRuntimeGroup[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -106,6 +107,12 @@ export default function Dashboard() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    // Separate from the main load: this is supplementary, and it should never be able to blank
+    // the dashboard if the query is slow or the endpoint is unavailable.
+    getSegmentRuntimes()
+      .then(setRuntimes)
+      .catch(() => setRuntimes([]));
 
     const interval = setInterval(() => {
       Promise.all([getStats(), getWorkers()])
@@ -211,6 +218,56 @@ export default function Dashboard() {
                 <TableRow>
                   <TableCell colSpan={4} sx={{ textAlign: "center", color: "text.secondary" }}>
                     No worker data yet
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Card>
+
+      <Card sx={{ mt: 3 }}>
+        <CardContent sx={{ pb: 1 }}>
+          <Typography variant="h6">Run time by GPU and shape</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Grouped by shape as well as GPU — the same card runs 480p/3s in ~5 minutes and
+            720&times;1056/5s in ~30, so a combined average would describe nothing.
+          </Typography>
+        </CardContent>
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>GPU</TableCell>
+                <TableCell>Shape</TableCell>
+                <TableCell align="right">Runs</TableCell>
+                <TableCell align="right">Median</TableCell>
+                <TableCell align="right">Avg</TableCell>
+                <TableCell align="right">Range</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {runtimes.length > 0 ? (
+                runtimes.map((r) => (
+                  <TableRow key={`${r.gpu_name}-${r.width}x${r.height}-${r.clip_seconds}`}>
+                    <TableCell>{r.gpu_name.replace("NVIDIA GeForce ", "")}</TableCell>
+                    <TableCell>
+                      {r.width}&times;{r.height} · {r.clip_seconds}s
+                    </TableCell>
+                    <TableCell align="right">{r.samples}</TableCell>
+                    <TableCell align="right">{formatRunTime(r.median_seconds)}</TableCell>
+                    <TableCell align="right" sx={{ color: "text.secondary" }}>
+                      {formatRunTime(r.avg_seconds)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: "text.secondary" }}>
+                      {formatRunTime(r.min_seconds)}–{formatRunTime(r.max_seconds)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={6} sx={{ textAlign: "center", color: "text.secondary" }}>
+                    No completed segments recorded yet
                   </TableCell>
                 </TableRow>
               )}
