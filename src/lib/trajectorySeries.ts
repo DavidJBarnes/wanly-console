@@ -18,6 +18,8 @@ export interface Track {
   points: number[];
   /** Real values, for the tooltip and the range caption. */
   raw: number[];
+  /** Average over the clip — the number worth comparing between runs. */
+  mean: number;
   min: number;
   max: number;
   /** How many decimals this axis is meaningfully read at. */
@@ -83,6 +85,7 @@ export function buildTracks(metrics: Record<string, unknown> | null | undefined)
     // smoothing would quietly shrink both ends of that answer.
     const min = Math.min(...values);
     const max = Math.max(...values);
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
 
     // The smoothed line is normalised against the RAW range, deliberately. Rescaling it to its
     // own range instead would stretch whatever ripple survived smoothing back to full plot
@@ -97,7 +100,7 @@ export function buildTracks(metrics: Record<string, unknown> | null | undefined)
     const line = smooth(values);
     const points = span > 0 ? line.map((v) => (v - min) / span) : line.map(() => 0.5);
 
-    tracks.push({ ...spec, points, raw: values, min, max });
+    tracks.push({ ...spec, points, raw: values, mean, min, max });
   }
   return tracks;
 }
