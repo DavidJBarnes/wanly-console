@@ -36,7 +36,7 @@ export interface BootingPod {
  * said "CUDA unknown error ... available devices zero". Judging on those fields would have
  * flagged a healthy pod as dead.
  *
- * Thirty minutes, and the number is set by observation rather than taste. The daemon registers
+ * Forty-five minutes, and the number is set by observation rather than taste. The daemon registers
  * only AFTER staging and validating models, and a cold pod pulls ~37GB first. Watched live on
  * 2026-08-08: one pod reached "All required custom nodes verified" at about thirteen minutes and
  * was still downloading models several minutes later, entirely healthy. A twenty minute threshold
@@ -48,7 +48,20 @@ export interface BootingPod {
  * lets the operator judge long before this fires -- which is the actual mechanism. This is only
  * a backstop for what nobody happened to look at.
  */
-export const STUCK_AFTER_SECONDS = 30 * 60;
+export const STUCK_AFTER_SECONDS = 45 * 60;
+
+/**
+ * A note on why this threshold is a stopgap.
+ *
+ * Age is a proxy. It cannot distinguish "downloading the third 13GB weight" from "wedged", and
+ * every time we have watched a real boot the honest threshold has moved further out. The margin
+ * over a known-good boot is now eighteen minutes, which is defensible only because the elapsed
+ * time on the card is the real mechanism and this is the backstop.
+ *
+ * The actual fix is for the daemon to report its boot phase, so the page can say "staging models,
+ * 2 of 9" instead of guessing from a clock. That removes the threshold entirely rather than
+ * tuning it, and it is the thing to build if this proxy misfires again.
+ */
 
 /** Has this pod already become a registered worker?
  *
