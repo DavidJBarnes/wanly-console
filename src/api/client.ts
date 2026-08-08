@@ -690,3 +690,28 @@ export async function createSmashcut(body: SmashcutBody): Promise<{ id: string; 
   const { data } = await api.post<{ id: string; job_id: string }>("/smashcut", body);
   return data;
 }
+
+
+/** The controlled observation vocabulary, served rather than hardcoded here.
+ *
+ *  One source of truth so a tag written by the UI is the same string later analysis groups on.
+ *  That grouping is the entire value — "mouth-void" and "mouth void" are two labels. */
+export async function getObservationTags(): Promise<string[]> {
+  const { data } = await api.get<string[]>("/segments/observation-tags");
+  return data;
+}
+
+export interface SegmentAnnotation {
+  notes?: string | null;
+  rating?: number | null;
+  observation_tags?: string[];
+}
+
+/** Record what a human saw. Writes nothing generation reads. */
+export async function annotateSegment(
+  segmentId: string,
+  body: SegmentAnnotation,
+): Promise<SegmentResponse> {
+  const { data } = await api.patch<SegmentResponse>(`/segments/${segmentId}/annotation`, body);
+  return data;
+}

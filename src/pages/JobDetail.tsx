@@ -51,6 +51,8 @@ import {
   Star,
   StarBorder,
   ViewInAr,
+  RateReview,
+  RateReviewOutlined,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -89,6 +91,7 @@ import type {
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 import IdentityChip from "../components/IdentityChip";
+import SegmentObservationDialog from "../components/SegmentObservationDialog";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
@@ -257,6 +260,9 @@ export default function JobDetail() {
   const [error, setError] = useState("");
   const [videoModal, setVideoModal] = useState<{ path: string; v?: string; segIndex?: number } | null>(null);
   const [imageModal, setImageModal] = useState<{ path: string; segIndex: number } | null>(null);
+  // Which segment's observations are open. Holds the segment itself rather than an id so the
+  // dialog can populate without a second lookup.
+  const [observing, setObserving] = useState<SegmentResponse | null>(null);
   const [loopVideo, setLoopVideo] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [segmentModalOpen, setSegmentModalOpen] = useState(false);
@@ -1140,6 +1146,25 @@ export default function JobDetail() {
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                         <StatusChip status={seg.status} />
                         <IdentityChip segment={seg} />
+                        {(() => {
+                          const reviewed =
+                            seg.rating != null || !!seg.notes || !!seg.observation_tags;
+                          return (
+                            <Tooltip title={reviewed ? "Edit observations" : "Add observations"}>
+                              <IconButton
+                                size="small"
+                                onClick={() => setObserving(seg)}
+                                color={reviewed ? "primary" : "default"}
+                              >
+                                {reviewed ? (
+                                  <RateReview fontSize="small" />
+                                ) : (
+                                  <RateReviewOutlined fontSize="small" />
+                                )}
+                              </IconButton>
+                            </Tooltip>
+                          );
+                        })()}
                       </Box>
                     </TableCell>
                     <TableCell>
@@ -1348,6 +1373,25 @@ export default function JobDetail() {
                       </Typography>
                       <StatusChip status={seg.status} />
                       <IdentityChip segment={seg} />
+                      {(() => {
+                        const reviewed =
+                          seg.rating != null || !!seg.notes || !!seg.observation_tags;
+                        return (
+                          <Tooltip title={reviewed ? "Edit observations" : "Add observations"}>
+                            <IconButton
+                              size="small"
+                              onClick={() => setObserving(seg)}
+                              color={reviewed ? "primary" : "default"}
+                            >
+                              {reviewed ? (
+                                <RateReview fontSize="small" />
+                              ) : (
+                                <RateReviewOutlined fontSize="small" />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        );
+                      })()}
                       <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
                         {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at && (
                           <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -1859,6 +1903,33 @@ export default function JobDetail() {
           </Box>
         </DialogContent>
       </Dialog>
+
+      {/* Human observations. Kept out of the fetch path — saving patches the local segment in
+          place rather than refetching the job, so the row you just rated does not flicker. */}
+      <SegmentObservationDialog
+        open={!!observing}
+        segment={observing}
+        onClose={() => setObserving(null)}
+        onSaved={(updated) =>
+          setJob((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  segments: prev.segments.map((s) =>
+                    s.id === updated.id
+                      ? {
+                          ...s,
+                          rating: updated.rating,
+                          notes: updated.notes,
+                          observation_tags: updated.observation_tags,
+                        }
+                      : s,
+                  ),
+                }
+              : prev,
+          )
+        }
+      />
 
       {/* Frame preview popover */}
       <Popover

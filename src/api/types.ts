@@ -156,6 +156,12 @@ export interface SegmentResponse {
   id: string;
   job_id: string;
   index: number;
+  /** Human observation. The metrics cannot rank quality — expression rewards the mouth-gape
+   *  artifact it should penalise — so what a person saw is primary evidence, not a footnote. */
+  notes?: string | null;
+  rating?: number | null;
+  /** Comma-separated, from the server's controlled vocabulary. */
+  observation_tags?: string | null;
   prompt: string;
   prompt_template: string | null;
   duration_seconds: number;
