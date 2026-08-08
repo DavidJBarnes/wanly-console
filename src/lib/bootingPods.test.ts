@@ -72,3 +72,56 @@ describe("costForWorker", () => {
     expect(costForWorker(worker("3090.zero"), [pod("w1")])).toBeNull();
   });
 });
+
+describe("stuck detection", () => {
+  const NOW = new Date("2026-08-08T21:00:00Z");
+  const pod = (over: Partial<RunPodWorker> = {}): RunPodWorker => ({
+    id: "p1", name: "3090-1", status: "RUNNING", cost_per_hr: 0.22, gpu_type_id: null,
+    created_at: "2026-08-08T20:55:00Z", runtime_ready: false, gpu_count: 0, ...over,
+  });
+
+  it("does not call a recently launched pod stuck", () => {
+    const [b] = findBootingPods([pod()], [], NOW);
+    expect(b.stuck).toBe(false);
+    expect(b.ageSeconds).toBe(300);
+  });
+
+  it("does not call a slow cold boot stuck", () => {
+    // Watched live: a healthy pod registered at 26.5 minutes, having reached "custom nodes
+    // verified" at ~13. Anything at or under that observed-good boot MUST NOT be flagged --
+    // this test exists to stop the threshold drifting back down.
+    const [b] = findBootingPods([pod({ created_at: "2026-08-08T20:33:30Z" })], [], NOW);
+    expect(b.ageSeconds).toBe(26 * 60 + 30);
+    expect(b.stuck).toBe(false);
+  });
+
+  it("calls a pod stuck once it passes the window without registering", () => {
+    const [b] = findBootingPods([pod({ created_at: "2026-08-08T20:10:00Z" })], [], NOW);
+    expect(b.stuck).toBe(true);
+    expect(b.reason).toContain("never registered");
+  });
+
+  it("ignores runtime_ready and gpu_count entirely", () => {
+    // These CANNOT be used. Measured 2026-08-08: a pod that had registered and was accepting
+    // work still reported runtime {} and gpus [], identical to one that billed 18 minutes while
+    // torch inside reported zero CUDA devices. Judging on them flags healthy pods as dead.
+    const healthy = findBootingPods([pod({ runtime_ready: false, gpu_count: 0 })], [], NOW);
+    expect(healthy[0].stuck).toBe(false);
+    const up = findBootingPods(
+      [pod({ created_at: "2026-08-08T20:10:00Z", runtime_ready: true, gpu_count: 1 })], [], NOW);
+    expect(up[0].stuck).toBe(true);
+  });
+
+  it("reports age even when it is not stuck, because that is what was missing", () => {
+    // The operator judging "that's been 12 minutes, something is wrong" is most of the value;
+    // the threshold only catches what they did not notice.
+    const [b] = findBootingPods([pod()], [], NOW);
+    expect(b.ageSeconds).not.toBeNull();
+  });
+
+  it("survives a pod with no creation time rather than calling it stuck", () => {
+    const [b] = findBootingPods([pod({ created_at: null })], [], NOW);
+    expect(b.ageSeconds).toBeNull();
+    expect(b.stuck).toBe(false);
+  });
+});

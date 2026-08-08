@@ -19,7 +19,49 @@ export interface BootingPod {
   name: string;
   status: string | null;
   costPerHr: number | null;
+  /** Seconds since RunPod rented it, or null if it did not report a creation time. */
+  ageSeconds: number | null;
+  /** True when this pod is not going to boot: rented and billing, with no container. */
+  stuck: boolean;
+  /** Why it is stuck, for the card to show instead of a spinner. */
+  reason: string | null;
 }
+
+/**
+ * How long a pod may go without registering as a worker before it is treated as broken.
+ *
+ * Age is the ONLY signal that discriminates. RunPod's pod record does not: measured 2026-08-08,
+ * a pod that had already registered and was accepting work still reported `runtime: {}` and
+ * `gpus: []`, byte-identical to one that had billed for eighteen minutes while torch inside it
+ * said "CUDA unknown error ... available devices zero". Judging on those fields would have
+ * flagged a healthy pod as dead.
+ *
+ * Forty-five minutes, and the number is set by observation rather than taste. The daemon registers
+ * only AFTER staging and validating models, and a cold pod pulls ~37GB first. Watched live on
+ * 2026-08-08: one pod reached "All required custom nodes verified" at about thirteen minutes and
+ * was still downloading models several minutes later, entirely healthy. A twenty minute threshold
+ * would have called it dead.
+ *
+ * Erring long is deliberate. A detector that cries wolf on a working pod gets ignored, and then
+ * it is worth less than nothing. Catching a genuinely dead pod at thirty minutes still beats the
+ * eighteen minutes the last one cost with no detection at all, and the elapsed time on the card
+ * lets the operator judge long before this fires -- which is the actual mechanism. This is only
+ * a backstop for what nobody happened to look at.
+ */
+export const STUCK_AFTER_SECONDS = 45 * 60;
+
+/**
+ * A note on why this threshold is a stopgap.
+ *
+ * Age is a proxy. It cannot distinguish "downloading the third 13GB weight" from "wedged", and
+ * every time we have watched a real boot the honest threshold has moved further out. The margin
+ * over a known-good boot is now eighteen minutes, which is defensible only because the elapsed
+ * time on the card is the real mechanism and this is the backstop.
+ *
+ * The actual fix is for the daemon to report its boot phase, so the page can say "staging models,
+ * 2 of 9" instead of guessing from a clock. That removes the threshold entirely rather than
+ * tuning it, and it is the thing to build if this proxy misfires again.
+ */
 
 /** Has this pod already become a registered worker?
  *
@@ -40,18 +82,32 @@ function isRegistered(pod: RunPodWorker, workers: WorkerResponse[]): boolean {
 export function findBootingPods(
   pods: RunPodWorker[],
   workers: WorkerResponse[],
+  now: Date = new Date(),
 ): BootingPod[] {
   return pods
     // A pod RunPod is deliberately shutting down is not "booting". Showing EXITED pods as
     // starting would be worse than showing nothing.
     .filter((p) => p.status === "RUNNING")
     .filter((p) => !isRegistered(p, workers))
-    .map((p) => ({
-      id: p.id,
-      name: p.name as string,
-      status: p.status,
-      costPerHr: p.cost_per_hr,
-    }));
+    .map((p) => {
+      const ageSeconds = p.created_at
+        ? Math.max(0, Math.round((now.getTime() - new Date(p.created_at).getTime()) / 1000))
+        : null;
+      const stuck = ageSeconds !== null && ageSeconds >= STUCK_AFTER_SECONDS;
+      return {
+        id: p.id,
+        name: p.name as string,
+        status: p.status,
+        costPerHr: p.cost_per_hr,
+        ageSeconds,
+        stuck,
+        reason: stuck
+          ? "Rented and billing but never registered as a worker. A healthy pod registers well "
+            + "inside this window, even staging models cold. Most likely the host never attached "
+            + "a GPU, which torch reports as zero available devices."
+          : null,
+      };
+    });
 }
 
 /**

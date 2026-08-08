@@ -40,16 +40,26 @@ import {
   cancelDrain,
   renameWorker,
   getRunPodWorkers,
+  terminateRunPodWorker,
   getReservations,
   cancelReservation,
   type RunPodWorker,
   type GpuReservation,
 } from "../api/client";
 import { findBootingPods, costForWorker } from "../lib/bootingPods";
+
 import { describeWindow, describePolicy, describeAttempts, describeGpu } from "../lib/reservationDisplay";
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
+
+/** Minutes-and-seconds for a pod's age. Local rather than shared because formatDuration is
+ *  already duplicated across three pages; consolidating them is its own change. */
+function formatAge(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return m > 0 ? `${m}m ${rest}s` : `${rest}s`;
+}
 
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
   "online-idle": { color: "#4caf50", label: "Idle" },
@@ -269,25 +279,52 @@ export default function Workers() {
         ))}
         {booting.map((p) => (
           <Grid key={p.id} size={{ xs: 12, sm: 6, md: 4 }}>
-            <Card sx={{ opacity: 0.85 }}>
+            <Card
+              sx={{
+                opacity: 0.85,
+                borderLeft: p.stuck ? "3px solid" : undefined,
+                borderColor: p.stuck ? "error.main" : undefined,
+              }}
+            >
               <CardContent>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
                   <Typography variant="h6" sx={{ flexGrow: 1 }}>
                     {p.name}
                   </Typography>
-                  <CircularProgress size={16} />
-                  <Typography variant="body2" sx={{ color: "#0288d1", fontWeight: 600 }}>
-                    Starting
+                  {!p.stuck && <CircularProgress size={16} />}
+                  <Typography
+                    variant="body2"
+                    sx={{ color: p.stuck ? "error.main" : "#0288d1", fontWeight: 600 }}
+                  >
+                    {p.stuck ? "Not starting" : "Starting"}
                   </Typography>
                 </Box>
-                <Typography variant="body2" color="text.secondary">
-                  Pod is running; the worker has not registered yet. It stages models, starts
-                  ComfyUI and validates before appearing as online.
+                {/* The elapsed time is the point. Without it a pod that will never boot looks
+                    exactly like one staging 37GB, which is how an 18-minute billed failure went
+                    unnoticed until someone happened to have the RunPod console open. */}
+                <Typography variant="body2" color={p.stuck ? "error.main" : "text.secondary"}>
+                  {p.stuck
+                    ? p.reason
+                    : "Pod is running; the worker has not registered yet. It stages models, starts ComfyUI and validates before appearing as online."}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
                   {p.id}
                   {p.costPerHr != null && ` · $${p.costPerHr}/hr`}
+                  {p.ageSeconds != null && ` · up ${formatAge(p.ageSeconds)}`}
                 </Typography>
+                {p.stuck && (
+                  <Button
+                    size="small"
+                    color="error"
+                    sx={{ mt: 1 }}
+                    onClick={async () => {
+                      await terminateRunPodWorker(p.id);
+                      fetchWorkers();
+                    }}
+                  >
+                    Terminate
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </Grid>
