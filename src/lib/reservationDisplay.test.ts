@@ -10,6 +10,9 @@ const res = (overrides: Partial<GpuReservation> = {}): GpuReservation =>
     status: "pending",
     expires_at: "2026-08-07T12:30:00Z",
     drain_after_jobs: null,
+    // null means "the server default GPU", which is what every reservation made before the
+    // field existed was waiting for.
+    gpu_type_id: null,
     pod_id: null,
     error: null,
     attempts: 0,
