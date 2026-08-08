@@ -530,6 +530,14 @@ export async function getRunPodAvailability(): Promise<RunPodAvailability> {
   return data;
 }
 
+/** Pods RunPod knows about — including ones that have not registered as workers yet.
+ *  The gap between "pod RUNNING" and "worker registered" is the boot: model staging, ComfyUI
+ *  start, node checks. Without this the Workers page shows nothing during that window. */
+export async function getRunPodWorkers(): Promise<RunPodWorker[]> {
+  const { data } = await api.get<RunPodWorker[]>("/runpod/workers");
+  return data;
+}
+
 export async function launchRunPodWorker(name: string): Promise<RunPodWorker> {
   const { data } = await api.post<RunPodWorker>("/runpod/workers", { name });
   return data;

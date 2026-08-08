@@ -33,7 +33,16 @@ import {
   Cancel,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router";
-import { getWorkers, deleteWorker, drainWorker, cancelDrain, renameWorker } from "../api/client";
+import {
+  getWorkers,
+  deleteWorker,
+  drainWorker,
+  cancelDrain,
+  renameWorker,
+  getRunPodWorkers,
+  type RunPodWorker,
+} from "../api/client";
+import { findBootingPods, costForWorker } from "../lib/bootingPods";
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
@@ -76,6 +85,7 @@ export default function Workers() {
   const [deleting, setDeleting] = useState(false);
   const [drainConfirm, setDrainConfirm] = useState<WorkerResponse | null>(null);
   const [launchOpen, setLaunchOpen] = useState(false);
+  const [pods, setPods] = useState<RunPodWorker[]>([]);
   const [draining, setDraining] = useState(false);
   const [drainMode, setDrainMode] = useState<"immediate" | "after">("immediate");
   const [drainCount, setDrainCount] = useState(3);
@@ -89,6 +99,13 @@ export default function Workers() {
       setError("Failed to load workers");
     } finally {
       setLoading(false);
+    }
+    // Separate and non-fatal: RunPod being unreachable, or simply not configured on this
+    // server, must not blank the worker list. The 3090 does not depend on it at all.
+    try {
+      setPods(await getRunPodWorkers());
+    } catch {
+      setPods([]);
     }
   }, []);
 
@@ -149,6 +166,11 @@ export default function Workers() {
     (w) => w.status !== "offline",
   ).length;
 
+  const booting = findBootingPods(pods, workers);
+  const hourlySpend = pods
+    .filter((p) => p.status === "RUNNING")
+    .reduce((sum, p) => sum + (p.cost_per_hr ?? 0), 0);
+
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 2, mb: 3 }}>
@@ -156,6 +178,15 @@ export default function Workers() {
         <Typography variant="body2" color="text.secondary">
           {onlineCount} online / {workers.length} total
         </Typography>
+        {hourlySpend > 0 && (
+          <Chip
+            size="small"
+            color="warning"
+            variant="outlined"
+            label={`$${hourlySpend.toFixed(2)}/hr`}
+            title="Combined hourly cost of running RunPod pods"
+          />
+        )}
         <Box sx={{ flexGrow: 1 }} />
         <Button
           variant="contained"
@@ -180,10 +211,36 @@ export default function Workers() {
       )}
 
       <Grid container spacing={2}>
+        {booting.map((p) => (
+          <Grid key={p.id} size={{ xs: 12, sm: 6, md: 4 }}>
+            <Card sx={{ opacity: 0.85 }}>
+              <CardContent>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                  <Typography variant="h6" sx={{ flexGrow: 1 }}>
+                    {p.name}
+                  </Typography>
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" sx={{ color: "#0288d1", fontWeight: 600 }}>
+                    Starting
+                  </Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Pod is running; the worker has not registered yet. It stages models, starts
+                  ComfyUI and validates before appearing as online.
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                  {p.id}
+                  {p.costPerHr != null && ` · $${p.costPerHr}/hr`}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
         {sorted.map((worker) => (
           <Grid key={worker.id} size={{ xs: 12, sm: 6, md: 4 }}>
             <WorkerCard
               worker={worker}
+              costPerHr={costForWorker(worker.friendly_name, pods)}
               onDelete={setDeleteConfirm}
               onDrain={setDrainConfirm}
               onCancelDrain={handleCancelDrain}
@@ -293,6 +350,7 @@ export default function Workers() {
 
 function WorkerCard({
   worker,
+  costPerHr,
   onDelete,
   onDrain,
   onCancelDrain,
@@ -300,6 +358,9 @@ function WorkerCard({
   onClick,
 }: {
   worker: WorkerResponse;
+  /** The pod's actual hourly rate as RunPod reports it, or null when this worker is not a pod.
+   *  Distinct from the launch dialog's pre-launch quote — this is what is being billed. */
+  costPerHr: number | null;
   onDelete: (w: WorkerResponse) => void;
   onDrain: (w: WorkerResponse) => void;
   onCancelDrain: (w: WorkerResponse) => void;
@@ -536,6 +597,7 @@ function WorkerCard({
           sx={{ mt: 1.5, pt: 1, borderTop: "1px solid", borderColor: "divider" }}
         >
           Registered {formatDate(worker.registered_at)}
+          {costPerHr != null && ` · $${costPerHr}/hr`}
         </Typography>
       </CardContent>
     </Card>
