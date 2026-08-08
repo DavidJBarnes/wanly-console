@@ -554,6 +554,42 @@ export async function getRunPodAvailability(): Promise<RunPodAvailability> {
 /** Pods RunPod knows about — including ones that have not registered as workers yet.
  *  The gap between "pod RUNNING" and "worker registered" is the boot: model staging, ComfyUI
  *  start, node checks. Without this the Workers page shows nothing during that window. */
+export interface GpuReservation {
+  id: string;
+  name: string;
+  status: string;
+  expires_at: string;
+  drain_after_jobs: number | null;
+  pod_id: string | null;
+  error: string | null;
+  attempts: number;
+  created_at: string;
+}
+
+/** Reservations still waiting. Terminal ones are not returned — the point of the list is
+ *  "what is still going to spend money". */
+export async function getReservations(): Promise<GpuReservation[]> {
+  const { data } = await api.get<GpuReservation[]>("/runpod/reservations");
+  return data;
+}
+
+export async function createReservation(
+  name: string,
+  minutes: number,
+  drainAfterJobs?: number,
+): Promise<GpuReservation> {
+  const { data } = await api.post<GpuReservation>("/runpod/reservations", {
+    name,
+    minutes,
+    drain_after_jobs: drainAfterJobs ?? null,
+  });
+  return data;
+}
+
+export async function cancelReservation(id: string): Promise<void> {
+  await api.delete(`/runpod/reservations/${id}`);
+}
+
 export async function getRunPodWorkers(): Promise<RunPodWorker[]> {
   const { data } = await api.get<RunPodWorker[]>("/runpod/workers");
   return data;

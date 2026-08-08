@@ -15,6 +15,7 @@ import {
 import {
   getRunPodAvailability,
   launchRunPodWorker,
+  createReservation,
   type RunPodAvailability,
 } from "../api/client";
 
@@ -42,6 +43,10 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
   const [checking, setChecking] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Reservation options only appear when there is no capacity — offering them alongside a
+  // working Launch button would be a choice nobody needs to make.
+  const [minutes, setMinutes] = useState(30);
+  const [drainAfter, setDrainAfter] = useState<string>("");
 
   useEffect(() => {
     if (!open) return;
@@ -71,7 +76,24 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
     }
   };
 
+  const handleReserve = async () => {
+    setLaunching(true);
+    setError(null);
+    try {
+      const drain = drainAfter ? Number(drainAfter) : undefined;
+      await createReservation(name.trim(), minutes, drain);
+      onLaunched();
+      onClose();
+      setName("");
+    } catch (e) {
+      setError(detail(e) ?? "Could not create the reservation");
+    } finally {
+      setLaunching(false);
+    }
+  };
+
   const nameOk = /^[a-zA-Z0-9][a-zA-Z0-9 ._-]{0,48}$/.test(name.trim());
+  const noCapacity = !!availability && !availability.available;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -103,11 +125,10 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
             </Stack>
           )}
 
-          {availability && !availability.available && (
+          {noCapacity && (
             <Alert severity="info">
-              No capacity right now. The datacenter is fixed because the network volume holding
-              the models is region-locked to it — availability changes minute to minute, so
-              trying again shortly usually works.
+              No capacity right now. Availability changes minute to minute — a reservation keeps
+              checking and launches the moment one frees up.
             </Alert>
           )}
 
@@ -122,10 +143,43 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
             fullWidth
           />
 
-          <Typography variant="caption" color="text.secondary">
-            The worker starts claiming jobs as soon as it boots. Set a drain policy from its
-            card when you want it to stop.
-          </Typography>
+          {noCapacity && (
+            <>
+              <TextField
+                label="Keep trying for"
+                size="small"
+                select
+                value={minutes}
+                onChange={(e) => setMinutes(Number(e.target.value))}
+                SelectProps={{ native: true }}
+                fullWidth
+              >
+                {[15, 30, 60, 120, 240].map((m) => (
+                  <option key={m} value={m}>
+                    {m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? "s" : ""}`}
+                  </option>
+                ))}
+              </TextField>
+
+              <TextField
+                label="Drain after N jobs (optional)"
+                size="small"
+                type="number"
+                value={drainAfter}
+                onChange={(e) => setDrainAfter(e.target.value)}
+                placeholder="e.g. 3"
+                helperText="A reservation can fire while you are away. This bounds what it costs."
+                fullWidth
+              />
+            </>
+          )}
+
+          {!noCapacity && (
+            <Typography variant="caption" color="text.secondary">
+              The worker starts claiming jobs as soon as it boots. Set a drain policy from its
+              card when you want it to stop.
+            </Typography>
+          )}
 
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
@@ -134,13 +188,19 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
         <Button onClick={onClose} disabled={launching}>
           Cancel
         </Button>
-        <Button
-          variant="contained"
-          onClick={handleLaunch}
-          disabled={launching || checking || !nameOk || !availability?.available}
-        >
-          {launching ? "Launching…" : "Launch"}
-        </Button>
+        {noCapacity ? (
+          <Button variant="contained" onClick={handleReserve} disabled={launching || !nameOk}>
+            {launching ? "Reserving…" : `Reserve for ${minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}`}
+          </Button>
+        ) : (
+          <Button
+            variant="contained"
+            onClick={handleLaunch}
+            disabled={launching || checking || !nameOk || !availability?.available}
+          >
+            {launching ? "Launching…" : "Launch"}
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );
