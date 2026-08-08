@@ -525,6 +525,27 @@ export interface RunPodWorker {
 
 /** Is the configured GPU purchasable right now? Point-in-time — availability genuinely flaps,
  *  so a launch can still fail after this returns available. */
+export interface SegmentRuntimeGroup {
+  gpu_name: string;
+  width: number;
+  height: number;
+  clip_seconds: number;
+  samples: number;
+  avg_seconds: number;
+  median_seconds: number;
+  min_seconds: number;
+  max_seconds: number;
+}
+
+/** Run times grouped by GPU AND job shape. Never by GPU alone — the same card runs 480p/3s in
+ *  ~330s and 720x1056/5s in ~1780s, so a combined figure describes nothing. */
+export async function getSegmentRuntimes(minSamples = 1): Promise<SegmentRuntimeGroup[]> {
+  const { data } = await api.get<SegmentRuntimeGroup[]>("/stats/segment-runtimes", {
+    params: { min_samples: minSamples },
+  });
+  return data;
+}
+
 export async function getRunPodAvailability(): Promise<RunPodAvailability> {
   const { data } = await api.get<RunPodAvailability>("/runpod/availability");
   return data;
