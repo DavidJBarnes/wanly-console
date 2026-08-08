@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Box, Chip, Stack, Typography, useTheme } from "@mui/material";
 import { DIP_THRESHOLD, TAIL, median } from "../lib/identityHelpers";
 import { buildTracks, type Track } from "../lib/trajectorySeries";
@@ -21,9 +22,20 @@ const H = 130;
 
 export default function IdentityTrajectory({ metrics }: Props) {
   const theme = useTheme();
+  // Four overlaid lines answer "did these move together"; one line answers "what did this do".
+  // Both are worth asking, so the chips toggle. Hiding never rescales — each axis keeps its own
+  // normalisation, so a line sits in exactly the same place alone as it does in company.
+  const [hidden, setHidden] = useState<ReadonlySet<Track["key"]>>(new Set());
   const tracks = buildTracks(metrics);
   const identity = tracks.find((t) => t.key === "identity");
   if (tracks.length === 0) return null;
+
+  const toggle = (key: Track["key"]) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
 
   const colours: Record<Track["key"], string> = {
     identity: theme.palette.primary.main,
@@ -58,15 +70,25 @@ export default function IdentityTrajectory({ metrics }: Props) {
         <Typography variant="subtitle2" sx={{ mr: 1 }}>
           Per-frame trajectory
         </Typography>
-        {tracks.map((t) => (
-          <Chip
-            key={t.key}
-            size="small"
-            variant="outlined"
-            sx={{ borderColor: colours[t.key], color: colours[t.key] }}
-            label={`${t.label} ${t.min.toFixed(t.precision)}–${t.max.toFixed(t.precision)}`}
-          />
-        ))}
+        {tracks.map((t) => {
+          const off = hidden.has(t.key);
+          return (
+            <Chip
+              key={t.key}
+              size="small"
+              variant="outlined"
+              onClick={() => toggle(t.key)}
+              aria-pressed={!off}
+              sx={{
+                cursor: "pointer",
+                borderColor: off ? "divider" : colours[t.key],
+                color: off ? "text.disabled" : colours[t.key],
+                textDecoration: off ? "line-through" : "none",
+              }}
+              label={`${t.label} ${t.min.toFixed(t.precision)}–${t.max.toFixed(t.precision)}`}
+            />
+          );
+        })}
       </Stack>
 
       <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1, overflowX: "auto" }}>
@@ -75,7 +97,7 @@ export default function IdentityTrajectory({ metrics }: Props) {
           preserveAspectRatio="none"
           style={{ width: "100%", height: H, display: "block" }}
         >
-          {tracks.map((t) => (
+          {tracks.filter((t) => !hidden.has(t.key)).map((t) => (
             <polyline
               key={t.key}
               points={path(t)}
@@ -88,7 +110,7 @@ export default function IdentityTrajectory({ metrics }: Props) {
               vectorEffect="non-scaling-stroke"
             />
           ))}
-          {identity && end != null && (
+          {identity && !hidden.has("identity") && end != null && (
             <circle
               cx={W}
               cy={H - identity.points[identity.points.length - 1] * H}
@@ -101,9 +123,9 @@ export default function IdentityTrajectory({ metrics }: Props) {
       </Box>
 
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-        Lines are rolling means, each normalised to its own range — the chart shows <em>when</em>{" "}
-        something moved; the ranges above are the raw per-frame extremes and carry{" "}
-        <em>how much</em>. Identity is measured against{" "}
+        Click a chip to hide or isolate an axis. Lines are rolling means, each normalised to its
+        own range — the chart shows <em>when</em> something moved; the chip ranges are the raw
+        per-frame extremes and carry <em>how much</em>. Identity is measured against{" "}
         {vsGroundTruth ? "segment 0's start frame" : "this segment's own start frame"}
         {stride > 1 && `, sampled every ${stride} frames`}.
       </Typography>
