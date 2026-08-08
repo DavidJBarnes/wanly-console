@@ -13,7 +13,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { annotateSegment, getObservationTags } from "../api/client";
+import { annotateSegment, getFileUrl, getObservationTags } from "../api/client";
 import type { SegmentResponse } from "../api/types";
 
 /**
@@ -29,6 +29,10 @@ import type { SegmentResponse } from "../api/types";
  *
  * Tags come from the server rather than a constant here, so a tag written by this dialog is the
  * same string later analysis groups on.
+ *
+ * Video on the left, scoring on the right, because judging and recording are one action. Making
+ * them two — watch somewhere, then open a form — is how observations end up unrecorded, or
+ * recorded from memory two segments later.
  */
 
 interface Props {
@@ -104,12 +108,60 @@ export default function SegmentObservationDialog({ open, segment, onClose, onSav
   })).filter((g) => g.tags.length > 0);
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle>
         Observations — segment {segment ? segment.index : ""}
       </DialogTitle>
       <DialogContent>
-        <Stack spacing={2.5} sx={{ mt: 1 }}>
+        <Box
+          sx={{
+            display: "grid",
+            // Single column on a narrow screen: side-by-side would shrink the video to the point
+            // where the artifacts being judged are no longer visible.
+            gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1.15fr) minmax(320px, 1fr)" },
+            gap: 2.5,
+            mt: 1,
+          }}
+        >
+          <Box>
+            {segment?.output_path ? (
+              <Box
+                component="video"
+                src={getFileUrl(segment.output_path, segment.completed_at ?? undefined)}
+                controls
+                loop
+                // Autoplay muted: the point is to watch it immediately on open, and an unmuted
+                // autoplay is blocked by the browser anyway.
+                autoPlay
+                muted
+                sx={{
+                  width: "100%",
+                  maxHeight: "70vh",
+                  borderRadius: 1,
+                  bgcolor: "black",
+                  display: "block",
+                }}
+              />
+            ) : (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: 240,
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: 1,
+                }}
+              >
+                <Typography variant="body2" color="text.secondary">
+                  No video yet — this segment has not finished.
+                </Typography>
+              </Box>
+            )}
+          </Box>
+
+          <Stack spacing={2.5}>
           <Box>
             <Typography variant="subtitle2" gutterBottom>
               Overall
@@ -156,7 +208,8 @@ export default function SegmentObservationDialog({ open, segment, onClose, onSav
           />
 
           {error && <Alert severity="error">{error}</Alert>}
-        </Stack>
+          </Stack>
+        </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={saving}>
