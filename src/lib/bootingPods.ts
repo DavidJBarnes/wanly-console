@@ -36,12 +36,19 @@ export interface BootingPod {
  * said "CUDA unknown error ... available devices zero". Judging on those fields would have
  * flagged a healthy pod as dead.
  *
- * Twenty minutes, because the daemon registers only AFTER staging and validating models, and a
- * cold pod pulls ~37GB first -- so a slow-but-fine boot can legitimately take twelve or more.
- * The point is not to catch it fast; it is to catch it at all, and to show the elapsed time so
- * the operator can judge earlier than the threshold does.
+ * Thirty minutes, and the number is set by observation rather than taste. The daemon registers
+ * only AFTER staging and validating models, and a cold pod pulls ~37GB first. Watched live on
+ * 2026-08-08: one pod reached "All required custom nodes verified" at about thirteen minutes and
+ * was still downloading models several minutes later, entirely healthy. A twenty minute threshold
+ * would have called it dead.
+ *
+ * Erring long is deliberate. A detector that cries wolf on a working pod gets ignored, and then
+ * it is worth less than nothing. Catching a genuinely dead pod at thirty minutes still beats the
+ * eighteen minutes the last one cost with no detection at all, and the elapsed time on the card
+ * lets the operator judge long before this fires -- which is the actual mechanism. This is only
+ * a backstop for what nobody happened to look at.
  */
-export const STUCK_AFTER_SECONDS = 20 * 60;
+export const STUCK_AFTER_SECONDS = 30 * 60;
 
 /** Has this pod already become a registered worker?
  *

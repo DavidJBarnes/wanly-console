@@ -86,8 +86,16 @@ describe("stuck detection", () => {
     expect(b.ageSeconds).toBe(300);
   });
 
+  it("does not call a slow cold boot stuck", () => {
+    // Watched live: a healthy pod reached "custom nodes verified" at ~13 minutes and was still
+    // downloading its ~37GB of models after that. A tighter threshold would have flagged it.
+    const [b] = findBootingPods([pod({ created_at: "2026-08-08T20:38:00Z" })], [], NOW);
+    expect(b.ageSeconds).toBe(22 * 60);
+    expect(b.stuck).toBe(false);
+  });
+
   it("calls a pod stuck once it passes the window without registering", () => {
-    const [b] = findBootingPods([pod({ created_at: "2026-08-08T20:30:00Z" })], [], NOW);
+    const [b] = findBootingPods([pod({ created_at: "2026-08-08T20:25:00Z" })], [], NOW);
     expect(b.stuck).toBe(true);
     expect(b.reason).toContain("never registered");
   });
@@ -99,7 +107,7 @@ describe("stuck detection", () => {
     const healthy = findBootingPods([pod({ runtime_ready: false, gpu_count: 0 })], [], NOW);
     expect(healthy[0].stuck).toBe(false);
     const up = findBootingPods(
-      [pod({ created_at: "2026-08-08T20:30:00Z", runtime_ready: true, gpu_count: 1 })], [], NOW);
+      [pod({ created_at: "2026-08-08T20:25:00Z", runtime_ready: true, gpu_count: 1 })], [], NOW);
     expect(up[0].stuck).toBe(true);
   });
 
