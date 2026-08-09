@@ -41,6 +41,7 @@ import {
   Replay,
   StopCircle,
   DeleteOutline,
+  RemoveCircleOutline,
   ClearOutlined,
   Download,
   ExpandMore,
@@ -92,6 +93,7 @@ import type {
 import StatusChip from "../components/StatusChip";
 import IdentityChip from "../components/IdentityChip";
 import SegmentObservationDialog from "../components/SegmentObservationDialog";
+import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
@@ -1007,7 +1009,7 @@ export default function JobDetail() {
               <TableBody>
                 {videoSegments.flatMap((seg) => {
                   const rows = [
-                  <TableRow key={seg.id}>
+                  <TableRow key={seg.id} sx={seg.discarded ? { opacity: 0.5 } : undefined}>
                     {groups.length > 0 && (
                       <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth, position: "relative" }}>
                         <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}>
@@ -1145,6 +1147,11 @@ export default function JobDetail() {
                     <TableCell>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                         <StatusChip status={seg.status} />
+                        {seg.discarded && (
+                          <Tooltip title="Kept for its feedback, excluded from the video">
+                            <Chip size="small" label="Discarded" variant="outlined" color="warning" />
+                          </Tooltip>
+                        )}
                         <IdentityChip segment={seg} />
                         {(() => {
                           const reviewed =
@@ -1248,8 +1255,34 @@ export default function JobDetail() {
                         )}
                         {job.status !== "finalized" &&
                           (seg.status === "failed" || seg.status === "completed") &&
+                          !seg.discarded &&
+                          job.segments.filter((x) => !x.discarded).length > 1 && (
+                            <Tooltip title="Discard — keeps the rating and notes, removes it from the video">
+                              <IconButton
+                                size="small"
+                                onClick={async () => {
+                                  const updated = await discardSegment(seg.id);
+                                  setJob((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          segments: prev.segments.map((x) =>
+                                            x.id === updated.id ? { ...x, discarded: true } : x,
+                                          ),
+                                        }
+                                      : prev,
+                                  );
+                                }}
+                                disabled={actionLoading === seg.id}
+                              >
+                                <RemoveCircleOutline fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        {job.status !== "finalized" &&
+                          (seg.status === "failed" || seg.status === "completed") &&
                           job.segments.length > 1 && (
-                            <Tooltip title="Delete">
+                            <Tooltip title="Delete — destroys the segment and its feedback">
                               <IconButton
                                 size="small"
                                 color="error"
