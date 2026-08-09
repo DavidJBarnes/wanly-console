@@ -162,6 +162,8 @@ export interface SegmentResponse {
   rating?: number | null;
   /** Comma-separated, from the server's controlled vocabulary. */
   observation_tags?: string | null;
+  /** Soft-deleted: kept for its feedback, excluded from the video. */
+  discarded?: boolean;
   prompt: string;
   prompt_template: string | null;
   duration_seconds: number;

@@ -746,3 +746,14 @@ export async function getQueueHealth(): Promise<QueueHealth> {
   const { data } = await api.get<QueueHealth>("/queue-health");
   return data;
 }
+
+
+/** Take a segment out of the video, keeping its rating, tags and notes.
+ *
+ *  Not a delete: the row survives, and so does the clip. A bad segment is frequently the most
+ *  informative one, so discarding the observation to get it out of the cut is backwards. The
+ *  discarded row keeps its index, so a regenerated segment takes the same position. */
+export async function discardSegment(segmentId: string): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(`/segments/${segmentId}/discard`);
+  return data;
+}
