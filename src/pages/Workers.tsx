@@ -52,6 +52,7 @@ import { describeWindow, describePolicy, describeAttempts, describeGpu } from ".
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
+import StalledQueueBanner from "../components/StalledQueueBanner";
 
 /** Minutes-and-seconds for a pod's age. Local rather than shared because formatDuration is
  *  already duplicated across three pages; consolidating them is its own change. */
@@ -217,6 +218,8 @@ export default function Workers() {
           Launch RunPod
         </Button>
       </Box>
+
+      <StalledQueueBanner />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>

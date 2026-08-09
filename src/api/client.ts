@@ -727,3 +727,22 @@ export async function annotateSegment(
   const { data } = await api.patch<SegmentResponse>(`/segments/${segmentId}/annotation`, body);
   return data;
 }
+
+
+/** Queued work versus workers able to take it.
+ *
+ *  `stalled` requires BOTH halves — queued work with a busy worker is a queue doing its job, and
+ *  no workers with an empty queue is a quiet night. The 3090 was down for thirteen hours with
+ *  four segments waiting and nothing said so; every fact was recorded and nothing combined them. */
+export interface QueueHealth {
+  pending_segments: number;
+  live_workers: number;
+  stalled: boolean;
+  last_worker_seen: string | null;
+  summary: string;
+}
+
+export async function getQueueHealth(): Promise<QueueHealth> {
+  const { data } = await api.get<QueueHealth>("/queue-health");
+  return data;
+}

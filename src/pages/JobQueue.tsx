@@ -32,6 +32,7 @@ import type { JobResponse, JobStatus } from "../api/types";
 import StatusChip from "../components/StatusChip";
 import CreateJobDialog from "../components/CreateJobDialog";
 import { POLL_INTERVAL_FAST } from "../constants";
+import StalledQueueBanner from "../components/StalledQueueBanner";
 
 const ALL_STATUSES: JobStatus[] = [
   "awaiting",
@@ -220,6 +221,7 @@ export default function JobQueue() {
 
   return (
     <Box>
+      <StalledQueueBanner />
       <Box
         sx={{
           display: "flex",
