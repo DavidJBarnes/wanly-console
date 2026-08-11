@@ -832,19 +832,33 @@ export default function HologramPlayer() {
   const edgeDefaults = isDepth ? EDGE_DEFAULTS.depth : EDGE_DEFAULTS.flat;
   const patch = (p: Partial<ArSettings>) => setSettings((s) => ({ ...s, ...p }));
 
+  // Scrolls. `justify-content: center` on a fixed, viewport-height flex column silently clips
+  // anything taller than the viewport AND makes the overflow unreachable — which stranded the
+  // Enter AR button below the fold once the tuning panel was added to this screen. Auto margins
+  // on the inner column centre it while it fits and yield to scrolling when it does not;
+  // `justify-content: center` does not, so it is deliberately absent here.
   const wrap: React.CSSProperties = {
     position: "fixed",
     inset: 0,
+    overflowY: "auto",
     background: "#0b0b0f",
     color: "#eee",
     fontFamily: "system-ui, sans-serif",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 16,
     textAlign: "center",
     padding: 24,
+  };
+
+  const wrapInner: React.CSSProperties = {
+    margin: "auto 0",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 16,
+    width: "100%",
+    maxWidth: 480,
   };
 
   return (
@@ -980,6 +994,7 @@ export default function HologramPlayer() {
 
       {!inAr && !inPreview && (
         <div style={wrap}>
+          <div style={wrapInner}>
           {error && <div style={{ color: "#ff6b6b" }}>⚠ {error}</div>}
           {posterUrl && (
             <img
@@ -1000,26 +1015,6 @@ export default function HologramPlayer() {
               }}
             >
               {tierLabel}
-            </div>
-          )}
-          {/* Chosen here, before entering. The in-session panel needs dom-overlay, which is an
-              optional feature the UA can refuse — under the WebXR emulator it does. This page is
-              ordinary DOM, so the mode is always reachable; the render loop reads it live. */}
-          {manifest && (
-            <TuningPanel
-              settings={settings}
-              onChange={patch}
-              open={panelOpen}
-              onToggle={() => setPanelOpen((o) => !o)}
-              showLock
-              inline
-              edgeDefaults={edgeDefaults}
-            />
-          )}
-          {overlayType === null && sessionRan && (
-            <div style={{ maxWidth: 360, fontSize: 13, color: "#ffb86b", lineHeight: 1.5 }}>
-              That session did not grant <code>dom-overlay</code>, so the in-AR panel could not be
-              shown. Set the mode here instead — it applies as soon as you enter.
             </div>
           )}
           {arSupported === true && manifest && (
@@ -1056,6 +1051,27 @@ export default function HologramPlayer() {
               3D Preview
             </button>
           )}
+          {/* Below the buttons on purpose. The in-session panel needs dom-overlay, an optional
+              feature a UA may refuse, so the mode has to be selectable from ordinary DOM here —
+              but it is tall, and above the buttons it pushed Enter AR off a headset viewport.
+              Primary action first; the render loop reads these live either way. */}
+          {manifest && (
+            <TuningPanel
+              settings={settings}
+              onChange={patch}
+              open={panelOpen}
+              onToggle={() => setPanelOpen((o) => !o)}
+              showLock
+              inline
+              edgeDefaults={edgeDefaults}
+            />
+          )}
+          {overlayType === null && sessionRan && (
+            <div style={{ maxWidth: 360, fontSize: 13, color: "#ffb86b", lineHeight: 1.5 }}>
+              That session did not grant <code>dom-overlay</code>, so the in-AR panel could not be
+              shown. Set the mode here instead — it applies as soon as you enter.
+            </div>
+          )}
           {arSupported === false && (
             <div style={{ maxWidth: 420, lineHeight: 1.5 }}>
               <p style={{ fontWeight: 600 }}>Open this on a Quest 3 (or WebXR headset) to place it in your room.</p>
@@ -1080,6 +1096,7 @@ export default function HologramPlayer() {
             </div>
           )}
           {arSupported === null && !error && <div style={{ opacity: 0.6 }}>Checking AR support…</div>}
+          </div>
         </div>
       )}
     </div>
