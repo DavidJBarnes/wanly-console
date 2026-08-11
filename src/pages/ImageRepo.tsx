@@ -332,7 +332,18 @@ export default function ImageRepo() {
   };
 
   const removeFromView = (key: string) => {
+    // A deleted image must vanish from EVERY cached list, not just `images`. The folder,
+    // untagged, favorites and search views each render their own array, so filtering only
+    // `images` left the deleted image on screen until a refetch — the reported bug (#315),
+    // which reproduced on the untagged and folder views.
     setImages((prev) => prev.filter((img) => img.key !== key));
+    setUntaggedImages((prev) => prev.filter((img) => img.key !== key));
+    setFavImages((prev) => prev.filter((img) => img.key !== key));
+    setSearchResults((prev) => {
+      const next = prev.filter((img) => img.key !== key);
+      if (next.length !== prev.length) setSearchTotal((t) => Math.max(0, t - 1));
+      return next;
+    });
     if (lightboxImage?.key === key) setLightboxImage(null);
   };
 
@@ -470,9 +481,17 @@ export default function ImageRepo() {
     const deleted: string[] = [];
     let refused = 0;
     let failed = 0;
+    // Look the image up across every view's array, not just `images`. Selection is possible in
+    // the untagged and favorites views too, whose items are NOT in `images` — so the old
+    // `images.find` skipped them entirely, deleting nothing and updating nothing (#315).
+    const findImage = (key: string) =>
+      images.find((i) => i.key === key) ??
+      untaggedImages.find((i) => i.key === key) ??
+      favImages.find((i) => i.key === key) ??
+      searchResults.find((i) => i.key === key);
     try {
       for (const key of bulkDeleteKeys) {
-        const img = images.find((i) => i.key === key);
+        const img = findImage(key);
         if (!img) continue;
         try {
           await deleteImage(img.path);
@@ -482,7 +501,15 @@ export default function ImageRepo() {
           else failed += 1;
         }
       }
-      setImages((prev) => prev.filter((img) => !deleted.includes(img.key)));
+      const wasDeleted = (img: ImageFile) => deleted.includes(img.key);
+      setImages((prev) => prev.filter((img) => !wasDeleted(img)));
+      setUntaggedImages((prev) => prev.filter((img) => !wasDeleted(img)));
+      setFavImages((prev) => prev.filter((img) => !wasDeleted(img)));
+      setSearchResults((prev) => {
+        const next = prev.filter((img) => !wasDeleted(img));
+        setSearchTotal((t) => Math.max(0, t - (prev.length - next.length)));
+        return next;
+      });
       if (lightboxImage && deleted.includes(lightboxImage.key)) {
         setLightboxImage(null);
       }
