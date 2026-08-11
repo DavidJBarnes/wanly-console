@@ -296,6 +296,7 @@ async function startArSession(
   onEnd: () => void,
   onSession: (s: XRSession) => void,
   settingsRef: { current: ArSettings },
+  onOverlayState: (type: string | null) => void,
 ): Promise<void> {
   const xr = (navigator as unknown as { xr: XRSystem }).xr;
 
@@ -333,6 +334,12 @@ async function startArSession(
   } as XRSessionInit);
   await renderer.xr.setSession(session);
   onSession(session);
+  // dom-overlay is an OPTIONAL feature — a UA is free to start the session without it, in which
+  // case the overlay root is never composited and every in-session control is silently
+  // unreachable. Report it so the failure is legible instead of looking like a broken panel.
+  onOverlayState(
+    (session as unknown as { domOverlayState?: { type?: string } }).domOverlayState?.type ?? null,
+  );
   video.play().catch(() => undefined);
 
   const viewerSpace = await session.requestReferenceSpace("viewer");
@@ -508,6 +515,10 @@ function TuningPanel({
   onToggle: () => void;
   showLock: boolean;
   edgeDefaults: { edgeMin: number; edgeMax: number };
+  // Rendered in normal flow instead of pinned to a corner. Used on the pre-AR landing screen,
+  // which is ordinary page DOM — so the mode can be chosen even when the in-session overlay
+  // fails to render, as it does under the WebXR emulator.
+  inline?: boolean;
 }) {
   const modes: { id: LockMode; label: string; hint: string }[] = [
     { id: "placed", label: "Placed", hint: "Tap the floor. Stays in the room." },
@@ -524,12 +535,13 @@ function TuningPanel({
       // injected at document level so it cannot be out-stacked from in here — the only fix is to
       // not be underneath it. Sits below the tier chip, which is clear in the headset too.
       style={{
-        position: "absolute",
-        left: 20,
-        top: 64,
-        width: open ? 300 : "auto",
-        maxHeight: "calc(100vh - 88px)",
-        overflowY: "auto",
+        position: inline ? "relative" : "absolute",
+        left: inline ? undefined : 20,
+        top: inline ? undefined : 64,
+        width: inline ? "min(320px, 86vw)" : open ? 300 : "auto",
+        textAlign: "left",
+        maxHeight: inline ? undefined : "calc(100vh - 88px)",
+        overflowY: inline ? undefined : "auto",
         pointerEvents: "auto",
         background: "rgba(0,0,0,0.72)",
         color: "#fff",
@@ -552,10 +564,10 @@ function TuningPanel({
         }}
       >
         {open ? "▾" : "▸"} Tuning
-        {/* Names the context. The panel is otherwise identical in AR and preview but silently
-            carries fewer controls in preview, which reads as "the modes are missing". */}
+        {/* Names the context. The panel is otherwise identical everywhere but silently carries
+            fewer controls in preview, which reads as "the modes are missing". */}
         <span style={{ opacity: 0.55, fontWeight: 400, marginLeft: 6 }}>
-          {showLock ? "AR session" : "preview"}
+          {inline ? "applies on entry" : showLock ? "AR session" : "preview"}
         </span>
       </button>
 
@@ -685,6 +697,10 @@ export default function HologramPlayer() {
     ...EDGE_DEFAULTS.flat,
   });
   const [panelOpen, setPanelOpen] = useState(true);
+  // null = the last session did not grant dom-overlay (or none has run yet). Surfaced on the
+  // landing screen so an unreachable in-session panel reads as a refused feature, not a bug.
+  const [overlayType, setOverlayType] = useState<string | null>(null);
+  const [sessionRan, setSessionRan] = useState(false);
   // The render loop samples this every frame; state alone would mean re-entering the session to
   // pick up a slider change.
   const settingsRef = useRef<ArSettings>(settings);
@@ -780,6 +796,7 @@ export default function HologramPlayer() {
     if (!manifest || !videoUrl || !containerRef.current || !overlayRef.current) return;
     try {
       setInAr(true);
+      setSessionRan(true);
       await startArSession(
         containerRef.current,
         overlayRef.current,
@@ -793,6 +810,7 @@ export default function HologramPlayer() {
           sessionRef.current = s;
         },
         settingsRef,
+        setOverlayType,
       );
     } catch (e) {
       setInAr(false);
@@ -981,6 +999,26 @@ export default function HologramPlayer() {
               }}
             >
               {tierLabel}
+            </div>
+          )}
+          {/* Chosen here, before entering. The in-session panel needs dom-overlay, which is an
+              optional feature the UA can refuse — under the WebXR emulator it does. This page is
+              ordinary DOM, so the mode is always reachable; the render loop reads it live. */}
+          {manifest && (
+            <TuningPanel
+              settings={settings}
+              onChange={patch}
+              open={panelOpen}
+              onToggle={() => setPanelOpen((o) => !o)}
+              showLock
+              inline
+              edgeDefaults={edgeDefaults}
+            />
+          )}
+          {overlayType === null && sessionRan && (
+            <div style={{ maxWidth: 360, fontSize: 13, color: "#ffb86b", lineHeight: 1.5 }}>
+              That session did not grant <code>dom-overlay</code>, so the in-AR panel could not be
+              shown. Set the mode here instead — it applies as soon as you enter.
             </div>
           )}
           {arSupported === true && manifest && (
