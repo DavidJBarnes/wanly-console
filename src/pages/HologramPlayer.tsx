@@ -709,6 +709,10 @@ export default function HologramPlayer() {
     ...EDGE_DEFAULTS.flat,
   });
   const [panelOpen, setPanelOpen] = useState(true);
+  // Separate from panelOpen, and closed by default. The landing copy exists only as a fallback for
+  // a UA that refuses dom-overlay; where the in-session panel works it is redundant, and open by
+  // default it reads as a second, competing tuning UI.
+  const [landingPanelOpen, setLandingPanelOpen] = useState(false);
   // null = the last session did not grant dom-overlay (or none has run yet). Surfaced on the
   // landing screen so an unreachable in-session panel reads as a refused feature, not a bug.
   const [overlayType, setOverlayType] = useState<string | null>(null);
@@ -790,7 +794,9 @@ export default function HologramPlayer() {
 
   // Desktop 3D preview: same mesh + shaders as AR, orbited with the mouse instead of your feet.
   useEffect(() => {
-    if (!inPreview || !manifest || !videoUrl || !containerRef.current) return;
+    // !inAr as well: the two modes each append their own canvas to the same container and render
+    // their own panel, so any state where both are true duplicates the entire player.
+    if (inAr || !inPreview || !manifest || !videoUrl || !containerRef.current) return;
     const stop = startPreview(
       containerRef.current,
       manifest,
@@ -802,11 +808,12 @@ export default function HologramPlayer() {
       settingsRef,
     );
     return stop;
-  }, [inPreview, manifest, videoUrl]);
+  }, [inAr, inPreview, manifest, videoUrl]);
 
   const enterAR = async () => {
     if (!manifest || !videoUrl || !containerRef.current || !overlayRef.current) return;
     try {
+      setInPreview(false); // never both — each owns a canvas on the same container
       setInAr(true);
       setSessionRan(true);
       await startArSession(
@@ -939,7 +946,7 @@ export default function HologramPlayer() {
         )}
       </div>
 
-      {inPreview && (
+      {inPreview && !inAr && (
         <>
           {tierLabel && (
             <div
@@ -1028,26 +1035,6 @@ export default function HologramPlayer() {
               {tierLabel}
             </div>
           )}
-          {/* Chosen here, before entering. The in-session panel needs dom-overlay, which is an
-              optional feature the UA can refuse — under the WebXR emulator it does. This page is
-              ordinary DOM, so the mode is always reachable; the render loop reads it live. */}
-          {manifest && (
-            <TuningPanel
-              settings={settings}
-              onChange={patch}
-              open={panelOpen}
-              onToggle={() => setPanelOpen((o) => !o)}
-              showLock
-              inline
-              edgeDefaults={edgeDefaults}
-            />
-          )}
-          {overlayType === null && sessionRan && (
-            <div style={{ maxWidth: 360, fontSize: 13, color: "#ffb86b", lineHeight: 1.5 }}>
-              That session did not grant <code>dom-overlay</code>, so the in-AR panel could not be
-              shown. Set the mode here instead — it applies as soon as you enter.
-            </div>
-          )}
           {arSupported === true && manifest && (
             <button
               onClick={enterAR}
@@ -1090,8 +1077,8 @@ export default function HologramPlayer() {
             <TuningPanel
               settings={settings}
               onChange={patch}
-              open={panelOpen}
-              onToggle={() => setPanelOpen((o) => !o)}
+              open={landingPanelOpen}
+              onToggle={() => setLandingPanelOpen((o) => !o)}
               showLock
               inline
               edgeDefaults={edgeDefaults}
