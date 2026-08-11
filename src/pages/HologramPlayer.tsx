@@ -4,9 +4,22 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { getHologram, getFileUrl } from "../api/client";
 import type { HologramManifest } from "../api/types";
+import {
+  DEFAULT_AR_SETTINGS,
+  EDGE_DEFAULTS,
+  flattenYaw,
+  followTarget,
+  nextEasing,
+  shortestAngleDelta,
+  smoothing,
+} from "../lib/arFollow";
+import type { ArSettings, LockMode } from "../lib/arFollow";
 
 // Full-screen WebXR immersive-ar player: places a finalized clip's matted subject
 // (packed color+alpha) life-size on the real floor via Quest 3 passthrough. Tier-0 flat/mono.
+
+// Lock modes, settings shape and the follow maths live in ../lib/arFollow so they can be tested
+// without a headset — see the note there.
 
 const VERTEX = /* glsl */ `
   varying vec2 vUv;
@@ -59,15 +72,17 @@ const DEPTH_FRAGMENT = /* glsl */ `
   uniform float depthScale;
   uniform vec2 depthTexel;     // one packed-texture texel in UV
   uniform vec2 worldPerTexel;  // meters one depth texel spans on the mesh
+  uniform float edgeMin;
+  uniform float edgeMax;
   in vec2 vUv;
   out vec4 fragColor;
   void main() {
     vec2 cuv = vec2(colorRect.x + vUv.x * colorRect.z, colorRect.y + (1.0 - vUv.y) * colorRect.w);
     vec2 auv = vec2(alphaRect.x + vUv.x * alphaRect.z, alphaRect.y + (1.0 - vUv.y) * alphaRect.w);
     float ra = texture(map, auv).r;
-    // Hard-clip at the matte boundary (alpha 0.5 = the crop threshold). Kills the translucent
+    // Hard-clip at the matte boundary (edgeMin = the crop threshold). Kills the translucent
     // "skirt" of stretched triangles the displaced mesh drapes across the subject's silhouette.
-    if (ra < 0.5) discard;
+    if (ra < edgeMin) discard;
     vec3 color = texture(map, cuv).rgb;
     // Cheap lambert from the depth gradient: without it the displaced surface is unlit and the
     // relief is invisible unless the viewer moves — shading gives a monocular depth cue.
@@ -85,7 +100,7 @@ const DEPTH_FRAGMENT = /* glsl */ `
     vec3 lightDir = normalize(vec3(0.35, 0.6, 1.0)); // upper-front, mesh-local
     float shade = clamp(0.7 + 0.35 * max(dot(normal, lightDir), 0.0), 0.0, 1.05);
     color *= shade;
-    float a = smoothstep(0.5, 0.72, ra); // tight inner AA only, no wide soft halo
+    float a = smoothstep(edgeMin, edgeMax, ra); // tight inner AA only, no wide soft halo
     fragColor = vec4(color * a, a); // premultiplied
   }
 `;
@@ -112,6 +127,7 @@ function buildHologramMesh(
   manifest: HologramManifest,
   videoUrl: string,
   onVideoError?: (message: string) => void,
+  edge?: { edgeMin: number; edgeMax: number },
 ) {
   // Video → texture (packed color+alpha). crossOrigin BEFORE src so the fetch is CORS-mode
   // from the start — the WebGL texture upload requires a CORS-clean video.
@@ -150,12 +166,13 @@ function buildHologramMesh(
   const inset = (r: { x: number; y: number; w: number; h: number }) =>
     new THREE.Vector4(r.x + tx, r.y, r.w - 2 * tx, r.h);
 
+  const edgeDefaults = isDepth ? EDGE_DEFAULTS.depth : EDGE_DEFAULTS.flat;
   const uniforms: Record<string, { value: unknown }> = {
     map: { value: videoTex },
     colorRect: { value: inset(c) },
     alphaRect: { value: inset(a) },
-    edgeMin: { value: 0.05 },
-    edgeMax: { value: 0.95 },
+    edgeMin: { value: edge?.edgeMin ?? edgeDefaults.edgeMin },
+    edgeMax: { value: edge?.edgeMax ?? edgeDefaults.edgeMax },
   };
   if (isDepth && depthRect) {
     uniforms.depthRect = { value: inset(depthRect) };
@@ -204,7 +221,7 @@ function buildHologramMesh(
     shadow.geometry.dispose();
     (shadow.material as THREE.Material).dispose();
   };
-  return { video, quad, shadow, width, height, isDepth, dispose };
+  return { video, quad, shadow, width, height, isDepth, uniforms, edgeDefaults, dispose };
 }
 
 function startPreview(
@@ -212,8 +229,9 @@ function startPreview(
   manifest: HologramManifest,
   videoUrl: string,
   onVideoError?: (message: string) => void,
+  settingsRef?: { current: ArSettings },
 ): () => void {
-  const holo = buildHologramMesh(manifest, videoUrl, onVideoError);
+  const holo = buildHologramMesh(manifest, videoUrl, onVideoError, settingsRef?.current);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x14181c);
@@ -243,6 +261,12 @@ function startPreview(
 
   holo.video.play().catch(() => undefined);
   renderer.setAnimationLoop(() => {
+    // Same live edge uniforms as AR, so the matte cut can be dialled in on a desktop before
+    // burning a headset session on it.
+    if (settingsRef) {
+      holo.uniforms.edgeMin.value = settingsRef.current.edgeMin;
+      holo.uniforms.edgeMax.value = settingsRef.current.edgeMax;
+    }
     controls.update();
     renderer.render(scene, camera);
   });
@@ -271,10 +295,11 @@ async function startArSession(
   videoUrl: string,
   onEnd: () => void,
   onSession: (s: XRSession) => void,
+  settingsRef: { current: ArSettings },
 ): Promise<void> {
   const xr = (navigator as unknown as { xr: XRSystem }).xr;
 
-  const holo = buildHologramMesh(manifest, videoUrl);
+  const holo = buildHologramMesh(manifest, videoUrl, undefined, settingsRef.current);
   const { video } = holo;
 
   const group = new THREE.Group();
@@ -317,29 +342,102 @@ async function startArSession(
     }
   ).requestHitTestSource({ space: viewerSpace });
 
+  let placedOnce = false;
   const place = () => {
     if (!reticle.visible) return;
     group.position.setFromMatrixPosition(reticle.matrix);
     // Face the user (yaw only) at placement, then stay put.
-    const camPos = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
-    group.rotation.y = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
+    const viewerPos = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+    group.rotation.y = Math.atan2(viewerPos.x - group.position.x, viewerPos.z - group.position.z);
     group.visible = true;
+    placedOnce = true;
     reticle.visible = false; // done placing — don't leave a cyan ring on the floor
   };
   session.addEventListener("select", place);
 
-  renderer.setAnimationLoop((_t, frame?: XRFrame) => {
-    if (frame && !group.visible) {
-      const refSpace = renderer.xr.getReferenceSpace();
-      const results = frame.getHitTestResults(hitSource);
-      if (refSpace && results.length) {
-        const pose = results[0].getPose(refSpace);
-        if (pose) {
-          reticle.visible = true;
-          reticle.matrix.fromArray(pose.transform.matrix);
+  // Follow-mode scratch: allocated once, the loop runs at display rate and must not churn GC.
+  const camPos = new THREE.Vector3();
+  const camQuat = new THREE.Quaternion();
+  const camScale = new THREE.Vector3();
+  const fwd = new THREE.Vector3();
+  const target = new THREE.Vector3();
+  const lastYawFwd = new THREE.Vector3(0, 0, -1); // held heading for the near-vertical gaze case
+  let easing = false; // deadzone hysteresis: latched on when we drift out, off when we arrive
+  // Starts true, not false: a session restored straight into a follow mode would otherwise glide
+  // in from the world origin on the first frame instead of simply being there.
+  let snapNext = true; // first frame of a mode change — jump, don't glide in from wherever
+  let lastMode: LockMode = settingsRef.current.lockMode;
+  let lastT = 0;
+
+  renderer.setAnimationLoop((t: number, frame?: XRFrame) => {
+    const s = settingsRef.current;
+    // Frame-rate independent smoothing needs real elapsed time, clamped so a dropped frame or a
+    // backgrounded session doesn't teleport the clip on resume.
+    const dt = lastT ? Math.min((t - lastT) / 1000, 0.1) : 1 / 72;
+    lastT = t;
+
+    if (s.lockMode !== lastMode) {
+      snapNext = true;
+      easing = false;
+      lastMode = s.lockMode;
+    }
+
+    holo.uniforms.edgeMin.value = s.edgeMin;
+    holo.uniforms.edgeMax.value = s.edgeMax;
+
+    if (s.lockMode === "placed") {
+      // Original behaviour, untouched: reticle until the tap, then frozen in the room.
+      holo.shadow.visible = true;
+      group.visible = placedOnce;
+      if (frame && !placedOnce) {
+        const refSpace = renderer.xr.getReferenceSpace();
+        const results = frame.getHitTestResults(hitSource);
+        if (refSpace && results.length) {
+          const pose = results[0].getPose(refSpace);
+          if (pose) {
+            reticle.visible = true;
+            reticle.matrix.fromArray(pose.transform.matrix);
+          }
+        } else {
+          reticle.visible = false;
         }
+      }
+    } else {
+      // Viewer-locked. No placement gesture, no reticle, and no contact shadow — the clip is not
+      // standing on the floor any more, so a floor shadow would sit under nothing.
+      reticle.visible = false;
+      holo.shadow.visible = false;
+      group.visible = true;
+
+      camera.matrixWorld.decompose(camPos, camQuat, camScale);
+      fwd.set(0, 0, -1).applyQuaternion(camQuat);
+      if (s.lockMode === "follow-yaw") {
+        const flat = flattenYaw(fwd);
+        // null = looking near-vertically, where the horizontal bearing is noise. Hold the heading
+        // we already had rather than letting the clip snap to an arbitrary direction.
+        if (flat) lastYawFwd.set(flat.x, flat.y, flat.z);
+        fwd.copy(lastYawFwd);
+      }
+      const t2 = followTarget(camPos, fwd, s, holo.height);
+      target.set(t2.x, t2.y, t2.z);
+
+      const err = group.position.distanceTo(target);
+      if (snapNext) {
+        group.position.copy(target);
+        easing = false;
       } else {
-        reticle.visible = false;
+        easing = nextEasing(easing, err, s.followDeadzone);
+        if (easing) group.position.lerp(target, smoothing(s.followTightness, dt));
+      }
+
+      // Always billboard yaw-only — a clip that pitches with your gaze reads as a decal.
+      const yaw = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
+      if (snapNext) {
+        group.rotation.y = yaw;
+        snapNext = false;
+      } else {
+        group.rotation.y +=
+          shortestAngleDelta(group.rotation.y, yaw) * smoothing(s.followTightness, dt);
       }
     }
     renderer.render(scene, camera);
@@ -354,6 +452,211 @@ async function startArSession(
   });
 }
 
+function Slider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  unit,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  unit?: string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label style={{ display: "block", marginBottom: 10 }}>
+      <span style={{ display: "flex", justifyContent: "space-between", fontSize: 12, opacity: 0.85 }}>
+        <span>{label}</span>
+        <span style={{ fontVariantNumeric: "tabular-nums" }}>
+          {value.toFixed(2)}
+          {unit ?? ""}
+        </span>
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        // Chunky thumb: this is driven by a controller ray at arm's length, not a mouse.
+        style={{ width: "100%", height: 28, accentColor: "#00e5ff" }}
+      />
+    </label>
+  );
+}
+
+// Lives inside the dom-overlay during AR so every knob is reachable without ending the session —
+// the whole point is to settle these values by looking at them in the headset.
+function TuningPanel({
+  settings,
+  onChange,
+  open,
+  onToggle,
+  showLock,
+  edgeDefaults,
+}: {
+  settings: ArSettings;
+  onChange: (patch: Partial<ArSettings>) => void;
+  open: boolean;
+  onToggle: () => void;
+  showLock: boolean;
+  edgeDefaults: { edgeMin: number; edgeMax: number };
+}) {
+  const modes: { id: LockMode; label: string; hint: string }[] = [
+    { id: "placed", label: "Placed", hint: "Tap the floor. Stays in the room." },
+    { id: "follow", label: "Follow", hint: "Holds station ahead of you. Look down, it follows." },
+    { id: "follow-yaw", label: "Follow (yaw)", hint: "Turning carries it. Looking down does not." },
+  ];
+  const active = modes.find((m) => m.id === settings.lockMode);
+  const isFollow = settings.lockMode !== "placed";
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 20,
+        bottom: 20,
+        width: open ? 300 : "auto",
+        pointerEvents: "auto",
+        background: "rgba(0,0,0,0.72)",
+        color: "#fff",
+        borderRadius: 12,
+        padding: open ? 16 : "10px 14px",
+        fontSize: 13,
+        zIndex: 3,
+      }}
+    >
+      <button
+        onClick={onToggle}
+        style={{
+          background: "none",
+          border: "none",
+          color: "#00e5ff",
+          font: "inherit",
+          fontWeight: 700,
+          cursor: "pointer",
+          padding: 0,
+        }}
+      >
+        {open ? "▾ Tuning" : "▸ Tuning"}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {showLock && (
+            <>
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                {modes.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => onChange({ lockMode: m.id })}
+                    style={{
+                      flex: 1,
+                      padding: "8px 4px",
+                      borderRadius: 8,
+                      border: "1px solid #00e5ff",
+                      background: settings.lockMode === m.id ? "#00e5ff" : "transparent",
+                      color: settings.lockMode === m.id ? "#00121a" : "#00e5ff",
+                      fontWeight: 600,
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 12, minHeight: 28 }}>
+                {active?.hint}
+              </div>
+            </>
+          )}
+
+          {showLock && isFollow && (
+            <>
+              <Slider
+                label="Distance"
+                value={settings.followDistance}
+                min={0.4}
+                max={4}
+                step={0.05}
+                unit=" m"
+                onChange={(v) => onChange({ followDistance: v })}
+              />
+              <Slider
+                label="Height (vs eyeline)"
+                value={settings.followHeight}
+                min={-1.5}
+                max={1.5}
+                step={0.05}
+                unit=" m"
+                onChange={(v) => onChange({ followHeight: v })}
+              />
+              <Slider
+                label="Tightness"
+                value={settings.followTightness}
+                min={0.3}
+                max={12}
+                step={0.1}
+                onChange={(v) => onChange({ followTightness: v })}
+              />
+              <Slider
+                label="Deadzone"
+                value={settings.followDeadzone}
+                min={0}
+                max={0.8}
+                step={0.01}
+                unit=" m"
+                onChange={(v) => onChange({ followDeadzone: v })}
+              />
+            </>
+          )}
+
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.15)", margin: "6px 0 10px" }} />
+          <Slider
+            label="Edge cut"
+            value={settings.edgeMin}
+            min={0}
+            max={0.98}
+            step={0.01}
+            onChange={(v) => onChange({ edgeMin: Math.min(v, settings.edgeMax - 0.01) })}
+          />
+          <Slider
+            label="Edge softness"
+            value={settings.edgeMax}
+            min={0.02}
+            max={1}
+            step={0.01}
+            onChange={(v) => onChange({ edgeMax: Math.max(v, settings.edgeMin + 0.01) })}
+          />
+          <button
+            onClick={() => onChange({ ...edgeDefaults })}
+            style={{
+              width: "100%",
+              padding: "6px",
+              borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.25)",
+              background: "transparent",
+              color: "rgba(255,255,255,0.75)",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Reset edges
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HologramPlayer() {
   const { id } = useParams<{ id: string }>();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -366,6 +669,17 @@ export default function HologramPlayer() {
   const [inAr, setInAr] = useState(false);
   const [inPreview, setInPreview] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<ArSettings>({
+    ...DEFAULT_AR_SETTINGS,
+    ...EDGE_DEFAULTS.flat,
+  });
+  const [panelOpen, setPanelOpen] = useState(true);
+  // The render loop samples this every frame; state alone would mean re-entering the session to
+  // pick up a slider change.
+  const settingsRef = useRef<ArSettings>(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -403,13 +717,51 @@ export default function HologramPlayer() {
       .catch(() => setArSupported(false));
   }, []);
 
+  // Edge defaults are tier-dependent, so they can only be resolved once the manifest is in. Any
+  // values already tuned for this hologram win over the defaults.
+  useEffect(() => {
+    if (!manifest || !id) return;
+    const isDepth =
+      !!manifest.region_depth_uv && (manifest.tier === 1 || manifest.flavor === "2.5d_depth");
+    const base: ArSettings = {
+      ...DEFAULT_AR_SETTINGS,
+      ...(isDepth ? EDGE_DEFAULTS.depth : EDGE_DEFAULTS.flat),
+    };
+    let stored: Partial<ArSettings> = {};
+    try {
+      const raw = localStorage.getItem(`ar-settings:${id}`);
+      if (raw) stored = JSON.parse(raw) as Partial<ArSettings>;
+    } catch {
+      /* corrupt or unavailable storage — fall back to defaults */
+    }
+    setSettings({ ...base, ...stored });
+  }, [manifest, id]);
+
+  // Persist per hologram. Deliberately localStorage and not a Segment column: the point of the
+  // sliders is to find out what the defaults should be, and there is no sense migrating a schema
+  // around numbers nobody has confirmed in a headset yet.
+  useEffect(() => {
+    if (!id || !manifest) return;
+    try {
+      localStorage.setItem(`ar-settings:${id}`, JSON.stringify(settings));
+    } catch {
+      /* private mode / quota — tuning still works, it just won't survive a reload */
+    }
+  }, [id, manifest, settings]);
+
   // Desktop 3D preview: same mesh + shaders as AR, orbited with the mouse instead of your feet.
   useEffect(() => {
     if (!inPreview || !manifest || !videoUrl || !containerRef.current) return;
-    const stop = startPreview(containerRef.current, manifest, videoUrl, (msg) => {
-      setInPreview(false);
-      setError(msg);
-    });
+    const stop = startPreview(
+      containerRef.current,
+      manifest,
+      videoUrl,
+      (msg) => {
+        setInPreview(false);
+        setError(msg);
+      },
+      settingsRef,
+    );
     return stop;
   }, [inPreview, manifest, videoUrl]);
 
@@ -429,6 +781,7 @@ export default function HologramPlayer() {
         (s) => {
           sessionRef.current = s;
         },
+        settingsRef,
       );
     } catch (e) {
       setInAr(false);
@@ -443,6 +796,11 @@ export default function HologramPlayer() {
       ? `2.5D depth · relief ${(manifest.depth_scale_m ?? 0.3).toFixed(2)} m`
       : "2D flat"
     : null;
+
+  const isDepth =
+    !!manifest?.region_depth_uv && (manifest?.tier === 1 || manifest?.flavor === "2.5d_depth");
+  const edgeDefaults = isDepth ? EDGE_DEFAULTS.depth : EDGE_DEFAULTS.flat;
+  const patch = (p: Partial<ArSettings>) => setSettings((s) => ({ ...s, ...p }));
 
   const wrap: React.CSSProperties = {
     position: "fixed",
@@ -501,8 +859,19 @@ export default function HologramPlayer() {
               Exit AR
             </button>
             <div style={{ position: "absolute", bottom: 24, width: "100%", textAlign: "center", color: "#fff" }}>
-              Point at your floor and tap to place • tap “Exit AR” (top-right) to leave
+              {settings.lockMode === "placed"
+                ? "Point at your floor and tap to place"
+                : "Holding station in front of you — tune it bottom-left"}{" "}
+              • tap “Exit AR” (top-right) to leave
             </div>
+            <TuningPanel
+              settings={settings}
+              onChange={patch}
+              open={panelOpen}
+              onToggle={() => setPanelOpen((o) => !o)}
+              showLock
+              edgeDefaults={edgeDefaults}
+            />
           </>
         )}
       </div>
@@ -558,6 +927,16 @@ export default function HologramPlayer() {
           >
             Drag to orbit • scroll to zoom — move around to see the relief
           </div>
+          {/* Lock modes are meaningless when you're orbiting with a mouse, but the edge cut is
+              the same shader — dial it in here before spending a headset session on it. */}
+          <TuningPanel
+            settings={settings}
+            onChange={patch}
+            open={panelOpen}
+            onToggle={() => setPanelOpen((o) => !o)}
+            showLock={false}
+            edgeDefaults={edgeDefaults}
+          />
         </>
       )}
 
