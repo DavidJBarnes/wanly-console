@@ -64,12 +64,6 @@ export function smoothing(rate: number, dt: number): number {
   return 1 - Math.exp(-rate * dt);
 }
 
-/** Signed shortest way round the circle, so a yaw crossing ±π eases across instead of spinning. */
-export function shortestAngleDelta(from: number, to: number): number {
-  const d = to - from;
-  return Math.atan2(Math.sin(d), Math.cos(d));
-}
-
 /**
  * Deadzone latch (hysteresis). Inside the deadzone the clip holds still, so small head movement
  * doesn't drag it; once the viewer drifts out it eases all the way home rather than only back to
@@ -103,7 +97,18 @@ export function followOriginY(eyeY: number, offset: number, height: number): num
   return eyeY + offset - height / 2;
 }
 
-/** Where the clip wants to be this frame, given the viewer pose and the follow settings. */
+/**
+ * Where the clip wants to be this frame, given the viewer pose and the follow settings.
+ *
+ * The target sits `followDistance` along `forward` in ALL THREE axes. Pitch is expressed by the
+ * caller through the vector it passes, not by this function second-guessing it: `follow` passes
+ * the raw gaze vector so looking down carries the clip down, and `follow-yaw` passes a vector
+ * already flattened by `flattenYaw`, whose y is 0, so the same arithmetic holds it at eye level.
+ *
+ * An earlier version dropped `forward.y` here unconditionally. That silently collapsed `follow`
+ * into `follow-yaw` vertically, while the horizontal components still shrank as the viewer
+ * pitched — so the clip crept closer at a fixed height instead of following the gaze down.
+ */
 export function followTarget(
   eye: Vec3,
   forward: Vec3,
@@ -112,7 +117,7 @@ export function followTarget(
 ): Vec3 {
   return {
     x: eye.x + forward.x * settings.followDistance,
-    y: followOriginY(eye.y, settings.followHeight, subjectHeight),
+    y: followOriginY(eye.y + forward.y * settings.followDistance, settings.followHeight, subjectHeight),
     z: eye.z + forward.z * settings.followDistance,
   };
 }

@@ -10,7 +10,6 @@ import {
   flattenYaw,
   followTarget,
   nextEasing,
-  shortestAngleDelta,
   smoothing,
 } from "../lib/arFollow";
 import type { ArSettings, LockMode } from "../lib/arFollow";
@@ -369,6 +368,9 @@ async function startArSession(
   const fwd = new THREE.Vector3();
   const target = new THREE.Vector3();
   const lastYawFwd = new THREE.Vector3(0, 0, -1); // held heading for the near-vertical gaze case
+  const billboard = new THREE.Object3D(); // scratch for lookAt-derived orientation
+  const billboardEuler = new THREE.Euler();
+  const targetQuat = new THREE.Quaternion();
   let easing = false; // deadzone hysteresis: latched on when we drift out, off when we arrive
   // Starts true, not false: a session restored straight into a follow mode would otherwise glide
   // in from the world origin on the first frame instead of simply being there.
@@ -437,14 +439,23 @@ async function startArSession(
         if (easing) group.position.lerp(target, smoothing(s.followTightness, dt));
       }
 
-      // Always billboard yaw-only — a clip that pitches with your gaze reads as a decal.
-      const yaw = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
+      // Orientation follows the same rule as position, per mode. `follow` turns to face the
+      // viewer fully, pitch included: it tracks the gaze in 3D, so holding the plane vertical
+      // would present it edge-on the moment you looked down — which is the "sliding down a wall"
+      // read. `follow-yaw` stays upright by design, since it never leaves the eyeline.
+      if (s.lockMode === "follow") {
+        billboard.position.copy(group.position);
+        billboard.lookAt(camPos); // +Z is the quad's normal
+        targetQuat.copy(billboard.quaternion);
+      } else {
+        const yaw = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
+        targetQuat.setFromEuler(billboardEuler.set(0, yaw, 0));
+      }
       if (snapNext) {
-        group.rotation.y = yaw;
+        group.quaternion.copy(targetQuat);
         snapNext = false;
       } else {
-        group.rotation.y +=
-          shortestAngleDelta(group.rotation.y, yaw) * smoothing(s.followTightness, dt);
+        group.quaternion.slerp(targetQuat, smoothing(s.followTightness, dt));
       }
     }
     renderer.render(scene, camera);
