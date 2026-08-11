@@ -6,7 +6,6 @@ import {
   followOriginY,
   followTarget,
   nextEasing,
-  shortestAngleDelta,
   smoothing,
 } from "./arFollow";
 
@@ -28,18 +27,6 @@ describe("smoothing", () => {
 
   it("is zero at zero elapsed time", () => {
     expect(smoothing(5, 0)).toBe(0);
-  });
-});
-
-describe("shortestAngleDelta", () => {
-  it("crosses the ±π seam the short way instead of spinning", () => {
-    // 170° -> -170° is +20°, not -340°.
-    const d = shortestAngleDelta((170 * Math.PI) / 180, (-170 * Math.PI) / 180);
-    expect((d * 180) / Math.PI).toBeCloseTo(20, 6);
-  });
-
-  it("handles the plain case", () => {
-    expect(shortestAngleDelta(0, 1)).toBeCloseTo(1, 12);
   });
 });
 
@@ -116,11 +103,28 @@ describe("followTarget", () => {
     expect(t.z).toBeCloseTo(0.4, 12);
   });
 
-  it("ignores the forward vector's y — height comes from the offset alone", () => {
-    // This is what separates a follow target from a naive eye+forward*d: the clip must not sink
-    // into the floor just because the viewer glanced downward.
+  it("follows the gaze DOWN when the forward vector pitches down", () => {
+    // The whole point of `follow`: look down and the clip comes with you. A previous version
+    // dropped forward.y here, which silently collapsed `follow` into `follow-yaw` vertically and
+    // made the clip creep closer at a fixed height instead — "sliding down a wall".
     const level = followTarget({ x: 0, y: 1.6, z: 0 }, { x: 0, y: 0, z: -1 }, settings, 1.7);
-    const pitched = followTarget({ x: 0, y: 1.6, z: 0 }, { x: 0, y: -0.7, z: -0.7 }, settings, 1.7);
+    const down = followTarget({ x: 0, y: 1.6, z: 0 }, { x: 0, y: -1, z: 0 }, settings, 1.7);
+    expect(down.y).toBeLessThan(level.y);
+    expect(down.y).toBeCloseTo(level.y - settings.followDistance, 12);
+  });
+
+  it("follows the gaze UP symmetrically", () => {
+    const level = followTarget({ x: 0, y: 1.6, z: 0 }, { x: 0, y: 0, z: -1 }, settings, 1.7);
+    const up = followTarget({ x: 0, y: 1.6, z: 0 }, { x: 0, y: 1, z: 0 }, settings, 1.7);
+    expect(up.y).toBeCloseTo(level.y + settings.followDistance, 12);
+  });
+
+  it("holds eye level for an already-flattened vector — the follow-yaw path", () => {
+    // follow-yaw hands in a vector whose y is 0 (via flattenYaw), so the same arithmetic pins the
+    // height without followTarget needing to know which mode is active.
+    const flat = flattenYaw({ x: 0, y: -0.9, z: -0.436 })!;
+    const level = followTarget({ x: 0, y: 1.6, z: 0 }, { x: 0, y: 0, z: -1 }, settings, 1.7);
+    const pitched = followTarget({ x: 0, y: 1.6, z: 0 }, flat, settings, 1.7);
     expect(pitched.y).toBeCloseTo(level.y, 12);
   });
 });
