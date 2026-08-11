@@ -119,6 +119,39 @@ describe("followTarget", () => {
     expect(up.y).toBeCloseTo(level.y + settings.followDistance, 12);
   });
 
+  it("projects backwards through the viewer at negative distance", () => {
+    // First-person framing: looking down with a negative distance pulls the clip back through
+    // your own body so it lines up with chest/hips rather than floating out in front.
+    const behind = followTarget(
+      { x: 0, y: 1.6, z: 0 },
+      { x: 0, y: -1, z: 0 },
+      { followDistance: -0.5, followHeight: 0 },
+      1.7,
+    );
+    const ahead = followTarget(
+      { x: 0, y: 1.6, z: 0 },
+      { x: 0, y: -1, z: 0 },
+      { followDistance: 0.5, followHeight: 0 },
+      1.7,
+    );
+    // Gaze is straight down, so a negative distance must place it ABOVE the positive case.
+    expect(behind.y).toBeGreaterThan(ahead.y);
+    expect(behind.y - ahead.y).toBeCloseTo(1.0, 12);
+  });
+
+  it("puts the target at the viewer's eye when distance is zero", () => {
+    // The degenerate point a negative range must sweep through; the player holds orientation here.
+    const t = followTarget(
+      { x: 1, y: 1.6, z: 2 },
+      { x: 0, y: -1, z: 0 },
+      { followDistance: 0, followHeight: 0 },
+      1.7,
+    );
+    expect(t.x).toBeCloseTo(1, 12);
+    expect(t.z).toBeCloseTo(2, 12);
+    expect(t.y).toBeCloseTo(1.6 - 1.7 / 2, 12);
+  });
+
   it("holds eye level for an already-flattened vector — the follow-yaw path", () => {
     // follow-yaw hands in a vector whose y is 0 (via flattenYaw), so the same arithmetic pins the
     // height without followTarget needing to know which mode is active.

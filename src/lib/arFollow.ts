@@ -25,6 +25,11 @@ export interface ArSettings {
   followHeight: number; // metres relative to eye level (0 = subject centred on the eyeline)
   followTightness: number; // exponential smoothing rate; higher = snappier
   followDeadzone: number; // metres of slack before it starts easing back
+  // How far the clip tilts back/forward to face you, 0..1. 0 holds it bolt upright (a standing
+  // figure you look down at); 1 turns it fully face-on, so looking down shows it square rather
+  // than edge-on. Only meaningful in `follow` — `follow-yaw` never leaves the eyeline, so there
+  // is no pitch to take.
+  followTilt: number;
   edgeMin: number; // matte cut / smoothstep low
   edgeMax: number; // smoothstep high
 }
@@ -51,6 +56,7 @@ export const DEFAULT_AR_SETTINGS: Omit<ArSettings, "edgeMin" | "edgeMax"> = {
   followHeight: 0,
   followTightness: 2.5,
   followDeadzone: 0.12,
+  followTilt: 1,
 };
 
 /** Below this distance from the target the clip counts as arrived and the latch releases. */
