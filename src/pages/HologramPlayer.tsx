@@ -443,18 +443,32 @@ async function startArSession(
       // viewer fully, pitch included: it tracks the gaze in 3D, so holding the plane vertical
       // would present it edge-on the moment you looked down — which is the "sliding down a wall"
       // read. `follow-yaw` stays upright by design, since it never leaves the eyeline.
-      if (s.lockMode === "follow") {
-        billboard.position.copy(group.position);
-        billboard.lookAt(camPos); // +Z is the quad's normal
-        targetQuat.copy(billboard.quaternion);
-      } else {
+      // A negative Distance sweeps the clip backwards through the viewer, so it passes exactly
+      // through the eye at distance 0. There "face the viewer" has no direction: lookAt gets a
+      // zero-length vector and atan2(0, 0) collapses to yaw 0, either of which would spin the clip
+      // as it crossed over. Hold the orientation through that neighbourhood instead.
+      const facing = group.position.distanceTo(camPos) > 1e-3;
+      if (facing) {
+        // Upright is the floor of the blend, full face-on the ceiling, and Tilt slides between
+        // them. Building both and slerping is what makes the intermediate angles available at
+        // all — lookAt alone only ever gives the fully face-on end.
         const yaw = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
         targetQuat.setFromEuler(billboardEuler.set(0, yaw, 0));
+        // Settings restored from localStorage can predate this field entirely, and `undefined > 0`
+        // is false — which would quietly pin every saved hologram to upright. Default, then clamp.
+        const tilt = Number.isFinite(s.followTilt)
+          ? Math.min(Math.max(s.followTilt, 0), 1)
+          : DEFAULT_AR_SETTINGS.followTilt;
+        if (s.lockMode === "follow" && tilt > 0) {
+          billboard.position.copy(group.position);
+          billboard.lookAt(camPos); // +Z is the quad's normal
+          targetQuat.slerp(billboard.quaternion, tilt);
+        }
       }
       if (snapNext) {
-        group.quaternion.copy(targetQuat);
+        if (facing) group.quaternion.copy(targetQuat);
         snapNext = false;
-      } else {
+      } else if (facing) {
         group.quaternion.slerp(targetQuat, smoothing(s.followTightness, dt));
       }
     }
@@ -617,9 +631,13 @@ function TuningPanel({
           {showLock && isFollow && (
             <>
               <Slider
+                // Goes negative on purpose: the target is eye + forward x distance, so a negative
+                // value projects backwards along the gaze. Looking down, that pulls the clip back
+                // through your own body — the first-person framing where it lines up with your
+                // chest and hips instead of floating out in front of you.
                 label="Distance"
                 value={settings.followDistance}
-                min={0.4}
+                min={-1}
                 max={4}
                 step={0.05}
                 unit=" m"
@@ -651,6 +669,18 @@ function TuningPanel({
                 unit=" m"
                 onChange={(v) => onChange({ followDeadzone: v })}
               />
+              {settings.lockMode === "follow" && (
+                <Slider
+                  // 0 = bolt upright, 1 = square-on to you. follow-yaw has no pitch to take, so
+                  // this is hidden there rather than shown doing nothing.
+                  label="Tilt to face you"
+                  value={settings.followTilt}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(v) => onChange({ followTilt: v })}
+                />
+              )}
             </>
           )}
 
