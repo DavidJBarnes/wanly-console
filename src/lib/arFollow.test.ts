@@ -119,28 +119,10 @@ describe("followTarget", () => {
     expect(up.y).toBeCloseTo(level.y + settings.followDistance, 12);
   });
 
-  it("projects backwards through the viewer at negative distance", () => {
-    // First-person framing: looking down with a negative distance pulls the clip back through
-    // your own body so it lines up with chest/hips rather than floating out in front.
-    const behind = followTarget(
-      { x: 0, y: 1.6, z: 0 },
-      { x: 0, y: -1, z: 0 },
-      { followDistance: -0.5, followHeight: 0 },
-      1.7,
-    );
-    const ahead = followTarget(
-      { x: 0, y: 1.6, z: 0 },
-      { x: 0, y: -1, z: 0 },
-      { followDistance: 0.5, followHeight: 0 },
-      1.7,
-    );
-    // Gaze is straight down, so a negative distance must place it ABOVE the positive case.
-    expect(behind.y).toBeGreaterThan(ahead.y);
-    expect(behind.y - ahead.y).toBeCloseTo(1.0, 12);
-  });
-
-  it("puts the target at the viewer's eye when distance is zero", () => {
-    // The degenerate point a negative range must sweep through; the player holds orientation here.
+  it("puts the target on the viewer's own x/z when distance is zero", () => {
+    // Distance 0 is the chest/hips framing: the clip occupies your own position and the Height
+    // offset drops it down your body. It is also degenerate for the yaw bearing — the player
+    // guards that on horizontal separation, which is exactly 0 here while the 3D distance is not.
     const t = followTarget(
       { x: 1, y: 1.6, z: 2 },
       { x: 0, y: -1, z: 0 },
