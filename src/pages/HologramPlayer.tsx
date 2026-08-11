@@ -519,11 +519,17 @@ function TuningPanel({
 
   return (
     <div
+      // Top-left, not bottom-left: the WebXR emulator's "Controller [L]" inspector occupies the
+      // bottom-left corner, and that extension is exactly where this gets iterated on. Its UI is
+      // injected at document level so it cannot be out-stacked from in here — the only fix is to
+      // not be underneath it. Sits below the tier chip, which is clear in the headset too.
       style={{
         position: "absolute",
         left: 20,
-        bottom: 20,
+        top: 64,
         width: open ? 300 : "auto",
+        maxHeight: "calc(100vh - 88px)",
+        overflowY: "auto",
         pointerEvents: "auto",
         background: "rgba(0,0,0,0.72)",
         color: "#fff",
@@ -545,7 +551,12 @@ function TuningPanel({
           padding: 0,
         }}
       >
-        {open ? "▾ Tuning" : "▸ Tuning"}
+        {open ? "▾" : "▸"} Tuning
+        {/* Names the context. The panel is otherwise identical in AR and preview but silently
+            carries fewer controls in preview, which reads as "the modes are missing". */}
+        <span style={{ opacity: 0.55, fontWeight: 400, marginLeft: 6 }}>
+          {showLock ? "AR session" : "preview"}
+        </span>
       </button>
 
       {open && (
@@ -820,7 +831,15 @@ export default function HologramPlayer() {
   return (
     <div ref={containerRef} style={{ position: "fixed", inset: 0 }}>
       {/* dom-overlay content (transport UI could live here during AR) */}
-      <div ref={overlayRef} style={{ position: "fixed", inset: 0, pointerEvents: "none" }}>
+      {/* zIndex is load-bearing: startArSession appends the WebGL canvas as a later sibling of
+          this div, so with both at z-index auto the canvas paints over the whole overlay and
+          every control here vanishes. A real headset masks it — the UA promotes the dom-overlay
+          root into the XR compositor — but under the WebXR emulator plain CSS stacking applies
+          and the overlay is simply buried. */}
+      <div
+        ref={overlayRef}
+        style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 10 }}
+      >
         {inAr && (
           <>
             {tierLabel && (
