@@ -508,6 +508,7 @@ function TuningPanel({
   onToggle,
   showLock,
   edgeDefaults,
+  inline,
 }: {
   settings: ArSettings;
   onChange: (patch: Partial<ArSettings>) => void;
