@@ -349,12 +349,19 @@ async function startArSession(
   ).requestHitTestSource({ space: viewerSpace });
 
   let placedOnce = false;
+  // The placed pose has to be remembered, not just written once. A follow mode overwrites
+  // group.position/quaternion every frame, so without this, switching back to `placed` strands the
+  // clip wherever follow abandoned it — mid-air, never returning to the spot you tapped.
+  const placedPos = new THREE.Vector3();
+  const placedQuat = new THREE.Quaternion();
   const place = () => {
     if (!reticle.visible) return;
     group.position.setFromMatrixPosition(reticle.matrix);
     // Face the user (yaw only) at placement, then stay put.
     const viewerPos = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
     group.rotation.y = Math.atan2(viewerPos.x - group.position.x, viewerPos.z - group.position.z);
+    placedPos.copy(group.position);
+    placedQuat.copy(group.quaternion);
     group.visible = true;
     placedOnce = true;
     reticle.visible = false; // done placing — don't leave a cyan ring on the floor
@@ -395,9 +402,14 @@ async function startArSession(
     holo.uniforms.edgeMax.value = s.edgeMax;
 
     if (s.lockMode === "placed") {
-      // Original behaviour, untouched: reticle until the tap, then frozen in the room.
+      // Reticle until the tap, then frozen in the room — restored from the remembered pose every
+      // frame, because a follow mode may have moved the group since it was placed.
       holo.shadow.visible = true;
       group.visible = placedOnce;
+      if (placedOnce) {
+        group.position.copy(placedPos);
+        group.quaternion.copy(placedQuat);
+      }
       if (frame && !placedOnce) {
         const refSpace = renderer.xr.getReferenceSpace();
         const results = frame.getHitTestResults(hitSource);
@@ -447,28 +459,36 @@ async function startArSession(
       // through the eye at distance 0. There "face the viewer" has no direction: lookAt gets a
       // zero-length vector and atan2(0, 0) collapses to yaw 0, either of which would spin the clip
       // as it crossed over. Hold the orientation through that neighbourhood instead.
-      const facing = group.position.distanceTo(camPos) > 1e-3;
-      if (facing) {
-        // Upright is the floor of the blend, full face-on the ceiling, and Tilt slides between
-        // them. Building both and slerping is what makes the intermediate angles available at
-        // all — lookAt alone only ever gives the fully face-on end.
-        const yaw = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
-        targetQuat.setFromEuler(billboardEuler.set(0, yaw, 0));
-        // Settings restored from localStorage can predate this field entirely, and `undefined > 0`
-        // is false — which would quietly pin every saved hologram to upright. Default, then clamp.
-        const tilt = Number.isFinite(s.followTilt)
-          ? Math.min(Math.max(s.followTilt, 0), 1)
-          : DEFAULT_AR_SETTINGS.followTilt;
-        if (s.lockMode === "follow" && tilt > 0) {
-          billboard.position.copy(group.position);
-          billboard.lookAt(camPos); // +Z is the quad's normal
-          targetQuat.slerp(billboard.quaternion, tilt);
-        }
+      // Two independent degeneracies, and they do NOT coincide — which is why one distance check
+      // cannot guard both. At Distance 0 the clip shares your x/z, so the yaw bearing is
+      // undefined (atan2(0,0) silently returns 0, snapping it to an arbitrary world heading) while
+      // the 3D separation is still non-zero thanks to the height offset. lookAt fails on the
+      // second, not the first. Guard each on its own measure and hold the last good orientation.
+      const dx = camPos.x - group.position.x;
+      const dz = camPos.z - group.position.z;
+      const horizontal = Math.hypot(dx, dz);
+      let haveTarget = false;
+      if (horizontal > 1e-3) {
+        // Upright is the floor of the blend, full face-on the ceiling, Tilt slides between them.
+        targetQuat.setFromEuler(billboardEuler.set(0, Math.atan2(dx, dz), 0));
+        haveTarget = true;
+      }
+      // Settings restored from localStorage can predate this field entirely, and `undefined > 0`
+      // is false — which would quietly pin every saved hologram to upright. Default, then clamp.
+      const tilt = Number.isFinite(s.followTilt)
+        ? Math.min(Math.max(s.followTilt, 0), 1)
+        : DEFAULT_AR_SETTINGS.followTilt;
+      if (s.lockMode === "follow" && tilt > 0 && group.position.distanceTo(camPos) > 1e-3) {
+        billboard.position.copy(group.position);
+        billboard.lookAt(camPos); // +Z is the quad's normal
+        if (haveTarget) targetQuat.slerp(billboard.quaternion, tilt);
+        else targetQuat.copy(billboard.quaternion);
+        haveTarget = true;
       }
       if (snapNext) {
-        if (facing) group.quaternion.copy(targetQuat);
+        if (haveTarget) group.quaternion.copy(targetQuat);
         snapNext = false;
-      } else if (facing) {
+      } else if (haveTarget) {
         group.quaternion.slerp(targetQuat, smoothing(s.followTightness, dt));
       }
     }
@@ -631,13 +651,14 @@ function TuningPanel({
           {showLock && isFollow && (
             <>
               <Slider
-                // Goes negative on purpose: the target is eye + forward x distance, so a negative
-                // value projects backwards along the gaze. Looking down, that pulls the clip back
-                // through your own body — the first-person framing where it lines up with your
-                // chest and hips instead of floating out in front of you.
+                // Floors at 0, not below. A negative distance anchors the clip BEHIND the gaze
+                // ray, so turning to look at it rotates the target away by the same amount — it is
+                // unreachable by construction, and the damping renders that as an endless spin.
+                // 0 is the useful end of the range: the clip sits at your own position, which with
+                // a negative Height is the chest/hips framing without any chase.
                 label="Distance"
                 value={settings.followDistance}
-                min={-1}
+                min={0}
                 max={4}
                 step={0.05}
                 unit=" m"
