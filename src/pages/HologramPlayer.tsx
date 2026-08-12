@@ -442,6 +442,25 @@ async function startArSession(
       const t2 = followTarget(camPos, fwd, s, holo.height);
       target.set(t2.x, t2.y, t2.z);
 
+      if (s.lockMode === "follow") {
+        // Horizontal is RIGID — written straight through, no easing and no deadzone. The
+        // left/right sway was never sensitivity, it was the damping itself: lag on the turning
+        // axis is seen as the clip sliding across the view and catching up. Removing the damping
+        // on that axis removes the sway by construction rather than by tuning it down.
+        // Height keeps the easing, which is the part that reads as weight.
+        group.position.x = target.x;
+        group.position.z = target.z;
+        const errY = Math.abs(target.y - group.position.y);
+        if (snapNext) {
+          group.position.y = target.y;
+          easing = false;
+        } else {
+          easing = nextEasing(easing, errY, s.followDeadzone);
+          if (easing) {
+            group.position.y += (target.y - group.position.y) * smoothing(s.followTightness, dt);
+          }
+        }
+      } else {
       const err = group.position.distanceTo(target);
       if (snapNext) {
         group.position.copy(target);
@@ -449,6 +468,7 @@ async function startArSession(
       } else {
         easing = nextEasing(easing, err, s.followDeadzone);
         if (easing) group.position.lerp(target, smoothing(s.followTightness, dt));
+      }
       }
 
       // Orientation follows the same rule as position, per mode. `follow` turns to face the
@@ -485,12 +505,15 @@ async function startArSession(
         else targetQuat.copy(billboard.quaternion);
         haveTarget = true;
       }
-      if (snapNext) {
-        if (haveTarget) group.quaternion.copy(targetQuat);
-        snapNext = false;
-      } else if (haveTarget) {
-        group.quaternion.slerp(targetQuat, smoothing(s.followTightness, dt));
+      // `follow` snaps orientation for the same reason its horizontal position is rigid: a damped
+      // billboard lags in yaw, and on a flat plane that lag is read as foreshortening — the clip
+      // twisting away from you as you turn. Pinning the position but not the facing would put the
+      // sway straight back in, rotationally. `follow-yaw` keeps the easing.
+      if (haveTarget) {
+        if (snapNext || s.lockMode === "follow") group.quaternion.copy(targetQuat);
+        else group.quaternion.slerp(targetQuat, smoothing(s.followTightness, dt));
       }
+      snapNext = false;
     }
     renderer.render(scene, camera);
   });
@@ -568,7 +591,11 @@ function TuningPanel({
 }) {
   const modes: { id: LockMode; label: string; hint: string }[] = [
     { id: "placed", label: "Placed", hint: "Tap the floor. Stays in the room." },
-    { id: "follow", label: "Follow", hint: "Holds station ahead of you. Look down, it follows." },
+    {
+      id: "follow",
+      label: "Follow",
+      hint: "Pinned dead centre — never sways. Look down and it eases down with you.",
+    },
     { id: "follow-yaw", label: "Follow (yaw)", hint: "Turning carries it. Looking down does not." },
   ];
   const active = modes.find((m) => m.id === settings.lockMode);
@@ -673,8 +700,11 @@ function TuningPanel({
                 unit=" m"
                 onChange={(v) => onChange({ followHeight: v })}
               />
+              {/* In `follow` these govern the vertical axis only — horizontal is rigid, so there
+                  is nothing left for them to damp there. Named for what they actually do rather
+                  than left generic, which would imply a turning knob that no longer exists. */}
               <Slider
-                label="Tightness"
+                label={settings.lockMode === "follow" ? "Tightness (up/down)" : "Tightness"}
                 value={settings.followTightness}
                 min={0.3}
                 max={12}
@@ -682,7 +712,7 @@ function TuningPanel({
                 onChange={(v) => onChange({ followTightness: v })}
               />
               <Slider
-                label="Deadzone"
+                label={settings.lockMode === "follow" ? "Deadzone (up/down)" : "Deadzone"}
                 value={settings.followDeadzone}
                 min={0}
                 max={0.8}
