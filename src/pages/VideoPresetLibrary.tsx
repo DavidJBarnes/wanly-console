@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Typography,
   Button,
   Card,
   CardContent,
+  Chip,
   IconButton,
   Dialog,
   DialogTitle,
@@ -27,6 +28,7 @@ import type { VideoSettingsPreset, VideoSettingsPresetCreate, LoraListItem } fro
 import { MAX_LORAS } from "../constants";
 import SettingsSignature, { parseSignature, SIG_COLS } from "../components/SettingsSignature";
 import SettingsSignatureInputs from "../components/SettingsSignatureInputs";
+import { collectGroups, filterByGroups } from "../lib/presetGroups";
 
 type LoraSlot = { lora_id: string; name: string; high_weight: number; low_weight: number; preview_image: string | null };
 
@@ -80,11 +82,29 @@ export default function VideoPresetLibrary() {
   const [deleteConfirm, setDeleteConfirm] = useState<VideoSettingsPreset | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchPresets();
     fetchLoras();
   }, [fetchPresets, fetchLoras]);
+
+  const visible = showArchived ? allPresets : presets;
+  const groups = useMemo(() => collectGroups(visible), [visible]);
+  // Intersected with what is actually on offer, so a pill selected while "show archived" was on
+  // does not survive the toggle and leave the grid mysteriously empty.
+  const activeGroups = useMemo(
+    () => new Set(groups.filter((g) => selectedGroups.has(g))),
+    [groups, selectedGroups],
+  );
+  const shown = useMemo(() => filterByGroups(visible, activeGroups), [visible, activeGroups]);
+
+  const toggleGroup = (g: string) =>
+    setSelectedGroups((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(g)) next.add(g);
+      return next;
+    });
 
   const loadLoraSlots = (p: VideoSettingsPreset | null) =>
     setLoraSlots(
@@ -236,11 +256,31 @@ export default function VideoPresetLibrary() {
           {rowError}
         </Alert>
       )}
+      {!loading && groups.length > 0 && (
+        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1, mb: 2 }}>
+          {groups.map((g) => (
+            <Chip
+              key={g}
+              label={g}
+              size="small"
+              onClick={() => toggleGroup(g)}
+              color={activeGroups.has(g) ? "primary" : "default"}
+              variant={activeGroups.has(g) ? "filled" : "outlined"}
+              sx={{ cursor: "pointer" }}
+            />
+          ))}
+          {activeGroups.size > 0 && (
+            <Button size="small" onClick={() => setSelectedGroups(new Set())}>
+              Clear
+            </Button>
+          )}
+        </Box>
+      )}
       {loading ? (
         <CircularProgress />
       ) : (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-          {(showArchived ? allPresets : presets).map((p) => (
+          {shown.map((p) => (
             <Card key={p.id} sx={{ width: 340, opacity: p.archived ? 0.55 : 1 }}>
               <CardContent>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -282,8 +322,10 @@ export default function VideoPresetLibrary() {
               </CardContent>
             </Card>
           ))}
-          {presets.length === 0 && (
-            <Typography color="text.secondary" sx={{ p: 2 }}>No presets yet.</Typography>
+          {shown.length === 0 && (
+            <Typography color="text.secondary" sx={{ p: 2 }}>
+              {visible.length === 0 ? "No presets yet." : "No presets in the selected groups."}
+            </Typography>
           )}
         </Box>
       )}
