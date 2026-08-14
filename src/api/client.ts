@@ -38,6 +38,7 @@ import type {
   FavoriteListResponse,
   AppSettingsResponse,
   AppSettingsUpdate,
+  RerollRequest,
 } from "./types";
 import { REPEAT_ARRAY_PARAMS } from "../lib/repeatArrayParams";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
@@ -159,9 +160,13 @@ export async function addSegment(
 /** Archive segment 0 and queue an identical one with a new random seed.
  *
  *  Returns the NEW segment. The job also moves back to pending and the old take becomes
- *  discarded, so callers refetch the job rather than patching this into state. */
-export async function rerollJobSeed(jobId: string): Promise<SegmentResponse> {
-  const { data } = await api.post<SegmentResponse>(`/jobs/${jobId}/reroll`);
+ *  discarded, so callers refetch the job rather than patching this into state.
+ *
+ *  An optional rule ("re-roll until") makes it a loop: the API judges the finished take
+ *  against metric >= threshold and rolls again on a miss, up to the max_rerolls_per_job
+ *  setting. */
+export async function rerollJobSeed(jobId: string, rule?: RerollRequest): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(`/jobs/${jobId}/reroll`, rule ?? {});
   return data;
 }
 
