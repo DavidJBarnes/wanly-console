@@ -30,6 +30,7 @@ import type {
   ImageFile,
   ImageJobInfo,
   ImageSearchResponse,
+  ImageTagCount,
   FavoriteToggleRequest,
   SegmentClip,
   SmashcutBody,
@@ -38,6 +39,7 @@ import type {
   AppSettingsResponse,
   AppSettingsUpdate,
 } from "./types";
+import { REPEAT_ARRAY_PARAMS } from "../lib/repeatArrayParams";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -454,12 +456,31 @@ export async function updateImageTags(path: string, tags: string | null): Promis
 }
 
 export async function searchImages(params: {
-  q: string;
+  q?: string;
+  tags?: string[];
+  exclude?: string[];
   limit?: number;
   offset?: number;
 }): Promise<ImageSearchResponse> {
-  const { data } = await api.get<ImageSearchResponse>("/images/search", { params });
+  const { data } = await api.get<ImageSearchResponse>("/images/search", {
+    params,
+    ...REPEAT_ARRAY_PARAMS,
+  });
   return data;
+}
+
+/** Every tag in use with how many images carry it UNDER THE GIVEN FILTER — so the pills can show
+ *  what exists inside the current result set rather than offering dead ends. */
+export async function getImageTagCounts(params: {
+  q?: string;
+  tags?: string[];
+  exclude?: string[];
+}): Promise<ImageTagCount[]> {
+  const { data } = await api.get<{ items: ImageTagCount[] }>("/images/tag-counts", {
+    params,
+    ...REPEAT_ARRAY_PARAMS,
+  });
+  return data.items;
 }
 
 export async function uploadImage(file: File, folder: string): Promise<{ path: string }> {
