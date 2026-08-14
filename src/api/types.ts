@@ -511,6 +511,11 @@ export interface ImageFile {
   tags: string | null;
 }
 
+export interface ImageTagCount {
+  tag: string;
+  count: number;
+}
+
 export interface ImageSearchResponse {
   items: ImageFile[];
   total: number;

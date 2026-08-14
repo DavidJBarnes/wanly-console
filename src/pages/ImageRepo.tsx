@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Box,
   Typography,
@@ -64,12 +64,21 @@ import {
   getUntaggedImages,
   updateImageTags,
   searchImages,
+  getImageTagCounts,
 } from "../api/client";
-import type { ImageFolder, ImageFile, ImageJobInfo } from "../api/types";
+import type { ImageFolder, ImageFile, ImageJobInfo, ImageTagCount } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
+import ImageTagFilter from "../components/ImageTagFilter";
+import {
+  describeFilter,
+  hasFilter,
+  parseTagParam,
+  serializeTagParam,
+  toggleTag,
+} from "../lib/imageFilter";
 import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
 
 const FOLDER_ROWS_OPTIONS = [12, 24, 48];
@@ -133,6 +142,7 @@ export default function ImageRepo() {
   const [lightboxTags, setLightboxTags] = useState("");
   const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [searchResults, setSearchResults] = useState<ImageFile[]>([]);
+  const [tagCounts, setTagCounts] = useState<ImageTagCount[]>([]);
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -164,6 +174,18 @@ export default function ImageRepo() {
   // every keystroke.
   const debouncedSearch = params.get("q") ?? "";
   const [searchQuery, setSearchQuery] = useState(debouncedSearch);
+  // Tag selection is URL state too (?tags=Kelly,Missionary), so a filtered view survives
+  // navigation, back/forward and a refresh exactly like the folder and page params do.
+  const tagsParam = params.get("tags");
+  const selectedTags = useMemo(() => parseTagParam(tagsParam), [tagsParam]);
+  // "Is anything filtering?" — the page shows results when it is true and the folder listing
+  // when it is not. Previously this was just "is the search box non-empty".
+  const filterActive = hasFilter(debouncedSearch, selectedTags);
+  const filterLabel = describeFilter(debouncedSearch, selectedTags);
+  const setSelectedTags = useCallback(
+    (next: string[]) => setQuery({ tags: serializeTagParam(next), spage: null }),
+    [setQuery],
+  );
 
   // Scroll the main scroll container to the top on any pagination change
   // (folders, in-folder images, AND search results).
@@ -226,13 +248,13 @@ export default function ImageRepo() {
   // Same "clamp back into range" guard as the folder list, for search results
   // (whose pagination control only renders when the page has results).
   useEffect(() => {
-    if (!debouncedSearch || searchTotal === 0) return;
+    if (!filterActive || searchTotal === 0) return;
     const maxPage = Math.max(0, Math.ceil(searchTotal / searchRowsPerPage) - 1);
     if (searchPage > maxPage) setQuery({ spage: pageValue(maxPage) });
-  }, [debouncedSearch, searchTotal, searchRowsPerPage, searchPage, setQuery]);
+  }, [filterActive, searchTotal, searchRowsPerPage, searchPage, setQuery]);
 
   const fetchSearchResults = useCallback(async () => {
-    if (!debouncedSearch) {
+    if (!filterActive) {
       setSearchResults([]);
       setSearchTotal(0);
       return;
@@ -240,7 +262,8 @@ export default function ImageRepo() {
     setSearchLoading(true);
     try {
       const res = await searchImages({
-        q: debouncedSearch,
+        q: debouncedSearch || undefined,
+        tags: selectedTags.length ? selectedTags : undefined,
         limit: searchRowsPerPage,
         offset: searchPage * searchRowsPerPage,
       });
@@ -251,11 +274,31 @@ export default function ImageRepo() {
     } finally {
       setSearchLoading(false);
     }
-  }, [debouncedSearch, searchPage, searchRowsPerPage]);
+  }, [filterActive, debouncedSearch, selectedTags, searchPage, searchRowsPerPage]);
+
+  // Counts are re-fetched with the filter, not once on mount: they are scoped to the current
+  // result set, which is the whole point — after clicking Kelly the remaining pills show what
+  // co-occurs with Kelly, so a dead end is visible before it is clicked.
+  const fetchTagCounts = useCallback(async () => {
+    try {
+      setTagCounts(
+        await getImageTagCounts({
+          q: debouncedSearch || undefined,
+          tags: selectedTags.length ? selectedTags : undefined,
+        }),
+      );
+    } catch {
+      // A failed census leaves the previous pills up rather than emptying the bar.
+    }
+  }, [debouncedSearch, selectedTags]);
 
   useEffect(() => {
     fetchSearchResults();
   }, [fetchSearchResults]);
+
+  useEffect(() => {
+    fetchTagCounts();
+  }, [fetchTagCounts]);
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -1160,13 +1203,13 @@ export default function ImageRepo() {
           >
             {isMobile ? "Untag" : "Untagged"}
           </Button>
-          {(favoritesView && favImages.length > 0) || (debouncedSearch && searchResults.length > 0) ? (
+          {(favoritesView && favImages.length > 0) || (filterActive && searchResults.length > 0) ? (
             <Button
               variant="outlined"
               startIcon={isMobile ? undefined : <PlayArrow />}
               size={isMobile ? "small" : "medium"}
               onClick={() => {
-                const pool = debouncedSearch ? searchResults : favImages;
+                const pool = filterActive ? searchResults : favImages;
                 handleOpenScreensaver(pool);
               }}
             >
@@ -1176,7 +1219,7 @@ export default function ImageRepo() {
           <Box sx={{ flex: 1 }} />
           <TextField
             size="small"
-            placeholder="Search images by tag…"
+            placeholder="Search by filename…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             slotProps={{
@@ -1192,7 +1235,14 @@ export default function ImageRepo() {
           />
         </Box>
 
-        {debouncedSearch && (
+        <ImageTagFilter
+          counts={tagCounts}
+          selected={selectedTags}
+          onToggle={(tag) => setSelectedTags(toggleTag(selectedTags, tag))}
+          onClear={() => setSelectedTags([])}
+        />
+
+        {filterActive && (
           <>
             {searchLoading && (
               <Box sx={{ textAlign: "center", py: 4 }}>
@@ -1202,7 +1252,7 @@ export default function ImageRepo() {
             {!searchLoading && searchResults.length === 0 && (
               <Box sx={{ textAlign: "center", py: 8 }}>
                 <Typography color="text.secondary">
-                  No images found matching "{debouncedSearch}".
+                  No images match {filterLabel}.
                 </Typography>
               </Box>
             )}
@@ -1285,7 +1335,7 @@ export default function ImageRepo() {
           </>
         )}
 
-        {!debouncedSearch && (
+        {!filterActive && (
           <>
         {favoritesView && (
           <>
@@ -1560,7 +1610,7 @@ export default function ImageRepo() {
         <Box sx={{ flex: 1 }} />
         <TextField
           size="small"
-          placeholder="Search images by tag…"
+          placeholder="Search by filename…"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           slotProps={{
@@ -1629,13 +1679,13 @@ export default function ImageRepo() {
           startIcon={isMobile ? undefined : <PlayArrow />}
           size={isMobile ? "small" : "medium"}
           disabled={
-            !debouncedSearch && images.length === 0 ||
-            debouncedSearch && searchResults.length === 0 ||
+            !filterActive && images.length === 0 ||
+            filterActive && searchResults.length === 0 ||
             favoritesOnly && !images.some((img) => favoritesSet.has(img.path))
           }
           onClick={() => {
             let pool: ImageFile[];
-            if (debouncedSearch) {
+            if (filterActive) {
               pool = searchResults;
             } else if (favoritesOnly) {
               pool = images.filter((img) => favoritesSet.has(img.path));
@@ -1708,7 +1758,14 @@ export default function ImageRepo() {
         />
       </Box>
 
-      {debouncedSearch && (
+      <ImageTagFilter
+        counts={tagCounts}
+        selected={selectedTags}
+        onToggle={(tag) => setSelectedTags(toggleTag(selectedTags, tag))}
+        onClear={() => setSelectedTags([])}
+      />
+
+      {filterActive && (
         <>
           {searchLoading && (
             <Box sx={{ textAlign: "center", py: 4 }}>
@@ -1718,7 +1775,7 @@ export default function ImageRepo() {
           {!searchLoading && searchResults.length === 0 && (
             <Box sx={{ textAlign: "center", py: 8 }}>
               <Typography color="text.secondary">
-                No images found matching "{debouncedSearch}".
+                No images match {filterLabel}.
               </Typography>
             </Box>
           )}
@@ -1854,7 +1911,7 @@ export default function ImageRepo() {
         </>
       )}
 
-      {!debouncedSearch && (
+      {!filterActive && (
         <>
       {loading && images.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8 }}>
