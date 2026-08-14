@@ -101,7 +101,7 @@ import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import { canRerollSeed } from "../lib/rerollEligibility";
-import { groupTakes, orphanTakeIndices, takeSeed } from "../lib/segmentTakes";
+import { allArchivedTakes, groupTakes, takeSeed } from "../lib/segmentTakes";
 import { useGoBack } from "../hooks/useGoBack";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import HologramConfig from "../components/HologramConfig";
@@ -289,7 +289,7 @@ export default function JobDetail() {
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
   const [rerollConfirm, setRerollConfirm] = useState(false);
-  const [openTakes, setOpenTakes] = useState<Set<number>>(new Set());
+  const [takesOpen, setTakesOpen] = useState(false);
   const [rerolling, setRerolling] = useState(false);
   const [holoOpen, setHoloOpen] = useState(false);
   const [holoBusy, setHoloBusy] = useState(false);
@@ -710,27 +710,23 @@ export default function JobDetail() {
 
   /** The "N previous takes" fold for one index — used under the live segment that replaced
    *  them, and standalone for a position whose takes were all discarded with no replacement. */
-  const takeRows = (index: number) => {
+  /** The "N previous takes" fold that closes the segment list.
+   *
+   *  One section under everything, not one per position: interleaving them put a fold between
+   *  segment 0 and segment 1 and broke the one thing the list is for — reading the video in
+   *  order. Takes are alternatives, not steps, so they get no lane, no trim and no transition. */
+  const takeRows = () => {
     const rows: ReactElement[] = [];
-                // Archived takes of this position, folded away under it. They are alternatives
-                // to this take, not steps after it, so they get no lane, no trim controls and
-                // no transition — none of which mean anything for a clip that is not in the cut.
-                const takes = archivedByIndex.get(index) ?? [];
+                const takes = allArchivedTakes({ live: liveSegments, archivedByIndex });
                 if (takes.length > 0) {
-                  const open = openTakes.has(index);
+                  const open = takesOpen;
                   rows.push(
-                    <TableRow key={`takes-toggle-${index}`}>
+                    <TableRow key="takes-toggle">
                       {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
                       <TableCell colSpan={9} sx={{ py: 0.25, borderBottom: open ? "none" : undefined }}>
                         <Button
                           size="small"
-                          onClick={() =>
-                            setOpenTakes((prev) => {
-                              const next = new Set(prev);
-                              if (!next.delete(index)) next.add(index);
-                              return next;
-                            })
-                          }
+                          onClick={() => setTakesOpen((open) => !open)}
                           startIcon={open ? <ExpandLess /> : <ExpandMore />}
                           sx={{ color: "text.secondary", textTransform: "none" }}
                         >
@@ -746,6 +742,11 @@ export default function JobDetail() {
                           {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
                           <TableCell colSpan={9} sx={{ py: 1 }}>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, pl: 4, flexWrap: "wrap" }}>
+                              {/* Which position this take was for: the list is pooled at the
+                                  bottom, so a row has to say what it was a take OF. */}
+                              <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700, minWidth: 26 }}>
+                                #{take.index}
+                              </Typography>
                               {take.last_frame_path ? (
                                 <Box
                                   component="img"
@@ -824,24 +825,17 @@ export default function JobDetail() {
   const laneWidth = groups.length > 0 ? groups.length * 24 + 24 : 0;
 
   /** Mobile equivalent of takeRows. */
-  const mobileTakeItems = (index: number) => {
+  /** Mobile equivalent of takeRows: one section after every segment card. */
+  const mobileTakeItems = () => {
     const items: ReactElement[] = [];
-            // Same treatment as the table: archived takes fold away under the take that
-            // replaced them, with no trim controls of their own.
-            const takes = archivedByIndex.get(index) ?? [];
+            const takes = allArchivedTakes({ live: liveSegments, archivedByIndex });
             if (takes.length > 0) {
-              const open = openTakes.has(index);
+              const open = takesOpen;
               items.push(
-                <Box key={`takes-${index}`} sx={{ pl: 1 }}>
+                <Box key="takes" sx={{ pl: 1 }}>
                   <Button
                     size="small"
-                    onClick={() =>
-                      setOpenTakes((prev) => {
-                        const next = new Set(prev);
-                        if (!next.delete(index)) next.add(index);
-                        return next;
-                      })
-                    }
+                    onClick={() => setTakesOpen((open) => !open)}
                     startIcon={open ? <ExpandLess /> : <ExpandMore />}
                     sx={{ color: "text.secondary", textTransform: "none" }}
                   >
@@ -853,6 +847,9 @@ export default function JobDetail() {
                         key={take.id}
                         sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.75, pl: 1, flexWrap: "wrap" }}
                       >
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                            #{take.index}
+                          </Typography>
                         {take.last_frame_path && (
                           <Box
                             component="img"
@@ -1647,16 +1644,9 @@ export default function JobDetail() {
                     </TableRow>
                   );
 
-                  rows.push(...takeRows(seg.index));
                   return rows;
                 })}
-                {/* Positions whose takes were all discarded without a replacement. They have no
-                    live segment to fold under, and dropping them would delete the evidence from
-                    view — which is the one thing discarding, rather than deleting, exists to
-                    avoid. */}
-                {orphanTakeIndices({ live: liveSegments, archivedByIndex }).flatMap((index) =>
-                  takeRows(index),
-                )}
+                {takeRows()}
               </TableBody>
             </Table>
           </TableContainer>
@@ -1954,14 +1944,9 @@ export default function JobDetail() {
                 </Box>
               );
 
-              items.push(...mobileTakeItems(seg.index));
               return items;
             })}
-            {/* Same as the table: positions discarded without a replacement still have to be
-                reachable. */}
-            {orphanTakeIndices({ live: liveSegments, archivedByIndex }).flatMap((index) =>
-              mobileTakeItems(index),
-            )}
+            {mobileTakeItems()}
           </Box>
         )}
       </Card>
