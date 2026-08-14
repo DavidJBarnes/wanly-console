@@ -155,6 +155,9 @@ export interface JobResponse {
 export interface SegmentResponse {
   id: string;
   job_id: string;
+  /** The seed this segment generated with, or null when it derives one from the job
+   *  (job.seed + index) — which is every segment that was never re-rolled. */
+  seed: number | null;
   index: number;
   /** Human observation. The metrics cannot rank quality — expression rewards the mouth-gape
    *  artifact it should penalise — so what a person saw is primary evidence, not a footnote. */
