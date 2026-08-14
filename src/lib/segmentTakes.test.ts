@@ -37,13 +37,15 @@ describe("groupTakes", () => {
 });
 
 describe("takeSeed", () => {
-  it("shows a seed the segment carries", () => {
+  it("shows the seed an archived take carries", () => {
     expect(takeSeed(seg({ seed: "150488800771430" }))).toBe("150488800771430");
   });
 
-  it("shows nothing rather than a derived guess", () => {
-    // job.seed + index cannot be computed honestly in the browser: 95% of job seeds exceed
-    // 2**53, so the value held here has already been rounded.
+  it("shows nothing for a live segment, which carries no seed of its own", () => {
+    // A re-roll moves the new seed onto the job, so segment 0 is always the job seed and the
+    // header is the one place it appears. Deriving job.seed + index here would be dishonest
+    // anyway: 95% of job seeds exceed 2**53, so the value held in the browser is already
+    // rounded.
     expect(takeSeed(seg({ seed: null }))).toBeNull();
   });
 
