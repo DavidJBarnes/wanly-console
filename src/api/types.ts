@@ -156,8 +156,11 @@ export interface SegmentResponse {
   id: string;
   job_id: string;
   /** The seed this segment generated with, or null when it derives one from the job
-   *  (job.seed + index) — which is every segment that was never re-rolled. */
-  seed: number | null;
+   *  (job.seed + index) — a segment that never asked for a particular seed.
+   *
+   *  A STRING: seeds are 64-bit and 95% of jobs have one above 2**53, so as a JSON number it
+   *  would arrive rounded and display as a seed that never generated anything. */
+  seed: string | null;
   index: number;
   /** Human observation. The metrics cannot rank quality — expression rewards the mouth-gape
    *  artifact it should penalise — so what a person saw is primary evidence, not a footnote. */
