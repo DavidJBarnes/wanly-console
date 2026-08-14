@@ -111,7 +111,7 @@ export default function SuccessfulConfigs() {
     <Box>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 3 }}>
         <Star color="warning" />
-        <Typography variant="h5">Successful Configs</Typography>
+        <Typography variant="h5">Configurations</Typography>
       </Stack>
 
       {loading ? (

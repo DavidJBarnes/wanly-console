@@ -22,21 +22,25 @@ import {
   Casino,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router";
+import type { ReactNode } from "react";
 
 export const DRAWER_WIDTH = 220;
 
-const NAV_ITEMS = [
+/** `sub: true` indents an item under the top-level entry above it. The parents (Videos,
+ *  Settings) are real pages in their own right, so this is presentation only — every row still
+ *  navigates, and there is nothing to expand or collapse. */
+const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }[] = [
   { label: "Dashboard", icon: <DashboardIcon />, path: "/" },
   { label: "Job Queue", icon: <QueueMusic />, path: "/jobs" },
-  { label: "Successful Configs", icon: <Star />, path: "/configs" },
   { label: "Workers", icon: <Dns />, path: "/workers" },
   { label: "Videos", icon: <VideoLibrary />, path: "/videos" },
-  { label: "Smashcut", icon: <Movie />, path: "/smashcut" },
-  { label: "LoRA Library", icon: <AutoFixHigh />, path: "/loras" },
-  { label: "Video Presets", icon: <Tune />, path: "/video-presets" },
-  { label: "Wildcards", icon: <Casino />, path: "/wildcards" },
+  { label: "Smashcut", icon: <Movie />, path: "/smashcut", sub: true },
   { label: "Image Repo", icon: <Image />, path: "/images" },
   { label: "Settings", icon: <Settings />, path: "/settings" },
+  { label: "LoRA Library", icon: <AutoFixHigh />, path: "/loras", sub: true },
+  { label: "Video Presets", icon: <Tune />, path: "/video-presets", sub: true },
+  { label: "Wildcards", icon: <Casino />, path: "/wildcards", sub: true },
+  { label: "Configurations", icon: <Star />, path: "/configs", sub: true },
 ];
 
 interface SidebarProps {
@@ -76,6 +80,7 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
                 mx: 1,
                 borderRadius: 2,
                 mb: 0.5,
+                pl: item.sub ? 3 : 2,
                 color: "rgba(255,255,255,0.6)",
                 "&.Mui-selected": {
                   bgcolor: "rgba(255,255,255,0.08)",
@@ -85,12 +90,21 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
                 "&:hover": { bgcolor: "rgba(255,255,255,0.06)" },
               }}
             >
-              <ListItemIcon sx={{ color: "inherit", minWidth: 40 }}>
+              <ListItemIcon
+                sx={{
+                  color: "inherit",
+                  minWidth: item.sub ? 32 : 40,
+                  "& .MuiSvgIcon-root": { fontSize: item.sub ? 19 : 24 },
+                }}
+              >
                 {item.icon}
               </ListItemIcon>
               <ListItemText
                 primary={item.label}
-                primaryTypographyProps={{ fontSize: 14, fontWeight: 500 }}
+                primaryTypographyProps={{
+                  fontSize: item.sub ? 13 : 14,
+                  fontWeight: item.sub ? 400 : 500,
+                }}
               />
             </ListItemButton>
           ))}
