@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import type { ReactElement } from "react";
 import {
   Accordion,
   AccordionSummary,
@@ -100,7 +101,7 @@ import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import { canRerollSeed } from "../lib/rerollEligibility";
-import { groupTakes, takeSeed } from "../lib/segmentTakes";
+import { groupTakes, orphanTakeIndices, takeSeed } from "../lib/segmentTakes";
 import { useGoBack } from "../hooks/useGoBack";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import HologramConfig from "../components/HologramConfig";
@@ -706,7 +707,187 @@ export default function JobDetail() {
       ["pending", "claimed", "processing"].includes(s.status),
     );
   const canReroll = canRerollSeed(videoSegments);
+
+  /** The "N previous takes" fold for one index — used under the live segment that replaced
+   *  them, and standalone for a position whose takes were all discarded with no replacement. */
+  const takeRows = (index: number) => {
+    const rows: ReactElement[] = [];
+                // Archived takes of this position, folded away under it. They are alternatives
+                // to this take, not steps after it, so they get no lane, no trim controls and
+                // no transition — none of which mean anything for a clip that is not in the cut.
+                const takes = archivedByIndex.get(index) ?? [];
+                if (takes.length > 0) {
+                  const open = openTakes.has(index);
+                  rows.push(
+                    <TableRow key={`takes-toggle-${index}`}>
+                      {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
+                      <TableCell colSpan={9} sx={{ py: 0.25, borderBottom: open ? "none" : undefined }}>
+                        <Button
+                          size="small"
+                          onClick={() =>
+                            setOpenTakes((prev) => {
+                              const next = new Set(prev);
+                              if (!next.delete(index)) next.add(index);
+                              return next;
+                            })
+                          }
+                          startIcon={open ? <ExpandLess /> : <ExpandMore />}
+                          sx={{ color: "text.secondary", textTransform: "none" }}
+                        >
+                          {takes.length} previous take{takes.length > 1 ? "s" : ""}
+                        </Button>
+                      </TableCell>
+                    </TableRow>,
+                  );
+                  if (open) {
+                    takes.forEach((take) => {
+                      rows.push(
+                        <TableRow key={take.id} sx={{ bgcolor: "action.hover" }}>
+                          {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
+                          <TableCell colSpan={9} sx={{ py: 1 }}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, pl: 4, flexWrap: "wrap" }}>
+                              {take.last_frame_path ? (
+                                <Box
+                                  component="img"
+                                  src={getFileUrl(take.last_frame_path, take.completed_at ?? undefined)}
+                                  alt="Last frame"
+                                  onClick={() =>
+                                    take.output_path &&
+                                    setVideoModal({
+                                      path: take.output_path,
+                                      v: take.completed_at ?? undefined,
+                                      segIndex: take.index,
+                                    })
+                                  }
+                                  sx={{
+                                    width: 56,
+                                    height: 56,
+                                    objectFit: "cover",
+                                    borderRadius: 0.5,
+                                    cursor: take.output_path ? "pointer" : "default",
+                                  }}
+                                />
+                              ) : (
+                                <Box sx={{ width: 56, height: 56, bgcolor: "action.disabledBackground", borderRadius: 0.5 }} />
+                              )}
+                              <StatusChip status={take.status} />
+                              {takeSeed(take) && (
+                                <Tooltip title="The seed this take generated with">
+                                  <Chip
+                                    size="small"
+                                    variant="outlined"
+                                    label={`seed ${takeSeed(take)}`}
+                                    sx={{ fontFamily: "monospace" }}
+                                  />
+                                </Tooltip>
+                              )}
+                              <IdentityChip segment={take} />
+                              {(() => {
+                                const reviewed =
+                                  take.rating != null || !!take.notes || !!take.observation_tags;
+                                return (
+                                  <Tooltip title={reviewed ? "Edit observations" : "Add observations"}>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => setObserving(take)}
+                                      color={reviewed ? "primary" : "default"}
+                                    >
+                                      {reviewed ? <RateReview fontSize="small" /> : <RateReviewOutlined fontSize="small" />}
+                                    </IconButton>
+                                  </Tooltip>
+                                );
+                              })()}
+                              <Typography variant="caption" color="text.secondary">
+                                {formatDate(take.created_at)}
+                              </Typography>
+                              <Box sx={{ flex: 1 }} />
+                              <Tooltip title="Delete this take permanently">
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => setDeleteConfirm(take)}
+                                  disabled={actionLoading === take.id}
+                                >
+                                  <DeleteOutline fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          </TableCell>
+                        </TableRow>,
+                      );
+                    });
+                  }
+                }
+    return rows;
+  };
+
   const laneWidth = groups.length > 0 ? groups.length * 24 + 24 : 0;
+
+  /** Mobile equivalent of takeRows. */
+  const mobileTakeItems = (index: number) => {
+    const items: ReactElement[] = [];
+            // Same treatment as the table: archived takes fold away under the take that
+            // replaced them, with no trim controls of their own.
+            const takes = archivedByIndex.get(index) ?? [];
+            if (takes.length > 0) {
+              const open = openTakes.has(index);
+              items.push(
+                <Box key={`takes-${index}`} sx={{ pl: 1 }}>
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      setOpenTakes((prev) => {
+                        const next = new Set(prev);
+                        if (!next.delete(index)) next.add(index);
+                        return next;
+                      })
+                    }
+                    startIcon={open ? <ExpandLess /> : <ExpandMore />}
+                    sx={{ color: "text.secondary", textTransform: "none" }}
+                  >
+                    {takes.length} previous take{takes.length > 1 ? "s" : ""}
+                  </Button>
+                  {open &&
+                    takes.map((take) => (
+                      <Box
+                        key={take.id}
+                        sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.75, pl: 1, flexWrap: "wrap" }}
+                      >
+                        {take.last_frame_path && (
+                          <Box
+                            component="img"
+                            src={getFileUrl(take.last_frame_path, take.completed_at ?? undefined)}
+                            alt="Last frame"
+                            onClick={() =>
+                              take.output_path &&
+                              setVideoModal({
+                                path: take.output_path,
+                                v: take.completed_at ?? undefined,
+                                segIndex: take.index,
+                              })
+                            }
+                            sx={{ width: 44, height: 44, objectFit: "cover", borderRadius: 0.5 }}
+                          />
+                        )}
+                        <StatusChip status={take.status} />
+                        {takeSeed(take) && (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`seed ${takeSeed(take)}`}
+                            sx={{ fontFamily: "monospace", fontSize: 11 }}
+                          />
+                        )}
+                        <IconButton size="small" onClick={() => setObserving(take)}>
+                          <RateReview fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    ))}
+                </Box>,
+              );
+            }
+    return items;
+  };
 
   return (
     <Box>
@@ -1466,114 +1647,16 @@ export default function JobDetail() {
                     </TableRow>
                   );
 
-                  // Archived takes of this position, folded away under it. They are alternatives
-                  // to this take, not steps after it, so they get no lane, no trim controls and
-                  // no transition — none of which mean anything for a clip that is not in the cut.
-                  const takes = archivedByIndex.get(seg.index) ?? [];
-                  if (takes.length > 0) {
-                    const open = openTakes.has(seg.index);
-                    rows.push(
-                      <TableRow key={`takes-toggle-${seg.id}`}>
-                        {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
-                        <TableCell colSpan={9} sx={{ py: 0.25, borderBottom: open ? "none" : undefined }}>
-                          <Button
-                            size="small"
-                            onClick={() =>
-                              setOpenTakes((prev) => {
-                                const next = new Set(prev);
-                                if (!next.delete(seg.index)) next.add(seg.index);
-                                return next;
-                              })
-                            }
-                            startIcon={open ? <ExpandLess /> : <ExpandMore />}
-                            sx={{ color: "text.secondary", textTransform: "none" }}
-                          >
-                            {takes.length} previous take{takes.length > 1 ? "s" : ""}
-                          </Button>
-                        </TableCell>
-                      </TableRow>,
-                    );
-                    if (open) {
-                      takes.forEach((take) => {
-                        rows.push(
-                          <TableRow key={take.id} sx={{ bgcolor: "action.hover" }}>
-                            {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
-                            <TableCell colSpan={9} sx={{ py: 1 }}>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, pl: 4, flexWrap: "wrap" }}>
-                                {take.last_frame_path ? (
-                                  <Box
-                                    component="img"
-                                    src={getFileUrl(take.last_frame_path, take.completed_at ?? undefined)}
-                                    alt="Last frame"
-                                    onClick={() =>
-                                      take.output_path &&
-                                      setVideoModal({
-                                        path: take.output_path,
-                                        v: take.completed_at ?? undefined,
-                                        segIndex: take.index,
-                                      })
-                                    }
-                                    sx={{
-                                      width: 56,
-                                      height: 56,
-                                      objectFit: "cover",
-                                      borderRadius: 0.5,
-                                      cursor: take.output_path ? "pointer" : "default",
-                                    }}
-                                  />
-                                ) : (
-                                  <Box sx={{ width: 56, height: 56, bgcolor: "action.disabledBackground", borderRadius: 0.5 }} />
-                                )}
-                                <StatusChip status={take.status} />
-                                {takeSeed(take) && (
-                                  <Tooltip title="The seed this take generated with">
-                                    <Chip
-                                      size="small"
-                                      variant="outlined"
-                                      label={`seed ${takeSeed(take)}`}
-                                      sx={{ fontFamily: "monospace" }}
-                                    />
-                                  </Tooltip>
-                                )}
-                                <IdentityChip segment={take} />
-                                {(() => {
-                                  const reviewed =
-                                    take.rating != null || !!take.notes || !!take.observation_tags;
-                                  return (
-                                    <Tooltip title={reviewed ? "Edit observations" : "Add observations"}>
-                                      <IconButton
-                                        size="small"
-                                        onClick={() => setObserving(take)}
-                                        color={reviewed ? "primary" : "default"}
-                                      >
-                                        {reviewed ? <RateReview fontSize="small" /> : <RateReviewOutlined fontSize="small" />}
-                                      </IconButton>
-                                    </Tooltip>
-                                  );
-                                })()}
-                                <Typography variant="caption" color="text.secondary">
-                                  {formatDate(take.created_at)}
-                                </Typography>
-                                <Box sx={{ flex: 1 }} />
-                                <Tooltip title="Delete this take permanently">
-                                  <IconButton
-                                    size="small"
-                                    color="error"
-                                    onClick={() => setDeleteConfirm(take)}
-                                    disabled={actionLoading === take.id}
-                                  >
-                                    <DeleteOutline fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </Box>
-                            </TableCell>
-                          </TableRow>,
-                        );
-                      });
-                    }
-                  }
+                  rows.push(...takeRows(seg.index));
                   return rows;
                 })}
+                {/* Positions whose takes were all discarded without a replacement. They have no
+                    live segment to fold under, and dropping them would delete the evidence from
+                    view — which is the one thing discarding, rather than deleting, exists to
+                    avoid. */}
+                {orphanTakeIndices({ live: liveSegments, archivedByIndex }).flatMap((index) =>
+                  takeRows(index),
+                )}
               </TableBody>
             </Table>
           </TableContainer>
@@ -1871,68 +1954,14 @@ export default function JobDetail() {
                 </Box>
               );
 
-              // Same treatment as the table: archived takes fold away under the take that
-              // replaced them, with no trim controls of their own.
-              const takes = archivedByIndex.get(seg.index) ?? [];
-              if (takes.length > 0) {
-                const open = openTakes.has(seg.index);
-                items.push(
-                  <Box key={`takes-${seg.id}`} sx={{ pl: 1 }}>
-                    <Button
-                      size="small"
-                      onClick={() =>
-                        setOpenTakes((prev) => {
-                          const next = new Set(prev);
-                          if (!next.delete(seg.index)) next.add(seg.index);
-                          return next;
-                        })
-                      }
-                      startIcon={open ? <ExpandLess /> : <ExpandMore />}
-                      sx={{ color: "text.secondary", textTransform: "none" }}
-                    >
-                      {takes.length} previous take{takes.length > 1 ? "s" : ""}
-                    </Button>
-                    {open &&
-                      takes.map((take) => (
-                        <Box
-                          key={take.id}
-                          sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.75, pl: 1, flexWrap: "wrap" }}
-                        >
-                          {take.last_frame_path && (
-                            <Box
-                              component="img"
-                              src={getFileUrl(take.last_frame_path, take.completed_at ?? undefined)}
-                              alt="Last frame"
-                              onClick={() =>
-                                take.output_path &&
-                                setVideoModal({
-                                  path: take.output_path,
-                                  v: take.completed_at ?? undefined,
-                                  segIndex: take.index,
-                                })
-                              }
-                              sx={{ width: 44, height: 44, objectFit: "cover", borderRadius: 0.5 }}
-                            />
-                          )}
-                          <StatusChip status={take.status} />
-                          {takeSeed(take) && (
-                            <Chip
-                              size="small"
-                              variant="outlined"
-                              label={`seed ${takeSeed(take)}`}
-                              sx={{ fontFamily: "monospace", fontSize: 11 }}
-                            />
-                          )}
-                          <IconButton size="small" onClick={() => setObserving(take)}>
-                            <RateReview fontSize="small" />
-                          </IconButton>
-                        </Box>
-                      ))}
-                  </Box>,
-                );
-              }
+              items.push(...mobileTakeItems(seg.index));
               return items;
             })}
+            {/* Same as the table: positions discarded without a replacement still have to be
+                reachable. */}
+            {orphanTakeIndices({ live: liveSegments, archivedByIndex }).flatMap((index) =>
+              mobileTakeItems(index),
+            )}
           </Box>
         )}
       </Card>

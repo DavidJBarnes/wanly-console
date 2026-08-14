@@ -54,3 +54,19 @@ export function groupTakes(videoSegments: SegmentResponse[]): TakeGroups {
 export function takeSeed(seg: SegmentResponse): string | null {
   return seg.seed ?? null;
 }
+
+/**
+ * Indices whose takes were all archived and never replaced.
+ *
+ * Discarding a segment without re-rolling it is the older, ordinary flow: a bad segment comes out
+ * of the cut while its rating and notes stay on the job, because a bad segment is often the most
+ * informative one. Those takes have no live sibling to fold under, and rendering only what sits
+ * under a live segment would make them vanish from the page entirely — deleting the evidence from
+ * view, which is the exact thing discarding exists to avoid.
+ */
+export function orphanTakeIndices(groups: TakeGroups): number[] {
+  const liveIndices = new Set(groups.live.map((s) => s.index));
+  return [...groups.archivedByIndex.keys()]
+    .filter((index) => !liveIndices.has(index))
+    .sort((a, b) => a - b);
+}

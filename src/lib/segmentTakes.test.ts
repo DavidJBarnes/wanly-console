@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { SegmentResponse } from "../api/types";
-import { groupTakes, takeSeed } from "./segmentTakes";
+import { groupTakes, orphanTakeIndices, takeSeed } from "./segmentTakes";
 
 const seg = (over: Partial<SegmentResponse>): SegmentResponse =>
   ({ id: String(Math.random()), index: 0, discarded: false, created_at: "2026-08-14T10:00:00Z", ...over }) as SegmentResponse;
@@ -51,5 +51,31 @@ describe("takeSeed", () => {
     const big = "9223372036854775801";
     expect(takeSeed(seg({ seed: big }))).toBe(big);
     expect(String(Number(big))).not.toBe(big); // why it is not a number
+  });
+});
+
+describe("orphanTakeIndices", () => {
+  it("finds takes with no live sibling", () => {
+    // Discarding a segment without re-rolling it is the ordinary flow, and those takes have
+    // nothing to fold under. Rendered only under live segments, they would disappear.
+    const groups = groupTakes([
+      seg({ index: 0 }),
+      seg({ index: 1, discarded: true }),
+      seg({ index: 2, discarded: true }),
+    ]);
+    expect(orphanTakeIndices(groups)).toEqual([1, 2]);
+  });
+
+  it("ignores indices that do have a live take", () => {
+    const groups = groupTakes([seg({ index: 0 }), seg({ index: 0, discarded: true })]);
+    expect(orphanTakeIndices(groups)).toEqual([]);
+  });
+
+  it("returns them in video order", () => {
+    const groups = groupTakes([
+      seg({ index: 3, discarded: true }),
+      seg({ index: 1, discarded: true }),
+    ]);
+    expect(orphanTakeIndices(groups)).toEqual([1, 3]);
   });
 });
