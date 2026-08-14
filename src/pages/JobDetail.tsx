@@ -46,6 +46,7 @@ import {
   ClearOutlined,
   Download,
   ExpandMore,
+  ExpandLess,
   Repeat,
   Visibility,
   ChevronLeft,
@@ -99,6 +100,7 @@ import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import { canRerollSeed } from "../lib/rerollEligibility";
+import { groupTakes, takeSeed } from "../lib/segmentTakes";
 import { useGoBack } from "../hooks/useGoBack";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import HologramConfig from "../components/HologramConfig";
@@ -149,11 +151,14 @@ function resolveSegmentStartImage(
   segments: SegmentResponse[],
   startingImage: string | null,
 ): string | null {
+  // Found by index among LIVE segments, not by array position. Those were the same thing until a
+  // re-roll could put two segments at index 0: after one, segments[0] may be the archived take,
+  // so position lookup would show segment 1 starting from a frame that was thrown away.
   return (
     seg.start_image ??
     (seg.index === 0
       ? startingImage
-      : segments[seg.index - 1]?.last_frame_path) ??
+      : segments.find((s) => !s.discarded && s.index === seg.index - 1)?.last_frame_path) ??
     null
   );
 }
@@ -283,6 +288,7 @@ export default function JobDetail() {
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
   const [rerollConfirm, setRerollConfirm] = useState(false);
+  const [openTakes, setOpenTakes] = useState<Set<number>>(new Set());
   const [rerolling, setRerolling] = useState(false);
   const [holoOpen, setHoloOpen] = useState(false);
   const [holoBusy, setHoloBusy] = useState(false);
@@ -657,7 +663,13 @@ export default function JobDetail() {
     loadFramePreview(framePreview.segId, framePreview.position, newTrim);
   };
 
-  const groups = useMemo(() => job ? buildGroups(job.segments.filter(isVideoSegment), job) : [], [job]);
+  // Live segments only. The lane draws a chain of what continues from what, and an archived take
+  // continues nothing — drawn in, it reads as though the replacement followed the take it
+  // replaced rather than standing in for it.
+  const groups = useMemo(
+    () => (job ? buildGroups(job.segments.filter(isVideoSegment).filter((s) => !s.discarded), job) : []),
+    [job],
+  );
 
   if (loading) {
     return (
@@ -678,10 +690,19 @@ export default function JobDetail() {
   if (!job) return null;
 
   const videoSegments = job.segments.filter(isVideoSegment);
-  const lastSegment = videoSegments[videoSegments.length - 1];
+  // Archived takes are alternatives, not positions in the video, so they come out of the
+  // sequence and sit under the take that replaced them.
+  const { live: liveSegments, archivedByIndex } = groupTakes(videoSegments);
+  const liveTakeSeed = liveSegments.length === 1 ? takeSeed(liveSegments[0]) : null;
+  const liveSeed = liveTakeSeed
+    ? { value: liveTakeSeed, fromTake: true }
+    : { value: `${job.seed}`, fromTake: false };
+  // The last LIVE segment: an archived take is not what a new segment continues from, and this
+  // is what pre-fills the next-segment dialog.
+  const lastSegment = liveSegments[liveSegments.length - 1];
   const canAddSegment =
     job.status === "awaiting" &&
-    !videoSegments.some((s) =>
+    !liveSegments.some((s) =>
       ["pending", "claimed", "processing"].includes(s.status),
     );
   const canReroll = canRerollSeed(videoSegments);
@@ -776,7 +797,14 @@ export default function JobDetail() {
             >
               <MetaItem label="Dimensions" value={`${job.width}x${job.height}`} />
               <MetaItem label="FPS" value={`${job.fps}`} />
-              <MetaItem label="Seed" value={`${job.seed}`} />
+              {/* The live take's seed when it has one of its own, because after a re-roll the
+                  job seed is no longer what generated what is on screen — it is only the seed the
+                  first take derived from. Falls back to the job seed, which is still the answer
+                  for every take that never asked for a particular one. */}
+              <MetaItem
+                label={liveSeed.fromTake ? "Seed (this take)" : "Seed"}
+                value={liveSeed.value}
+              />
               <MetaItem
                 label="Segments"
                 value={`${job.completed_segment_count}`}
@@ -1060,9 +1088,9 @@ export default function JobDetail() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {videoSegments.flatMap((seg) => {
+                {liveSegments.flatMap((seg) => {
                   const rows = [
-                  <TableRow key={seg.id} sx={seg.discarded ? { opacity: 0.5 } : undefined}>
+                  <TableRow key={seg.id}>
                     {groups.length > 0 && (
                       <TableCell padding="none" sx={{ width: laneWidth, minWidth: laneWidth, position: "relative" }}>
                         <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}>
@@ -1077,12 +1105,7 @@ export default function JobDetail() {
                     )}
                     <TableCell sx={groups.length > 0 ? { pl: 0 } : undefined}>
                       {(() => {
-                        const img =
-                          seg.start_image ??
-                          (seg.index === 0
-                            ? job.starting_image
-                            : job.segments[seg.index - 1]?.last_frame_path) ??
-                          null;
+                        const img = resolveSegmentStartImage(seg, job.segments, job.starting_image);
                         return img ? (
                           <Box
                             component="img"
@@ -1200,23 +1223,17 @@ export default function JobDetail() {
                     <TableCell>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                         <StatusChip status={seg.status} />
-                        {seg.discarded && (
-                          <Tooltip title="Kept for its feedback, excluded from the video">
-                            <Chip size="small" label="Discarded" variant="outlined" color="warning" />
-                          </Tooltip>
-                        )}
-                        {/* Only takes that carry their OWN seed show one — today, re-rolled ones.
-                            The rest derive it from the job seed shown in the header, and that
-                            derivation is deliberately not repeated here: jobs created before
-                            seeds were kept JS-safe already display a rounded job seed, so a
-                            client-side (job.seed + index) would render a number that never
-                            generated anything. */}
-                        {seg.seed != null && (
-                          <Tooltip title="This take's own seed — the only thing that differs from the take it replaced">
+                        {/* Only a seed the segment actually carries. Deriving job.seed + index
+                            here would be dishonest: seeds are 64-bit and 95% of jobs have one
+                            above 2**53, so the job seed in this browser has already been rounded
+                            and any sum from it never generated anything. Archiving stamps the
+                            real value in, so takes in the archive answer for themselves. */}
+                        {takeSeed(seg) && (
+                          <Tooltip title="The seed this take generated with">
                             <Chip
                               size="small"
                               variant="outlined"
-                              label={`seed ${seg.seed}`}
+                              label={`seed ${takeSeed(seg)}`}
                               sx={{ fontFamily: "monospace" }}
                             />
                           </Tooltip>
@@ -1448,6 +1465,113 @@ export default function JobDetail() {
                       </TableCell>
                     </TableRow>
                   );
+
+                  // Archived takes of this position, folded away under it. They are alternatives
+                  // to this take, not steps after it, so they get no lane, no trim controls and
+                  // no transition — none of which mean anything for a clip that is not in the cut.
+                  const takes = archivedByIndex.get(seg.index) ?? [];
+                  if (takes.length > 0) {
+                    const open = openTakes.has(seg.index);
+                    rows.push(
+                      <TableRow key={`takes-toggle-${seg.id}`}>
+                        {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
+                        <TableCell colSpan={9} sx={{ py: 0.25, borderBottom: open ? "none" : undefined }}>
+                          <Button
+                            size="small"
+                            onClick={() =>
+                              setOpenTakes((prev) => {
+                                const next = new Set(prev);
+                                if (!next.delete(seg.index)) next.add(seg.index);
+                                return next;
+                              })
+                            }
+                            startIcon={open ? <ExpandLess /> : <ExpandMore />}
+                            sx={{ color: "text.secondary", textTransform: "none" }}
+                          >
+                            {takes.length} previous take{takes.length > 1 ? "s" : ""}
+                          </Button>
+                        </TableCell>
+                      </TableRow>,
+                    );
+                    if (open) {
+                      takes.forEach((take) => {
+                        rows.push(
+                          <TableRow key={take.id} sx={{ bgcolor: "action.hover" }}>
+                            {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
+                            <TableCell colSpan={9} sx={{ py: 1 }}>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, pl: 4, flexWrap: "wrap" }}>
+                                {take.last_frame_path ? (
+                                  <Box
+                                    component="img"
+                                    src={getFileUrl(take.last_frame_path, take.completed_at ?? undefined)}
+                                    alt="Last frame"
+                                    onClick={() =>
+                                      take.output_path &&
+                                      setVideoModal({
+                                        path: take.output_path,
+                                        v: take.completed_at ?? undefined,
+                                        segIndex: take.index,
+                                      })
+                                    }
+                                    sx={{
+                                      width: 56,
+                                      height: 56,
+                                      objectFit: "cover",
+                                      borderRadius: 0.5,
+                                      cursor: take.output_path ? "pointer" : "default",
+                                    }}
+                                  />
+                                ) : (
+                                  <Box sx={{ width: 56, height: 56, bgcolor: "action.disabledBackground", borderRadius: 0.5 }} />
+                                )}
+                                <StatusChip status={take.status} />
+                                {takeSeed(take) && (
+                                  <Tooltip title="The seed this take generated with">
+                                    <Chip
+                                      size="small"
+                                      variant="outlined"
+                                      label={`seed ${takeSeed(take)}`}
+                                      sx={{ fontFamily: "monospace" }}
+                                    />
+                                  </Tooltip>
+                                )}
+                                <IdentityChip segment={take} />
+                                {(() => {
+                                  const reviewed =
+                                    take.rating != null || !!take.notes || !!take.observation_tags;
+                                  return (
+                                    <Tooltip title={reviewed ? "Edit observations" : "Add observations"}>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => setObserving(take)}
+                                        color={reviewed ? "primary" : "default"}
+                                      >
+                                        {reviewed ? <RateReview fontSize="small" /> : <RateReviewOutlined fontSize="small" />}
+                                      </IconButton>
+                                    </Tooltip>
+                                  );
+                                })()}
+                                <Typography variant="caption" color="text.secondary">
+                                  {formatDate(take.created_at)}
+                                </Typography>
+                                <Box sx={{ flex: 1 }} />
+                                <Tooltip title="Delete this take permanently">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => setDeleteConfirm(take)}
+                                    disabled={actionLoading === take.id}
+                                  >
+                                    <DeleteOutline fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
+                            </TableCell>
+                          </TableRow>,
+                        );
+                      });
+                    }
+                  }
                   return rows;
                 })}
               </TableBody>
@@ -1458,13 +1582,9 @@ export default function JobDetail() {
         {/* Mobile card layout */}
         {isMobile && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, p: 1.5 }}>
-            {job.segments.flatMap((seg) => {
+            {liveSegments.flatMap((seg) => {
               const startImg =
-                seg.start_image ??
-                (seg.index === 0
-                  ? job.starting_image
-                  : job.segments[seg.index - 1]?.last_frame_path) ??
-                null;
+                resolveSegmentStartImage(seg, job.segments, job.starting_image);
               const card = (
                 <Card key={seg.id} variant="outlined">
                   <Box sx={{ p: 1.5 }}>
@@ -1750,6 +1870,67 @@ export default function JobDetail() {
                   </Box>
                 </Box>
               );
+
+              // Same treatment as the table: archived takes fold away under the take that
+              // replaced them, with no trim controls of their own.
+              const takes = archivedByIndex.get(seg.index) ?? [];
+              if (takes.length > 0) {
+                const open = openTakes.has(seg.index);
+                items.push(
+                  <Box key={`takes-${seg.id}`} sx={{ pl: 1 }}>
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        setOpenTakes((prev) => {
+                          const next = new Set(prev);
+                          if (!next.delete(seg.index)) next.add(seg.index);
+                          return next;
+                        })
+                      }
+                      startIcon={open ? <ExpandLess /> : <ExpandMore />}
+                      sx={{ color: "text.secondary", textTransform: "none" }}
+                    >
+                      {takes.length} previous take{takes.length > 1 ? "s" : ""}
+                    </Button>
+                    {open &&
+                      takes.map((take) => (
+                        <Box
+                          key={take.id}
+                          sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.75, pl: 1, flexWrap: "wrap" }}
+                        >
+                          {take.last_frame_path && (
+                            <Box
+                              component="img"
+                              src={getFileUrl(take.last_frame_path, take.completed_at ?? undefined)}
+                              alt="Last frame"
+                              onClick={() =>
+                                take.output_path &&
+                                setVideoModal({
+                                  path: take.output_path,
+                                  v: take.completed_at ?? undefined,
+                                  segIndex: take.index,
+                                })
+                              }
+                              sx={{ width: 44, height: 44, objectFit: "cover", borderRadius: 0.5 }}
+                            />
+                          )}
+                          <StatusChip status={take.status} />
+                          {takeSeed(take) && (
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              label={`seed ${takeSeed(take)}`}
+                              sx={{ fontFamily: "monospace", fontSize: 11 }}
+                            />
+                          )}
+                          <IconButton size="small" onClick={() => setObserving(take)}>
+                            <RateReview fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      ))}
+                  </Box>,
+                );
+              }
               return items;
             })}
           </Box>
