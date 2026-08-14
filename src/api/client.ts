@@ -156,6 +156,15 @@ export async function addSegment(
   return data;
 }
 
+/** Archive segment 0 and queue an identical one with a new random seed.
+ *
+ *  Returns the NEW segment. The job also moves back to pending and the old take becomes
+ *  discarded, so callers refetch the job rather than patching this into state. */
+export async function rerollJobSeed(jobId: string): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(`/jobs/${jobId}/reroll`);
+  return data;
+}
+
 export async function retrySegment(
   segmentId: string,
 ): Promise<SegmentResponse> {

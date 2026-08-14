@@ -39,6 +39,7 @@ import {
   PlayCircleOutline,
   Close,
   Replay,
+  Casino,
   StopCircle,
   DeleteOutline,
   RemoveCircleOutline,
@@ -62,6 +63,7 @@ import {
   addSegment,
   uploadFile,
   retrySegment,
+  rerollJobSeed,
   cancelSegment,
   deleteSegment,
   makeHologram,
@@ -96,6 +98,7 @@ import SegmentObservationDialog from "../components/SegmentObservationDialog";
 import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
+import { canRerollSeed } from "../lib/rerollEligibility";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import HologramConfig from "../components/HologramConfig";
 import { QRCodeCanvas } from "qrcode.react";
@@ -274,6 +277,8 @@ export default function JobDetail() {
   const [deletingJob, setDeletingJob] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
+  const [rerollConfirm, setRerollConfirm] = useState(false);
+  const [rerolling, setRerolling] = useState(false);
   const [holoOpen, setHoloOpen] = useState(false);
   const [holoBusy, setHoloBusy] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -389,6 +394,24 @@ export default function JobDetail() {
       setError("Failed to finalize job");
     } finally {
       setFinalizing(false);
+    }
+  };
+
+  const handleReroll = async () => {
+    if (!id) return;
+    setRerollConfirm(false);
+    setRerolling(true);
+    try {
+      await rerollJobSeed(id);
+      // Refetch rather than patching state in: the response is the new segment, but the job's
+      // status went back to pending and the old take is now archived, so the whole page moved.
+      await fetchJob();
+      setError("");
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail || "Failed to re-roll the segment");
+    } finally {
+      setRerolling(false);
     }
   };
 
@@ -656,6 +679,7 @@ export default function JobDetail() {
     !videoSegments.some((s) =>
       ["pending", "claimed", "processing"].includes(s.status),
     );
+  const canReroll = canRerollSeed(videoSegments);
   const laneWidth = groups.length > 0 ? groups.length * 24 + 24 : 0;
 
   return (
@@ -918,6 +942,30 @@ export default function JobDetail() {
                 </Typography>
               </>
             )}
+            {canReroll && (
+              <Tooltip
+                title="Archive this take and generate another one from the same settings with a new random seed"
+                arrow
+              >
+                <span>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => setRerollConfirm(true)}
+                    disabled={rerolling}
+                    startIcon={
+                      rerolling ? (
+                        <CircularProgress size={16} color="inherit" />
+                      ) : isMobile ? undefined : (
+                        <Casino />
+                      )
+                    }
+                  >
+                    {rerolling ? "Rolling..." : isMobile ? "Re-roll" : "Re-roll Seed"}
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
             {canAddSegment && (
               <Button
                 variant="contained"
@@ -1150,6 +1198,22 @@ export default function JobDetail() {
                         {seg.discarded && (
                           <Tooltip title="Kept for its feedback, excluded from the video">
                             <Chip size="small" label="Discarded" variant="outlined" color="warning" />
+                          </Tooltip>
+                        )}
+                        {/* Only takes that carry their OWN seed show one — today, re-rolled ones.
+                            The rest derive it from the job seed shown in the header, and that
+                            derivation is deliberately not repeated here: jobs created before
+                            seeds were kept JS-safe already display a rounded job seed, so a
+                            client-side (job.seed + index) would render a number that never
+                            generated anything. */}
+                        {seg.seed != null && (
+                          <Tooltip title="This take's own seed — the only thing that differs from the take it replaced">
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              label={`seed ${seg.seed}`}
+                              sx={{ fontFamily: "monospace" }}
+                            />
                           </Tooltip>
                         )}
                         <IdentityChip segment={seg} />
@@ -1803,6 +1867,27 @@ export default function JobDetail() {
       </Dialog>
 
       {/* Re-open job confirm dialog */}
+      {/* Re-roll confirmation */}
+      <Dialog open={rerollConfirm} onClose={() => setRerollConfirm(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Re-roll with a new seed?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            The current take is <strong>archived</strong>, not deleted — its video, rating and
+            notes stay on the job, under the seed that produced it.
+          </Typography>
+          <Typography sx={{ mt: 1.5 }}>
+            A new segment 0 is queued with the same prompt, LoRAs, preset and start image. Only
+            the seed changes, so the two takes are directly comparable.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRerollConfirm(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleReroll} disabled={rerolling}>
+            {rerolling ? "Rolling..." : "Re-roll"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog
         open={reopenConfirm}
         onClose={() => setReopenConfirm(false)}
