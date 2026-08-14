@@ -189,6 +189,13 @@ export interface SegmentResponse {
   transition: string | null;
   trim_start_frames: number;
   trim_end_frames: number;
+  /** "Re-roll until": the rule this take was generated under (null = no rule). Judged >= by
+   *  the API against the mean of the matching metric series when the take completes; a miss
+   *  re-rolls automatically up to the max_rerolls_per_job setting. reroll_count is the take's
+   *  position in its chain (the user-initiated roll is 1). */
+  reroll_rule_metric: string | null;
+  reroll_rule_threshold: number | null;
+  reroll_count: number | null;
   motion_magnitude: number | null;
   identity_mean_cos: number | null;
   identity_mean_cos_ref: number | null;
@@ -549,6 +556,7 @@ export interface AppSettingsResponse {
   high_noise_steps: number;
   flow_shift: number;
   negative_prompt: string;
+  max_rerolls_per_job: number;
 }
 
 export interface FavoriteToggleRequest {
@@ -597,6 +605,13 @@ export interface AppSettingsUpdate {
   high_noise_steps?: number;
   flow_shift?: number;
   negative_prompt?: string;
+  max_rerolls_per_job?: number;
+}
+
+/** Optional rule for POST /jobs/{id}/reroll. Omitted = plain one-shot re-roll. */
+export interface RerollRequest {
+  rule_metric?: string;
+  rule_threshold?: number;
 }
 
 export interface SegmentReprocessRequest {

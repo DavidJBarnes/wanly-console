@@ -24,14 +24,19 @@ export default function SettingsPage() {
   const [input2, setInput2] = useState("");
   const {
     negativePrompt,
+    maxRerollsPerJob,
     loaded,
     fetchSettings,
     saveSettings,
     setNegativePrompt,
+    setMaxRerollsPerJob,
   } = useSettingsStore();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [rerollSaving, setRerollSaving] = useState(false);
+  const [rerollSaved, setRerollSaved] = useState(false);
+  const [rerollSaveError, setRerollSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTags();
@@ -64,6 +69,27 @@ export default function SettingsPage() {
       setSaveError(message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const parsedMaxRerolls = parseInt(maxRerollsPerJob, 10);
+  const maxRerollsValid = Number.isInteger(parsedMaxRerolls) && parsedMaxRerolls >= 1;
+
+  const handleSaveReroll = async () => {
+    if (!maxRerollsValid) return;
+    setRerollSaving(true);
+    setRerollSaved(false);
+    setRerollSaveError(null);
+    try {
+      await saveSettings({ max_rerolls_per_job: parsedMaxRerolls });
+      setRerollSaved(true);
+    } catch (err) {
+      console.error("Failed to save re-roll settings:", err);
+      const message =
+        err instanceof Error ? err.message : "Failed to save settings. Please try again.";
+      setRerollSaveError(message);
+    } finally {
+      setRerollSaving(false);
     }
   };
 
@@ -211,6 +237,57 @@ export default function SettingsPage() {
                 {saveError && (
                   <Alert severity="error" sx={{ mt: 1 }} onClose={() => setSaveError(null)}>
                     {saveError}
+                  </Alert>
+                )}
+              </Box>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Re-roll
+          </Typography>
+          {!loaded ? (
+            <Box sx={{ textAlign: "center", py: 2 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : (
+            <>
+              <TextField
+                label="Max re-rolls per job"
+                size="small"
+                type="number"
+                value={maxRerollsPerJob}
+                onChange={(e) => setMaxRerollsPerJob(e.target.value)}
+                error={!maxRerollsValid}
+                helperText={
+                  maxRerollsValid
+                    ? 'How many takes a "re-roll until" rule may generate before it gives up and waits for you'
+                    : "Must be a whole number of at least 1"
+                }
+                slotProps={{ htmlInput: { min: 1, step: 1 } }}
+                sx={{ mt: 1, width: "100%", maxWidth: 320 }}
+              />
+              <Box sx={{ mt: 2 }}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={handleSaveReroll}
+                  disabled={rerollSaving || !maxRerollsValid}
+                >
+                  {rerollSaving ? "Saving..." : "Save"}
+                </Button>
+                {rerollSaved && (
+                  <Alert severity="success" sx={{ mt: 1 }}>
+                    Re-roll settings saved
+                  </Alert>
+                )}
+                {rerollSaveError && (
+                  <Alert severity="error" sx={{ mt: 1 }} onClose={() => setRerollSaveError(null)}>
+                    {rerollSaveError}
                   </Alert>
                 )}
               </Box>

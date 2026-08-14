@@ -11,6 +11,8 @@ interface SettingsState {
   defaultHighNoiseSteps: string;
   defaultFlowShift: string;
   negativePrompt: string;
+  /** "Re-roll until" budget: how many takes a rule-driven chain may generate per job. */
+  maxRerollsPerJob: string;
   loaded: boolean;
   fetchSettings: () => Promise<void>;
   saveSettings: (updates: AppSettingsUpdate) => Promise<void>;
@@ -22,6 +24,7 @@ interface SettingsState {
   setDefaultHighNoiseSteps: (value: string) => void;
   setDefaultFlowShift: (value: string) => void;
   setNegativePrompt: (value: string) => void;
+  setMaxRerollsPerJob: (value: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()((set) => ({
@@ -33,6 +36,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   defaultHighNoiseSteps: "2",
   defaultFlowShift: "5",
   negativePrompt: "",
+  maxRerollsPerJob: "3",
   loaded: false,
   fetchSettings: async () => {
     try {
@@ -46,6 +50,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
         defaultHighNoiseSteps: String(s.high_noise_steps),
         defaultFlowShift: String(s.flow_shift),
         negativePrompt: s.negative_prompt,
+        maxRerollsPerJob: String(s.max_rerolls_per_job ?? 3),
         loaded: true,
       });
     } catch {
@@ -64,6 +69,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
       defaultHighNoiseSteps: String(s.high_noise_steps),
       defaultFlowShift: String(s.flow_shift),
       negativePrompt: s.negative_prompt,
+      maxRerollsPerJob: String(s.max_rerolls_per_job ?? 3),
     });
   },
   setDefaultLightx2vHigh: (value) => set({ defaultLightx2vHigh: value }),
@@ -74,4 +80,5 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   setDefaultHighNoiseSteps: (value) => set({ defaultHighNoiseSteps: value }),
   setDefaultFlowShift: (value) => set({ defaultFlowShift: value }),
   setNegativePrompt: (value) => set({ negativePrompt: value }),
+  setMaxRerollsPerJob: (value) => set({ maxRerollsPerJob: value }),
 }));
