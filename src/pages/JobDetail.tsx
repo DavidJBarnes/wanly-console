@@ -99,6 +99,7 @@ import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import { canRerollSeed } from "../lib/rerollEligibility";
+import { useGoBack } from "../hooks/useGoBack";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import HologramConfig from "../components/HologramConfig";
 import { QRCodeCanvas } from "qrcode.react";
@@ -258,6 +259,10 @@ function BranchLane({ groups, laneWidth, activeFilename, segIndex }: { groups: B
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  // The queue is only the fallback now: a job is opened from Videos, the dashboard and an
+  // image's job list too, and returning to the queue from any of those loses the page and
+  // filters the user was looking at.
+  const goBack = useGoBack("/jobs");
   const { allPresets: allVideoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
   const { loras: loraLibrary, fetchLoras } = useLoraStore();
   const [job, setJob] = useState<JobDetailResponse | null>(null);
@@ -685,7 +690,7 @@ export default function JobDetail() {
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 3 }}>
-        <IconButton onClick={() => navigate("/jobs")} size={isMobile ? "small" : "medium"}>
+        <IconButton onClick={goBack} size={isMobile ? "small" : "medium"}>
           <ArrowBack />
         </IconButton>
         {editingName ? (

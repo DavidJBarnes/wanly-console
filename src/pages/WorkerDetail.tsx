@@ -16,7 +16,8 @@ import {
   LinearProgress,
 } from "@mui/material";
 import { ArrowBack, Circle, LinearScale } from "@mui/icons-material";
-import { useParams, useNavigate, Link as RouterLink } from "react-router";
+import { useParams, Link as RouterLink } from "react-router";
+import { useGoBack } from "../hooks/useGoBack";
 import { getWorker, getWorkerSegments } from "../api/client";
 import StatusChip from "../components/StatusChip";
 import type { WorkerResponse, WorkerStatus, WorkerSegmentResponse } from "../api/types";
@@ -65,7 +66,7 @@ function segRunTime(seg: WorkerSegmentResponse): string {
 
 export default function WorkerDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const goBack = useGoBack("/workers");
   const [worker, setWorker] = useState<WorkerResponse | null>(null);
   const [segments, setSegments] = useState<WorkerSegmentResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +114,7 @@ export default function WorkerDetail() {
     return (
       <Box>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 3 }}>
-          <IconButton onClick={() => navigate("/workers")}>
+          <IconButton onClick={goBack}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h4">Worker</Typography>
@@ -133,7 +134,7 @@ export default function WorkerDetail() {
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 3 }}>
-        <IconButton onClick={() => navigate("/workers")}>
+        <IconButton onClick={goBack}>
           <ArrowBack />
         </IconButton>
         <Typography variant="h4" sx={{ flex: 1 }}>
