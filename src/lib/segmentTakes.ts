@@ -43,13 +43,17 @@ export function groupTakes(videoSegments: SegmentResponse[]): TakeGroups {
 }
 
 /**
- * What to show as a take's seed.
+ * What to show as an archived take's seed.
  *
- * Only a seed the segment actually carries. The alternative — deriving job.seed + index in the
- * browser — cannot be done honestly: seeds are stored as 64-bit integers and 95% of existing jobs
- * have one above 2**53, so the job seed the browser holds has already been rounded and any sum
- * from it is a number that never generated anything. The API sends seeds as strings for exactly
- * this reason, and stamps an archived take with the seed it ran on.
+ * Archived takes only. A live segment carries no seed of its own — a re-roll moves the new seed
+ * onto the JOB, so segment 0 is always the job seed and showing it twice would be one number in
+ * two places, free to disagree. The header is where it belongs, because that is where the create
+ * dialog takes it back from to reproduce a job.
+ *
+ * Never derived here. `job.seed + index` cannot be computed honestly in a browser: seeds are
+ * 64-bit and 95% of jobs have one above 2**53, so the job seed held here has already been
+ * rounded and any sum from it is a number that never generated anything. Archiving stamps the
+ * real value onto the take instead, and the API sends it as a string.
  */
 export function takeSeed(seg: SegmentResponse): string | null {
   return seg.seed ?? null;

@@ -694,10 +694,7 @@ export default function JobDetail() {
   // Archived takes are alternatives, not positions in the video, so they come out of the
   // sequence and sit under the take that replaced them.
   const { live: liveSegments, archivedByIndex } = groupTakes(videoSegments);
-  const liveTakeSeed = liveSegments.length === 1 ? takeSeed(liveSegments[0]) : null;
-  const liveSeed = liveTakeSeed
-    ? { value: liveTakeSeed, fromTake: true }
-    : { value: `${job.seed}`, fromTake: false };
+
   // The last LIVE segment: an archived take is not what a new segment continues from, and this
   // is what pre-fills the next-segment dialog.
   const lastSegment = liveSegments[liveSegments.length - 1];
@@ -975,14 +972,10 @@ export default function JobDetail() {
             >
               <MetaItem label="Dimensions" value={`${job.width}x${job.height}`} />
               <MetaItem label="FPS" value={`${job.fps}`} />
-              {/* The live take's seed when it has one of its own, because after a re-roll the
-                  job seed is no longer what generated what is on screen — it is only the seed the
-                  first take derived from. Falls back to the job seed, which is still the answer
-                  for every take that never asked for a particular one. */}
-              <MetaItem
-                label={liveSeed.fromTake ? "Seed (this take)" : "Seed"}
-                value={liveSeed.value}
-              />
+              {/* The job seed IS the live take's seed — a re-roll moves it here rather than
+                  putting a second, different number on segment 0. One live take, one answer, in
+                  the place the create dialog takes it back from. */}
+              <MetaItem label="Seed" value={`${job.seed}`} />
               <MetaItem
                 label="Segments"
                 value={`${job.completed_segment_count}`}
@@ -1401,21 +1394,6 @@ export default function JobDetail() {
                     <TableCell>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                         <StatusChip status={seg.status} />
-                        {/* Only a seed the segment actually carries. Deriving job.seed + index
-                            here would be dishonest: seeds are 64-bit and 95% of jobs have one
-                            above 2**53, so the job seed in this browser has already been rounded
-                            and any sum from it never generated anything. Archiving stamps the
-                            real value in, so takes in the archive answer for themselves. */}
-                        {takeSeed(seg) && (
-                          <Tooltip title="The seed this take generated with">
-                            <Chip
-                              size="small"
-                              variant="outlined"
-                              label={`seed ${takeSeed(seg)}`}
-                              sx={{ fontFamily: "monospace" }}
-                            />
-                          </Tooltip>
-                        )}
                         <IdentityChip segment={seg} />
                         {(() => {
                           const reviewed =
