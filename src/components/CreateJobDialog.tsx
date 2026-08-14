@@ -31,6 +31,12 @@ import type { JobCreate, LoraListItem, FaceswapPreset } from "../api/types";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "./FaceswapConfig";
 import { buildFaceswapFields, shouldAttachStartImageAsFace } from "../lib/faceswapPayload";
 import {
+  BUCKET_AREA_480P,
+  BUCKET_AREA_720P,
+  bucketResolution,
+  describeBucket,
+} from "../lib/resolutionBuckets";
+import {
   DEFAULT_WIDTH,
   DEFAULT_HEIGHT,
   DEFAULT_FPS,
@@ -66,6 +72,9 @@ export default function CreateJobDialog({
   const [origHeight, setOrigHeight] = useState(DEFAULT_HEIGHT);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  // What the last 480p/720p button press resolved to. Under-bucket sizes generate without error
+  // and only show up as soft texture in the clip, so the number is worth putting on screen.
+  const [bucketNote, setBucketNote] = useState("");
   const [scale, setScale] = useState(100);
   const mountedRef = useRef(true);
   const prevPreviewUrlRef = useRef<string | null>(null);
@@ -99,6 +108,7 @@ export default function CreateJobDialog({
       setOrigHeight(img.naturalHeight);
       setWidth(Math.round(img.naturalWidth * scalePct / 100));
       setHeight(Math.round(img.naturalHeight * scalePct / 100));
+      setBucketNote("");
       setScale(scalePct);
     };
     img.onerror = () => {
@@ -108,6 +118,7 @@ export default function CreateJobDialog({
       setOrigHeight(DEFAULT_HEIGHT);
       setWidth(DEFAULT_WIDTH);
       setHeight(DEFAULT_HEIGHT);
+      setBucketNote("");
       setScale(100);
       setImagePreview(null);
     };
@@ -265,6 +276,7 @@ export default function CreateJobDialog({
     setOrigHeight(DEFAULT_HEIGHT);
     setWidth(DEFAULT_WIDTH);
     setHeight(DEFAULT_HEIGHT);
+    setBucketNote("");
     setScale(100);
     setFps(DEFAULT_FPS);
     setDuration(DEFAULT_DURATION);
@@ -360,20 +372,25 @@ export default function CreateJobDialog({
     }
   };
 
-  // Set the SHORT side to `target` (480/720) while preserving the start image's aspect ratio, so
-  // the preset buttons never crop (the old buttons forced a fixed 480x832 / 720x1280 → clipped
-  // subjects whose image wasn't that exact ratio). Rounded to a multiple of 16 for the model.
-  const setShortSide = (target: number) => {
+  // Match the 480p/720p bucket's pixel AREA while preserving the start image's aspect ratio.
+  // Scaling the short side to 480/720 instead let total area float with the ratio, so we hit Wan
+  // 2.2's trained resolution only by accident — see src/lib/resolutionBuckets.ts.
+  const setBucket = (targetArea: number) => {
     const ow = origWidth || width;
     const oh = origHeight || height;
-    const r16 = (n: number) => Math.max(16, Math.round(n / 16) * 16);
-    if (oh >= ow) {
-      setWidth(r16(target));
-      setHeight(r16((target * oh) / ow));
-    } else {
-      setHeight(r16(target));
-      setWidth(r16((target * ow) / oh));
-    }
+    const result = bucketResolution(ow, oh, targetArea);
+    setWidth(result.width);
+    setHeight(result.height);
+    setBucketNote(describeBucket(ow, oh, result));
+    console.info("resolution bucket", {
+      srcWidth: ow,
+      srcHeight: oh,
+      targetArea,
+      width: result.width,
+      height: result.height,
+      areaPctOfTarget: Math.round(result.areaRatio * 100),
+      snapped: result.snapped,
+    });
   };
 
   const handleSubmit = async () => {
@@ -616,6 +633,7 @@ export default function CreateJobDialog({
                   setScale(s);
                   setWidth(Math.round(origWidth * s / 100));
                   setHeight(Math.round(origHeight * s / 100));
+                  setBucketNote("");
                 }}
                 valueLabelDisplay="auto"
                 valueLabelFormat={(v) => `${v}%`}
@@ -635,7 +653,10 @@ export default function CreateJobDialog({
                 type="number"
                 size="small"
                 value={width}
-                onChange={(e) => setWidth(parseInt(e.target.value) || 0)}
+                onChange={(e) => {
+                  setWidth(parseInt(e.target.value) || 0);
+                  setBucketNote("");
+                }}
                 sx={{ flex: 1, minWidth: 100 }}
               />
               <TextField
@@ -643,7 +664,10 @@ export default function CreateJobDialog({
                 type="number"
                 size="small"
                 value={height}
-                onChange={(e) => setHeight(parseInt(e.target.value) || 0)}
+                onChange={(e) => {
+                  setHeight(parseInt(e.target.value) || 0);
+                  setBucketNote("");
+                }}
                 sx={{ flex: 1, minWidth: 100 }}
               />
             </Box>
@@ -654,18 +678,23 @@ export default function CreateJobDialog({
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => setShortSide(480)}
+                onClick={() => setBucket(BUCKET_AREA_480P)}
               >
                 480p
               </Button>
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => setShortSide(720)}
+                onClick={() => setBucket(BUCKET_AREA_720P)}
               >
                 720p
               </Button>
             </Box>
+            {bucketNote && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                {bucketNote}
+              </Typography>
+            )}
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
               <TextField
                 label="FPS"
