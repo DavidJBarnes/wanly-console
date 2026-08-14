@@ -183,7 +183,6 @@ export interface SegmentResponse {
   transition: string | null;
   trim_start_frames: number;
   trim_end_frames: number;
-  motion_keywords: string[] | null;
   motion_magnitude: number | null;
   identity_mean_cos: number | null;
   identity_mean_cos_ref: number | null;
