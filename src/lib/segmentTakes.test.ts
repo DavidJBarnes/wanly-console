@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { SegmentResponse } from "../api/types";
-import { groupTakes, takeSeed } from "./segmentTakes";
+import { allArchivedTakes, groupTakes, takeSeed } from "./segmentTakes";
 
 const seg = (over: Partial<SegmentResponse>): SegmentResponse =>
   ({ id: String(Math.random()), index: 0, discarded: false, created_at: "2026-08-14T10:00:00Z", ...over }) as SegmentResponse;
@@ -51,5 +51,27 @@ describe("takeSeed", () => {
     const big = "9223372036854775801";
     expect(takeSeed(seg({ seed: big }))).toBe(big);
     expect(String(Number(big))).not.toBe(big); // why it is not a number
+  });
+});
+
+describe("allArchivedTakes", () => {
+  it("lists takes by position, newest first within a position", () => {
+    const oldZero = seg({ index: 0, discarded: true, created_at: "2026-08-14T09:00:00Z" });
+    const newZero = seg({ index: 0, discarded: true, created_at: "2026-08-14T11:00:00Z" });
+    const one = seg({ index: 1, discarded: true });
+    const groups = groupTakes([seg({ index: 0 }), one, newZero, oldZero]);
+    expect(allArchivedTakes(groups)).toEqual([newZero, oldZero, one]);
+  });
+
+  it("includes takes whose position has no live segment", () => {
+    // Discarding without re-rolling is the ordinary flow; those takes have nothing to sit under
+    // and would otherwise never render.
+    const orphan = seg({ index: 1, discarded: true });
+    const groups = groupTakes([seg({ index: 0 }), orphan]);
+    expect(allArchivedTakes(groups)).toEqual([orphan]);
+  });
+
+  it("is empty for a job that has never been re-rolled", () => {
+    expect(allArchivedTakes(groupTakes([seg({ index: 0 })]))).toEqual([]);
   });
 });

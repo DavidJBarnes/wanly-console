@@ -54,3 +54,21 @@ export function groupTakes(videoSegments: SegmentResponse[]): TakeGroups {
 export function takeSeed(seg: SegmentResponse): string | null {
   return seg.seed ?? null;
 }
+
+/**
+ * Every archived take, in the order they are listed at the bottom of the page.
+ *
+ * By position, then newest first within a position. They sit in one section under all the
+ * segments rather than folded under the take that replaced each of them: interleaving them put a
+ * "previous takes" fold between segment 0 and segment 1, which breaks the one thing the segment
+ * list is for — reading the video in order.
+ *
+ * Collecting them all also means a take whose position has no live segment still appears.
+ * Discarding a segment WITHOUT re-rolling it is the ordinary flow — a bad segment leaves the cut
+ * while its rating and notes stay on the job — and those takes have no live sibling to sit under.
+ */
+export function allArchivedTakes(groups: TakeGroups): SegmentResponse[] {
+  return [...groups.archivedByIndex.entries()]
+    .sort(([a], [b]) => a - b)
+    .flatMap(([, takes]) => takes);
+}
