@@ -57,6 +57,7 @@ import {
   ViewInAr,
   RateReview,
   RateReviewOutlined,
+  ContentCopy,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -99,6 +100,7 @@ import IdentityChip from "../components/IdentityChip";
 import SegmentObservationDialog from "../components/SegmentObservationDialog";
 import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
+import CreateJobDialog from "../components/CreateJobDialog";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import { canRerollSeed } from "../lib/rerollEligibility";
 import {
@@ -293,6 +295,7 @@ export default function JobDetail() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deleteJobConfirm, setDeleteJobConfirm] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
+  const [cloneOpen, setCloneOpen] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
   const [rerollConfirm, setRerollConfirm] = useState(false);
@@ -947,6 +950,14 @@ export default function JobDetail() {
             {job.name}
           </Typography>
         )}
+        <Tooltip title="Clone this job — same settings and start image, no takes or history">
+          <IconButton
+            onClick={() => setCloneOpen(true)}
+            size={isMobile ? "small" : "medium"}
+          >
+            <ContentCopy />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Delete job">
           <IconButton
             color="error"
@@ -2356,6 +2367,19 @@ export default function JobDetail() {
               : prev,
           )
         }
+      />
+
+      {/* Clone. The create dialog does the pre-filling; this only hands it the job. Landing on
+          the queue afterwards rather than staying here makes it obvious a NEW job was queued —
+          staying put looks like nothing happened. */}
+      <CreateJobDialog
+        open={cloneOpen}
+        cloneFrom={job}
+        onClose={() => setCloneOpen(false)}
+        onCreated={() => {
+          setCloneOpen(false);
+          navigate("/jobs");
+        }}
       />
 
       {/* Frame preview popover */}

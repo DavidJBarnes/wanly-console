@@ -27,7 +27,8 @@ import { useTagStore } from "../stores/tagStore";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
 import SettingsSignature from "./SettingsSignature";
 import { createJob, getFileUrl, getFaceswapPresets, sha256Hex, checkStartingImageExists } from "../api/client";
-import type { JobCreate, LoraListItem, FaceswapPreset } from "../api/types";
+import type { JobCreate, LoraListItem, FaceswapPreset, JobDetailResponse } from "../api/types";
+import { cloneJobValues, cloneSourceSegment } from "../lib/cloneJob";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "./FaceswapConfig";
 import { buildFaceswapFields, shouldAttachStartImageAsFace } from "../lib/faceswapPayload";
 import {
@@ -53,6 +54,9 @@ interface CreateJobDialogProps {
   initialStartingImage?: File | null;
   initialStartingImageUri?: string | null;
   initialImageTags?: string | null;
+  /** Clone: pre-fill every field from an existing job. Settings and start image only —
+   *  segments, takes, videos and observations are history and are deliberately not carried. */
+  cloneFrom?: JobDetailResponse | null;
 }
 
 export default function CreateJobDialog({
@@ -62,6 +66,7 @@ export default function CreateJobDialog({
   initialStartingImage,
   initialStartingImageUri,
   initialImageTags,
+  cloneFrom,
 }: CreateJobDialogProps) {
   const isMobile = useIsMobile();
   const { defaultLightx2vHigh, defaultLightx2vLow, defaultCfgHigh, defaultCfgLow, defaultStepsTotal, defaultHighNoiseSteps, defaultFlowShift, negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
@@ -90,8 +95,13 @@ export default function CreateJobDialog({
     };
   }, []);
 
-  // Load image dimensions from a URL, handling cleanup and error states
-  const loadImageFromUrl = useCallback((url: string) => {
+  // Load image dimensions from a URL, handling cleanup and error states.
+  //
+  // `keepSize` is for cloning: the source job already resolved its own width/height (possibly a
+  // bucket press, possibly a hand-typed number), and that is the setting being cloned. The
+  // default path would silently overwrite it with naturalWidth x scale the moment the image
+  // finished loading — asynchronously, so the field would look right and then change.
+  const loadImageFromUrl = useCallback((url: string, keepSize?: { width: number; height: number }) => {
     // Revoke previous blob URL to prevent memory leaks
     if (prevPreviewUrlRef.current?.startsWith("blob:")) {
       URL.revokeObjectURL(prevPreviewUrlRef.current);
@@ -102,25 +112,42 @@ export default function CreateJobDialog({
     const img = new window.Image();
     img.onload = () => {
       if (!mountedRef.current) return;
-      const oversize = img.naturalWidth >= 1216 || img.naturalHeight >= 832;
-      const scalePct = oversize ? 75 : 100;
       setOrigWidth(img.naturalWidth);
       setOrigHeight(img.naturalHeight);
+      setBucketNote("");
+      if (keepSize) {
+        setWidth(keepSize.width);
+        setHeight(keepSize.height);
+        // Put the slider where the cloned size actually sits against the real image.
+        setScale(img.naturalWidth ? Math.round((keepSize.width / img.naturalWidth) * 100) : 100);
+        return;
+      }
+      const oversize = img.naturalWidth >= 1216 || img.naturalHeight >= 832;
+      const scalePct = oversize ? 75 : 100;
       setWidth(Math.round(img.naturalWidth * scalePct / 100));
       setHeight(Math.round(img.naturalHeight * scalePct / 100));
-      setBucketNote("");
       setScale(scalePct);
     };
     img.onerror = () => {
       if (!mountedRef.current) return;
+      setBucketNote("");
+      setImagePreview(null);
+      if (keepSize) {
+        // The clone's numbers are known good even when the preview will not load; only the
+        // orig/scale pair is unknowable, so leave the slider at 100% of the cloned size.
+        setOrigWidth(keepSize.width);
+        setOrigHeight(keepSize.height);
+        setWidth(keepSize.width);
+        setHeight(keepSize.height);
+        setScale(100);
+        return;
+      }
       // Reset to defaults on load failure
       setOrigWidth(DEFAULT_WIDTH);
       setOrigHeight(DEFAULT_HEIGHT);
       setWidth(DEFAULT_WIDTH);
       setHeight(DEFAULT_HEIGHT);
-      setBucketNote("");
       setScale(100);
-      setImagePreview(null);
     };
     img.src = url;
   }, []);
@@ -210,7 +237,10 @@ export default function CreateJobDialog({
       getFaceswapPresets().then((presets) => {
         setFaceswapPresets(presets);
         const kelly = presets.find((p) => p.name.toLowerCase() === "kelly_young.safetensors" || p.key.toLowerCase() === "kelly_young.safetensors.png");
-        if (kelly && !faceswap.presetUri) setFaceswap((prev) => ({ ...prev, presetUri: kelly.url }));
+        // Decide against `prev`, not the `faceswap` this effect closed over. This resolves after
+        // an unknown number of renders, so the captured value is stale by definition — and a
+        // clone that had just set a face would get Kelly written over it, non-deterministically.
+        if (kelly) setFaceswap((prev) => (prev.presetUri ? prev : { ...prev, presetUri: kelly.url }));
       }).catch(() => {});
     }
   }, [open, fetchLoras, fetchTags]);
@@ -337,6 +367,66 @@ export default function CreateJobDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, videoPresetId, videoPresets]);
+
+  // Clone: pre-fill from an existing job. Settings and start image only — segments, takes,
+  // videos and observations are that job's history and stay with it.
+  //
+  // Declared LAST of the on-open effects on purpose. The three above it each write the same
+  // fields from a different source (settings defaults, then the retained preset), and effects
+  // run in declaration order, so anything earlier would be applied over the clone. Claiming
+  // `didApplyPresetOnOpen` closes the second pass: setting videoPresetId re-triggers that effect
+  // on the next render, which would re-apply the preset's prompt/sampler/LoRAs over the cloned
+  // ones and quietly undo half of this.
+  const didCloneOnOpen = useRef(false);
+  useEffect(() => {
+    if (!open || !cloneFrom) {
+      didCloneOnOpen.current = false;
+      return;
+    }
+    if (didCloneOnOpen.current) return;
+
+    // LoRA names/previews come from the library. It is fetched on open, so wait for it rather
+    // than filling the picker with truncated UUIDs.
+    const hasLoras = !!cloneSourceSegment(cloneFrom)?.loras?.length;
+    if (hasLoras && loraLibrary.length === 0) return;
+
+    didCloneOnOpen.current = true;
+    didApplyPresetOnOpen.current = true;
+
+    const v = cloneJobValues(cloneFrom, loraLibrary);
+    setName(v.name);
+    setNameManuallyEdited(true);
+    setFps(v.fps);
+    setSeed(v.seed);
+    setLightx2vHigh(v.lightx2vHigh);
+    setLightx2vLow(v.lightx2vLow);
+    setCfgHigh(v.cfgHigh);
+    setCfgLow(v.cfgLow);
+    setStepsTotal(v.stepsTotal);
+    setHighNoiseSteps(v.highNoiseSteps);
+    setFlowShift(v.flowShift);
+    setVideoPresetId(v.videoPresetId);
+    setTags(v.tags);
+    setPrompt(v.prompt);
+    setNegativePrompt(v.negativePrompt);
+    if (v.duration != null) setDuration(v.duration);
+    if (v.speed != null) setSpeed(v.speed);
+    setLoras(v.loras);
+    if (v.faceswap) setFaceswap(v.faceswap);
+
+    if (v.startingImageUri) {
+      setStartingImage(null);
+      setStartingImageUri(v.startingImageUri);
+      // Keep the job's own width/height — see loadImageFromUrl.
+      loadImageFromUrl(getFileUrl(v.startingImageUri), { width: v.width, height: v.height });
+    } else {
+      setWidth(v.width);
+      setHeight(v.height);
+      setOrigWidth(v.width);
+      setOrigHeight(v.height);
+      setScale(100);
+    }
+  }, [open, cloneFrom, loraLibrary, loadImageFromUrl]);
 
   // Select a user-defined video-settings preset (live link). "" = Custom (raw fields below).
   const applyVideoPreset = (id: string) => {
