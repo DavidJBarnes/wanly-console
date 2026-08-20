@@ -1,13 +1,16 @@
 /**
- * The image-repo filter: a filename fragment and a set of whole tags, all ANDed.
+ * The tag filter shared by the Image Repo and Videos: a free-text fragment and a set of whole
+ * tags, all ANDed.
  *
  * Two controls with two different jobs. Tags match in full — measured on production, a substring
- * search for "kelly" returned 74% of the repo because it also caught KellyYoung, KellyBangs and
- * KellyTeacher — while the text box matches the filename as a fragment, which is right there and
- * is the only way to find an untagged image.
+ * search for "kelly" returned 74% of the image repo because it also caught KellyYoung,
+ * KellyBangs and KellyTeacher, and searching Videos for "AR" returned everything containing
+ * "ar" (#353) — while the text box matches a filename/job name as a fragment, which is right
+ * there and is the only way to find an untagged item.
  *
- * The selection lives in the URL (?tags=Kelly,Missionary) like the rest of this page's browsing
- * state, so back/forward and a refresh keep it, and a filtered view can be pasted to yourself.
+ * The selection lives in the URL (?tags=Kelly,Missionary) like the rest of a list page's
+ * browsing state, so back/forward and a refresh keep it, and a filtered view can be pasted to
+ * yourself.
  */
 
 /** Tags are comma-joined in the URL. Empty segments are dropped rather than sent as blank tags,
