@@ -6,7 +6,7 @@ import {
   parseTagParam,
   serializeTagParam,
   toggleTag,
-} from "./imageFilter";
+} from "./tagFilter";
 
 describe("parseTagParam", () => {
   it("splits on commas and trims", () => {

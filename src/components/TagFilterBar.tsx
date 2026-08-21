@@ -1,16 +1,17 @@
 import { Box, Button, Chip, Typography } from "@mui/material";
-import type { ImageTagCount } from "../api/types";
-import { isTagSelected } from "../lib/imageFilter";
+import type { TagCount } from "../api/types";
+import { isTagSelected } from "../lib/tagFilter";
 
 interface Props {
-  counts: ImageTagCount[];
+  counts: TagCount[];
   selected: string[];
   onToggle: (tag: string) => void;
   onClear: () => void;
 }
 
 /**
- * The tag pills above the image grid. Clicking narrows; every selection ANDs.
+ * The tag pills above a filtered grid — the Image Repo and Videos both use them. Clicking
+ * narrows; every selection ANDs.
  *
  * Counts come from the API scoped to the CURRENT filter, which is what makes this navigable
  * rather than a guessing game: with Kelly selected, the pills left standing are the tags that
@@ -22,8 +23,11 @@ interface Props {
  * is on 76 images and is not in the vocabulary -- and pills built from the vocabulary would
  * strand them. It also puts the fat-fingers ("pusy", "cowgirlowgirl", one image each) on screen
  * with their counts, which is the only way they will ever get cleaned up.
+ *
+ * Presentational on purpose: the caller owns where the counts come from and where the selection
+ * is stored, so the same row serves images (/images/tag-counts) and videos (/jobs/tag-counts).
  */
-export default function ImageTagFilter({ counts, selected, onToggle, onClear }: Props) {
+export default function TagFilterBar({ counts, selected, onToggle, onClear }: Props) {
   if (counts.length === 0 && selected.length === 0) return null;
 
   return (

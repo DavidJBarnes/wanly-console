@@ -524,7 +524,8 @@ export interface ImageFile {
   tags: string | null;
 }
 
-export interface ImageTagCount {
+/** One tag and how many items carry it under the current filter. Images and jobs both. */
+export interface TagCount {
   tag: string;
   count: number;
 }

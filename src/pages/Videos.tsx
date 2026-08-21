@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Box,
   Typography,
@@ -20,11 +20,13 @@ import {
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary } from "@mui/icons-material";
 import { useNavigate } from "react-router";
-import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite } from "../api/client";
-import type { JobDetailResponse, JobResponse } from "../api/types";
+import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite, getJobTagCounts } from "../api/client";
+import type { JobDetailResponse, JobResponse, TagCount } from "../api/types";
 import IdentityChip from "../components/IdentityChip";
 import { DEFAULT_JOB_FETCH_LIMIT, POLL_INTERVAL_FAST } from "../constants";
 import FavoriteHeart from "../components/FavoriteHeart";
+import TagFilterBar from "../components/TagFilterBar";
+import { describeFilter, parseTagParam, serializeTagParam, toggleTag } from "../lib/tagFilter";
 import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
 
 const ROWS_PER_PAGE_OPTIONS = [12, 24, 48];
@@ -58,6 +60,7 @@ export default function Videos() {
   const [loadingRandom, setLoadingRandom] = useState(false);
   const [loopVideo, setLoopVideo] = useState(false);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
+  const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
 
   // List state lives in the URL (?page=3&per=24&q=…&fav=1) so it survives the
   // unmount caused by clicking through to /jobs/:id — and browser back/forward.
@@ -71,6 +74,31 @@ export default function Videos() {
   // rewrite the URL on every keystroke; it is seeded from the URL on mount.
   const [searchQuery, setSearchQuery] = useState(debouncedQuery);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Tag selection is URL state too (?tags=kelly,ar), so a filtered view survives the click
+  // through to /jobs/:id and can be pasted to yourself. Same shape as the Image Repo.
+  //
+  // Memoised on the raw STRING, not on `params`: react-router rebuilds the URLSearchParams
+  // whenever any param changes, so keying off the object would hand the fetch callbacks a fresh
+  // tags array on every page click and re-fetch the counts, which do not depend on the page.
+  const rawTags = params.get("tags");
+  const selectedTags = useMemo(() => parseTagParam(rawTags), [rawTags]);
+  const setSelectedTags = useCallback(
+    (next: string[]) => setQuery({ tags: serializeTagParam(next), page: null }),
+    [setQuery],
+  );
+  // Tags go to the API as repeated keys; memoised so it is a stable dep for the fetch callbacks
+  // rather than a fresh array every render.
+  const tagsParam = useMemo(
+    () => (selectedTags.length ? selectedTags : undefined),
+    [selectedTags],
+  );
+  // How to name the current filter in the empty state, so "no results" says what found nothing.
+  // Favourites narrows client-side rather than through the query, so it has to be added by hand
+  // or an empty favourites view would claim there are no videos at all.
+  const filterLabel = [describeFilter(debouncedQuery, selectedTags), favoritesOnly ? "Favorites" : ""]
+    .filter(Boolean)
+    .join(" + ");
 
   // Scroll to top when page changes
   useEffect(() => {
@@ -109,6 +137,7 @@ export default function Videos() {
         offset: page * rowsPerPage,
         sort: "updated_at_desc",
         q: debouncedQuery || undefined,
+        tags: tagsParam,
       });
       setJobs(res.items);
       setTotal(res.total);
@@ -117,13 +146,33 @@ export default function Videos() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, debouncedQuery]);
+  }, [page, rowsPerPage, debouncedQuery, tagsParam]);
 
   useEffect(() => {
     fetchVideos();
     const interval = setInterval(fetchVideos, POLL_INTERVAL_FAST);
     return () => clearInterval(interval);
   }, [fetchVideos]);
+
+  // Counts are re-fetched WITH the filter, not once on mount: scoped to the current selection
+  // they say what actually co-occurs with it, so a dead-end combination is never offered.
+  // Scoped to the same statuses the grid asks for, or the pills would count queued work the
+  // page cannot show.
+  const fetchTagCounts = useCallback(async () => {
+    try {
+      setTagCounts(
+        await getJobTagCounts({
+          status: "finalized,finalizing",
+          q: debouncedQuery || undefined,
+          tags: tagsParam,
+        }),
+      );
+    } catch {
+      // leave the pills as they are
+    }
+  }, [debouncedQuery, tagsParam]);
+
+  useEffect(() => { fetchTagCounts(); }, [fetchTagCounts]);
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -171,12 +220,13 @@ export default function Videos() {
   const handlePlayRandom = async () => {
     setLoadingRandom(true);
     try {
-      // Fetch all finalized jobs (respecting the active search filter)
+      // Fetch all finalized jobs (respecting the active search and tag filters)
       const res = await getJobs({
         status: "finalized",
         limit: DEFAULT_JOB_FETCH_LIMIT,
         offset: 0,
         q: debouncedQuery || undefined,
+        tags: tagsParam,
       });
       const allJobs = favoritesOnly
         ? res.items.filter((j) => favoritesSet.has(j.id))
@@ -272,6 +322,13 @@ export default function Videos() {
           sx={{ minWidth: 240 }}
         />
       </Box>
+
+      <TagFilterBar
+        counts={tagCounts}
+        selected={selectedTags}
+        onToggle={(tag) => setSelectedTags(toggleTag(selectedTags, tag))}
+        onClear={() => setSelectedTags([])}
+      />
 
       {loading && finalizedJobs.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8 }}>
@@ -460,11 +517,17 @@ export default function Videos() {
           <Card>
             <Box sx={{ textAlign: "center", py: 8 }}>
               <VideoLibrary sx={{ fontSize: 64, color: "text.disabled", mb: 2 }} />
+              {/* Name the filter when one is on. "No finalized videos yet" under an active
+                  filter reads as "you have no videos", which is alarming and untrue. */}
               <Typography variant="h6" color="text.secondary">
-                No finalized videos yet
+                {filterLabel ? `No videos match ${filterLabel}` : "No finalized videos yet"}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Finalized videos will appear here once you complete and merge a job.
+                {selectedTags.length > 1
+                  ? "Every tag narrows — two tags means both on one video."
+                  : filterLabel
+                    ? "Try clearing the filter."
+                    : "Finalized videos will appear here once you complete and merge a job."}
               </Typography>
             </Box>
           </Card>

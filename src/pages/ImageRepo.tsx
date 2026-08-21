@@ -66,19 +66,19 @@ import {
   searchImages,
   getImageTagCounts,
 } from "../api/client";
-import type { ImageFolder, ImageFile, ImageJobInfo, ImageTagCount } from "../api/types";
+import type { ImageFolder, ImageFile, ImageJobInfo, TagCount } from "../api/types";
 import CreateJobDialog from "../components/CreateJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
-import ImageTagFilter from "../components/ImageTagFilter";
+import TagFilterBar from "../components/TagFilterBar";
 import {
   describeFilter,
   hasFilter,
   parseTagParam,
   serializeTagParam,
   toggleTag,
-} from "../lib/imageFilter";
+} from "../lib/tagFilter";
 import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
 
 const FOLDER_ROWS_OPTIONS = [12, 24, 48];
@@ -142,7 +142,7 @@ export default function ImageRepo() {
   const [lightboxTags, setLightboxTags] = useState("");
   const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [searchResults, setSearchResults] = useState<ImageFile[]>([]);
-  const [tagCounts, setTagCounts] = useState<ImageTagCount[]>([]);
+  const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -1235,7 +1235,7 @@ export default function ImageRepo() {
           />
         </Box>
 
-        <ImageTagFilter
+        <TagFilterBar
           counts={tagCounts}
           selected={selectedTags}
           onToggle={(tag) => setSelectedTags(toggleTag(selectedTags, tag))}
@@ -1758,7 +1758,7 @@ export default function ImageRepo() {
         />
       </Box>
 
-      <ImageTagFilter
+      <TagFilterBar
         counts={tagCounts}
         selected={selectedTags}
         onToggle={(tag) => setSelectedTags(toggleTag(selectedTags, tag))}

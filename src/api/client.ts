@@ -30,7 +30,7 @@ import type {
   ImageFile,
   ImageJobInfo,
   ImageSearchResponse,
-  ImageTagCount,
+  TagCount,
   FavoriteToggleRequest,
   SegmentClip,
   SmashcutBody,
@@ -86,10 +86,31 @@ export async function getJobs(params?: {
   sort?: string;
   name?: string;
   q?: string;
+  /** Whole tags, ANDed. `q` is a name fragment; these are exact, so "ar" does not match
+   *  "argentina". */
+  tags?: string[];
   starred?: boolean;
 }): Promise<JobListResponse> {
-  const { data } = await api.get<JobListResponse>("/jobs", { params });
+  const { data } = await api.get<JobListResponse>("/jobs", {
+    params,
+    ...REPEAT_ARRAY_PARAMS,
+  });
   return data;
+}
+
+/** Every job tag in use with how many jobs carry it UNDER THE GIVEN FILTER — so the Videos pills
+ *  show what exists inside the current result set rather than offering dead ends. */
+export async function getJobTagCounts(params: {
+  status?: string;
+  q?: string;
+  tags?: string[];
+  starred?: boolean;
+}): Promise<TagCount[]> {
+  const { data } = await api.get<{ items: TagCount[] }>("/jobs/tag-counts", {
+    params,
+    ...REPEAT_ARRAY_PARAMS,
+  });
+  return data.items;
 }
 
 export async function reorderJobs(jobIds: string[]): Promise<JobResponse[]> {
@@ -489,8 +510,8 @@ export async function getImageTagCounts(params: {
   q?: string;
   tags?: string[];
   exclude?: string[];
-}): Promise<ImageTagCount[]> {
-  const { data } = await api.get<{ items: ImageTagCount[] }>("/images/tag-counts", {
+}): Promise<TagCount[]> {
+  const { data } = await api.get<{ items: TagCount[] }>("/images/tag-counts", {
     params,
     ...REPEAT_ARRAY_PARAMS,
   });
