@@ -33,6 +33,7 @@ import {
   Close,
   Replay,
   Casino,
+  PlayArrow,
   StopCircle,
   DeleteOutline,
   RemoveCircleOutline,
@@ -64,6 +65,7 @@ import {
   getSegmentFrames,
 } from "../api/client";
 import { apiError } from "../lib/apiError";
+import NextSegmentDialog from "../components/NextSegmentDialog";
 import { useSettingsStore } from "../stores/settingsStore";
 import type {
   JobDetailResponse,
@@ -251,6 +253,7 @@ export default function JobDetail() {
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
   const [rerollConfirm, setRerollConfirm] = useState(false);
+  const [nextSegmentOpen, setNextSegmentOpen] = useState(false);
   // "" = plain one-shot re-roll (no rule). The threshold is text state so a half-typed
   // number doesn't fight the input; parsed at roll time.
   const [takesOpen, setTakesOpen] = useState(false);
@@ -613,6 +616,14 @@ export default function JobDetail() {
   // Archived takes are alternatives, not positions in the video, so they come out of the
   // sequence and sit under the take that replaced them.
   const { live: liveSegments, archivedByIndex } = groupTakes(videoSegments);
+
+  // A continuation is only offered once nothing is in flight: a segment still generating is
+  // the thing the next one continues FROM, and its last frame does not exist yet.
+  const canAddSegment =
+    job.status === "awaiting" &&
+    !liveSegments.some((seg) =>
+      ["pending", "claimed", "processing"].includes(seg.status),
+    );
 
   const canReroll = canRerollSeed(videoSegments);
 
@@ -1069,6 +1080,16 @@ export default function JobDetail() {
                   </Button>
                 </span>
               </Tooltip>
+            )}
+            {canAddSegment && (
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={isMobile ? undefined : <PlayArrow />}
+                onClick={() => setNextSegmentOpen(true)}
+              >
+                {isMobile ? "Next" : "Next Segment"}
+              </Button>
             )}
             {job.status === "awaiting" && (
               <Button
@@ -1806,6 +1827,13 @@ export default function JobDetail() {
           </Card>
         );
       })()}
+
+      <NextSegmentDialog
+        open={nextSegmentOpen}
+        jobId={job.id}
+        onClose={() => setNextSegmentOpen(false)}
+        onAdded={fetchJob}
+      />
 
       {/* Delete segment confirm dialog */}
       <Dialog

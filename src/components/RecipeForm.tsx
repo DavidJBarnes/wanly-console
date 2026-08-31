@@ -8,8 +8,8 @@ import {
   listRecipes, listLoras, ltxError, renderPrompt,
   type RecipeBook, type Character, type Pose,
 } from "../api/ltx";
-import { createJob, getFileUrl } from "../api/client";
-import type { JobCreate } from "../api/types";
+import { addSegment, createJob, getFileUrl } from "../api/client";
+import type { JobCreate, SegmentCreate } from "../api/types";
 
 /**
  * Pick a validated (character, pose) configuration and a start frame. Everything
@@ -35,6 +35,14 @@ export interface RecipeFormProps {
   /** Tags carried from the source image. Job tags drive filtering on the queue and
    *  Videos, so an image's tags should reach the job it starts. */
   initialTags?: string | null;
+  /** Continue an existing job instead of creating one: appends a segment rather than
+   *  posting a new job.
+   *
+   *  The start frame is deliberately OPTIONAL here. The claim endpoint already resolves a
+   *  segment's start image from the previous segment's last_frame_path when it is null, and
+   *  every LTX render uploads its last frame — so the chain works without asking, and
+   *  choosing one is an override rather than a requirement. */
+  continueJobId?: string;
 }
 
 /**
@@ -72,7 +80,9 @@ export default function RecipeForm({
   onCreated,
   initialStartingImageUri,
   initialTags,
+  continueJobId,
 }: RecipeFormProps) {
+  const continuing = Boolean(continueJobId);
   const compact = variant === "dialog";
 
   const [book, setBook] = useState<RecipeBook | null>(null);
@@ -162,13 +172,54 @@ export default function RecipeForm({
   };
 
   const submit = async () => {
-    if (!start || !pose || !character || !book) return;
+    if (!pose || !character || !book) return;
+    if (!continuing && !start) return;
     setBusy(true);
     setError(null);
     try {
-      const { width, height } = await imageSize(start.previewUrl);
       const fps = book.stack.frame_rate;
       const nFrames = Number(frames) || pose.frames;
+
+      // The segment, identical either way. What differs is only where it is posted: a new job
+      // carries it as first_segment, a continuation appends it to an existing one.
+      const segment = {
+        prompt: prompt.trim(),
+        negative_prompt: negative.trim() || null,
+        // The queue speaks seconds; LTX speaks frames. Sent both ways round so neither side
+        // has to guess, and ltx_recipe.frames is authoritative.
+        duration_seconds: nFrames / fps,
+        speed: 1.0,
+        ltx_recipe: {
+          recipe: pose.name,
+          character: character.name,
+          trigger: character.trigger,
+          char_lora: charLora,
+          char_s1: Number(s1),
+          char_s2: Number(s2),
+          frames: nFrames,
+          edited: [
+            prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,
+            negative.trim() !== pose.negative_prompt.trim() ? "negative" : null,
+            charLora !== character.char_lora ? "char_lora" : null,
+            Number(s1) !== character.strength_stage_1 ? "char_s1" : null,
+            Number(s2) !== character.strength_stage_2 ? "char_s2" : null,
+          ].filter(Boolean),
+        },
+      };
+
+      if (continuing) {
+        // start_image stays NULL unless one was picked. The claim endpoint resolves it from
+        // the previous segment's last_frame_path, which every LTX render uploads — so the
+        // chain is the API's job, not this form's.
+        const created = await addSegment(continueJobId!, {
+          ...segment,
+          start_image: start?.kind === "uri" ? start.uri : null,
+        } as SegmentCreate);
+        onCreated?.(created.id);
+        return;
+      }
+
+      const { width, height } = await imageSize(start!.previewUrl);
 
       const job: JobCreate = {
         name: `${character.name} — ${pose.name}`,
@@ -214,10 +265,10 @@ export default function RecipeForm({
       form.append(
         "data",
         JSON.stringify(
-          start.kind === "uri" ? { ...job, starting_image_uri: start.uri } : job,
+          start!.kind === "uri" ? { ...job, starting_image_uri: start!.uri } : job,
         ),
       );
-      if (start.kind === "file") form.append("starting_image", start.file);
+      if (start!.kind === "file") form.append("starting_image", start!.file);
       const created = await createJob(form);
       setSeed(newSeed());
       onCreated?.(created.id);
@@ -273,10 +324,19 @@ export default function RecipeForm({
 
       <Box>
         <Button variant="outlined" component="label" size={compact ? "small" : "medium"}>
-          {start ? "Change start frame" : "Choose start frame"}
+          {start
+            ? "Change start frame"
+            : continuing
+            ? "Override start frame"
+            : "Choose start frame"}
           <input hidden type="file" accept="image/*"
                  onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
         </Button>
+        {!start && continuing && (
+          <Typography variant="caption" sx={{ ml: 2 }} color="text.secondary">
+            Continues from the previous segment's last frame
+          </Typography>
+        )}
         {start && (
           <Typography variant="caption" sx={{ ml: 2 }} color="text.secondary">
             {start.kind === "file"
@@ -376,8 +436,12 @@ export default function RecipeForm({
       )}
 
       <Box>
-        <Button variant="contained" onClick={submit} disabled={!pose || !start || busy}>
-          {busy ? "Creating…" : "Queue render"}
+        <Button
+          variant="contained"
+          onClick={submit}
+          disabled={!pose || busy || (!continuing && !start)}
+        >
+          {busy ? "Queueing…" : continuing ? "Queue next segment" : "Queue render"}
         </Button>
         {pose && !pose.validated && (
           <Chip size="small" label="unvalidated pose" sx={{ ml: 1 }} />
