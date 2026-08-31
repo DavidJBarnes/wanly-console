@@ -82,7 +82,7 @@ import {
 } from "../api/client";
 import { useLoraStore } from "../stores/loraStore";
 import { useVideoPresetStore } from "../stores/videoPresetStore";
-import SettingsSignature, { type SignatureValues } from "../components/SettingsSignature";
+import SettingsSignature from "../components/SettingsSignature";
 import { useSettingsStore } from "../stores/settingsStore";
 import type {
   JobDetailResponse,
@@ -278,8 +278,11 @@ export default function JobDetail() {
   // image's job list too, and returning to the queue from any of those loses the page and
   // filters the user was looking at.
   const goBack = useGoBack("/jobs");
-  const { allPresets: allVideoPresets, fetchPresets: fetchVideoPresets } = useVideoPresetStore();
-  const { loras: loraLibrary, fetchLoras } = useLoraStore();
+  // The lists themselves are no longer read here — the Video Settings column that used
+  // them is gone. The fetches stay: the job-level settings accordion and the segment
+  // dialog below read these stores, and they would be empty without them.
+  const { fetchPresets: fetchVideoPresets } = useVideoPresetStore();
+  const { fetchLoras } = useLoraStore();
   const [job, setJob] = useState<JobDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -379,43 +382,6 @@ export default function JobDetail() {
   // preset, else the job's raw sampler values. Returns a name (if a preset applies), the 7
   // params for the signature table, and the effective LoRAs (preset's live-linked LoRAs win
   // when the applied preset carries any, else the segment's own explicit LoRAs).
-  const segVideoSettings = (
-    seg: SegmentResponse,
-  ): {
-    presetName: string | null;
-    values: SignatureValues;
-    loras: { name: string; high_weight: number; low_weight: number }[];
-  } => {
-    const presetId = seg.video_preset_id ?? job?.video_preset_id ?? null;
-    // allPresets, not presets: a job whose preset was archived must still show what it ran with.
-    const preset = presetId ? allVideoPresets.find((p) => p.id === presetId) ?? null : null;
-    const src = preset ?? job;
-    const rawLoras =
-      preset?.loras && preset.loras.length > 0 ? preset.loras : seg.loras ?? [];
-    const loras = rawLoras
-      .filter((l) => l.lora_id)
-      .map((l) => {
-        const lib = loraLibrary.find((item) => item.id === l.lora_id);
-        return {
-          name: lib?.name ?? l.lora_id!.slice(0, 8),
-          high_weight: l.high_weight,
-          low_weight: l.low_weight,
-        };
-      });
-    return {
-      presetName: preset?.name ?? null,
-      values: {
-        lightx2v_strength_high: src?.lightx2v_strength_high ?? null,
-        lightx2v_strength_low: src?.lightx2v_strength_low ?? null,
-        cfg_high: src?.cfg_high ?? null,
-        cfg_low: src?.cfg_low ?? null,
-        steps_total: src?.steps_total ?? null,
-        high_noise_steps: src?.high_noise_steps ?? null,
-        flow_shift: src?.flow_shift ?? null,
-      },
-      loras,
-    };
-  };
 
   const handleFinalize = async () => {
     if (!id) return;
@@ -746,7 +712,7 @@ export default function JobDetail() {
                   rows.push(
                     <TableRow key="takes-toggle">
                       {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
-                      <TableCell colSpan={9} sx={{ py: 0.25, borderBottom: open ? "none" : undefined }}>
+                      <TableCell colSpan={8} sx={{ py: 0.25, borderBottom: open ? "none" : undefined }}>
                         <Button
                           size="small"
                           onClick={() => setTakesOpen((open) => !open)}
@@ -763,7 +729,7 @@ export default function JobDetail() {
                       rows.push(
                         <TableRow key={take.id} sx={{ bgcolor: "action.hover" }}>
                           {groups.length > 0 && <TableCell padding="none" sx={{ width: laneWidth }} />}
-                          <TableCell colSpan={9} sx={{ py: 1 }}>
+                          <TableCell colSpan={8} sx={{ py: 1 }}>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, pl: 4, flexWrap: "wrap" }}>
                               {/* Which position this take was for: the list is pooled at the
                                   bottom, so a row has to say what it was a take OF. */}
@@ -1323,7 +1289,6 @@ export default function JobDetail() {
                   )}
                   <TableCell sx={{ width: 120, ...(groups.length > 0 ? { pl: 0 } : {}) }}>Start Image</TableCell>
                   <TableCell sx={{ width: 48 }} align="center">Prompt</TableCell>
-                  <TableCell sx={{ width: 300 }}>Video Settings</TableCell>
                   <TableCell sx={{ width: 120 }}>Output</TableCell>
                   <TableCell sx={{ width: 100 }}>Status</TableCell>
                   <TableCell sx={{ width: 120 }}>Worker</TableCell>
@@ -1384,42 +1349,14 @@ export default function JobDetail() {
                       />
                     </TableCell>
                     <TableCell>
-                      {(() => {
-                        const vs = segVideoSettings(seg);
-                        return (
-                          <>
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                display: "block",
-                                mb: 0.5,
-                                fontWeight: vs.presetName ? 600 : 400,
-                                fontStyle: vs.presetName ? "normal" : "italic",
-                                color: vs.presetName ? "text.primary" : "text.secondary",
-                              }}
-                            >
-                              {vs.presetName ?? "Custom"}
-                            </Typography>
-                            <SettingsSignature values={vs.values} />
-                            {vs.loras.length > 0 && (
-                              <Box sx={{ mt: 0.5 }}>
-                                {vs.loras.map((l, i) => (
-                                  <Typography key={i} variant="caption" sx={{ display: "block", color: "text.secondary" }}>
-                                    {l.name} · H {l.high_weight} / L {l.low_weight}
-                                  </Typography>
-                                ))}
-                              </Box>
-                            )}
-                          </>
-                        );
-                      })()}
+                      {/* The error alert lived inside the removed Video Settings cell and
+                          moves here rather than going with it — a failed segment must still
+                          say why, and Output is where you look when one fails. */}
                       {seg.error_message && (
-                        <Alert severity="error" sx={{ mt: 1 }}>
+                        <Alert severity="error" sx={{ mb: 1 }}>
                           {seg.error_message}
                         </Alert>
                       )}
-                    </TableCell>
-                    <TableCell>
                       {seg.status === "completed" && seg.last_frame_path ? (
                         <Box
                           sx={{ position: "relative", cursor: "pointer" }}
@@ -1627,9 +1564,9 @@ export default function JobDetail() {
                           </div>
                         </TableCell>
                       )}
-                      {/* 9 non-lane columns: Start Image, Prompt, Video Settings, Output,
-                          Status, Worker, Created, Run Time, actions */}
-                      <TableCell colSpan={9} sx={{ py: 0.5 }}>
+                      {/* 8 non-lane columns: Start Image, Prompt, Output, Status, Worker,
+                          Created, Run Time, actions */}
+                      <TableCell colSpan={8} sx={{ py: 0.5 }}>
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                             <Typography variant="caption" color="text.secondary">Trim #{seg.index} Start:</Typography>
@@ -1885,36 +1822,6 @@ export default function JobDetail() {
                       )}
                     </Box>
 
-                    {/* Video settings */}
-                    {(() => {
-                      const vs = segVideoSettings(seg);
-                      return (
-                        <Box sx={{ mb: 0.5 }}>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              display: "block",
-                              mb: 0.5,
-                              fontWeight: vs.presetName ? 600 : 400,
-                              fontStyle: vs.presetName ? "normal" : "italic",
-                              color: vs.presetName ? "text.primary" : "text.secondary",
-                            }}
-                          >
-                            {vs.presetName ?? "Custom"}
-                          </Typography>
-                          <SettingsSignature values={vs.values} />
-                          {vs.loras.length > 0 && (
-                            <Box sx={{ mt: 0.5 }}>
-                              {vs.loras.map((l, i) => (
-                                <Typography key={i} variant="caption" sx={{ display: "block", color: "text.secondary" }}>
-                                  {l.name} · H {l.high_weight} / L {l.low_weight}
-                                </Typography>
-                              ))}
-                            </Box>
-                          )}
-                        </Box>
-                      );
-                    })()}
                     {seg.error_message && (
                       <Alert severity="error" sx={{ mt: 1 }}>
                         {seg.error_message}
