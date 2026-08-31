@@ -34,7 +34,6 @@ export interface SegmentCreate {
   duration_seconds?: number;
   speed?: number;
   start_image?: string | null;
-  loras?: LoraConfig[] | null;
   faceswap_enabled?: boolean;
   faceswap_method?: string | null;
   faceswap_source_type?: string | null;
@@ -50,67 +49,10 @@ export interface SegmentCreate {
   video_preset_id?: string | null;
 }
 
-export interface LoraConfig {
-  lora_id?: string;
-  high_file?: string;
-  low_file?: string;
-  high_s3_uri?: string;
-  low_s3_uri?: string;
-  high_weight: number;
-  low_weight: number;
-}
 
-export interface LoraListItem {
-  id: string;
-  name: string;
-  trigger_words: string | null;
-  preview_image: string | null;
-  high_file: string | null;
-  low_file: string | null;
-  default_high_weight: number;
-  default_low_weight: number;
-  default_prompt: string | null;
-}
 
-export interface LoraResponse {
-  id: string;
-  name: string;
-  description: string | null;
-  trigger_words: string | null;
-  default_prompt: string | null;
-  source_url: string | null;
-  preview_image: string | null;
-  high_file: string | null;
-  high_s3_uri: string | null;
-  low_file: string | null;
-  low_s3_uri: string | null;
-  default_high_weight: number;
-  default_low_weight: number;
-  created_at: string;
-  updated_at: string;
-}
 
-export interface LoraCreate {
-  name: string;
-  description?: string | null;
-  trigger_words?: string | null;
-  default_prompt?: string | null;
-  source_url?: string | null;
-  high_url?: string | null;
-  low_url?: string | null;
-  default_high_weight?: number;
-  default_low_weight?: number;
-}
 
-export interface LoraUpdate {
-  name?: string;
-  description?: string | null;
-  trigger_words?: string | null;
-  default_prompt?: string | null;
-  source_url?: string | null;
-  default_high_weight?: number;
-  default_low_weight?: number;
-}
 
 export interface JobCreate {
   name: string;
@@ -133,14 +75,6 @@ export interface JobCreate {
   tags?: string | null;
 }
 
-export interface JobLoraSummary {
-  lora_id?: string | null;
-  name?: string | null;
-  high_file?: string | null;
-  low_file?: string | null;
-  high_weight?: number | null;
-  low_weight?: number | null;
-}
 
 export interface JobResponse {
   id: string;
@@ -166,7 +100,6 @@ export interface JobResponse {
   completed_segment_count: number;
   estimated_run_time: number | null;
   faceswap_enabled: boolean;
-  loras: JobLoraSummary[];
   tags: string | null;
   created_at: string;
   updated_at: string;
@@ -195,7 +128,6 @@ export interface SegmentResponse {
   duration_seconds: number;
   speed: number;
   start_image: string | null;
-  loras: LoraConfig[] | null;
   faceswap_enabled: boolean;
   faceswap_method: string | null;
   faceswap_source_type: string | null;
@@ -395,45 +327,8 @@ export interface PresetLoraSlot {
   low_weight: number;
 }
 
-export interface VideoSettingsPreset {
-  id: string;
-  name: string;
-  lightx2v_strength_high: number | null;
-  lightx2v_strength_low: number | null;
-  cfg_high: number | null;
-  cfg_low: number | null;
-  steps_total: number | null;
-  high_noise_steps: number | null;
-  flow_shift: number | null;
-  sampler_name: string | null;
-  scheduler: string | null;
-  loras: PresetLoraSlot[] | null;
-  prompt: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-  /** Hidden from the picker but still resolvable by id, so historical jobs keep
-   *  their config. Presets accumulate fast during experiments. */
-  archived?: boolean;
-}
 
-export interface VideoSettingsPresetCreate {
-  name: string;
-  lightx2v_strength_high?: number | null;
-  lightx2v_strength_low?: number | null;
-  cfg_high?: number | null;
-  cfg_low?: number | null;
-  steps_total?: number | null;
-  high_noise_steps?: number | null;
-  flow_shift?: number | null;
-  sampler_name?: string | null;
-  scheduler?: string | null;
-  loras?: PresetLoraSlot[] | null;
-  prompt?: string | null;
-  notes?: string | null;
-}
 
-export type VideoSettingsPresetUpdate = Partial<VideoSettingsPresetCreate>;
 
 export interface WildcardResponse {
   id: string;

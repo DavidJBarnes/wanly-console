@@ -1,10 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import type { ReactElement } from "react";
 import {
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Autocomplete,
   Box,
   Chip,
   Typography,
@@ -17,7 +13,6 @@ import {
   CircularProgress,
   IconButton,
   Dialog,
-  Divider,
   DialogTitle,
   DialogContent,
   DialogActions,
@@ -27,8 +22,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
   Popover,
   useMediaQuery,
@@ -36,7 +29,6 @@ import {
 } from "@mui/material";
 import {
   ArrowBack,
-  PlayArrow,
   PlayCircleOutline,
   Close,
   Replay,
@@ -44,7 +36,6 @@ import {
   StopCircle,
   DeleteOutline,
   RemoveCircleOutline,
-  ClearOutlined,
   Download,
   ExpandMore,
   ExpandLess,
@@ -57,14 +48,11 @@ import {
   ViewInAr,
   RateReview,
   RateReviewOutlined,
-  ContentCopy,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
   getJob,
   updateJob,
-  addSegment,
-  uploadFile,
   retrySegment,
   rerollJobSeed,
   cancelSegment,
@@ -73,49 +61,26 @@ import {
   deleteJob,
   reopenJob,
   getFileUrl,
-  getFaceswapPresets,
   updateSegmentTransition,
   updateSegmentTrim,
   getSegmentFrames,
-  getImageFolders,
-  getImageFolder,
 } from "../api/client";
-import { useLoraStore } from "../stores/loraStore";
-import { useVideoPresetStore } from "../stores/videoPresetStore";
-import SettingsSignature from "../components/SettingsSignature";
 import { useSettingsStore } from "../stores/settingsStore";
 import type {
   JobDetailResponse,
   SegmentResponse,
-  SegmentCreate,
-  LoraConfig,
-  LoraListItem,
-  FaceswapPreset,
   FramePreviewResponse,
-  ImageFolder,
-  ImageFile,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
 import SegmentObservationDialog from "../components/SegmentObservationDialog";
 import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
-import CreateJobDialog from "../components/CreateJobDialog";
-import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import { canRerollSeed } from "../lib/rerollEligibility";
 import { allArchivedTakes, groupTakes, takeSeed } from "../lib/segmentTakes";
 import { useGoBack } from "../hooks/useGoBack";
-import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
 import HologramConfig from "../components/HologramConfig";
 import { QRCodeCanvas } from "qrcode.react";
 import {
-  DEFAULT_DURATION,
-  DEFAULT_SPEED,
-  DEFAULT_FACESWAP_METHOD,
-  DEFAULT_FACESWAP_FACES_INDEX,
-  DEFAULT_FACESWAP_MODEL,
-  DEFAULT_FACESWAP_PIXEL_BOOST,
-  DEFAULT_FACESWAP_FACES_ORDER,
-  MAX_LORAS,
   POLL_INTERVAL_FAST,
 } from "../constants";
 
@@ -270,11 +235,6 @@ export default function JobDetail() {
   // image's job list too, and returning to the queue from any of those loses the page and
   // filters the user was looking at.
   const goBack = useGoBack("/jobs");
-  // The lists themselves are no longer read here — the Video Settings column that used
-  // them is gone. The fetches stay: the job-level settings accordion and the segment
-  // dialog below read these stores, and they would be empty without them.
-  const { fetchPresets: fetchVideoPresets } = useVideoPresetStore();
-  const { fetchLoras } = useLoraStore();
   const [job, setJob] = useState<JobDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -285,12 +245,10 @@ export default function JobDetail() {
   const [observing, setObserving] = useState<SegmentResponse | null>(null);
   const [loopVideo, setLoopVideo] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
-  const [segmentModalOpen, setSegmentModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<SegmentResponse | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deleteJobConfirm, setDeleteJobConfirm] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
-  const [cloneOpen, setCloneOpen] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
   const [rerollConfirm, setRerollConfirm] = useState(false);
@@ -357,9 +315,7 @@ export default function JobDetail() {
   }, [fetchJob]);
 
   useEffect(() => {
-    fetchVideoPresets();
-    fetchLoras();
-  }, [fetchVideoPresets, fetchLoras]);
+  }, []);
 
   const { fetchSettings: fetchAppSettings } = useSettingsStore();
   useEffect(() => {
@@ -670,14 +626,6 @@ export default function JobDetail() {
   // sequence and sit under the take that replaced them.
   const { live: liveSegments, archivedByIndex } = groupTakes(videoSegments);
 
-  // The last LIVE segment: an archived take is not what a new segment continues from, and this
-  // is what pre-fills the next-segment dialog.
-  const lastSegment = liveSegments[liveSegments.length - 1];
-  const canAddSegment =
-    job.status === "awaiting" &&
-    !liveSegments.some((s) =>
-      ["pending", "claimed", "processing"].includes(s.status),
-    );
   const canReroll = canRerollSeed(videoSegments);
 
   /** The "N previous takes" fold for one index — used under the live segment that replaced
@@ -898,14 +846,6 @@ export default function JobDetail() {
             {job.name}
           </Typography>
         )}
-        <Tooltip title="Clone this job — same settings and start image, no takes or history">
-          <IconButton
-            onClick={() => setCloneOpen(true)}
-            size={isMobile ? "small" : "medium"}
-          >
-            <ContentCopy />
-          </IconButton>
-        </Tooltip>
         <Tooltip title="Delete job">
           <IconButton
             color="error"
@@ -1150,16 +1090,6 @@ export default function JobDetail() {
                   </Button>
                 </span>
               </Tooltip>
-            )}
-            {canAddSegment && (
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={isMobile ? undefined : <PlayArrow />}
-                onClick={() => setSegmentModalOpen(true)}
-              >
-                {isMobile ? "Next" : "Next Segment"}
-              </Button>
             )}
             {job.status === "awaiting" && (
               <Button
@@ -1898,19 +1828,6 @@ export default function JobDetail() {
         );
       })()}
 
-      {/* Segment modal */}
-      <SegmentModal
-        open={segmentModalOpen}
-        jobId={job.id}
-        job={job}
-        lastSegment={lastSegment}
-        onClose={() => setSegmentModalOpen(false)}
-        onSubmitted={() => {
-          setSegmentModalOpen(false);
-          fetchJob();
-        }}
-      />
-
       {/* Delete segment confirm dialog */}
       <Dialog
         open={!!deleteConfirm}
@@ -2151,19 +2068,6 @@ export default function JobDetail() {
         }
       />
 
-      {/* Clone. The create dialog does the pre-filling; this only hands it the job. Landing on
-          the queue afterwards rather than staying here makes it obvious a NEW job was queued —
-          staying put looks like nothing happened. */}
-      <CreateJobDialog
-        open={cloneOpen}
-        cloneFrom={job}
-        onClose={() => setCloneOpen(false)}
-        onCreated={() => {
-          setCloneOpen(false);
-          navigate("/jobs");
-        }}
-      />
-
       {/* Frame preview popover */}
       <Popover
         open={!!framePreview}
@@ -2250,852 +2154,5 @@ function MetaItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-interface LoraSlot {
-  lora_id: string;
-  name: string;
-  high_weight: number;
-  low_weight: number;
-  preview_image: string | null;
-}
 
-function lorasToSlots(
-  loras: LoraConfig[] | null | undefined,
-  library: LoraListItem[],
-): LoraSlot[] {
-  if (!loras) return [];
-  return loras
-    .filter((l) => l.lora_id)
-    .map((l) => {
-      const lib = library.find((item) => item.id === l.lora_id);
-      return {
-        lora_id: l.lora_id!,
-        name: lib?.name ?? l.lora_id!.slice(0, 8),
-        high_weight: lib?.high_file ? l.high_weight : 0,
-        low_weight: lib?.low_file ? l.low_weight : 0,
-        preview_image: lib?.preview_image ?? null,
-      };
-    });
-}
 
-function SegmentModal({
-  open,
-  jobId,
-  job,
-  lastSegment,
-  onClose,
-  onSubmitted,
-}: {
-  open: boolean;
-  jobId: string;
-  job: JobDetailResponse;
-  lastSegment?: SegmentResponse;
-  onClose: () => void;
-  onSubmitted: () => void;
-}) {
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
-  const { loras: loraLibrary, fetchLoras } = useLoraStore();
-  const { presets: segVideoPresets, allPresets: allSegVideoPresets, fetchPresets: fetchSegVideoPresets } =
-    useVideoPresetStore();
-  const [segVideoPresetId, setSegVideoPresetId] = useState("");
-  const { negativePrompt: defaultNegativePrompt, fetchSettings } = useSettingsStore();
-  const [prompt, setPrompt] = useState("");
-  const [negativePrompt, setNegativePrompt] = useState("");
-  const [duration, setDuration] = useState(DEFAULT_DURATION);
-  const [speed, setSpeed] = useState(DEFAULT_SPEED);
-  const [faceswap, setFaceswap] = useState<FaceswapConfigState>(() => defaultFaceswapState());
-  const [faceswapPresets, setFaceswapPresets] = useState<FaceswapPreset[]>([]);
-  const [loraSlots, setLoraSlots] = useState<LoraSlot[]>([]);
-  const [startImageMode, setStartImageMode] = useState<"auto" | "generated" | "repo" | "upload">("auto");
-  const [startImagePath, setStartImagePath] = useState<string | null>(null);
-  const [startImageFile, setStartImageFile] = useState<File | null>(null);
-  const [startImageError, setStartImageError] = useState("");
-  const [browseFolder, setBrowseFolder] = useState<string | null>(null);
-  const [browseFolders, setBrowseFolders] = useState<ImageFolder[]>([]);
-  const [browseImages, setBrowseImages] = useState<ImageFile[]>([]);
-  const [browseLoading, setBrowseLoading] = useState(false);
-  const [hoverPreview, setHoverPreview] = useState<{ path: string; top: number; left: number; below: boolean } | null>(null);
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const accordionSx = { "&:before": { display: "none" }, boxShadow: "none", border: "1px solid", borderColor: "divider", borderRadius: "8px !important", mb: 1 };
-
-  // Pre-populate from last segment when modal opens (use template if available)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on open, not on poll refetch
-  useEffect(() => {
-    if (open && lastSegment) {
-      setPrompt(lastSegment.prompt_template ?? lastSegment.prompt);
-      // Carry the recipe forward: pre-select the previous segment's (or job's) preset so every
-      // segment explicitly names a recipe. Set directly (no applySegVideoPreset) to keep the
-      // continuation prompt from being overwritten by the preset's default prompt.
-      setSegVideoPresetId(lastSegment.video_preset_id ?? job?.video_preset_id ?? "");
-      setDuration(lastSegment.duration_seconds);
-      setSpeed(lastSegment.speed);
-      const srcType = lastSegment.faceswap_source_type === "preset"
-        ? "preset" as const
-        : lastSegment.faceswap_source_type === "start_frame"
-          ? "start_frame" as const
-          : "upload" as const;
-      setFaceswap(defaultFaceswapState({
-        enabled: lastSegment.faceswap_enabled,
-        sourceType: srcType,
-        method: lastSegment.faceswap_method ?? DEFAULT_FACESWAP_METHOD,
-        presetUri: srcType === "preset" ? lastSegment.faceswap_image ?? null : null,
-        facesIndex: lastSegment.faceswap_faces_index ?? DEFAULT_FACESWAP_FACES_INDEX,
-        model: lastSegment.faceswap_model ?? DEFAULT_FACESWAP_MODEL,
-        pixelBoost: lastSegment.faceswap_pixel_boost ?? DEFAULT_FACESWAP_PIXEL_BOOST,
-        facesOrder: lastSegment.faceswap_faces_order ?? DEFAULT_FACESWAP_FACES_ORDER,
-        seedFaceswap: lastSegment.seed_faceswap ?? false,
-      }));
-      setStartImageMode("auto");
-      setStartImagePath(null);
-      setStartImageFile(null);
-      setStartImageError("");
-      setBrowseFolder(null);
-      setBrowseFolders([]);
-      setBrowseImages([]);
-      setError("");
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (open) {
-      fetchLoras();
-      fetchSegVideoPresets();
-      fetchSettings();
-      getFaceswapPresets().then(setFaceswapPresets).catch(() => {});
-    }
-  }, [open, fetchLoras, fetchSegVideoPresets, fetchSettings]);
-
-  // Pre-populate negative prompt from settings default when modal opens
-  useEffect(() => {
-    if (open) {
-      setNegativePrompt(defaultNegativePrompt || '');
-    }
-  }, [open, defaultNegativePrompt]);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on open + library load
-  useEffect(() => {
-    if (open && loraLibrary.length > 0 && lastSegment?.loras) {
-      setLoraSlots(lorasToSlots(lastSegment.loras, loraLibrary));
-    }
-  }, [open, loraLibrary]);
-
-  // Fetch image repo folders when repo mode is first selected
-  useEffect(() => {
-    if (startImageMode === "repo" && browseFolders.length === 0) {
-      setBrowseLoading(true);
-      getImageFolders()
-        .then(setBrowseFolders)
-        .catch(() => setBrowseFolders([]))
-        .finally(() => setBrowseLoading(false));
-    }
-  }, [startImageMode, browseFolders.length]);
-
-  const addLoraFromLibrary = (item: LoraListItem | null) => {
-    if (!item || loraSlots.length >= MAX_LORAS) return;
-    if (loraSlots.some((l) => l.lora_id === item.id)) return;
-    setLoraSlots([
-      ...loraSlots,
-      {
-        lora_id: item.id,
-        name: item.name,
-        high_weight: item.high_file ? item.default_high_weight : 0,
-        low_weight: item.low_file ? item.default_low_weight : 0,
-        preview_image: item.preview_image,
-      },
-    ]);
-    if (item.default_prompt) {
-      setPrompt((prev) =>
-        prev.trim() ? `${prev.trim()}, ${item.default_prompt}` : item.default_prompt!,
-      );
-    }
-  };
-
-  const updateLoraWeight = (idx: number, field: string, value: number) => {
-    const updated = [...loraSlots];
-    updated[idx] = { ...updated[idx], [field]: value };
-    setLoraSlots(updated);
-  };
-
-  const removeLora = (idx: number) => {
-    setLoraSlots(loraSlots.filter((_, i) => i !== idx));
-  };
-
-  // Selecting a video preset live-links its sampler/LoRAs (resolved at claim) and fills the
-  // prompt from the preset's default (a snapshot you can still edit before submitting).
-  const applySegVideoPreset = (id: string) => {
-    setSegVideoPresetId(id);
-    const p = allSegVideoPresets.find((v) => v.id === id);
-    if (!p) return;
-    if (p.prompt) setPrompt(p.prompt);
-    if (p.loras && p.loras.length > 0) setLoraSlots(lorasToSlots(p.loras, loraLibrary));
-  };
-
-  // Display name for existing faceswap image
-  const existingFaceswapName = lastSegment?.faceswap_image
-    ? lastSegment.faceswap_image.split("/").pop() ?? "existing image"
-    : null;
-
-  const handleSubmit = async () => {
-    if (!prompt.trim()) {
-      setError("Prompt is required");
-      return;
-    }
-    setError("");
-    setSubmitting(true);
-    try {
-      let faceswapImageUri: string | null = null;
-      // face is needed for a whole-video swap OR a seed-only re-anchor.
-      // buildFaceswapFields covers preset and start_frame; only the upload branch needs an
-      // await, and the carry-forward keeps a face the previous segment already resolved.
-      if (faceswap.enabled || faceswap.seedFaceswap) {
-        faceswapImageUri = resolveFaceswapImage(faceswap, {
-          jobStartingImage: job.starting_image,
-        });
-        if (faceswapImageUri === null) {
-          if (faceswap.file) {
-            const result = await uploadFile(faceswap.file, jobId);
-            faceswapImageUri = result.path;
-          } else {
-            faceswapImageUri = lastSegment?.faceswap_image ?? null;
-          }
-        }
-      }
-
-      let startImageUri: string | null = null;
-      if (startImageMode === "generated" || startImageMode === "repo") {
-        startImageUri = startImagePath;
-      } else if (startImageMode === "upload" && startImageFile) {
-        const uploaded = await uploadFile(startImageFile, jobId);
-        startImageUri = uploaded.path;
-      }
-
-      const body: SegmentCreate = {
-        prompt: prompt.trim(),
-        duration_seconds: duration,
-        speed,
-        start_image: startImageUri,
-        ...buildFaceswapFields(faceswap, { jobStartingImage: job.starting_image }),
-        // the upload / carry-forward branches above can override what the builder resolved
-        faceswap_image: faceswapImageUri,
-        loras:
-          loraSlots.length > 0
-            ? loraSlots.map((l) => ({
-                lora_id: l.lora_id,
-                high_weight: l.high_weight,
-                low_weight: l.low_weight,
-              }))
-            : null,
-        negative_prompt: negativePrompt.trim() || null,
-        video_preset_id: segVideoPresetId || null,
-      };
-      await addSegment(jobId, body);
-      onSubmitted();
-    } catch {
-      setError("Failed to add segment");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
-      <DialogTitle>Next Segment</DialogTitle>
-      <DialogContent>
-        {error && (
-          <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
-            {error}
-          </Alert>
-        )}
-
-        {/* ── Start Image (top, matching CreateJobDialog) ── */}
-        <Box sx={{ mt: 1, mb: 1 }}>
-          {(() => {
-            const autoImage = lastSegment?.last_frame_path ?? job.starting_image ?? null;
-            const effectiveImage =
-              (startImageMode === "generated" || startImageMode === "repo") ? startImagePath :
-              startImageMode === "upload" && startImageFile ? URL.createObjectURL(startImageFile) :
-              autoImage;
-            const isObjectUrl = startImageMode === "upload" && startImageFile;
-            const selectableImages: { path: string; label: string }[] = [];
-            const seen = new Set<string>();
-            if (job.starting_image) {
-              seen.add(job.starting_image);
-              selectableImages.push({ path: job.starting_image, label: "Starting Image" });
-            }
-            for (const seg of job.segments) {
-              if (seg.status === "completed" && seg.last_frame_path && !seen.has(seg.last_frame_path)) {
-                seen.add(seg.last_frame_path);
-                selectableImages.push({ path: seg.last_frame_path, label: `Seg ${seg.index} output` });
-              }
-            }
-            return (
-              <>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
-                  {effectiveImage && (
-                    <Box
-                      component="img"
-                      src={isObjectUrl ? effectiveImage : getFileUrl(effectiveImage!)}
-                      alt="Start image preview"
-                      sx={{
-                        height: 64,
-                        borderRadius: 1,
-                        objectFit: "cover",
-                      }}
-                    />
-                  )}
-                  <ToggleButtonGroup
-                    value={startImageMode}
-                    exclusive
-                    onChange={(_e, v) => {
-                      if (v === null) return;
-                      setStartImageMode(v);
-                      if (v !== "generated" && v !== "repo") setStartImagePath(null);
-                      if (v !== "upload") {
-                        setStartImageFile(null);
-                        setStartImageError("");
-                      }
-                      if (v !== "repo") {
-                        setBrowseFolder(null);
-                        setBrowseImages([]);
-                      }
-                    }}
-                    size="small"
-                  >
-                    <ToggleButton value="auto">Auto</ToggleButton>
-                    <ToggleButton value="generated">Generated</ToggleButton>
-                    <ToggleButton value="repo">From Repo</ToggleButton>
-                    <ToggleButton value="upload">Upload</ToggleButton>
-                  </ToggleButtonGroup>
-                </Box>
-                {startImageMode === "generated" && (
-                  <Box
-                    sx={{
-                      display: "flex",
-                      gap: 1,
-                      overflowX: "auto",
-                      py: 1,
-                      "&::-webkit-scrollbar": { height: 6 },
-                      "&::-webkit-scrollbar-thumb": { bgcolor: "action.disabled", borderRadius: 3 },
-                    }}
-                  >
-                    {selectableImages.map((img) => (
-                      <Tooltip key={img.path} title={img.label} arrow>
-                        <Box
-                          component="img"
-                          src={getFileUrl(img.path)}
-                          alt={img.label}
-                          onClick={() => setStartImagePath(img.path)}
-                          sx={{
-                            width: 64,
-                            height: 64,
-                            objectFit: "cover",
-                            borderRadius: 0.5,
-                            cursor: "pointer",
-                            flexShrink: 0,
-                            border: "2px solid",
-                            borderColor: startImagePath === img.path ? "primary.main" : "transparent",
-                            "&:hover": { borderColor: startImagePath === img.path ? "primary.main" : "action.hover" },
-                          }}
-                        />
-                      </Tooltip>
-                    ))}
-                    {selectableImages.length === 0 && (
-                      <Typography variant="body2" color="text.secondary">
-                        No images available
-                      </Typography>
-                    )}
-                  </Box>
-                )}
-                {startImageMode === "repo" && (
-                  <Box sx={{ py: 1 }}>
-                    {browseFolder === null ? (
-                      // Folder list view
-                      <>
-                        {browseLoading && <CircularProgress size={20} />}
-                        <Box
-                          sx={{
-                            display: "flex",
-                            gap: 1,
-                            overflowX: "auto",
-                            "&::-webkit-scrollbar": { height: 6 },
-                            "&::-webkit-scrollbar-thumb": { bgcolor: "action.disabled", borderRadius: 3 },
-                          }}
-                        >
-                          {browseFolders.map((folder) => (
-                            <Box
-                              key={folder.name}
-                              onClick={() => {
-                                setBrowseFolder(folder.name);
-                                setBrowseLoading(true);
-                                getImageFolder(folder.name)
-                                  .then(setBrowseImages)
-                                  .catch(() => setBrowseImages([]))
-                                  .finally(() => setBrowseLoading(false));
-                              }}
-                              sx={{
-                                flexShrink: 0,
-                                cursor: "pointer",
-                                borderRadius: 1,
-                                overflow: "hidden",
-                                border: "1px solid",
-                                borderColor: "divider",
-                                "&:hover": { borderColor: "primary.main" },
-                                width: 100,
-                              }}
-                            >
-                              {folder.thumbnail && (
-                                <Box
-                                  component="img"
-                                  src={getFileUrl(folder.thumbnail)}
-                                  alt={folder.name}
-                                  sx={{ width: 100, height: 56, objectFit: "cover" }}
-                                />
-                              )}
-                              <Typography variant="caption" sx={{ display: "block", textAlign: "center", py: 0.25 }}>
-                                {folder.name}
-                              </Typography>
-                            </Box>
-                          ))}
-                          {!browseLoading && browseFolders.length === 0 && (
-                            <Typography variant="body2" color="text.secondary">
-                              No image folders found
-                            </Typography>
-                          )}
-                        </Box>
-                      </>
-                    ) : (
-                      // Image grid view inside a folder
-                      <>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
-                          <Button
-                            size="small"
-                            startIcon={<ChevronLeft />}
-                            onClick={() => { setBrowseFolder(null); setBrowseImages([]); }}
-                            sx={{ textTransform: "none", minWidth: 0 }}
-                          >
-                            {browseFolder}
-                          </Button>
-                          {browseLoading && <CircularProgress size={16} />}
-                        </Box>
-                        <Box
-                          sx={{
-                            display: "flex",
-                            gap: 1,
-                            overflowX: "auto",
-                            "&::-webkit-scrollbar": { height: 6 },
-                            "&::-webkit-scrollbar-thumb": { bgcolor: "action.disabled", borderRadius: 3 },
-                          }}
-                        >
-                          {browseImages.map((img) => (
-                            <Box
-                              key={img.path}
-                              component="img"
-                              src={getFileUrl(img.path)}
-                              alt={img.filename}
-                              onClick={() => setStartImagePath(img.path)}
-                              onMouseEnter={(e) => {
-                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                const previewSize = 320;
-                                const spaceAbove = rect.top;
-                                const showBelow = spaceAbove < previewSize + 16;
-                                const top = showBelow ? rect.bottom + 8 : rect.top - 8;
-                                const left = Math.max(previewSize / 2 + 8, Math.min(rect.left + rect.width / 2, window.innerWidth - previewSize / 2 - 8));
-                                setHoverPreview({
-                                  path: img.path,
-                                  top,
-                                  left,
-                                  below: showBelow,
-                                });
-                              }}
-                              onMouseLeave={() => setHoverPreview(null)}
-                              sx={{
-                                width: 64,
-                                height: 64,
-                                objectFit: "cover",
-                                borderRadius: 0.5,
-                                cursor: "pointer",
-                                flexShrink: 0,
-                                border: "2px solid",
-                                borderColor: startImagePath === img.path ? "primary.main" : "transparent",
-                                "&:hover": { borderColor: startImagePath === img.path ? "primary.main" : "action.hover" },
-                              }}
-                            />
-                          ))}
-                          {!browseLoading && browseImages.length === 0 && (
-                            <Typography variant="body2" color="text.secondary">
-                              No images in this folder
-                            </Typography>
-                          )}
-                        </Box>
-                        {hoverPreview && (
-                          <Box
-                            sx={{
-                              position: "fixed",
-                              top: hoverPreview.top,
-                              left: hoverPreview.left,
-                              transform: hoverPreview.below ? "translateX(-50%)" : "translate(-50%, -100%)",
-                              pointerEvents: "none",
-                              zIndex: 1300,
-                              boxShadow: 3,
-                              borderRadius: 1,
-                              overflow: "hidden",
-                              bgcolor: "background.paper",
-                            }}
-                          >
-                            <Box
-                              component="img"
-                              src={getFileUrl(hoverPreview.path)}
-                              sx={{ display: "block", maxWidth: 320, maxHeight: 320, objectFit: "contain" }}
-                            />
-                          </Box>
-                        )}
-                      </>
-                    )}
-                  </Box>
-                )}
-                {startImageMode === "upload" && (
-                  <Box sx={{ mt: 1 }}>
-                    <Button variant="outlined" size="small" component="label">
-                      {startImageFile ? startImageFile.name : "Choose Image"}
-                      <input
-                        type="file"
-                        hidden
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const img = new Image();
-                          img.onload = () => {
-                            if (img.naturalWidth !== job.width || img.naturalHeight !== job.height) {
-                              setStartImageError(
-                                `Image must be ${job.width}x${job.height} (got ${img.naturalWidth}x${img.naturalHeight})`
-                              );
-                              setStartImageFile(null);
-                            } else {
-                              setStartImageError("");
-                              setStartImageFile(file);
-                            }
-                            URL.revokeObjectURL(img.src);
-                          };
-                          img.src = URL.createObjectURL(file);
-                          e.target.value = "";
-                        }}
-                      />
-                    </Button>
-                    {startImageError && (
-                      <Alert severity="error" sx={{ mt: 1 }}>
-                        {startImageError}
-                      </Alert>
-                    )}
-                  </Box>
-                )}
-              </>
-            );
-          })()}
-        </Box>
-
-        {/* ── Prompt ── */}
-        <TextField
-          label="Prompt"
-          fullWidth
-          multiline
-          rows={3}
-          margin="dense"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          autoFocus
-        />
-        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
-          <IconButton
-            size="small"
-            onClick={() => setPrompt("")}
-            disabled={!prompt}
-            sx={{ color: "text.disabled", p: 0.25 }}
-            title="Clear prompt"
-          >
-            <ClearOutlined sx={{ fontSize: 14 }} />
-          </IconButton>
-        </Box>
-
-        {/* ── Video Settings (accordion) ── */}
-        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMore />}>
-            <Typography variant="subtitle2">
-              Video Settings
-              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {duration}s / {speed}x
-              </Typography>
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            <TextField
-              select
-              fullWidth
-              label="Preset"
-              size="small"
-              value={segVideoPresetId}
-              onChange={(e) => applySegVideoPreset(e.target.value)}
-              helperText="Inherit the job's default, or override this segment with a preset."
-              sx={{ mb: 2 }}
-            >
-              <MenuItem value="">Inherit from job</MenuItem>
-              {segVideoPresets.map((p) => (
-                <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
-              ))}
-            </TextField>
-            {(() => {
-              const p = allSegVideoPresets.find((v) => v.id === segVideoPresetId);
-              return p ? (
-                <Box sx={{ mb: 2 }}>
-                  <SettingsSignature values={p} />
-                </Box>
-              ) : null;
-            })()}
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-              <TextField
-                label="Duration"
-                type="number"
-                size="small"
-                value={duration}
-                onChange={(e) => setDuration(parseFloat(e.target.value) || 5)}
-                sx={{ flex: 1, minWidth: 80 }}
-                slotProps={{ htmlInput: { step: 0.5, min: 1, max: 10 } }}
-              />
-              <TextField
-                label="Speed"
-                select
-                size="small"
-                value={speed}
-                onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                sx={{ flex: 1, minWidth: 80 }}
-              >
-                <MenuItem value={1.0}>1.0x</MenuItem>
-                <MenuItem value={1.25}>1.25x</MenuItem>
-                <MenuItem value={1.5}>1.5x</MenuItem>
-                <MenuItem value={2.0}>2.0x</MenuItem>
-              </TextField>
-            </Box>
-          </AccordionDetails>
-        </Accordion>
-
-        {/* ── LoRAs (accordion) ── */}
-        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMore />}>
-            <Typography variant="subtitle2">
-              LoRAs
-              {loraSlots.length > 0 && (
-                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                  {loraSlots.map((l) => l.name).join(", ")}
-                </Typography>
-              )}
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            {loraSlots.length < MAX_LORAS && (
-              <Autocomplete
-                options={loraLibrary
-                  .filter((l) => !loraSlots.some((s) => s.lora_id === l.id))
-                  .sort((a, b) => a.name.localeCompare(b.name))}
-                getOptionLabel={(o) => o.name}
-                onChange={(_, val) => addLoraFromLibrary(val)}
-                value={null}
-                renderOption={(props, option) => {
-                  const idx = (props as unknown as { "data-option-index": number })["data-option-index"];
-                  return (
-                  <Box
-                    component="li"
-                    {...props}
-                    key={option.id}
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 1,
-                      bgcolor: idx % 2 === 0 ? "#f5f5f5" : "#ffffff",
-                    }}
-                  >
-                    {option.preview_image ? (
-                      <Box
-                        component="img"
-                        src={getFileUrl(option.preview_image)}
-                        alt=""
-                        sx={{
-                          width: 40,
-                          height: 40,
-                          objectFit: "cover",
-                          borderRadius: 0.5,
-                          flexShrink: 0,
-                        }}
-                      />
-                    ) : (
-                      <Box
-                        sx={{
-                          width: 40,
-                          height: 40,
-                          bgcolor: "#eee",
-                          borderRadius: 0.5,
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                    <Box>
-                      <Typography variant="body2">{option.name}</Typography>
-                      {option.trigger_words && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                        >
-                          {option.trigger_words}
-                        </Typography>
-                      )}
-                    </Box>
-                  </Box>
-                  );
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    size="small"
-                    placeholder="Search LoRA library..."
-                  />
-                )}
-                size="small"
-                blurOnSelect
-                clearOnBlur
-              />
-            )}
-            {loraSlots.map((lora, idx) => (
-              <Card key={lora.lora_id} variant="outlined" sx={{ p: 1.5, mt: 1 }}>
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 1,
-                    mb: 1,
-                  }}
-                >
-                  {lora.preview_image ? (
-                    <Box
-                      component="img"
-                      src={getFileUrl(lora.preview_image)}
-                      alt=""
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        objectFit: "cover",
-                        borderRadius: 0.5,
-                      }}
-                    />
-                  ) : (
-                    <Box
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        bgcolor: "#eee",
-                        borderRadius: 0.5,
-                      }}
-                    />
-                  )}
-                  <Typography variant="body2" sx={{ fontWeight: 600, flex: 1 }}>
-                    {lora.name}
-                  </Typography>
-                  <Button
-                    size="small"
-                    color="error"
-                    onClick={() => removeLora(idx)}
-                  >
-                    Remove
-                  </Button>
-                </Box>
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-                  <TextField
-                    label="High Weight"
-                    size="small"
-                    type="number"
-                    value={lora.high_weight}
-                    onChange={(e) =>
-                      updateLoraWeight(
-                        idx,
-                        "high_weight",
-                        parseFloat(e.target.value),
-                      )
-                    }
-                    disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.high_file}
-                    sx={{ flex: 1, minWidth: 100 }}
-                    slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
-                  />
-                  <TextField
-                    label="Low Weight"
-                    size="small"
-                    type="number"
-                    value={lora.low_weight}
-                    onChange={(e) =>
-                      updateLoraWeight(
-                        idx,
-                        "low_weight",
-                        parseFloat(e.target.value),
-                      )
-                    }
-                    disabled={!loraLibrary.find((l) => l.id === lora.lora_id)?.low_file}
-                    sx={{ flex: 1, minWidth: 100 }}
-                    slotProps={{ htmlInput: { step: 0.1, min: 0, max: 2 } }}
-                  />
-                </Box>
-              </Card>
-            ))}
-          </AccordionDetails>
-        </Accordion>
-
-        {/* ── Extra (accordion): Negative Prompt · Faceswap ── */}
-        <Accordion defaultExpanded={false} disableGutters sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMore />}>
-            <Typography variant="subtitle2">Extra</Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ pt: 0 }}>
-            {/* Negative Prompt */}
-            <TextField
-              label="Negative Prompt"
-              fullWidth
-              multiline
-              rows={3}
-              value={negativePrompt}
-              onChange={(e) => setNegativePrompt(e.target.value)}
-              helperText="Passed as negative conditioning to ComfyUI"
-            />
-            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: -0.5 }}>
-              <IconButton
-                size="small"
-                onClick={() => setNegativePrompt("")}
-                disabled={!negativePrompt}
-                sx={{ color: "text.disabled", p: 0.25 }}
-                title="Clear negative prompt"
-                aria-label="Clear negative prompt"
-              >
-                <ClearOutlined sx={{ fontSize: 14 }} />
-              </IconButton>
-            </Box>
-
-            <Divider sx={{ my: 2 }} />
-
-            {/* Faceswap */}
-            <FaceswapConfig
-              state={faceswap}
-              onChange={setFaceswap}
-              presets={faceswapPresets}
-              existingImageName={existingFaceswapName && lastSegment?.faceswap_source_type !== "preset" ? existingFaceswapName : null}
-              inline
-            />
-          </AccordionDetails>
-        </Accordion>
-
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={submitting}>
-          {submitting ? "Submitting..." : "Submit"}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}

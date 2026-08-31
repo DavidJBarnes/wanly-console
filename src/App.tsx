@@ -10,12 +10,9 @@ import Workers from "./pages/Workers";
 import WorkerDetail from "./pages/WorkerDetail";
 import Videos from "./pages/Videos";
 import SmashcutBuilder from "./pages/SmashcutBuilder";
-import LoraLibrary from "./pages/LoraLibrary";
 import ImageRepo from "./pages/ImageRepo";
-import SuccessfulConfigs from "./pages/SuccessfulConfigs";
 import SettingsPage from "./pages/SettingsPage";
 import HologramPlayer from "./pages/HologramPlayer";
-import VideoPresetLibrary from "./pages/VideoPresetLibrary";
 import Wildcards from "./pages/Wildcards";
 import Storyboard from "./pages/Storyboard";
 
@@ -32,13 +29,10 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/jobs" element={<JobQueue />} />
             <Route path="/jobs/:id" element={<JobDetail />} />
-            <Route path="/configs" element={<SuccessfulConfigs />} />
             <Route path="/workers" element={<Workers />} />
             <Route path="/workers/:id" element={<WorkerDetail />} />
             <Route path="/videos" element={<Videos />} />
             <Route path="/smashcut" element={<SmashcutBuilder />} />
-            <Route path="/loras" element={<LoraLibrary />} />
-            <Route path="/video-presets" element={<VideoPresetLibrary />} />
             <Route path="/wildcards" element={<Wildcards />} />
             <Route path="/storyboard" element={<Storyboard />} />
             <Route path="/images" element={<ImageRepo />} />
