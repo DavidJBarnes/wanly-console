@@ -13,8 +13,12 @@ export interface TokenResponse {
  *  stale one. `graph_sha256` is written back by the worker once the engine has
  *  resolved the graph; it is a record, not an input. */
 export interface LtxRecipeRef {
+  /** The pose name. Poses are character-agnostic; the character is recorded beside it. */
   recipe: string;
   character: string;
+  /** The trigger word that filled the pose's placeholder, recorded so the render can be
+   *  reproduced without depending on the character row still existing or still having it. */
+  trigger?: string;
   char_lora: string;
   char_s1: number;
   char_s2: number;

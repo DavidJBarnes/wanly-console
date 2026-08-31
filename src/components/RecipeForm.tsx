@@ -5,8 +5,8 @@ import {
 } from "@mui/material";
 import { ExpandMore, Casino } from "@mui/icons-material";
 import {
-  listRecipes, listLoras, ltxError,
-  type RecipeBook, type Character, type Recipe,
+  listRecipes, listLoras, ltxError, renderPrompt,
+  type RecipeBook, type Character, type Pose,
 } from "../api/ltx";
 import { createJob, sha256Hex } from "../api/client";
 import type { JobCreate } from "../api/types";
@@ -57,7 +57,7 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
   const [book, setBook] = useState<RecipeBook | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
   const [characterName, setCharacterName] = useState("");
-  const [recipeName, setRecipeName] = useState("");
+  const [poseName, setPoseName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
 
@@ -89,27 +89,36 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
       .catch((e) => setError(ltxError(e)));
   }, []);
 
+  // `poses ?? []` rather than `book.poses`. An API returning an older or unexpected shape
+  // must not white-screen the form — that is the worst possible failure mode, because it
+  // reports nothing and looks like the app is broken rather than the data.
+  const poses = book?.poses ?? [];
+
   const character: Character | null =
     book?.characters.find((c) => c.name === characterName) ?? null;
-  const recipe: Recipe | null =
-    character?.recipes.find((r) => r.name === recipeName) ?? null;
-
-  // Changing character invalidates the chosen pose, so land on that character's
-  // first. Clearing to "" left the form empty on load, because every field below
-  // is gated behind a selected recipe.
-  useEffect(() => {
-    if (character) setRecipeName(character.recipes[0]?.name ?? "");
-  }, [characterName, book]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Poses are character-agnostic, so the list never changes with the character —
+  // which is the point: a new LoRA gets every pose the moment it exists.
+  const pose: Pose | null = poses.find((p) => p.name === poseName) ?? null;
+  // What this pose renders as for THIS character — the baseline an edit is measured against.
+  const renderedPrompt =
+    pose && character ? renderPrompt(pose.prompt_template, character.trigger) : "";
 
   useEffect(() => {
-    if (!recipe || !character) return;
-    setPrompt(recipe.prompt);
-    setNegative(recipe.negative_prompt);
+    if (book && !poseName) setPoseName(poses[0]?.name ?? "");
+  }, [book, poseName, poses]);
+
+  // The prompt shown is the RENDERED one, not the template. It is editable, so
+  // showing "<TRIGGER>, a woman..." would mean editing around a placeholder and
+  // being unable to see what actually renders.
+  useEffect(() => {
+    if (!pose || !character) return;
+    setPrompt(renderPrompt(pose.prompt_template, character.trigger));
+    setNegative(pose.negative_prompt);
     setCharLora(character.char_lora);
     setS1(String(character.strength_stage_1));
     setS2(String(character.strength_stage_2));
-    setFrames(String(recipe.frames));
-  }, [recipe, character]);
+    setFrames(String(pose.frames));
+  }, [pose, character]);
 
   const onFile = (f: File | null) => {
     setFile(f);
@@ -118,16 +127,16 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
   };
 
   const submit = async () => {
-    if (!file || !recipe || !character || !book) return;
+    if (!file || !pose || !character || !book) return;
     setBusy(true);
     setError(null);
     try {
       const { width, height } = await imageSize(file);
       const fps = book.stack.frame_rate;
-      const nFrames = Number(frames) || recipe.frames;
+      const nFrames = Number(frames) || pose.frames;
 
       const job: JobCreate = {
-        name: `${character.name} — ${recipe.name}`,
+        name: `${character.name} — ${pose.name}`,
         width,
         height,
         fps,
@@ -137,14 +146,14 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
           prompt: prompt.trim(),
           negative_prompt: negative.trim() || null,
           // The queue speaks seconds; LTX speaks frames. Sent both ways round so
-          // neither side has to guess, and ltx_recipe.frames is authoritative.
+          // neither side has to guess, and ltx_pose.frames is authoritative.
           duration_seconds: nFrames / fps,
           speed: 1.0,
           // What actually ran, recorded against the segment. graph_sha256 is
           // filled in by the worker once the engine resolves the graph — it is a
           // record of what happened, not an input.
           ltx_recipe: {
-            recipe: recipe.name,
+            recipe: pose.name,
             character: character.name,
             char_lora: charLora,
             char_s1: Number(s1),
@@ -152,8 +161,8 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
             frames: nFrames,
             edited:
               [
-                prompt.trim() !== recipe.prompt.trim() ? "prompt" : null,
-                negative.trim() !== recipe.negative_prompt.trim() ? "negative" : null,
+                prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,
+                negative.trim() !== pose.negative_prompt.trim() ? "negative" : null,
                 charLora !== character.char_lora ? "char_lora" : null,
                 Number(s1) !== character.strength_stage_1 ? "char_s1" : null,
                 Number(s2) !== character.strength_stage_2 ? "char_s2" : null,
@@ -176,14 +185,24 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
     }
   };
 
-  const edited = recipe
-    ? prompt.trim() !== recipe.prompt.trim() || negative.trim() !== recipe.negative_prompt.trim()
+  const edited = pose
+    ? prompt.trim() !== renderedPrompt.trim() || negative.trim() !== pose.negative_prompt.trim()
     : false;
 
   return (
     <Stack spacing={compact ? 1.5 : 2}>
       {error && <Alert severity="error">{error}</Alert>}
       {!book && !error && <CircularProgress size={20} />}
+      {book && poses.length === 0 && (
+        <Alert severity="warning">
+          No poses returned by the API. Nothing to render until at least one exists.
+        </Alert>
+      )}
+      {book && (book.characters ?? []).length === 0 && (
+        <Alert severity="warning">
+          No characters yet — a character supplies the LoRA and the trigger word.
+        </Alert>
+      )}
 
       <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
         <TextField
@@ -196,12 +215,12 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
           ))}
         </TextField>
         <TextField
-          select label="Pose" value={recipeName}
+          select label="Pose" value={poseName}
           sx={{ flex: "2 1 240px", minWidth: 200 }} size={compact ? "small" : "medium"}
-          onChange={(e) => setRecipeName(e.target.value)}
+          onChange={(e) => setPoseName(e.target.value)}
           helperText={compact ? undefined : "Fields below are this recipe's defaults."}
         >
-          {(character?.recipes ?? []).map((r) => (
+          {poses.map((r) => (
             <MenuItem key={r.id} value={r.name}>
               {r.name}{r.validated ? "" : "  (unvalidated)"}
             </MenuItem>
@@ -228,7 +247,7 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
         )}
       </Box>
 
-      {recipe && character && (
+      {pose && character && (
         <>
           <TextField
             fullWidth multiline minRows={compact ? 2 : 4} label="Prompt" value={prompt}
@@ -278,7 +297,7 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
 
           {edited && (
             <Alert severity="info" sx={{ py: 0 }}>
-              Edited — this render is recorded as a variation on {recipe.name}, not the
+              Edited — this render is recorded as a variation on {pose.name}, not the
               validated configuration.
             </Alert>
           )}
@@ -311,11 +330,11 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
       )}
 
       <Box>
-        <Button variant="contained" onClick={submit} disabled={!recipe || !file || busy}>
+        <Button variant="contained" onClick={submit} disabled={!pose || !file || busy}>
           {busy ? "Creating…" : "Queue render"}
         </Button>
-        {recipe && !recipe.validated && (
-          <Chip size="small" label="unvalidated recipe" sx={{ ml: 1 }} />
+        {pose && !pose.validated && (
+          <Chip size="small" label="unvalidated pose" sx={{ ml: 1 }} />
         )}
       </Box>
     </Stack>

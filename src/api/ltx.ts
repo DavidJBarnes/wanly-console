@@ -28,16 +28,23 @@ const ltx = axios.create({
   timeout: 20_000,
 });
 
-/** One pose for one character. A recipe is (character, prompt) — everything else
- *  is the global stack, which is why this carries so little. */
-export interface Recipe {
+/**
+ * A POSE. Character-agnostic on purpose.
+ *
+ * Poses are not tied to a character — that shape locked new LoRAs out, because a
+ * character with no rows had no recipes at all. Every pose is offered for every
+ * character, so adding a LoRA costs a character row and nothing else.
+ */
+export interface Pose {
   id: string;
   name: string;
-  prompt: string;
-  /** Already resolved: the recipe's own override, or the stack's. */
+  /** Contains TRIGGER_PLACEHOLDER, filled with the character's trigger word. */
+  prompt_template: string;
+  /** Already resolved: the pose's own override, or the stack's. */
   negative_prompt: string;
   frames: number;
-  /** A human watched it and signed it off. Not a quality score. */
+  /** The POSE is proven — this prompt produces what it claims. Whether a given
+   *  character renders well is a property of its LoRA, which ratings record. */
   validated: boolean;
 }
 
@@ -45,11 +52,25 @@ export interface Character {
   id: string;
   name: string;
   char_lora: string;
+  /** Fills a pose's placeholder. "Adding a character costs a LoRA and a trigger
+   *  swap" — this is the trigger half. */
+  trigger: string;
   /** Per-stage, never flat. Stage 1 decides body and anatomy; stage 2 resolves
    *  the face. 0.8/1.5 is the validated pair. */
   strength_stage_1: number;
   strength_stage_2: number;
-  recipes: Recipe[];
+}
+
+/** What a pose carries and a character's trigger fills. */
+export const TRIGGER_PLACEHOLDER = "<TRIGGER>";
+
+/** Fill a pose's placeholder with a character's trigger word.
+ *
+ *  The API does this too, before wildcard resolution — doing it here as well
+ *  means the user SEES the prompt that will actually render rather than a
+ *  template, which matters because the prompt is editable. */
+export function renderPrompt(template: string, trigger: string): string {
+  return template.split(TRIGGER_PLACEHOLDER).join(trigger);
 }
 
 /** The one global configuration, the same for every pose and character. */
@@ -72,6 +93,8 @@ export interface LtxStack {
 
 export interface RecipeBook {
   stack: LtxStack;
+  /** Every pose, available to every character. */
+  poses: Pose[];
   characters: Character[];
 }
 
