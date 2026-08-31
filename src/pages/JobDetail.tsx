@@ -1675,20 +1675,6 @@ export default function JobDetail() {
                           <CircularProgress size={24} />
                         </Box>
                       ) : null}
-                      {seg.faceswap_enabled && seg.faceswap_image && (
-                        <Box
-                          component="img"
-                          src={getFileUrl(seg.faceswap_image)}
-                          alt="Faceswap"
-                          sx={{
-                            width: 64,
-                            height: 64,
-                            objectFit: "cover",
-                            borderRadius: 1,
-                            bgcolor: "#f5f5f5",
-                          }}
-                        />
-                      )}
                     </Box>
 
                     {seg.error_message && (

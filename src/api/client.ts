@@ -8,7 +8,6 @@ import type {
   SegmentCreate,
   SegmentResponse,
   HologramRequest,
-  SegmentReprocessRequest,
   FramePreviewResponse,
   WorkerResponse,
   StatsResponse,
@@ -16,7 +15,6 @@ import type {
   WildcardResponse,
   WildcardCreate,
   WildcardUpdate,
-  FaceswapPreset,
   TitleTagResponse,
   TitleTagCreate,
   ImageFolder,
@@ -237,23 +235,6 @@ export async function getSegmentFrames(
   return data;
 }
 
-export async function reprocessSegment(
-  segmentId: string,
-  body: SegmentReprocessRequest,
-  faceswapFile?: File,
-): Promise<SegmentResponse> {
-  const formData = new FormData();
-  formData.append("data", JSON.stringify(body));
-  if (faceswapFile) {
-    formData.append("faceswap_image", faceswapFile);
-  }
-  const { data } = await api.post<SegmentResponse>(
-    `/segments/${segmentId}/reprocess`,
-    formData,
-    { headers: { "Content-Type": "multipart/form-data" } },
-  );
-  return data;
-}
 
 export async function deleteSegment(segmentId: string): Promise<void> {
   await api.delete(`/segments/${segmentId}`);
@@ -461,13 +442,6 @@ export async function getAppSettings(): Promise<AppSettingsResponse> {
 
 export async function updateAppSettings(body: AppSettingsUpdate): Promise<AppSettingsResponse> {
   const { data } = await api.put<AppSettingsResponse>("/settings", body);
-  return data;
-}
-
-// --- Faceswap Presets ---
-
-export async function getFaceswapPresets(): Promise<FaceswapPreset[]> {
-  const { data } = await api.get<FaceswapPreset[]>("/faceswap/presets");
   return data;
 }
 

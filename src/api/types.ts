@@ -34,15 +34,6 @@ export interface SegmentCreate {
   duration_seconds?: number;
   speed?: number;
   start_image?: string | null;
-  faceswap_enabled?: boolean;
-  faceswap_method?: string | null;
-  faceswap_source_type?: string | null;
-  faceswap_image?: string | null;
-  faceswap_faces_order?: string | null;
-  faceswap_faces_index?: string | null;
-  faceswap_model?: string | null;
-  faceswap_pixel_boost?: string | null;
-  seed_faceswap?: boolean;
   negative_prompt?: string | null;
   auto_finalize?: boolean;
   transition?: string | null;
@@ -98,7 +89,6 @@ export interface JobResponse {
   segment_count: number;
   completed_segment_count: number;
   estimated_run_time: number | null;
-  faceswap_enabled: boolean;
   tags: string | null;
   created_at: string;
   updated_at: string;
@@ -127,15 +117,6 @@ export interface SegmentResponse {
   duration_seconds: number;
   speed: number;
   start_image: string | null;
-  faceswap_enabled: boolean;
-  faceswap_method: string | null;
-  faceswap_source_type: string | null;
-  faceswap_image: string | null;
-  faceswap_faces_order: string | null;
-  faceswap_faces_index: string | null;
-  faceswap_model: string | null;
-  faceswap_pixel_boost: string | null;
-  seed_faceswap: boolean;
   auto_finalize: boolean;
   transition: string | null;
   trim_start_frames: number;
@@ -356,11 +337,6 @@ export interface StatsResponse {
   worker_stats: WorkerStatsItem[];
 }
 
-export interface FaceswapPreset {
-  key: string;
-  name: string;
-  url: string;
-}
 
 export interface TitleTagResponse {
   id: string;
@@ -487,12 +463,4 @@ export interface AppSettingsUpdate {
 export type RerollRequest = Record<string, never>;
 
 export interface SegmentReprocessRequest {
-  faceswap_enabled: boolean;
-  faceswap_method?: string | null;
-  faceswap_source_type?: string | null;
-  faceswap_image?: string | null;
-  faceswap_faces_order?: string | null;
-  faceswap_faces_index?: string | null;
-  faceswap_model?: string | null;
-  faceswap_pixel_boost?: string | null;
 }
