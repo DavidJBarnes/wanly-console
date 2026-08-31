@@ -63,6 +63,7 @@ import {
   updateSegmentTrim,
   getSegmentFrames,
 } from "../api/client";
+import { apiError } from "../lib/apiError";
 import { useSettingsStore } from "../stores/settingsStore";
 import type {
   JobDetailResponse,
@@ -297,8 +298,8 @@ export default function JobDetail() {
         await makeHologram(id, body);
         setHoloOpen(false);
         await fetchJob();
-      } catch {
-        setError("Failed to start hologram");
+      } catch (e) {
+        setError(apiError(e, "Failed to start hologram"));
       } finally {
         setHoloBusy(false);
       }
@@ -331,8 +332,8 @@ export default function JobDetail() {
     try {
       await updateJob(id, { status: "finalized" });
       fetchJob();
-    } catch {
-      setError("Failed to finalize job");
+    } catch (e) {
+      setError(apiError(e, "Failed to finalize job"));
     } finally {
       setFinalizing(false);
     }
@@ -364,8 +365,8 @@ export default function JobDetail() {
       const data = await reopenJob(id);
       setJob(data);
       setError("");
-    } catch {
-      setError("Failed to re-open job");
+    } catch (e) {
+      setError(apiError(e, "Failed to re-open job"));
     } finally {
       setReopening(false);
     }
@@ -377,8 +378,8 @@ export default function JobDetail() {
     try {
       await updateJob(id, { status: "archived" });
       fetchJob();
-    } catch {
-      setError("Failed to archive job");
+    } catch (e) {
+      setError(apiError(e, "Failed to archive job"));
     } finally {
       setArchiving(false);
     }
@@ -390,8 +391,8 @@ export default function JobDetail() {
     try {
       await updateJob(id, { status: "awaiting" });
       fetchJob();
-    } catch {
-      setError("Failed to unarchive job");
+    } catch (e) {
+      setError(apiError(e, "Failed to unarchive job"));
     } finally {
       setArchiving(false);
     }
@@ -406,9 +407,9 @@ export default function JobDetail() {
     setJob((prev) => (prev ? { ...prev, name: next } : prev)); // optimistic
     try {
       await updateJob(id, { name: next });
-    } catch {
+    } catch (e) {
       setJob((prev) => (prev ? { ...prev, name: prevName } : prev)); // revert
-      setError("Failed to rename job");
+      setError(apiError(e, "Failed to rename job"));
     }
   };
 
@@ -417,8 +418,8 @@ export default function JobDetail() {
     try {
       await retrySegment(seg.id);
       fetchJob();
-    } catch {
-      setError("Failed to retry segment");
+    } catch (e) {
+      setError(apiError(e, "Failed to retry segment"));
     } finally {
       setActionLoading(null);
     }
