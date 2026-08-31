@@ -11,15 +11,8 @@ import type {
   SegmentReprocessRequest,
   FramePreviewResponse,
   WorkerResponse,
-  LoraListItem,
-  LoraResponse,
-  LoraCreate,
-  LoraUpdate,
   StatsResponse,
   WorkerSegmentResponse,
-  VideoSettingsPreset,
-  VideoSettingsPresetCreate,
-  VideoSettingsPresetUpdate,
   WildcardResponse,
   WildcardCreate,
   WildcardUpdate,
@@ -315,85 +308,17 @@ export async function getStats(): Promise<StatsResponse> {
 
 // --- LoRAs ---
 
-export async function getLoras(): Promise<LoraListItem[]> {
-  const { data } = await api.get<LoraListItem[]>("/loras");
-  return data;
-}
 
-export async function getLora(id: string): Promise<LoraResponse> {
-  const { data } = await api.get<LoraResponse>(`/loras/${id}`);
-  return data;
-}
 
-export async function createLora(body: LoraCreate): Promise<LoraResponse> {
-  const { data } = await api.post<LoraResponse>("/loras", body);
-  return data;
-}
 
-export async function createLoraUpload(
-  formData: FormData,
-): Promise<LoraResponse> {
-  const { data } = await api.post<LoraResponse>("/loras/upload", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-  return data;
-}
 
-export async function updateLora(
-  id: string,
-  body: LoraUpdate,
-): Promise<LoraResponse> {
-  const { data } = await api.patch<LoraResponse>(`/loras/${id}`, body);
-  return data;
-}
 
-export async function deleteLora(id: string): Promise<void> {
-  await api.delete(`/loras/${id}`);
-}
 
-export async function getVideoPresets(includeArchived = false): Promise<VideoSettingsPreset[]> {
-  const { data } = await api.get<VideoSettingsPreset[]>("/video-presets", {
-    params: includeArchived ? { include_archived: true } : undefined,
-  });
-  return data;
-}
 
-/** Archiving hides a preset from the picker without breaking the jobs that used it —
- *  they resolve it by id, which still works. Deleting would lose that record. */
-export async function setVideoPresetArchived(
-  id: string,
-  archived: boolean,
-): Promise<VideoSettingsPreset> {
-  const { data } = await api.patch<VideoSettingsPreset>(`/video-presets/${id}`, { archived });
-  return data;
-}
 
-export async function createVideoPreset(body: VideoSettingsPresetCreate): Promise<VideoSettingsPreset> {
-  const { data } = await api.post<VideoSettingsPreset>("/video-presets", body);
-  return data;
-}
 
-export async function updateVideoPreset(
-  id: string,
-  body: VideoSettingsPresetUpdate,
-): Promise<VideoSettingsPreset> {
-  const { data } = await api.patch<VideoSettingsPreset>(`/video-presets/${id}`, body);
-  return data;
-}
 
-export async function deleteVideoPreset(id: string): Promise<void> {
-  await api.delete(`/video-presets/${id}`);
-}
 
-export async function updateSegmentVideoPreset(
-  segmentId: string,
-  videoPresetId: string | null,
-): Promise<SegmentResponse> {
-  const { data } = await api.patch<SegmentResponse>(`/segments/${segmentId}/video-preset`, {
-    video_preset_id: videoPresetId,
-  });
-  return data;
-}
 
 // --- Wildcards ---
 

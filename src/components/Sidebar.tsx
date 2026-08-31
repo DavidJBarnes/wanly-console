@@ -13,11 +13,8 @@ import {
   VideoLibrary,
   QueueMusic,
   Dns,
-  AutoFixHigh,
   Image,
   Settings,
-  Star,
-  Tune,
   Movie,
   Casino,
   Theaters,
@@ -39,10 +36,7 @@ const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }
   { label: "Smashcut", icon: <Movie />, path: "/smashcut", sub: true },
   { label: "Image Repo", icon: <Image />, path: "/images" },
   { label: "Settings", icon: <Settings />, path: "/settings" },
-  { label: "LoRA Library", icon: <AutoFixHigh />, path: "/loras", sub: true },
-  { label: "Video Presets", icon: <Tune />, path: "/video-presets", sub: true },
   { label: "Wildcards", icon: <Casino />, path: "/wildcards", sub: true },
-  { label: "Configurations", icon: <Star />, path: "/configs", sub: true },
 ];
 
 interface SidebarProps {
