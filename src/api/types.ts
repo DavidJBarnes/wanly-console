@@ -8,8 +8,25 @@ export interface TokenResponse {
   token_type: string;
 }
 
+/** What an LTX recipe render actually ran. Recorded on the segment, not used to
+ *  look anything up — an engine that cannot look a recipe up cannot look up a
+ *  stale one. `graph_sha256` is written back by the worker once the engine has
+ *  resolved the graph; it is a record, not an input. */
+export interface LtxRecipeRef {
+  recipe: string;
+  character: string;
+  char_lora: string;
+  char_s1: number;
+  char_s2: number;
+  frames: number;
+  /** Which of the recipe's defaults the user changed, if any. */
+  edited?: (string | null)[];
+  graph_sha256?: string;
+}
+
 export interface SegmentCreate {
   prompt: string;
+  ltx_recipe?: LtxRecipeRef | null;
   duration_seconds?: number;
   speed?: number;
   start_image?: string | null;

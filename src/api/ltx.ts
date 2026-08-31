@@ -1,130 +1,105 @@
 import axios from "axios";
+import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 
 /**
- * Client for ltx-engine, the LTX 2.3 render service.
+ * LTX 2.3 recipes.
  *
- * Deliberately NOT the shared `api` instance from client.ts. That one attaches
- * the console's bearer token to every request and redirects to /login on a 401 —
- * both wrong for a different service on a different host, where the token means
- * nothing and a 401 would log the user out of the console.
+ * Recipes are DATA now — rows in wanly-api, created and edited here. The POC
+ * authored them in an .ods, which was a test harness that became load-bearing;
+ * the sheet does not come with them.
  *
- * Submitting is fire-and-forget: the engine answers straight away with an id
- * because a render takes 8-12 minutes. Everything after that is polling.
- *
- * TEMPORARY ROUTING. Today this talks to ltx-engine directly, which works in dev
- * through the Vite proxy (the engine sends no CORS headers, so the browser
- * cannot reach it any other way). Once wanly-api owns the queue and the recipe
- * book — wanly-api#206 and #207 — this module repoints at /api and the engine
- * stops being something the browser knows about at all.
+ * Its own axios instance rather than the shared one from client.ts, because the
+ * engine calls below must never carry the console's bearer token to a different
+ * host, and a 401 from the engine must never sign the user out of the console.
  */
-const ltx = axios.create({
-  baseURL: import.meta.env.VITE_LTX_URL || "/ltx",
-  timeout: 120_000,
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "/api",
+  timeout: 60_000,
+});
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY);
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
 });
 
-export interface Lora {
-  name: string;
-  strength: number;
-  /** Per-pass strength. The two stages are not interchangeable — stage 1
-   *  generates at half size from noise, stage 2 refines the 2x-upscaled latent
-   *  from 0.85 — and the validated recipe runs the character LoRA at 0.8 on
-   *  stage 1 and 1.5 on stage 2. */
-  strength_stage_1?: number | null;
-  strength_stage_2?: number | null;
-}
+/** ltx-engine, for the LoRA list only. Reachable in dev; not from the deployed site. */
+const ltx = axios.create({
+  baseURL: import.meta.env.VITE_LTX_URL || "/ltx",
+  timeout: 20_000,
+});
 
-export interface LtxJob {
-  job_id: string;
-  status: "None" | "Processing" | "Done" | "Failed";
-  video: string | null;
-  /** Free-text notes the engine attaches — for a recipe render this carries the
-   *  recipe name and the resolved graph hash, which is the regression trail. */
-  notes?: string[];
-  /** What each pass actually ran, read back off the submitted graph rather than
-   *  echoed from the request. A step count the workflow could not express shows
-   *  up here and nowhere else. */
-  stages?: { stage: number; steps: number | null }[];
-  error?: string;
-}
-
-export interface SubmitRequest {
-  prompt: string;
-  negative_prompt?: string | null;
-  loras?: Lora[];
-  /** A validated recipe by name. When set the engine builds the graph wholly
-   *  from the recipe book and IGNORES the free-form fields — a recipe is a
-   *  pinned configuration, not a starting point. The resolved graph is hashed,
-   *  so a recipe render is provably the one that was validated. */
-  recipe?: string | null;
-  /** Which character's sheet tab the recipe comes from. */
-  character?: string | null;
-  keyframes: { image: string }[];
-  width: number;
-  height: number;
-  num_frames?: number;
-  frame_rate?: number;
-  seed?: number | null;
-}
-
-/** One validated (character, pose) configuration. Authored in the recipe sheet;
- *  this endpoint is read-only. */
+/** One pose for one character. A recipe is (character, prompt) — everything else
+ *  is the global stack, which is why this carries so little. */
 export interface Recipe {
-  checkpoint: string;
+  id: string;
+  name: string;
+  prompt: string;
+  /** Already resolved: the recipe's own override, or the stack's. */
+  negative_prompt: string;
+  frames: number;
+  /** A human watched it and signed it off. Not a quality score. */
+  validated: boolean;
+}
+
+export interface Character {
+  id: string;
+  name: string;
   char_lora: string;
-  char_s1: string;
-  char_s2: string;
+  /** Per-stage, never flat. Stage 1 decides body and anatomy; stage 2 resolves
+   *  the face. 0.8/1.5 is the validated pair. */
+  strength_stage_1: number;
+  strength_stage_2: number;
+  recipes: Recipe[];
+}
+
+/** The one global configuration, the same for every pose and character. */
+export interface LtxStack {
+  checkpoint: string;
   content_lora: string;
   distill: string;
-  prompt: string;
+  distill_stage_1: number;
+  distill_stage_2: number;
+  frames: number;
+  frame_rate: number;
+  steps_stage_1: number;
+  sigmas_stage_2: string;
+  cfg: number;
+  stg: number;
+  rescale: number;
+  stg_blocks: string;
   negative: string;
-  guidance: string;
-  steps: string;
-  frames: string;
-  resolution: string;
-  validated: string;
 }
 
 export interface RecipeBook {
-  character: string | null;
-  /** One entry per sheet tab. Each holds that character's own recipes. */
-  characters?: Record<string, { recipes: Record<string, Recipe> }>;
-  /** Where each parameter comes from: "ui" | "ui with defaults" | "hardcoded" |
-   *  "derived". Drives which fields the form shows. */
-  sources: Record<string, string>;
-  /** Shared text by key — prompts, the negative, the guidance stack. */
-  definitions: Record<string, string>;
-  recipes: Record<string, Recipe>;
+  stack: LtxStack;
+  characters: Character[];
 }
 
 export async function listRecipes(): Promise<RecipeBook> {
-  const { data } = await ltx.get<RecipeBook>("/recipes");
+  const { data } = await api.get<RecipeBook>("/recipes");
   return data;
 }
 
-export async function listLoras(): Promise<{ loras: { name: string }[] }> {
-  const { data } = await ltx.get("/loras");
-  return data;
-}
-
-export async function submitJob(req: SubmitRequest): Promise<LtxJob> {
-  const { data } = await ltx.post<LtxJob>("/job", req);
-  return data;
-}
-
-export async function getJob(id: string): Promise<LtxJob> {
-  const { data } = await ltx.get<LtxJob>(`/job/${id}`);
-  return data;
-}
-
-export async function ltxHealth() {
-  const { data } = await ltx.get("/health");
-  return data as { status: string; queue_depth: number; running: number };
-}
-
-/** The video is served by the engine, so it must go through the proxy too. */
-export function videoUrl(job: LtxJob): string | null {
-  if (!job.video) return null;
-  return `${import.meta.env.VITE_LTX_URL || "/ltx"}/job/${job.job_id}/video`;
+/**
+ * Character LoRAs to offer.
+ *
+ * Two sources, unioned, because neither alone is right. The book names every
+ * LoRA in use and is reachable everywhere. The engine knows what is ACTUALLY on
+ * disk — including checkpoints being evaluated that no recipe references yet —
+ * but only answers in dev.
+ *
+ * So the engine is a bonus, not a dependency: unreachable, the dropdown still
+ * offers everything the book knows about rather than going empty.
+ */
+export async function listLoras(book: RecipeBook | null): Promise<string[]> {
+  const names = new Set<string>((book?.characters ?? []).map((c) => c.char_lora));
+  try {
+    const { data } = await ltx.get<{ loras: { name: string }[] }>("/loras");
+    for (const l of data.loras) names.add(l.name.replace(/\.safetensors$/, ""));
+  } catch {
+    // Expected wherever the engine is unreachable. The book's LoRAs still show.
+  }
+  return [...names].sort();
 }
 
 export function ltxError(err: unknown): string {
@@ -134,7 +109,8 @@ export function ltxError(err: unknown): string {
     if (Array.isArray(d)) {
       return d.map((x) => `${(x.loc ?? []).slice(1).join(".")}: ${x.msg}`).join("; ");
     }
-    if (!err.response) return "No response from the LTX engine. Is it up on :8190?";
+    if (err.response?.status === 401) return "Not signed in, or the session expired.";
+    if (!err.response) return "No response from the API.";
     return `${err.response.status} ${err.response.statusText}`;
   }
   return err instanceof Error ? err.message : String(err);

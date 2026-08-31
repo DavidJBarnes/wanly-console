@@ -30,7 +30,7 @@ import { useSortable, isSortable } from "@dnd-kit/react/sortable";
 import { getJobs, getFileUrl, reorderJobs } from "../api/client";
 import type { JobResponse, JobStatus } from "../api/types";
 import StatusChip from "../components/StatusChip";
-import CreateJobDialog from "../components/CreateJobDialog";
+import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import { POLL_INTERVAL_FAST } from "../constants";
 import StalledQueueBanner from "../components/StalledQueueBanner";
 
@@ -394,7 +394,10 @@ export default function JobQueue() {
         </Box>
       )}
 
-      <CreateJobDialog
+      {/* New Job creates an LTX recipe render. The old WAN dialog is still imported and
+          used by JobDetail's clone and ImageRepo's create-from-image, which are WAN-shaped
+          flows that retire with WAN rather than being ported. */}
+      <CreateLtxJobDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         onCreated={() => {
