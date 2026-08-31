@@ -22,7 +22,6 @@ import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, Play
 import { useNavigate } from "react-router";
 import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite, getJobTagCounts } from "../api/client";
 import type { JobDetailResponse, JobResponse, TagCount } from "../api/types";
-import IdentityChip from "../components/IdentityChip";
 import { DEFAULT_JOB_FETCH_LIMIT, POLL_INTERVAL_FAST } from "../constants";
 import FavoriteHeart from "../components/FavoriteHeart";
 import TagFilterBar from "../components/TagFilterBar";
@@ -468,7 +467,6 @@ export default function Videos() {
                       <Typography variant="subtitle2" noWrap sx={{ flex: 1, minWidth: 0 }}>
                         {job.name}
                       </Typography>
-                      <IdentityChip aggregate={jobDetails[job.id]?.identity ?? null} />
                     </Box>
                     {job.tags && (
                       <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.5 }}>

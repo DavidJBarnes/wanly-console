@@ -151,7 +151,6 @@ export interface JobResponse {
   seed: number;
   starting_image: string | null;
   continuation_mode?: string | null;
-  identity_reference_image?: string | null;
   lightx2v_strength_high: number | null;
   lightx2v_strength_low: number | null;
   cfg_high: number | null;
@@ -210,25 +209,6 @@ export interface SegmentResponse {
   transition: string | null;
   trim_start_frames: number;
   trim_end_frames: number;
-  /** "Re-roll until": the rule this take was generated under (null = no rule). Judged >= by
-   *  the API against the mean of the matching metric series when the take completes; a miss
-   *  re-rolls automatically up to the max_rerolls_per_job setting. reroll_count is the take's
-   *  position in its chain (the user-initiated roll is 1). */
-  reroll_rule_metric: string | null;
-  reroll_rule_threshold: number | null;
-  reroll_count: number | null;
-  motion_magnitude: number | null;
-  identity_mean_cos: number | null;
-  identity_mean_cos_ref: number | null;
-  identity_min_cos: number | null;
-  identity_slope: number | null;
-  identity_frames: number | null;
-  identity_no_face: number | null;
-  identity_face_px_p50: number | null;
-  identity_yaw_max: number | null;
-  identity_start_cos_ref: number | null;
-  identity_end_cos_ref: number | null;
-  identity_metrics: Record<string, unknown> | null;
   reference_frames: string[] | null;
   negative_prompt: string | null;
   status: SegmentStatus;
@@ -319,26 +299,6 @@ export interface JobListResponse {
   offset: number;
 }
 
-/** Job-level identity, derived from per-segment scores. Two means kept separate:
- *  mean_cos = drift from the start frame, mean_cos_ref = is it the character. */
-export interface IdentityAggregate {
-  mean_cos: number | null;
-  mean_cos_ref: number | null;
-  slope: number | null;
-  frames: number;
-  no_face: number;
-  scored_segments: number;
-  worst_segment_index: number | null;
-  worst_segment_slope: number | null;
-  /** Cumulative low point across the job's segments, and where it happened. A job can
-   *  average well while a late segment has lost the character entirely. */
-  min_cos_ref: number | null;
-  min_cos_ref_segment_index: number | null;
-  /** Job trajectory: first segment's opening frame -> last segment's closing frame. */
-  start_cos_ref: number | null;
-  end_cos_ref: number | null;
-}
-
 export interface JobDetailResponse extends JobResponse {
   segments: SegmentResponse[];
   videos: VideoResponse[];
@@ -346,7 +306,6 @@ export interface JobDetailResponse extends JobResponse {
   completed_segment_count: number;
   total_run_time: number;
   total_video_time: number;
-  identity: IdentityAggregate | null;
 }
 
 export interface JobUpdate {
@@ -578,7 +537,6 @@ export interface AppSettingsResponse {
   high_noise_steps: number;
   flow_shift: number;
   negative_prompt: string;
-  max_rerolls_per_job: number;
 }
 
 export interface FavoriteToggleRequest {
@@ -597,7 +555,6 @@ export interface SegmentClip {
   height: number;
   fps: number;
   duration_seconds: number;
-  motion_magnitude: number | null;
   favorite: boolean;
 }
 
@@ -627,14 +584,14 @@ export interface AppSettingsUpdate {
   high_noise_steps?: number;
   flow_shift?: number;
   negative_prompt?: string;
-  max_rerolls_per_job?: number;
 }
 
-/** Optional rule for POST /jobs/{id}/reroll. Omitted = plain one-shot re-roll. */
-export interface RerollRequest {
-  rule_metric?: string;
-  rule_threshold?: number;
-}
+/** Body for POST /jobs/{id}/reroll.
+ *
+ *  Carried a "re-roll until" rule — a metric and a threshold. The metrics it judged are gone
+ *  (#151), so a rule would be permanently unevaluable. Rolling a take by hand is unaffected.
+ */
+export type RerollRequest = Record<string, never>;
 
 export interface SegmentReprocessRequest {
   faceswap_enabled: boolean;

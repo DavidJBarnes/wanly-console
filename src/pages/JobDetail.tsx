@@ -96,20 +96,12 @@ import type {
   ImageFile,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
-import IdentityChip from "../components/IdentityChip";
 import SegmentObservationDialog from "../components/SegmentObservationDialog";
 import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import CreateJobDialog from "../components/CreateJobDialog";
 import { buildFaceswapFields, resolveFaceswapImage } from "../lib/faceswapPayload";
 import { canRerollSeed } from "../lib/rerollEligibility";
-import {
-  REROLL_RULE_SPECS,
-  ruleSpec,
-  ruleMetricMean,
-  formatRuleValue,
-  activeRuleTake,
-} from "../lib/rerollRule";
 import { allArchivedTakes, groupTakes, takeSeed } from "../lib/segmentTakes";
 import { useGoBack } from "../hooks/useGoBack";
 import FaceswapConfig, { defaultFaceswapState, type FaceswapConfigState } from "../components/FaceswapConfig";
@@ -304,8 +296,6 @@ export default function JobDetail() {
   const [rerollConfirm, setRerollConfirm] = useState(false);
   // "" = plain one-shot re-roll (no rule). The threshold is text state so a half-typed
   // number doesn't fight the input; parsed at roll time.
-  const [rerollRuleMetric, setRerollRuleMetric] = useState("");
-  const [rerollRuleThreshold, setRerollRuleThreshold] = useState("");
   const [takesOpen, setTakesOpen] = useState(false);
   const [rerolling, setRerolling] = useState(false);
   const [holoOpen, setHoloOpen] = useState(false);
@@ -371,9 +361,7 @@ export default function JobDetail() {
     fetchLoras();
   }, [fetchVideoPresets, fetchLoras]);
 
-  // The re-roll rule chip and dialog both show the take budget ("take 2/3"), so the max is
-  // needed at page load, not just when the dialog opens.
-  const { maxRerollsPerJob, fetchSettings: fetchAppSettings } = useSettingsStore();
+  const { fetchSettings: fetchAppSettings } = useSettingsStore();
   useEffect(() => {
     fetchAppSettings();
   }, [fetchAppSettings]);
@@ -398,15 +386,10 @@ export default function JobDetail() {
 
   const handleReroll = async () => {
     if (!id) return;
-    const threshold = parseFloat(rerollRuleThreshold);
-    const rule =
-      rerollRuleMetric && Number.isFinite(threshold)
-        ? { rule_metric: rerollRuleMetric, rule_threshold: threshold }
-        : undefined;
     setRerollConfirm(false);
     setRerolling(true);
     try {
-      await rerollJobSeed(id, rule);
+      await rerollJobSeed(id);
       // Refetch rather than patching state in: the response is the new segment, but the job's
       // status went back to pending and the old take is now archived, so the whole page moved.
       await fetchJob();
@@ -771,7 +754,6 @@ export default function JobDetail() {
                                   />
                                 </Tooltip>
                               )}
-                              <IdentityChip segment={take} />
                               {(() => {
                                 const reviewed =
                                   take.rating != null || !!take.notes || !!take.observation_tags;
@@ -935,7 +917,6 @@ export default function JobDetail() {
           </IconButton>
         </Tooltip>
         <StatusChip status={job.status} />
-        <IdentityChip aggregate={job.identity} label="identity" size="medium" />
       </Box>
 
       {error && (
@@ -1128,46 +1109,6 @@ export default function JobDetail() {
         >
           <Typography variant="h6">Segments</Typography>
           <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 1 }}>
-            {(() => {
-              // "Re-roll until" status: what bar the live take is chasing, and how the chain
-              // ended — met the rule, gave up at the cap, or couldn't be measured.
-              const ruleTake = activeRuleTake(videoSegments);
-              const spec = ruleTake ? ruleSpec(ruleTake.reroll_rule_metric) : undefined;
-              if (!ruleTake || !spec || ruleTake.reroll_rule_threshold == null) return null;
-              const bar = formatRuleValue(spec.key, ruleTake.reroll_rule_threshold);
-              const take = ruleTake.reroll_count ?? 1;
-              const running = ["pending", "claimed", "processing"].includes(ruleTake.status);
-              const measured = ruleMetricMean(ruleTake.identity_metrics, spec.key);
-              let label: string;
-              let color: "info" | "success" | "warning";
-              let tip: string;
-              if (running) {
-                label = `Until ${spec.label} ≥ ${bar} — take ${take}/${maxRerollsPerJob}`;
-                color = "info";
-                tip = "This take re-rolls automatically if it misses the rule";
-              } else if (measured != null && measured >= ruleTake.reroll_rule_threshold) {
-                label = `${spec.label} ${formatRuleValue(spec.key, measured)} ≥ ${bar} — met on take ${take}`;
-                color = "success";
-                tip = "The rule was met, so the loop stopped";
-              } else if (measured != null) {
-                label = `${spec.label} ${formatRuleValue(spec.key, measured)} < ${bar} — stopped at take ${take}`;
-                color = "warning";
-                tip = "The re-roll budget ran out before the rule was met — roll again or accept this take";
-              } else if (ruleTake.status === "failed") {
-                label = `Until ${spec.label} ≥ ${bar} — take ${take} failed`;
-                color = "warning";
-                tip = "A crashed take is not judged; retry it or re-roll";
-              } else {
-                label = `Until ${spec.label} ≥ ${bar} — take ${take} not measured`;
-                color = "warning";
-                tip = "This take has no measurement for the rule's axis, so the loop stopped";
-              }
-              return (
-                <Tooltip title={tip} arrow>
-                  <Chip size="small" variant="outlined" color={color} label={label} />
-                </Tooltip>
-              );
-            })()}
             {(job.status === "processing" || job.status === "pending") && (
               <>
                 <CircularProgress size={18} />
@@ -1405,7 +1346,6 @@ export default function JobDetail() {
                     <TableCell>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                         <StatusChip status={seg.status} />
-                        <IdentityChip segment={seg} />
                         {(() => {
                           const reviewed =
                             seg.rating != null || !!seg.notes || !!seg.observation_tags;
@@ -1656,7 +1596,6 @@ export default function JobDetail() {
                         #{seg.index}
                       </Typography>
                       <StatusChip status={seg.status} />
-                      <IdentityChip segment={seg} />
                       {(() => {
                         const reviewed =
                           seg.rating != null || !!seg.notes || !!seg.observation_tags;
@@ -2038,79 +1977,15 @@ export default function JobDetail() {
             A new segment 0 is queued with the same prompt, LoRAs, preset and start image. Only
             the seed changes, so the two takes are directly comparable.
           </Typography>
-          <TextField
-            select
-            label="Re-roll until (optional)"
-            size="small"
-            fullWidth
-            value={rerollRuleMetric}
-            onChange={(e) => {
-              const metric = e.target.value;
-              setRerollRuleMetric(metric);
-              const spec = ruleSpec(metric);
-              setRerollRuleThreshold(spec ? String(spec.fallbackThreshold) : "");
-            }}
-            helperText={
-              rerollRuleMetric
-                ? undefined
-                : "With a rule, missed takes re-roll on their own until one clears the bar"
-            }
-            sx={{ mt: 3 }}
-          >
-            <MenuItem value="">No rule — roll once</MenuItem>
-            {REROLL_RULE_SPECS.map((spec) => (
-              <MenuItem key={spec.key} value={spec.key}>
-                {spec.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          {rerollRuleMetric &&
-            (() => {
-              const spec = ruleSpec(rerollRuleMetric)!;
-              // The number the rule will be judged against, measured on the take being
-              // archived — the whole reason to pick a bar just above or below it.
-              const measured = ruleMetricMean(
-                liveSegments[0]?.identity_metrics ?? null,
-                rerollRuleMetric,
-              );
-              return (
-                <>
-                  <TextField
-                    label={`${spec.label} must reach (≥)`}
-                    size="small"
-                    type="number"
-                    fullWidth
-                    value={rerollRuleThreshold}
-                    onChange={(e) => setRerollRuleThreshold(e.target.value)}
-                    error={!Number.isFinite(parseFloat(rerollRuleThreshold))}
-                    helperText={
-                      measured != null
-                        ? `This take measured ${formatRuleValue(rerollRuleMetric, measured)}`
-                        : "This take has no measurement for this axis — the loop can only judge measured takes"
-                    }
-                    slotProps={{ htmlInput: { step: spec.step } }}
-                    sx={{ mt: 2 }}
-                  />
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                    Rolls again automatically while {spec.label.toLowerCase()} stays below the
-                    bar, up to {maxRerollsPerJob} takes (changeable in Settings), then waits for
-                    you.
-                  </Typography>
-                </>
-              );
-            })()}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRerollConfirm(false)}>Cancel</Button>
           <Button
             variant="contained"
             onClick={handleReroll}
-            disabled={
-              rerolling ||
-              (!!rerollRuleMetric && !Number.isFinite(parseFloat(rerollRuleThreshold)))
-            }
+            disabled={rerolling}
           >
-            {rerolling ? "Rolling..." : rerollRuleMetric ? "Re-roll until met" : "Re-roll"}
+            {rerolling ? "Rolling..." : "Re-roll"}
           </Button>
         </DialogActions>
       </Dialog>
