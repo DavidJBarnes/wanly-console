@@ -43,8 +43,6 @@ import {
   Visibility,
   ChevronLeft,
   ChevronRight,
-  Star,
-  StarBorder,
   ViewInAr,
   RateReview,
   RateReviewOutlined,
@@ -399,17 +397,6 @@ export default function JobDetail() {
     }
   };
 
-  const handleToggleStar = async () => {
-    if (!id || !job) return;
-    const next = !job.config_starred;
-    setJob((prev) => (prev ? { ...prev, config_starred: next } : prev)); // optimistic
-    try {
-      await updateJob(id, { config_starred: next });
-    } catch {
-      setJob((prev) => (prev ? { ...prev, config_starred: !next } : prev)); // revert
-      setError("Failed to update config flag");
-    }
-  };
 
   const handleRenameJob = async () => {
     setEditingName(false);
@@ -875,15 +862,6 @@ export default function JobDetail() {
       <Box sx={{ display: "flex", gap: 3, mb: 3, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Card sx={{ flex: 1, minWidth: 0 }}>
           <CardContent sx={{ position: "relative" }}>
-            <Tooltip title={job.config_starred ? "Flagged as a successful config" : "Flag this config as successful"}>
-              <IconButton
-                onClick={handleToggleStar}
-                size="small"
-                sx={{ position: "absolute", top: 8, right: 8, color: job.config_starred ? "warning.main" : "action.active" }}
-              >
-                {job.config_starred ? <Star fontSize="small" /> : <StarBorder fontSize="small" />}
-              </IconButton>
-            </Tooltip>
             <Box
               sx={{
                 display: "grid",
