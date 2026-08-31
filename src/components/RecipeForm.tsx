@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip,
   CircularProgress, MenuItem, Stack, TextField, Typography,
@@ -8,7 +8,7 @@ import {
   listRecipes, listLoras, ltxError, renderPrompt,
   type RecipeBook, type Character, type Pose,
 } from "../api/ltx";
-import { createJob, sha256Hex } from "../api/client";
+import { createJob, getFileUrl } from "../api/client";
 import type { JobCreate } from "../api/types";
 
 /**
@@ -29,37 +29,57 @@ export interface RecipeFormProps {
   variant?: "page" | "dialog";
   /** Called with the new job id once it is created. */
   onCreated?: (jobId: string) => void;
+  /** An image already in S3, from the Image Repo. Re-uploading it would duplicate
+   *  the object, so it is referenced by path instead. */
+  initialStartingImageUri?: string | null;
+  /** Tags carried from the source image. Job tags drive filtering on the queue and
+   *  Videos, so an image's tags should reach the job it starts. */
+  initialTags?: string | null;
 }
+
+/**
+ * The start frame, from either source.
+ *
+ * ONE piece of state holding a File or an S3 path, not two. A start image reaches
+ * a job two ways — uploaded, or referenced because it is already in S3 — and
+ * keeping them as separate fields means every reader has to remember both. That
+ * is the shape that dropped ltx_recipe from segment 0: two paths doing one job,
+ * and only one of them maintained.
+ */
+type StartFrame =
+  | { kind: "file"; file: File; previewUrl: string }
+  | { kind: "uri"; uri: string; previewUrl: string };
 
 /** LTX wants dimensions on the /64 grid. The engine derives the final size from
  *  the image itself; this is the same arithmetic so the job record agrees with
  *  what actually renders instead of carrying a placeholder. */
 const to64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
 
-async function imageSize(file: File): Promise<{ width: number; height: number }> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((res, rej) => {
-      const i = new Image();
-      i.onload = () => res(i);
-      i.onerror = rej;
-      i.src = url;
-    });
-    return { width: to64(img.naturalWidth), height: to64(img.naturalHeight) };
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+/** Measured from the rendered image, so it works for an uploaded File and an S3
+ *  object alike — the object URL and the presigned file URL both just load. */
+async function imageSize(url: string): Promise<{ width: number; height: number }> {
+  const img = await new Promise<HTMLImageElement>((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error("could not load the start frame to measure it"));
+    i.src = url;
+  });
+  return { width: to64(img.naturalWidth), height: to64(img.naturalHeight) };
 }
 
-export default function RecipeForm({ variant = "page", onCreated }: RecipeFormProps) {
+export default function RecipeForm({
+  variant = "page",
+  onCreated,
+  initialStartingImageUri,
+  initialTags,
+}: RecipeFormProps) {
   const compact = variant === "dialog";
 
   const [book, setBook] = useState<RecipeBook | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
   const [characterName, setCharacterName] = useState("");
   const [poseName, setPoseName] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [start, setStart] = useState<StartFrame | null>(null);
 
   // Pre-filled from the recipe, editable. Editing means this is no longer the
   // validated configuration — which is recorded, not prevented.
@@ -92,7 +112,10 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
   // `poses ?? []` rather than `book.poses`. An API returning an older or unexpected shape
   // must not white-screen the form — that is the worst possible failure mode, because it
   // reports nothing and looks like the app is broken rather than the data.
-  const poses = book?.poses ?? [];
+  //
+  // Memoised because it is a hook dependency: a fresh [] every render would re-run the
+  // effect below forever.
+  const poses = useMemo(() => book?.poses ?? [], [book]);
 
   const character: Character | null =
     book?.characters.find((c) => c.name === characterName) ?? null;
@@ -120,18 +143,30 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
     setFrames(String(pose.frames));
   }, [pose, character]);
 
+  // An image passed in from the Image Repo. Referenced, never re-uploaded.
+  useEffect(() => {
+    if (!initialStartingImageUri) return;
+    setStart({
+      kind: "uri",
+      uri: initialStartingImageUri,
+      previewUrl: getFileUrl(initialStartingImageUri),
+    });
+  }, [initialStartingImageUri]);
+
   const onFile = (f: File | null) => {
-    setFile(f);
-    if (preview) URL.revokeObjectURL(preview);
-    setPreview(f ? URL.createObjectURL(f) : null);
+    setStart((prev) => {
+      // Only object URLs need revoking; a file URL is not ours to release.
+      if (prev?.kind === "file") URL.revokeObjectURL(prev.previewUrl);
+      return f ? { kind: "file", file: f, previewUrl: URL.createObjectURL(f) } : null;
+    });
   };
 
   const submit = async () => {
-    if (!file || !pose || !character || !book) return;
+    if (!start || !pose || !character || !book) return;
     setBusy(true);
     setError(null);
     try {
-      const { width, height } = await imageSize(file);
+      const { width, height } = await imageSize(start.previewUrl);
       const fps = book.stack.frame_rate;
       const nFrames = Number(frames) || pose.frames;
 
@@ -142,6 +177,7 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
         fps,
         seed: seed.trim() === "" ? null : Number(seed),
         continuation_mode: "traditional",
+        tags: initialTags || null,
         first_segment: {
           prompt: prompt.trim(),
           negative_prompt: negative.trim() || null,
@@ -171,10 +207,17 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
         },
       } as JobCreate;
 
+      // One decision about how the start frame is sent, in one place. An uploaded
+      // file goes as multipart; an image already in S3 is referenced by path,
+      // because re-uploading it would duplicate the object.
       const form = new FormData();
-      form.append("data", JSON.stringify(job));
-      form.append("starting_image", file);
-      await sha256Hex(file).catch(() => undefined);
+      form.append(
+        "data",
+        JSON.stringify(
+          start.kind === "uri" ? { ...job, starting_image_uri: start.uri } : job,
+        ),
+      );
+      if (start.kind === "file") form.append("starting_image", start.file);
       const created = await createJob(form);
       setSeed(newSeed());
       onCreated?.(created.id);
@@ -230,18 +273,21 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
 
       <Box>
         <Button variant="outlined" component="label" size={compact ? "small" : "medium"}>
-          {file ? "Change start frame" : "Choose start frame"}
+          {start ? "Change start frame" : "Choose start frame"}
           <input hidden type="file" accept="image/*"
                  onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
         </Button>
-        {file && (
+        {start && (
           <Typography variant="caption" sx={{ ml: 2 }} color="text.secondary">
-            {file.name} — resolution derived from this image
+            {start.kind === "file"
+              ? start.file.name
+              : `${start.uri.split("/").pop()} — from the Image Repo`}
+            {" — resolution derived from this image"}
           </Typography>
         )}
-        {preview && (
+        {start && (
           <Box sx={{ mt: 1 }}>
-            <img src={preview} alt="start frame"
+            <img src={start.previewUrl} alt="start frame"
                  style={{ maxHeight: compact ? 120 : 220, borderRadius: 4 }} />
           </Box>
         )}
@@ -330,7 +376,7 @@ export default function RecipeForm({ variant = "page", onCreated }: RecipeFormPr
       )}
 
       <Box>
-        <Button variant="contained" onClick={submit} disabled={!pose || !file || busy}>
+        <Button variant="contained" onClick={submit} disabled={!pose || !start || busy}>
           {busy ? "Creating…" : "Queue render"}
         </Button>
         {pose && !pose.validated && (

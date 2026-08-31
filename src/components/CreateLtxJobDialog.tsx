@@ -23,9 +23,15 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  /** An image already in S3 — "Use as Starting Image" from the Image Repo. */
+  initialStartingImageUri?: string | null;
+  /** Tags from the source image, carried onto the job. */
+  initialTags?: string | null;
 }
 
-export default function CreateLtxJobDialog({ open, onClose, onCreated }: Props) {
+export default function CreateLtxJobDialog({
+  open, onClose, onCreated, initialStartingImageUri, initialTags,
+}: Props) {
   const isMobile = useIsMobile();
 
   return (
@@ -42,6 +48,8 @@ export default function CreateLtxJobDialog({ open, onClose, onCreated }: Props) 
       <DialogContent dividers>
         <RecipeForm
           variant="dialog"
+          initialStartingImageUri={initialStartingImageUri}
+          initialTags={initialTags}
           onCreated={() => {
             onCreated();
             onClose();
