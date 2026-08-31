@@ -67,7 +67,7 @@ import {
   getImageTagCounts,
 } from "../api/client";
 import type { ImageFolder, ImageFile, ImageJobInfo, TagCount } from "../api/types";
-import CreateJobDialog from "../components/CreateJobDialog";
+import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
@@ -976,7 +976,7 @@ export default function ImageRepo() {
       />
 
       {/* Create Job Dialog */}
-      <CreateJobDialog
+      <CreateLtxJobDialog
         open={jobDialogOpen}
         onClose={() => {
           setJobDialogOpen(false);
@@ -1004,7 +1004,7 @@ export default function ImageRepo() {
           }
         }}
         initialStartingImageUri={jobDialogImageUri}
-        initialImageTags={jobDialogImageTags}
+        initialTags={jobDialogImageTags}
       />
 
       {/* Screensaver */}
