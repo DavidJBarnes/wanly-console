@@ -94,7 +94,6 @@ export interface JobResponse {
   flow_shift: number | null;
   video_preset_id?: string | null;
   priority: number;
-  config_starred: boolean;
   status: JobStatus;
   segment_count: number;
   completed_segment_count: number;
@@ -244,7 +243,6 @@ export interface JobUpdate {
   name?: string;
   status?: string;
   tags?: string | null;
-  config_starred?: boolean;
 }
 
 export type JobStatus =
