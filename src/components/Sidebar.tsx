@@ -18,6 +18,7 @@ import {
   Movie,
   Casino,
   Theaters,
+  AutoAwesomeMotion,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router";
 import type { ReactNode } from "react";
@@ -32,6 +33,7 @@ const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }
   { label: "Job Queue", icon: <QueueMusic />, path: "/jobs" },
   { label: "Workers", icon: <Dns />, path: "/workers" },
   { label: "Storyboard", icon: <Theaters />, path: "/storyboard" },
+  { label: "LoRA Recipes", icon: <AutoAwesomeMotion />, path: "/lora-recipes", sub: true },
   { label: "Videos", icon: <VideoLibrary />, path: "/videos" },
   { label: "Smashcut", icon: <Movie />, path: "/smashcut", sub: true },
   { label: "Image Repo", icon: <Image />, path: "/images" },
