@@ -7,6 +7,21 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      // wanly-api. Without this, `npm run dev` cannot even log in: the app posts to /api,
+      // nothing serves it, and the failure looks like a rejected password rather than a
+      // missing route — which is why local dev has gone unused.
+      //
+      // It points at the DEPLOYED api by default, so local dev is the real console against
+      // real data, and your normal credentials work. Override with API_URL to aim it
+      // somewhere else (a local api, a staging one).
+      "/api": {
+        target: process.env.API_URL ?? "http://api.wanly22.com:8001",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api/, ""),
+        // Uploads and long reads; matches the nginx read timeout in front of prod.
+        timeout: 900_000,
+        proxyTimeout: 900_000,
+      },
       // ltx-engine, for the Storyboard page. Not a convenience: the engine is a
       // plain FastAPI app with no access-control headers, so a browser cannot
       // call it directly and `npm run build` output will NOT work without a
