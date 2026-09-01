@@ -17,7 +17,6 @@ import {
   Settings,
   Movie,
   Casino,
-  Theaters,
   AutoAwesomeMotion,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router";
@@ -32,8 +31,11 @@ const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }
   { label: "Dashboard", icon: <DashboardIcon />, path: "/" },
   { label: "Job Queue", icon: <QueueMusic />, path: "/jobs" },
   { label: "Workers", icon: <Dns />, path: "/workers" },
-  { label: "Storyboard", icon: <Theaters />, path: "/storyboard" },
-  { label: "LoRA Recipes", icon: <AutoAwesomeMotion />, path: "/lora-recipes", sub: true },
+  // LoRA Recipes was indented under Storyboard. That page is gone (recipe renders go through
+  // the New Job dialog and the queue like anything else), so this is top level rather than
+  // orphaned: with `sub` still set it would have indented under Workers, which means nothing.
+  // It is the only way to add a character for a newly trained LoRA, so it earns a row.
+  { label: "LoRA Recipes", icon: <AutoAwesomeMotion />, path: "/lora-recipes" },
   { label: "Videos", icon: <VideoLibrary />, path: "/videos" },
   { label: "Smashcut", icon: <Movie />, path: "/smashcut", sub: true },
   { label: "Image Repo", icon: <Image />, path: "/images" },

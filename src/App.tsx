@@ -14,7 +14,6 @@ import ImageRepo from "./pages/ImageRepo";
 import SettingsPage from "./pages/SettingsPage";
 import HologramPlayer from "./pages/HologramPlayer";
 import Wildcards from "./pages/Wildcards";
-import Storyboard from "./pages/Storyboard";
 import LoraRecipes from "./pages/LoraRecipes";
 
 export default function App() {
@@ -35,7 +34,6 @@ export default function App() {
             <Route path="/videos" element={<Videos />} />
             <Route path="/smashcut" element={<SmashcutBuilder />} />
             <Route path="/wildcards" element={<Wildcards />} />
-            <Route path="/storyboard" element={<Storyboard />} />
             <Route path="/lora-recipes" element={<LoraRecipes />} />
             <Route path="/images" element={<ImageRepo />} />
             <Route path="/settings" element={<SettingsPage />} />
