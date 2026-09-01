@@ -138,3 +138,88 @@ export function ltxError(err: unknown): string {
   }
   return err instanceof Error ? err.message : String(err);
 }
+
+// ---------------------------------------------------------------------------------------
+// Authoring poses and characters (console#361)
+//
+// Recipes became rows in wanly-api#212 so they could change without a spreadsheet or a
+// migration. Until these existed the only way to add a pose or a character was SQL, which
+// mattered most for characters: a character is a LoRA plus a trigger, and it is what makes
+// every pose available to a newly trained LoRA.
+// ---------------------------------------------------------------------------------------
+
+export interface PoseDraft {
+  name: string;
+  prompt_template: string;
+  negative_prompt?: string | null;
+  frames?: number | null;
+  validated?: boolean;
+}
+
+export async function createPose(draft: PoseDraft): Promise<Pose> {
+  const { data } = await api.post<Pose>("/ltx/recipes", draft);
+  return data;
+}
+
+export async function updatePose(id: string, patch: Partial<PoseDraft>): Promise<Pose> {
+  const { data } = await api.patch<Pose>(`/ltx/recipes/${id}`, patch);
+  return data;
+}
+
+export async function deletePose(id: string): Promise<void> {
+  await api.delete(`/ltx/recipes/${id}`);
+}
+
+export interface CharacterDraft {
+  name: string;
+  char_lora: string;
+  /** Optional on create only — the API defaults it to the name. */
+  trigger?: string | null;
+  strength_stage_1?: number;
+  strength_stage_2?: number;
+}
+
+export async function createCharacter(draft: CharacterDraft): Promise<Character> {
+  const { data } = await api.post<Character>("/ltx/characters", draft);
+  return data;
+}
+
+export async function updateCharacter(
+  id: string,
+  patch: Partial<CharacterDraft>,
+): Promise<Character> {
+  const { data } = await api.patch<Character>(`/ltx/characters/${id}`, patch);
+  return data;
+}
+
+export async function deleteCharacter(id: string): Promise<void> {
+  await api.delete(`/ltx/characters/${id}`);
+}
+
+/**
+ * Problems with a pose template that are worth SAYING but never worth blocking.
+ *
+ * A pose with no <TRIGGER> is unusual and legitimate — a shot that never names the
+ * subject still renders. Producing one silently is what is not fine. A template that
+ * hardcodes a character name is the exact mistake wanly-api#212 exists to undo: it
+ * locks the pose to one LoRA while appearing to be general.
+ */
+export function poseWarnings(template: string, characters: Character[]): string[] {
+  const out: string[] = [];
+  if (!template.includes(TRIGGER_PLACEHOLDER)) {
+    out.push(
+      `No ${TRIGGER_PLACEHOLDER} — this pose will render the same prompt for every ` +
+        `character, so nothing names the subject.`,
+    );
+  }
+  const named = characters
+    .map((c) => c.trigger)
+    .filter((t) => t && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(template));
+  if (named.length) {
+    out.push(
+      `Hardcodes ${named.join(", ")} — a pose is meant to work for every character. ` +
+        `Use ${TRIGGER_PLACEHOLDER} instead.`,
+    );
+  }
+  return out;
+}
