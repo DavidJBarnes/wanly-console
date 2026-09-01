@@ -248,6 +248,11 @@ function PoseDialog({
   const [template, setTemplate] = useState(pose?.prompt_template ?? `${TRIGGER_PLACEHOLDER}, `);
   const [negative, setNegative] = useState(pose?.negative_prompt ?? "");
   const [frames, setFrames] = useState(pose?.frames ? String(pose.frames) : "");
+  // Empty string means "use the stack's value". "0" is a real setting and must survive,
+  // so this is deliberately not `pose?.img_compression ? ... : ""`.
+  const [imgCompression, setImgCompression] = useState(
+    pose?.img_compression != null ? String(pose.img_compression) : "",
+  );
   const [validated, setValidated] = useState(pose?.validated ?? false);
   const [previewChar, setPreviewChar] = useState(characters[0]?.id ?? "");
   const [saving, setSaving] = useState(false);
@@ -274,6 +279,7 @@ function PoseDialog({
         // and much worse thing.
         negative_prompt: negative.trim() || null,
         frames: frames.trim() ? Number(frames) : null,
+        img_compression: imgCompression.trim() ? Number(imgCompression) : null,
         validated,
       };
       if (isNew) await createPose(draft);
@@ -346,13 +352,22 @@ function PoseDialog({
             minRows={2}
             helperText="Leave empty to use the global stack's negative."
           />
-          <TextField
-            label="Frames"
-            value={frames}
-            onChange={(e) => setFrames(e.target.value)}
-            sx={{ maxWidth: 200 }}
-            helperText="Empty = the stack's default."
-          />
+          <Stack direction="row" spacing={2}>
+            <TextField
+              label="Frames"
+              value={frames}
+              onChange={(e) => setFrames(e.target.value)}
+              sx={{ maxWidth: 200 }}
+              helperText="Empty = the stack's default."
+            />
+            <TextField
+              label="Image compression"
+              value={imgCompression}
+              onChange={(e) => setImgCompression(e.target.value)}
+              sx={{ maxWidth: 260 }}
+              helperText="Video CRF for the start frame, 0–51. Empty = the stack's value (18). Lower holds the start frame longer; 0 skips the encode entirely."
+            />
+          </Stack>
           <FormControlLabel
             control={
               <Checkbox checked={validated} onChange={(e) => setValidated(e.target.checked)} />

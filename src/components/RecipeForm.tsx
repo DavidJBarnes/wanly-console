@@ -241,6 +241,9 @@ export default function RecipeForm({
           char_s1: Number(s1),
           char_s2: Number(s2),
           frames: nFrames,
+          // Carried so the render records the CRF it actually used, and so the engine can
+          // apply a pose's override. Sent as-is including 0, which is a real setting.
+          img_compression: pose.img_compression,
           edited: [
             prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,
             negative.trim() !== pose.negative_prompt.trim() ? "negative" : null,
@@ -290,6 +293,9 @@ export default function RecipeForm({
             char_s1: Number(s1),
             char_s2: Number(s2),
             frames: nFrames,
+            // Carried so the render records the CRF it actually used, and so the engine
+            // can apply a pose's override. Sent as-is including 0, a real setting.
+            img_compression: pose.img_compression,
             edited:
               [
                 prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,
