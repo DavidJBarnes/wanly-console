@@ -43,6 +43,9 @@ export interface Pose {
   /** Already resolved: the pose's own override, or the stack's. */
   negative_prompt: string;
   frames: number;
+  /** Video CRF applied to the conditioning frame before it anchors the render. Null uses the
+   *  global stack's value. 0 is meaningful — it bypasses the encode entirely. */
+  img_compression: number | null;
   /** The POSE is proven — this prompt produces what it claims. Whether a given
    *  character renders well is a property of its LoRA, which ratings record. */
   validated: boolean;
@@ -153,6 +156,7 @@ export interface PoseDraft {
   prompt_template: string;
   negative_prompt?: string | null;
   frames?: number | null;
+  img_compression?: number | null;
   validated?: boolean;
 }
 

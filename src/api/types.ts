@@ -23,6 +23,9 @@ export interface LtxRecipeRef {
   char_s1: number;
   char_s2: number;
   frames: number;
+  /** Conditioning-frame CRF this render used. Recorded because it materially changes how
+   *  long the start frame holds (wanly-api#235). */
+  img_compression?: number | null;
   /** Which of the recipe's defaults the user changed, if any. */
   edited?: (string | null)[];
   graph_sha256?: string;
