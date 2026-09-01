@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip,
   CircularProgress, MenuItem, Stack, TextField, Typography,
@@ -9,7 +9,7 @@ import {
   type RecipeBook, type Character, type Pose,
 } from "../api/ltx";
 import { addSegment, createJob, getFileUrl } from "../api/client";
-import type { JobCreate, SegmentCreate } from "../api/types";
+import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
 
 /**
  * Pick a validated (character, pose) configuration and a start frame. Everything
@@ -43,6 +43,11 @@ export interface RecipeFormProps {
    *  every LTX render uploads its last frame — so the chain works without asking, and
    *  choosing one is an override rather than a requirement. */
   continueJobId?: string;
+  /** The segment a continuation follows. Its choices are the starting point for the next
+   *  one — a continuation almost always keeps the same character and LoRA strengths, and
+   *  making the user re-pick them from defaults every time is how a chain silently changes
+   *  configuration halfway through. */
+  initialFrom?: SegmentResponse | null;
 }
 
 /**
@@ -81,6 +86,7 @@ export default function RecipeForm({
   initialStartingImageUri,
   initialTags,
   continueJobId,
+  initialFrom,
 }: RecipeFormProps) {
   const continuing = Boolean(continueJobId);
   const compact = variant === "dialog";
@@ -152,6 +158,43 @@ export default function RecipeForm({
     setS2(String(character.strength_stage_2));
     setFrames(String(pose.frames));
   }, [pose, character]);
+
+  // ---- Prefill a continuation from the segment it follows -------------------------------
+  //
+  // Without this the dialog opened on defaults: first character, first pose, default
+  // strengths — so continuing a chain meant re-entering every choice, and forgetting one
+  // changed the configuration mid-chain without saying so.
+  //
+  // Two effects, because the pose/character defaults effect above fires in between. The first
+  // selects the same pose and character; that triggers the defaults; then the second restores
+  // what actually RAN, including anything the user had overridden. The ref makes it once-only,
+  // so changing the pose afterwards still resets to that pose's own defaults rather than
+  // dragging the old values along.
+  const prefilled = useRef(false);
+
+  useEffect(() => {
+    if (!book || prefilled.current) return;
+    const r = initialFrom?.ltx_recipe;
+    if (!r) return;
+    setCharacterName(r.character);
+    setPoseName(r.recipe);
+  }, [book, initialFrom]);
+
+  useEffect(() => {
+    if (prefilled.current) return;
+    const r = initialFrom?.ltx_recipe;
+    if (!r || !pose || !character) return;
+    // Only once the defaults for the RIGHT pose have landed, otherwise this overwrites
+    // values that are about to be replaced.
+    if (pose.name !== r.recipe || character.name !== r.character) return;
+    prefilled.current = true;
+    if (initialFrom?.prompt) setPrompt(initialFrom.prompt);
+    if (initialFrom?.negative_prompt) setNegative(initialFrom.negative_prompt);
+    if (r.char_lora) setCharLora(r.char_lora);
+    if (r.char_s1 != null) setS1(String(r.char_s1));
+    if (r.char_s2 != null) setS2(String(r.char_s2));
+    if (r.frames != null) setFrames(String(r.frames));
+  }, [initialFrom, pose, character]);
 
   // An image passed in from the Image Repo. Referenced, never re-uploaded.
   useEffect(() => {

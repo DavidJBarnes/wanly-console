@@ -97,8 +97,12 @@ export interface JobResponse {
 export interface SegmentResponse {
   id: string;
   job_id: string;
-  /** The seed this segment generated with, or null when it derives one from the job
-   *  (job.seed + index) — a segment that never asked for a particular seed.
+  /** The seed this segment generated with, or null when it derives one from the job — a
+   *  segment that never asked for a particular seed. Null is the normal case: the seed is
+   *  locked across a chain, so every live segment runs on job.seed. A segment carries its
+   *  own only when it is a discarded take, stamped at re-roll time with what it ran on.
+   *
+   *  This said "(job.seed + index)", which was the rule before the seed was locked.
    *
    *  A STRING: seeds are 64-bit and 95% of jobs have one above 2**53, so as a JSON number it
    *  would arrive rounded and display as a seed that never generated anything. */
@@ -117,6 +121,10 @@ export interface SegmentResponse {
   duration_seconds: number;
   speed: number;
   start_image: string | null;
+  /** Which validated (character, pose) configuration this segment ran, and any defaults the
+   *  user overrode. The API has always returned it; this type simply never declared it, so
+   *  the console could not read back what a segment was actually made of. */
+  ltx_recipe?: LtxRecipeRef | null;
   auto_finalize: boolean;
   transition: string | null;
   trim_start_frames: number;
