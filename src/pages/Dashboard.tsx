@@ -24,6 +24,21 @@ import { getStats, getWorkers, getSegmentRuntimes, type SegmentRuntimeGroup } fr
 import type { StatsResponse, WorkerResponse } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
 
+/** Clip length for the shape column.
+ *
+ * Under LTX the duration is derived, not chosen: 241 frames at 24 fps is
+ * 10.041666666666666 seconds, and printing it raw put sixteen decimals in the
+ * table. One decimal rather than none, because "nearly 10s" is a real
+ * distinction from a clip that is exactly 10s at some other frame rate, and
+ * this column exists to compare shapes.
+ *
+ * Display only — the row key still uses the raw value, so two clip lengths that
+ * differ past the decimal cannot collide into one row.
+ */
+function formatClipSeconds(seconds: number): string {
+  return `${seconds.toFixed(1)}s`;
+}
+
 function formatRunTime(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const m = Math.floor(seconds / 60);
@@ -209,7 +224,7 @@ export default function Dashboard() {
                   <TableRow key={`${r.gpu_name}-${r.width}x${r.height}-${r.clip_seconds}`}>
                     <TableCell>{r.gpu_name.replace("NVIDIA GeForce ", "")}</TableCell>
                     <TableCell>
-                      {r.width}&times;{r.height} · {r.clip_seconds}s
+                      {r.width}&times;{r.height} · {formatClipSeconds(r.clip_seconds)}
                     </TableCell>
                     <TableCell align="right">{r.samples}</TableCell>
                     <TableCell align="right">{formatRunTime(r.median_seconds)}</TableCell>
