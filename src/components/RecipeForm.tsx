@@ -15,10 +15,11 @@ import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
  * Pick a validated (character, pose) configuration and a start frame. Everything
  * else comes from the recipe.
  *
- * ONE component, rendered in two places — the Storyboard page and the New Job
- * dialog. Two hand-maintained copies of this form is exactly how the prompt and
- * the recipe drift apart, and this project has already paid for that once with
- * two copies of recipes.json.
+ * ONE component, rendered in two places — the New Job dialog and Next Segment.
+ * (A third, the Storyboard page, is gone: recipe renders go through the queue
+ * like anything else.) Two hand-maintained copies of this form is exactly how
+ * the prompt and the recipe drift apart, and this project has already paid for
+ * that once with two copies of recipes.json.
  *
  * It exposes very little on purpose. Across the validated recipes only the
  * character LoRA and the prompt ever varied; everything else is one global

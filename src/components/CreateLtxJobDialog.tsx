@@ -8,7 +8,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 /**
  * New Job, as an LTX recipe render.
  *
- * The same <RecipeForm /> the Storyboard page shows, in its compact variant —
+ * The same <RecipeForm /> Next Segment uses, in its compact variant —
  * one component, two places. The old CreateJobDialog is built around WAN 2.2:
  * high/low LoRA weights, video presets carrying lightx2v and cfg, a motion-speed
  * knob. None of that exists in LTX, and rebuilding an LTX version of that form
