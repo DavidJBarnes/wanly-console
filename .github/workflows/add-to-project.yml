@@ -1,0 +1,30 @@
+name: Add issues to Wanly22
+
+# Every issue opened in this repo lands on the board automatically.
+#
+# Written as an Action rather than configured in the project UI because the built-in
+# "Auto-add to project" workflow cannot be created through the API — GraphQL exposes only
+# deleteProjectV2Workflow — so a UI-configured one is invisible to review, cannot be diffed,
+# and has to be re-created by hand per repository. This file is the same behaviour, in the
+# repo it applies to.
+#
+# ISSUES ONLY, deliberately: a PR belongs to the board through its issue's "Linked pull
+# requests" field, not as an item of its own.
+#
+# Needs a token with `project` scope — GITHUB_TOKEN cannot write to a USER-owned project,
+# which is what Wanly22 is. Store a classic PAT (scopes: project, repo) as the repository or
+# organisation secret ADD_TO_PROJECT_PAT. Without it this job fails loudly on the first issue
+# rather than silently not adding anything, which is the failure mode worth avoiding.
+
+on:
+  issues:
+    types: [opened, reopened, transferred]
+
+jobs:
+  add-to-project:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/add-to-project@v1.0.2
+        with:
+          project-url: https://github.com/users/DavidJBarnes/projects/2
+          github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
