@@ -26,6 +26,14 @@ export interface LtxRecipeRef {
   /** Conditioning-frame CRF this render used. Recorded because it materially changes how
    *  long the start frame holds (wanly-api#235). */
   img_compression?: number | null;
+  /** The pose's content LoRA — motion and act — chained AHEAD of the character LoRA, which
+   *  is identity. Recorded because it materially changes the render and because a segment
+   *  must say what it actually ran: the recipe row can be edited afterwards. */
+  content_lora?: string | null;
+  /** Per stage. 0 is a real setting — LoRA loaded, no weight — so these are sent as-is
+   *  rather than being dropped when falsy. */
+  content_s1?: number | null;
+  content_s2?: number | null;
   /** Which of the recipe's defaults the user changed, if any. */
   edited?: (string | null)[];
   graph_sha256?: string;

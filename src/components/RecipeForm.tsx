@@ -244,6 +244,13 @@ export default function RecipeForm({
           // Carried so the render records the CRF it actually used, and so the engine can
           // apply a pose's override. Sent as-is including 0, which is a real setting.
           img_compression: pose.img_compression,
+          // The pose's content LoRA — motion and act — chained AHEAD of the character
+          // LoRA, which is identity. Recorded rather than looked up later: the recipe
+          // row can be edited afterwards, and a segment has to say what it actually ran.
+          content_lora: pose.content_lora,
+          // Sent as-is including 0, which is a real setting — LoRA loaded, no weight.
+          content_s1: pose.content_s1,
+          content_s2: pose.content_s2,
           edited: [
             prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,
             negative.trim() !== pose.negative_prompt.trim() ? "negative" : null,
@@ -296,6 +303,13 @@ export default function RecipeForm({
             // Carried so the render records the CRF it actually used, and so the engine
             // can apply a pose's override. Sent as-is including 0, a real setting.
             img_compression: pose.img_compression,
+            // The pose's content LoRA — motion and act — chained AHEAD of the character
+            // LoRA, which is identity. Recorded rather than looked up later: the recipe
+            // row can be edited afterwards, and a segment has to say what it actually ran.
+            content_lora: pose.content_lora,
+            // Sent as-is including 0, which is a real setting — LoRA loaded, no weight.
+            content_s1: pose.content_s1,
+            content_s2: pose.content_s2,
             edited:
               [
                 prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,

@@ -36,6 +36,7 @@ import {
   updatePose,
 } from "../api/ltx";
 import type { Character, Pose, RecipeBook } from "../api/ltx";
+import { overrideNumber } from "../lib/overrideValue";
 
 /**
  * Authoring poses and characters.
@@ -56,6 +57,10 @@ import type { Character, Pose, RecipeBook } from "../api/ltx";
 export default function LoraRecipes() {
   const [book, setBook] = useState<RecipeBook | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
+  // Content LoRAs are a different shelf in the bucket and a different axis entirely:
+  // character is WHO, content is WHAT IS HAPPENING. Fetched separately so a pose can never
+  // be offered an identity LoRA, nor a character a motion one.
+  const [contentLoras, setContentLoras] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +69,12 @@ export default function LoraRecipes() {
     try {
       const b = await listRecipes();
       setBook(b);
-      setLoras(await listLoras(b));
+      const [chars, contents] = await Promise.all([
+        listLoras(b, "character"),
+        listLoras(b, "content"),
+      ]);
+      setLoras(chars);
+      setContentLoras(contents);
       setError(null);
     } catch (e) {
       setError(ltxError(e));
@@ -101,7 +111,7 @@ export default function LoraRecipes() {
         </Alert>
       )}
 
-      <PoseList book={book} onChanged={load} />
+      <PoseList book={book} contentLoras={contentLoras} onChanged={load} />
       <Divider sx={{ my: 4 }} />
       <CharacterList book={book} loras={loras} onChanged={load} />
     </Box>
@@ -112,7 +122,15 @@ export default function LoraRecipes() {
 // Poses
 // ---------------------------------------------------------------------------------------
 
-function PoseList({ book, onChanged }: { book: RecipeBook | null; onChanged: () => void }) {
+function PoseList({
+  book,
+  contentLoras,
+  onChanged,
+}: {
+  book: RecipeBook | null;
+  contentLoras: string[];
+  onChanged: () => void;
+}) {
   const [editing, setEditing] = useState<Pose | "new" | null>(null);
   const [confirm, setConfirm] = useState<Pose | null>(null);
   const [busy, setBusy] = useState(false);
@@ -204,6 +222,7 @@ function PoseList({ book, onChanged }: { book: RecipeBook | null; onChanged: () 
         <PoseDialog
           pose={editing === "new" ? null : editing}
           characters={book?.characters ?? []}
+          contentLoras={contentLoras}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -234,11 +253,13 @@ function PoseList({ book, onChanged }: { book: RecipeBook | null; onChanged: () 
 function PoseDialog({
   pose,
   characters,
+  contentLoras,
   onClose,
   onSaved,
 }: {
   pose: Pose | null;
   characters: Character[];
+  contentLoras: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -252,6 +273,20 @@ function PoseDialog({
   // so this is deliberately not `pose?.img_compression ? ... : ""`.
   const [imgCompression, setImgCompression] = useState(
     pose?.img_compression != null ? String(pose.img_compression) : "",
+  );
+  // The pose's content LoRA. "" means "use the stack's value", which is "none" — the same
+  // empty-means-inherit convention as frames and img_compression above. The stack resolves
+  // it before it reaches here, so a pose with no override arrives as "none".
+  const [contentLora, setContentLora] = useState(
+    pose?.content_lora && pose.content_lora !== "none" ? pose.content_lora : "",
+  );
+  // Empty means the stack's 0.6. "0" is a real setting — LoRA loaded, no weight, which is
+  // how you measure its contribution — so this is not `pose?.content_s1 ? ... : ""`.
+  const [contentS1, setContentS1] = useState(
+    pose?.content_s1 != null ? String(pose.content_s1) : "",
+  );
+  const [contentS2, setContentS2] = useState(
+    pose?.content_s2 != null ? String(pose.content_s2) : "",
   );
   const [validated, setValidated] = useState(pose?.validated ?? false);
   const [previewChar, setPreviewChar] = useState(characters[0]?.id ?? "");
@@ -268,6 +303,16 @@ function PoseDialog({
   }, [template, previewChar, characters]);
 
   const save = async () => {
+    // Bounded at 2 to match the engine, which rejects anything higher with a 422 — ten
+    // minutes into a claimed segment, not here. Blank is fine and means "use the stack".
+    for (const [label, raw] of [["Stage 1", contentS1], ["Stage 2", contentS2]] as const) {
+      if (!raw.trim()) continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 2) {
+        setErr(`Content LoRA ${label} strength must be a number between 0 and 2.`);
+        return;
+      }
+    }
     setSaving(true);
     setErr(null);
     try {
@@ -278,8 +323,14 @@ function PoseDialog({
         // Sending "" instead would store an empty negative prompt, which is a different
         // and much worse thing.
         negative_prompt: negative.trim() || null,
-        frames: frames.trim() ? Number(frames) : null,
-        img_compression: imgCompression.trim() ? Number(imgCompression) : null,
+        frames: overrideNumber(frames),
+        img_compression: overrideNumber(imgCompression),
+        // "" clears the override and the pose falls back to the stack, which is "none".
+        // `.trim() ?` is safe for the strengths for the same reason it is for
+        // img_compression: "0" is a non-empty string, so a deliberate 0 survives.
+        content_lora: contentLora.trim() || null,
+        content_s1: overrideNumber(contentS1),
+        content_s2: overrideNumber(contentS2),
         validated,
       };
       if (isNew) await createPose(draft);
@@ -368,6 +419,53 @@ function PoseDialog({
               helperText="Video CRF for the start frame, 0–51. Empty = the stack's value (18). Lower holds the start frame longer; 0 skips the encode entirely."
             />
           </Stack>
+
+          {/* The content LoRA is the POSE's — motion and act — and is chained AHEAD of the
+              character LoRA, which is identity. Two different axes, so this list is filtered
+              to the bucket's content/ shelf and can never offer a character. */}
+          <Divider textAlign="left" sx={{ pt: 1 }}>
+            <Typography variant="overline" color="text.secondary">
+              Content LoRA
+            </Typography>
+          </Divider>
+          <TextField
+            select={contentLoras.length > 0}
+            label="Content LoRA"
+            value={contentLora}
+            onChange={(e) => setContentLora(e.target.value)}
+            fullWidth
+            helperText="Motion or act for this pose, chained ahead of the character LoRA. Empty = none, which is what every pose does today."
+          >
+            {/* An explicit way back to "no content LoRA" — a select with no empty option
+                cannot be cleared once something is chosen. */}
+            <MenuItem value="">
+              <em>None</em>
+            </MenuItem>
+            {contentLoras.map((l) => (
+              <MenuItem key={l} value={l}>
+                {l}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Stack direction="row" spacing={2}>
+            <TextField
+              label="Content stage 1"
+              value={contentS1}
+              onChange={(e) => setContentS1(e.target.value)}
+              disabled={!contentLora}
+              sx={{ maxWidth: 200 }}
+              helperText="Empty = 0.6. Shape and motion"
+            />
+            <TextField
+              label="Content stage 2"
+              value={contentS2}
+              onChange={(e) => setContentS2(e.target.value)}
+              disabled={!contentLora}
+              sx={{ maxWidth: 200 }}
+              helperText="Empty = 0.6. Detail"
+            />
+          </Stack>
+
           <FormControlLabel
             control={
               <Checkbox checked={validated} onChange={(e) => setValidated(e.target.checked)} />
