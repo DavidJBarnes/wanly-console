@@ -519,6 +519,16 @@ function CharacterDialog({
   const [err, setErr] = useState<string | null>(null);
 
   const save = async () => {
+    // Number("") is 0, and a strength of 0 is a LoRA that is loaded and does nothing: the
+    // render succeeds, costs its full ten minutes, and comes back as the base model with
+    // none of the character in it. That reads as "the LoRA is bad", not "the field was
+    // blank", so it is caught here rather than left to look like a training problem.
+    const n1 = Number(s1);
+    const n2 = Number(s2);
+    if (!Number.isFinite(n1) || !Number.isFinite(n2) || n1 <= 0 || n2 <= 0) {
+      setErr("Both strengths must be numbers greater than 0.");
+      return;
+    }
     setSaving(true);
     setErr(null);
     try {
@@ -528,8 +538,8 @@ function CharacterDialog({
           char_lora: lora.trim(),
           // Absent means "no opinion" and the API defaults it to the name.
           trigger: trigger.trim() || null,
-          strength_stage_1: Number(s1),
-          strength_stage_2: Number(s2),
+          strength_stage_1: n1,
+          strength_stage_2: n2,
         });
       } else {
         await updateCharacter(character!.id, {
@@ -538,8 +548,8 @@ function CharacterDialog({
           // Only sent when non-empty: on update an absent trigger means "leave it alone",
           // and clearing it here must not silently rewrite it to the (possibly new) name.
           ...(trigger.trim() ? { trigger: trigger.trim() } : {}),
-          strength_stage_1: Number(s1),
-          strength_stage_2: Number(s2),
+          strength_stage_1: n1,
+          strength_stage_2: n2,
         });
       }
       onSaved();
