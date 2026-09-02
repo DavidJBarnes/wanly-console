@@ -1,5 +1,6 @@
 import axios from "axios";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
+import { mergeLoraOptions } from "../lib/loraOptions";
 
 /**
  * LTX 2.3 recipes.
@@ -8,9 +9,10 @@ import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
  * authored them in an .ods, which was a test harness that became load-bearing;
  * the sheet does not come with them.
  *
- * Its own axios instance rather than the shared one from client.ts, because the
- * engine calls below must never carry the console's bearer token to a different
- * host, and a 401 from the engine must never sign the user out of the console.
+ * Its own axios instance rather than the shared one from client.ts. This used to be
+ * because the engine calls below must not carry the console's bearer token to another
+ * host; those calls are gone (#395), but the separate instance stays — a 401 from a
+ * recipe call still must not sign the user out of the console.
  */
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "/api",
@@ -20,12 +22,6 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY);
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
-});
-
-/** ltx-engine, for the LoRA list only. Reachable in dev; not from the deployed site. */
-const ltx = axios.create({
-  baseURL: import.meta.env.VITE_LTX_URL || "/ltx",
-  timeout: 20_000,
 });
 
 /**
@@ -112,20 +108,29 @@ export async function listRecipes(): Promise<RecipeBook> {
  * Two sources, unioned, because neither alone is right. The book names every
  * LoRA in use and is reachable everywhere. The engine knows what is ACTUALLY on
  * disk — including checkpoints being evaluated that no recipe references yet —
- * but only answers in dev.
+ * Union of the bucket and the book. The bucket supplies LoRAs not yet used by any
+ * character — the entire point of the dropdown — while the book keeps a character's
+ * OWN LoRA on the list even if the file has since left the bucket, so opening its edit
+ * dialog cannot silently blank the field and save the blank back.
  *
- * So the engine is a bonus, not a dependency: unreachable, the dropdown still
- * offers everything the book knows about rather than going empty.
+ * A failure here propagates rather than returning []: an empty list renders as a free
+ * text field, which looks like a working form and is how a typo'd LoRA name reaches a
+ * worker. Better to show the error.
  */
 export async function listLoras(book: RecipeBook | null): Promise<string[]> {
-  const names = new Set<string>((book?.characters ?? []).map((c) => c.char_lora));
-  try {
-    const { data } = await ltx.get<{ loras: { name: string }[] }>("/loras");
-    for (const l of data.loras) names.add(l.name.replace(/\.safetensors$/, ""));
-  } catch {
-    // Expected wherever the engine is unreachable. The book's LoRAs still show.
-  }
-  return [...names].sort();
+  // The bucket is the source of truth, because it is the same list a worker syncs from:
+  // what you can PICK here is what a worker can actually FETCH. Anything else and the
+  // dropdown offers a LoRA that fails ten minutes into a claimed segment.
+  //
+  // This used to ask ltx-engine, which only answers in dev. From the deployed console the
+  // call always failed, so the list silently fell back to the LoRAs that were ALREADY
+  // characters — you could only ever pick what you already had, which made adding a new
+  // one impossible in the one place built for it. See #395.
+  const { data } = await api.get<{ name: string }[]>("/loras");
+  return mergeLoraOptions(
+    (book?.characters ?? []).map((c) => c.char_lora),
+    data.map((l) => l.name),
+  );
 }
 
 export function ltxError(err: unknown): string {
