@@ -30,7 +30,6 @@ import {
   listRecipes,
   ltxError,
   poseWarnings,
-  renderPrompt,
   TRIGGER_PLACEHOLDER,
   updateCharacter,
   updatePose,
@@ -289,7 +288,6 @@ function PoseDialog({
     pose?.content_s2 != null ? String(pose.content_s2) : "",
   );
   const [validated, setValidated] = useState(pose?.validated ?? false);
-  const [previewChar, setPreviewChar] = useState(characters[0]?.id ?? "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -297,10 +295,6 @@ function PoseDialog({
     () => poseWarnings(template, characters),
     [template, characters],
   );
-  const preview = useMemo(() => {
-    const c = characters.find((x) => x.id === previewChar);
-    return c ? renderPrompt(template, c.trigger) : template;
-  }, [template, previewChar, characters]);
 
   const save = async () => {
     // Bounded at 2 to match the engine, which rejects anything higher with a 422 — ten
@@ -371,28 +365,6 @@ function PoseDialog({
               {w}
             </Alert>
           ))}
-
-          {characters.length > 0 && (
-            <Box>
-              <TextField
-                select
-                size="small"
-                label="Preview as"
-                value={previewChar}
-                onChange={(e) => setPreviewChar(e.target.value)}
-                sx={{ minWidth: 200, mb: 1 }}
-              >
-                {characters.map((c) => (
-                  <MenuItem key={c.id} value={c.id}>
-                    {c.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <Card variant="outlined" sx={{ p: 1.5, bgcolor: "action.hover" }}>
-                <Typography variant="body2">{preview}</Typography>
-              </Card>
-            </Box>
-          )}
 
           <TextField
             label="Negative prompt"
