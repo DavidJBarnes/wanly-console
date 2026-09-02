@@ -117,19 +117,46 @@ export async function listRecipes(): Promise<RecipeBook> {
  * text field, which looks like a working form and is how a typo'd LoRA name reaches a
  * worker. Better to show the error.
  */
-export async function listLoras(book: RecipeBook | null): Promise<string[]> {
-  // The bucket is the source of truth, because it is the same list a worker syncs from:
-  // what you can PICK here is what a worker can actually FETCH. Anything else and the
-  // dropdown offers a LoRA that fails ten minutes into a claimed segment.
-  //
-  // This used to ask ltx-engine, which only answers in dev. From the deployed console the
-  // call always failed, so the list silently fell back to the LoRAs that were ALREADY
-  // characters — you could only ever pick what you already had, which made adding a new
-  // one impossible in the one place built for it. See #395.
-  const { data } = await api.get<{ name: string }[]>("/loras");
+/** One object in the LoRA bucket. `name` is the bare filename; `kind` is its shelf. */
+export interface LoraObject {
+  name: string;
+  kind: string;
+  key: string;
+  size: number;
+  etag: string;
+  multipart: boolean;
+  uri: string;
+}
+
+export async function listLoraObjects(): Promise<LoraObject[]> {
+  const { data } = await api.get<LoraObject[]>("/loras");
+  return data;
+}
+
+/**
+ * LoRA names to offer, for one KIND.
+ *
+ * The two kinds answer different questions and are never interchangeable: `character` is
+ * WHO (identity, chosen on a character row), `content` is WHAT IS HAPPENING (motion/act,
+ * chosen on a recipe). Offering one where the other belongs produces a render that
+ * succeeds and is wrong, so the filter is not cosmetic.
+ *
+ * The bucket is the source of truth because it is the same list a worker syncs from: what
+ * you can PICK is what a worker can FETCH. This used to ask ltx-engine, which only answers
+ * in dev — from the deployed console that call always failed and the list fell back to
+ * LoRAs that were ALREADY characters, so you could only pick what you already had.
+ */
+export async function listLoras(
+  book: RecipeBook | null,
+  kind: "character" | "content" = "character",
+): Promise<string[]> {
+  const objs = await listLoraObjects();
+  // Only character LoRAs union with the book: a character's own char_lora must stay
+  // pickable even once its file leaves the bucket, but that has no meaning for content.
+  const fromBook = kind === "character" ? (book?.characters ?? []).map((c) => c.char_lora) : [];
   return mergeLoraOptions(
-    (book?.characters ?? []).map((c) => c.char_lora),
-    data.map((l) => l.name),
+    fromBook,
+    objs.filter((o) => o.kind === kind).map((o) => o.name),
   );
 }
 
