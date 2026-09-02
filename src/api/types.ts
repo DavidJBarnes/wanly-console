@@ -304,10 +304,43 @@ export interface WorkerResponse {
   gpu_stats: GpuStats | null;
   sd_scripts: SdScripts | null;
   a1111: A1111 | null;
+  /** What this worker's LoRA directory held as of its LAST SYNC — a cached verdict, not a
+   *  live check: verifying one LoRA means hashing 650 MB. null means never reported (or an
+   *  older daemon), which is not the same as an empty inventory. See daemon#165. */
+  loras: WorkerLoras | null;
   drain_after_jobs: number | null;
   last_heartbeat: string;
   registered_at: string;
   updated_at: string;
+}
+
+
+/**
+ * A worker's LoRA inventory, as of `synced_at`.
+ *
+ * The states carry INTENT, not just presence — which is the whole reason this is worth
+ * rendering. Since the boot sync stopped eagerly fetching content LoRAs, an absent one is
+ * NORMAL, and a page that paints it as a fault would be amber on every worker forever. At
+ * that point nobody reads it, and `stale` — the state actually worth seeing — is lost.
+ */
+export interface WorkerLoras {
+  synced_at: string | null;
+  dir: string | null;
+  items: WorkerLoraItem[];
+}
+
+export interface WorkerLoraItem {
+  name: string;
+  kind: string;
+  /**
+   * current       present, md5 matches the bucket ETag
+   * deferred      absent BY DESIGN — a content LoRA, fetched on first use
+   * unverifiable  present, but a multipart ETag means the check was size-only
+   * stale         present and the content DIFFERS — renders the wrong thing, successfully
+   * missing       should be here and is not
+   */
+  state: "current" | "deferred" | "unverifiable" | "stale" | "missing";
+  note?: string;
 }
 
 export type WorkerStatus = "online-idle" | "online-busy" | "offline" | "draining";

@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   Box,
+  Chip,
+  Stack,
   Typography,
   Card,
   CardContent,
@@ -19,6 +21,7 @@ import { ArrowBack, Circle, LinearScale } from "@mui/icons-material";
 import { useParams, Link as RouterLink } from "react-router";
 import { useGoBack } from "../hooks/useGoBack";
 import { getWorker, getWorkerSegments } from "../api/client";
+import { orderForDisplay, severityOf, summarise } from "../lib/loraInventory";
 import StatusChip from "../components/StatusChip";
 import type { WorkerResponse, WorkerStatus, WorkerSegmentResponse } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
@@ -196,6 +199,60 @@ export default function WorkerDetail() {
           >
             ID: {worker.id}
           </Typography>
+        </CardContent>
+      </Card>
+
+      {/* LoRA inventory. Rendered from what the worker REPORTED, never diffed here — only
+          the worker can see its own disk, and a second implementation of "is this current"
+          would drift from the daemon's. */}
+      <Card sx={{ mt: 3 }}>
+        <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid", borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>
+          <Typography variant="h6" sx={{ flexGrow: 1 }}>LoRAs</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {summarise(worker.loras)}
+          </Typography>
+        </Box>
+        <CardContent>
+          {!worker.loras ? (
+            <Typography variant="body2" color="text.secondary">
+              This worker has not reported a LoRA inventory. Older daemons do not send one.
+            </Typography>
+          ) : (
+            <>
+              {/* The timestamp is not decoration. This is a cached verdict from the last
+                  sync — verifying a LoRA means hashing 650 MB, so it cannot be live — and
+                  presenting it as current truth without saying when would be misleading. */}
+              <Typography variant="caption" color="text.secondary">
+                As of {worker.loras.synced_at ? new Date(worker.loras.synced_at).toLocaleString() : "unknown"}
+                {worker.loras.dir ? ` · ${worker.loras.dir}` : ""}
+              </Typography>
+              <Stack spacing={0.5} sx={{ mt: 1.5 }}>
+                {orderForDisplay(worker.loras.items ?? []).map((l) => {
+                  const sev = severityOf(l.state);
+                  return (
+                    <Stack key={`${l.kind}/${l.name}`} direction="row" alignItems="center" spacing={1.5}>
+                      <Chip
+                        size="small"
+                        label={l.state}
+                        color={sev === "alarm" ? "error" : sev === "note" ? "warning" : "default"}
+                        variant={sev === "ok" ? "outlined" : "filled"}
+                        sx={{ minWidth: 104 }}
+                      />
+                      <Typography variant="body2" sx={{ flexGrow: 1, minWidth: 0 }} noWrap>
+                        {l.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">{l.kind}</Typography>
+                      {l.note && (
+                        <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 280 }} noWrap>
+                          {l.note}
+                        </Typography>
+                      )}
+                    </Stack>
+                  );
+                })}
+              </Stack>
+            </>
+          )}
         </CardContent>
       </Card>
 
