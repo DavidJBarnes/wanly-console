@@ -8,7 +8,7 @@ import {
   listRecipes, listLoras, ltxError, renderPrompt,
   type RecipeBook, type Character, type Pose,
 } from "../api/ltx";
-import { addSegment, createJob, getFileUrl } from "../api/client";
+import { addSegment, createJob, describeImage, getFileUrl } from "../api/client";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
 
 /**
@@ -60,6 +60,9 @@ export interface RecipeFormProps {
  * is the shape that dropped ltx_recipe from segment 0: two paths doing one job,
  * and only one of them maintained.
  */
+/** Filled at submit with a description of the segment's start frame. console#405. */
+const SCENE_TOKEN = "<SCENE>";
+
 type StartFrame =
   | { kind: "file"; file: File; previewUrl: string }
   | { kind: "uri"; uri: string; previewUrl: string };
@@ -97,6 +100,12 @@ export default function RecipeForm({
   const [characterName, setCharacterName] = useState("");
   const [poseName, setPoseName] = useState("");
   const [start, setStart] = useState<StartFrame | null>(null);
+  // <SCENE> preview (console#405). Only for a start frame already in S3: a freshly picked
+  // file has not been uploaded yet, so there is nothing for the captioner to fetch. That
+  // case still works -- the API resolves the placeholder at claim time once the upload has
+  // landed -- it just cannot be previewed here.
+  const [describing, setDescribing] = useState(false);
+  const [describeError, setDescribeError] = useState<string | null>(null);
 
   // Pre-filled from the recipe, editable. Editing means this is no longer the
   // validated configuration — which is recorded, not prevented.
@@ -347,6 +356,28 @@ export default function RecipeForm({
     ? prompt.trim() !== renderedPrompt.trim() || negative.trim() !== pose.negative_prompt.trim()
     : false;
 
+  // Replace <SCENE> in the editable prompt with a description of the chosen start frame.
+  // Deliberately a manual action rather than automatic: the prompt is the single biggest
+  // determinant of output quality, and silently rewriting it would make a disappointing
+  // render impossible to attribute. The person sees the words before they are used.
+  const handleDescribe = async () => {
+    if (start?.kind !== "uri") return;
+    setDescribing(true);
+    setDescribeError(null);
+    try {
+      const { caption } = await describeImage({ image_uri: start.uri });
+      setPrompt((p) => p.split(SCENE_TOKEN).join(caption));
+    } catch (e) {
+      // Never blocks submission. Left unresolved, the API fills it in at claim time; failing
+      // that it drops the placeholder for a valid generic prompt.
+      setDescribeError(
+        ltxError(e) + " -- you can still submit; it will be described when the segment runs.",
+      );
+    } finally {
+      setDescribing(false);
+    }
+  };
+
   return (
     <Stack spacing={compact ? 1.5 : 2}>
       {error && <Alert severity="error">{error}</Alert>}
@@ -424,6 +455,33 @@ export default function RecipeForm({
             size={compact ? "small" : "medium"}
             onChange={(e) => setPrompt(e.target.value)}
           />
+          {/* Offered only while the placeholder is actually present -- once replaced there
+              is nothing left to fill, and the caption is ordinary editable text like the
+              rest of the prompt. */}
+          {prompt.includes(SCENE_TOKEN) && (
+            <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={handleDescribe}
+                disabled={describing || start?.kind !== "uri"}
+              >
+                {describing ? "Describing..." : "Describe start frame"}
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                {start?.kind === "uri"
+                  ? "Replaces <SCENE> with a description of this frame. Edit it afterwards like any other text."
+                  : start
+                    ? "Available once the frame is saved -- it is described automatically when the segment runs."
+                    : "Pick a start frame first."}
+              </Typography>
+            </Stack>
+          )}
+          {describeError && (
+            <Alert severity="warning" onClose={() => setDescribeError(null)}>
+              {describeError}
+            </Alert>
+          )}
           <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
             <TextField
               select label="Char LoRA" value={charLora}
