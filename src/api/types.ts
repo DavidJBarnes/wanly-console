@@ -449,15 +449,25 @@ export interface FramePreviewResponse {
   frames: FramePreview[];
 }
 
+/** How verbose a <SCENE> description should be. See console#405. */
+export type CaptionStyle = "terse" | "standard" | "rich" | "raw";
+
+/**
+ * Global app settings.
+ *
+ * The WAN 2.2 fields that used to live here — cfg_high/low, lightx2v_strength_high/low,
+ * steps_total, high_noise_steps, flow_shift — are gone (console#390). The API stopped
+ * returning them when WAN was retired, but this type kept declaring them, so TypeScript
+ * believed they were numbers while at runtime they were undefined. Nothing errored: the
+ * store did String(undefined) and stored the string "undefined".
+ */
 export interface AppSettingsResponse {
-  cfg_high: number;
-  cfg_low: number;
-  lightx2v_strength_high: number;
-  lightx2v_strength_low: number;
-  steps_total: number;
-  high_noise_steps: number;
-  flow_shift: number;
   negative_prompt: string;
+  caption_style: CaptionStyle;
+  /** Empty means "use the style". Non-empty overrides it. */
+  caption_instruction: string;
+  /** Read-only: what each style asks for, so the UI need not restate it. */
+  caption_style_prompts?: Record<string, string>;
 }
 
 export interface FavoriteToggleRequest {
@@ -497,14 +507,11 @@ export interface FavoriteListResponse {
 }
 
 export interface AppSettingsUpdate {
-  cfg_high?: number;
-  cfg_low?: number;
-  lightx2v_strength_high?: number;
-  lightx2v_strength_low?: number;
-  steps_total?: number;
-  high_noise_steps?: number;
-  flow_shift?: number;
   negative_prompt?: string;
+  caption_style?: CaptionStyle;
+  /** "" clears a custom instruction and falls back to the style; undefined leaves it alone.
+   *  Those are different intents and the API distinguishes them. */
+  caption_instruction?: string;
 }
 
 /** Body for POST /jobs/{id}/reroll.
