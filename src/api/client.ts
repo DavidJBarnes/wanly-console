@@ -435,6 +435,24 @@ export async function uploadImage(file: File, folder: string): Promise<{ path: s
 
 // --- App Settings ---
 
+/**
+ * Describe a start frame, for the <SCENE> placeholder (console#405).
+ *
+ * The "a human is present" half: the console shows the caption, the person edits or accepts
+ * it, and the RESOLVED text is submitted. Continuations have no human and no frame yet, so
+ * the API resolves those itself at claim time.
+ *
+ * Nothing is stored by this call — a caption the user rejects must leave no trace.
+ */
+export async function describeImage(body: {
+  image_uri: string;
+  style?: string;
+  instruction?: string;
+}): Promise<{ caption: string; instruction: string; words: number }> {
+  const { data } = await api.post("/captions/describe", body);
+  return data;
+}
+
 export async function getAppSettings(): Promise<AppSettingsResponse> {
   const { data } = await api.get<AppSettingsResponse>("/settings");
   return data;

@@ -7,6 +7,7 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  MenuItem,
   TextField,
   Typography,
   useMediaQuery,
@@ -14,6 +15,7 @@ import {
 } from "@mui/material";
 import { useTagStore } from "../stores/tagStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import type { CaptionStyle } from "../api/types";
 
 export default function SettingsPage() {
   const theme = useTheme();
@@ -24,10 +26,15 @@ export default function SettingsPage() {
   const [input2, setInput2] = useState("");
   const {
     negativePrompt,
+    captionStyle,
+    captionInstruction,
+    captionStylePrompts,
     loaded,
     fetchSettings,
     saveSettings,
     setNegativePrompt,
+    setCaptionStyle,
+    setCaptionInstruction,
   } = useSettingsStore();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -55,6 +62,10 @@ export default function SettingsPage() {
     try {
       await saveSettings({
         negative_prompt: negativePrompt,
+        caption_style: captionStyle,
+        // Sent even when empty: "" is how a custom instruction is CLEARED, and the API
+        // distinguishes that from undefined, which means "leave it alone".
+        caption_instruction: captionInstruction,
       });
       setSaved(true);
     } catch (err) {
@@ -169,6 +180,70 @@ export default function SettingsPage() {
               </Box>
             </Box>
           </Box>
+        </CardContent>
+      </Card>
+
+      {/* Start-frame descriptions. A recipe can carry <SCENE>, which is replaced at
+          submission with a description of the frame the segment actually starts on — see
+          console#405. These settings control how much the captioner says. */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
+            Start-frame descriptions
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            A recipe containing <code>&lt;SCENE&gt;</code> has it replaced with a description
+            of that segment&rsquo;s start frame. Recipes are written to fit any character and
+            any frame, so their own scene wording is a guess; this replaces it with what the
+            image actually shows. The arc &mdash; what happens &mdash; is left untouched.
+          </Typography>
+          <TextField
+            select
+            size="small"
+            label="Detail level"
+            value={captionStyle}
+            onChange={(e) => setCaptionStyle(e.target.value as CaptionStyle)}
+            disabled={!!captionInstruction.trim()}
+            sx={{ minWidth: 260 }}
+            helperText={
+              captionInstruction.trim()
+                ? "Ignored while a custom instruction is set"
+                : "Longer is not automatically better — the description sits beside the recipe's own arc, and a long one can outweigh it."
+            }
+          >
+            <MenuItem value="terse">Terse — about 25 words</MenuItem>
+            <MenuItem value="standard">Standard — about 40 words (recommended)</MenuItem>
+            <MenuItem value="rich">Rich — about 80 words</MenuItem>
+            <MenuItem value="raw">Raw — the captioner&rsquo;s own voice, longest</MenuItem>
+          </TextField>
+
+          {/* Shown rather than described: "rich" means nothing until you can see that it
+              asks for hair, hands and lighting. */}
+          {captionStylePrompts[captionStyle] && !captionInstruction.trim() && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mt: 1, maxWidth: 640, fontStyle: "italic" }}
+            >
+              Asks for: {captionStylePrompts[captionStyle]}
+            </Typography>
+          )}
+
+          <TextField
+            label="Custom instruction (optional)"
+            size="small"
+            multiline
+            minRows={2}
+            maxRows={6}
+            value={captionInstruction}
+            onChange={(e) => setCaptionInstruction(e.target.value)}
+            sx={{ mt: 2, width: "100%", maxWidth: 640 }}
+            helperText={
+              "Overrides the detail level entirely. Leave empty to use the preset. " +
+              "Note the presets also tell the captioner to ignore watermarks, on-image text " +
+              "and picture frames — worth repeating here, or it will describe them."
+            }
+          />
         </CardContent>
       </Card>
 

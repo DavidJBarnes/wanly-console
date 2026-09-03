@@ -1,77 +1,64 @@
 import { create } from "zustand";
 import { getAppSettings, updateAppSettings } from "../api/client";
-import type { AppSettingsUpdate } from "../api/types";
+import type { AppSettingsUpdate, CaptionStyle } from "../api/types";
 
+/**
+ * Global app settings.
+ *
+ * This store used to carry seven WAN 2.2 fields — lightx2v_strength_high/low, cfg_high/low,
+ * steps_total, high_noise_steps, flow_shift — that the API stopped returning when WAN was
+ * retired. Nothing failed: `String(undefined)` is the string "undefined", so the store held
+ * plausible-looking values that were never real, and TypeScript could not catch it because
+ * the response type still declared the fields. Removed (console#390).
+ */
 interface SettingsState {
-  defaultLightx2vHigh: string;
-  defaultLightx2vLow: string;
-  defaultCfgHigh: string;
-  defaultCfgLow: string;
-  defaultStepsTotal: string;
-  defaultHighNoiseSteps: string;
-  defaultFlowShift: string;
   negativePrompt: string;
+  /** How verbose <SCENE> descriptions are (console#405). */
+  captionStyle: CaptionStyle;
+  /** Non-empty overrides the style entirely. */
+  captionInstruction: string;
+  /** What each style actually asks the captioner for, so the UI can show it. */
+  captionStylePrompts: Record<string, string>;
   loaded: boolean;
   fetchSettings: () => Promise<void>;
   saveSettings: (updates: AppSettingsUpdate) => Promise<void>;
-  setDefaultLightx2vHigh: (value: string) => void;
-  setDefaultLightx2vLow: (value: string) => void;
-  setDefaultCfgHigh: (value: string) => void;
-  setDefaultCfgLow: (value: string) => void;
-  setDefaultStepsTotal: (value: string) => void;
-  setDefaultHighNoiseSteps: (value: string) => void;
-  setDefaultFlowShift: (value: string) => void;
   setNegativePrompt: (value: string) => void;
+  setCaptionStyle: (value: CaptionStyle) => void;
+  setCaptionInstruction: (value: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()((set) => ({
-  defaultLightx2vHigh: "2.0",
-  defaultLightx2vLow: "1.0",
-  defaultCfgHigh: "1",
-  defaultCfgLow: "1",
-  defaultStepsTotal: "4",
-  defaultHighNoiseSteps: "2",
-  defaultFlowShift: "5",
   negativePrompt: "",
+  captionStyle: "standard",
+  captionInstruction: "",
+  captionStylePrompts: {},
   loaded: false,
   fetchSettings: async () => {
     try {
       const s = await getAppSettings();
       set({
-        defaultLightx2vHigh: String(s.lightx2v_strength_high),
-        defaultLightx2vLow: String(s.lightx2v_strength_low),
-        defaultCfgHigh: String(s.cfg_high),
-        defaultCfgLow: String(s.cfg_low),
-        defaultStepsTotal: String(s.steps_total),
-        defaultHighNoiseSteps: String(s.high_noise_steps),
-        defaultFlowShift: String(s.flow_shift),
         negativePrompt: s.negative_prompt,
+        captionStyle: s.caption_style,
+        captionInstruction: s.caption_instruction,
+        captionStylePrompts: s.caption_style_prompts ?? {},
         loaded: true,
       });
     } catch {
-      // Use defaults if API is unreachable
+      // Defaults stand if the API is unreachable. `loaded` still flips so the page renders
+      // its form rather than spinning forever on a request that will not arrive.
       set({ loaded: true });
     }
   },
   saveSettings: async (updates) => {
     const s = await updateAppSettings(updates);
     set({
-      defaultLightx2vHigh: String(s.lightx2v_strength_high),
-      defaultLightx2vLow: String(s.lightx2v_strength_low),
-      defaultCfgHigh: String(s.cfg_high),
-      defaultCfgLow: String(s.cfg_low),
-      defaultStepsTotal: String(s.steps_total),
-      defaultHighNoiseSteps: String(s.high_noise_steps),
-      defaultFlowShift: String(s.flow_shift),
       negativePrompt: s.negative_prompt,
+      captionStyle: s.caption_style,
+      captionInstruction: s.caption_instruction,
+      captionStylePrompts: s.caption_style_prompts ?? {},
     });
   },
-  setDefaultLightx2vHigh: (value) => set({ defaultLightx2vHigh: value }),
-  setDefaultLightx2vLow: (value) => set({ defaultLightx2vLow: value }),
-  setDefaultCfgHigh: (value) => set({ defaultCfgHigh: value }),
-  setDefaultCfgLow: (value) => set({ defaultCfgLow: value }),
-  setDefaultStepsTotal: (value) => set({ defaultStepsTotal: value }),
-  setDefaultHighNoiseSteps: (value) => set({ defaultHighNoiseSteps: value }),
-  setDefaultFlowShift: (value) => set({ defaultFlowShift: value }),
   setNegativePrompt: (value) => set({ negativePrompt: value }),
+  setCaptionStyle: (value) => set({ captionStyle: value }),
+  setCaptionInstruction: (value) => set({ captionInstruction: value }),
 }));
