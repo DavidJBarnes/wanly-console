@@ -173,6 +173,22 @@ export async function listLoras(
   );
 }
 
+/**
+ * Base models a pose can be rendered on.
+ *
+ * The union of what LIVE workers report, not a list held anywhere. A checkpoint is a 46 GB
+ * file on a GPU box, so whether one is loadable is a fact about that box — and the engine
+ * binds to localhost, so workers report it through their heartbeat.
+ *
+ * Offline workers are excluded deliberately: offering a checkpoint that exists only on a box
+ * which is not running produces a job nothing can claim, which is a queue that silently
+ * stops rather than an error.
+ */
+export async function listCheckpoints(): Promise<{ checkpoints: string[]; default: string }> {
+  const { data } = await api.get<{ checkpoints: string[]; default: string }>("/ltx/checkpoints");
+  return data;
+}
+
 export function ltxError(err: unknown): string {
   if (axios.isAxiosError(err)) {
     const d = err.response?.data?.detail;

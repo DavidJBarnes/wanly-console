@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
   Card,
@@ -28,6 +27,7 @@ import {
   deleteCharacter,
   deletePose,
   listLoras,
+  listCheckpoints,
   listRecipes,
   ltxError,
   poseWarnings,
@@ -54,21 +54,6 @@ import { overrideNumber } from "../lib/overrideValue";
  * rather than one with a `resolve` flag, because a flag is how they would quietly become
  * the same component again.
  */
-/** Base models present on the 3090 as of 2026-09-03.
- *
- *  A hint list, not a constraint — the field is free text. These live as 46 GB files on the
- *  GPU box rather than in S3, and the engine binds to localhost, so nothing upstream can
- *  enumerate them; this has to be updated by hand when the set changes. A worker could
- *  report them through its heartbeat the way it now reports LoRAs, which would make this
- *  list real rather than remembered.
- */
-const KNOWN_CHECKPOINTS = [
-  "sulphur_dev_bf16",
-  "10Eros_v1.5_bf16",
-  "ltx-2.3-22b-dev",
-  "ltx-2.3-22b-distilled-1.1",
-];
-
 export default function LoraRecipes() {
   const [book, setBook] = useState<RecipeBook | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
@@ -76,6 +61,10 @@ export default function LoraRecipes() {
   // character is WHO, content is WHAT IS HAPPENING. Fetched separately so a pose can never
   // be offered an identity LoRA, nor a character a motion one.
   const [contentLoras, setContentLoras] = useState<string[]>([]);
+  // Base models, from what live workers report. Not a constant: a checkpoint is a 46 GB
+  // file on a GPU box, and which ones exist is a fact about the fleet rather than about
+  // this code. See console#404.
+  const [checkpoints, setCheckpoints] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,6 +79,14 @@ export default function LoraRecipes() {
       ]);
       setLoras(chars);
       setContentLoras(contents);
+      try {
+        setCheckpoints((await listCheckpoints()).checkpoints);
+      } catch {
+        // Non-fatal: the field falls back to "stack default" only, which is what every
+        // existing pose already uses. A recipe page that will not load because the fleet is
+        // down would be a worse outcome than a shorter dropdown.
+        setCheckpoints([]);
+      }
       setError(null);
     } catch (e) {
       setError(ltxError(e));
@@ -126,7 +123,7 @@ export default function LoraRecipes() {
         </Alert>
       )}
 
-      <PoseList book={book} contentLoras={contentLoras} onChanged={load} />
+      <PoseList book={book} contentLoras={contentLoras} checkpoints={checkpoints} onChanged={load} />
       <Divider sx={{ my: 4 }} />
       <CharacterList book={book} loras={loras} onChanged={load} />
     </Box>
@@ -140,10 +137,12 @@ export default function LoraRecipes() {
 function PoseList({
   book,
   contentLoras,
+  checkpoints,
   onChanged,
 }: {
   book: RecipeBook | null;
   contentLoras: string[];
+  checkpoints: string[];
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState<Pose | "new" | null>(null);
@@ -238,6 +237,7 @@ function PoseList({
           pose={editing === "new" ? null : editing}
           characters={book?.characters ?? []}
           contentLoras={contentLoras}
+          checkpoints={checkpoints}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -269,12 +269,14 @@ function PoseDialog({
   pose,
   characters,
   contentLoras,
+  checkpoints,
   onClose,
   onSaved,
 }: {
   pose: Pose | null;
   characters: Character[];
   contentLoras: string[];
+  checkpoints: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -459,25 +461,27 @@ function PoseDialog({
             />
           </Stack>
 
-          {/* Base model. Free text with suggestions rather than a fixed list: the
-              checkpoints are 46 GB files on the GPU box, not in S3, and the engine binds
-              to localhost so the API cannot enumerate them. The engine validates the name
-              and fails loudly if it is wrong, so a typo costs a clear error rather than a
-              bad render. */}
-          <Autocomplete
-            freeSolo
-            options={KNOWN_CHECKPOINTS}
-            value={checkpoint}
-            onInputChange={(_, v) => setCheckpoint(v)}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Base model"
-                helperText="Empty = the stack's default (sulphur_dev_bf16). Character LoRAs were trained against sulphur — on another base a LoRA can fuse nothing at all and the render comes back without the character. Check the segment log for 'fuses N/M weights'."
-              />
-            )}
+          {/* Base model. A real dropdown, from what live workers report through their
+              heartbeats — the engine binds to localhost so nothing upstream can enumerate
+              these, and a hand-maintained list would drift from the boxes it describes. */}
+          <TextField
+            select
+            label="Base model"
+            value={checkpoints.includes(checkpoint) ? checkpoint : ""}
+            onChange={(e) => setCheckpoint(e.target.value)}
+            fullWidth
             sx={{ maxWidth: 640 }}
-          />
+            helperText="Character LoRAs were trained against sulphur. On another base a LoRA can fuse nothing at all and the render comes back without the character — check the segment log for 'fuses N/M weights'."
+          >
+            <MenuItem value="">
+              <em>Stack default</em>
+            </MenuItem>
+            {checkpoints.map((c) => (
+              <MenuItem key={c} value={c}>
+                {c}
+              </MenuItem>
+            ))}
+          </TextField>
 
           <FormControlLabel
             control={
