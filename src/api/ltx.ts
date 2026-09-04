@@ -91,8 +91,37 @@ export const TRIGGER_PLACEHOLDER = "<TRIGGER>";
  *  means the user SEES the prompt that will actually render rather than a
  *  template, which matters because the prompt is editable. */
 export function renderPrompt(template: string, trigger: string): string {
-  return template.split(TRIGGER_PLACEHOLDER).join(trigger);
+  const out = template.split(TRIGGER_PLACEHOLDER).join(trigger);
+  if (trigger) return out;
+  // An EMPTY trigger is the "no character" case (console#412): the pose renders on the base
+  // model alone, so there is no token to name anyone. Substituting "" leaves the comma that
+  // followed it — ", a woman kneeling in front of..." — which reaches the text encoder as a
+  // leading empty clause. Tidy it, the same way the API tidies a dropped <SCENE>.
+  return out.replace(/^\s*,\s*/, "").replace(/,\s*,/g, ",").trim();
 }
+
+/**
+ * The "no character" option in the Character dropdown.
+ *
+ * Renders the pose on the base model alone — which is how you judge what a character LoRA is
+ * actually contributing, and what you want for a shot whose start frame already carries the
+ * identity.
+ *
+ * A sentinel rather than `null` because the form uses a character for six things: the
+ * trigger, the LoRA, both strengths, the job name and the recorded blob. Threading `null`
+ * through all of them would mean six conditionals; one object with honest values means none.
+ *
+ * char_lora "none" is understood the whole way down — the daemon filters it in any casing
+ * and the engine's want_char has always excluded it.
+ */
+export const NO_CHARACTER: Character = {
+  id: "",
+  name: "none",
+  char_lora: "none",
+  trigger: "",
+  strength_stage_1: 0,
+  strength_stage_2: 0,
+};
 
 /** The one global configuration, the same for every pose and character. */
 export interface LtxStack {
