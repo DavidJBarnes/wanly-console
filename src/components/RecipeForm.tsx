@@ -251,6 +251,10 @@ export default function RecipeForm({
           // Sent as-is including 0, which is a real setting — LoRA loaded, no weight.
           content_s1: pose.content_s1,
           content_s2: pose.content_s2,
+          // The base model this render used. Recorded because it materially changes the
+          // output and because a character LoRA can fuse NOTHING against a base it was
+          // not trained on — a segment has to say which one it ran against.
+          checkpoint: pose.checkpoint,
           edited: [
             prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,
             negative.trim() !== pose.negative_prompt.trim() ? "negative" : null,
@@ -310,6 +314,10 @@ export default function RecipeForm({
             // Sent as-is including 0, which is a real setting — LoRA loaded, no weight.
             content_s1: pose.content_s1,
             content_s2: pose.content_s2,
+            // The base model this render used. Recorded because it materially changes the
+            // output and because a character LoRA can fuse NOTHING against a base it was
+            // not trained on — a segment has to say which one it ran against.
+            checkpoint: pose.checkpoint,
             edited:
               [
                 prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,

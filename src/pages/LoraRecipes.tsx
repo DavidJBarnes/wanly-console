@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -53,6 +54,21 @@ import { overrideNumber } from "../lib/overrideValue";
  * rather than one with a `resolve` flag, because a flag is how they would quietly become
  * the same component again.
  */
+/** Base models present on the 3090 as of 2026-09-03.
+ *
+ *  A hint list, not a constraint — the field is free text. These live as 46 GB files on the
+ *  GPU box rather than in S3, and the engine binds to localhost, so nothing upstream can
+ *  enumerate them; this has to be updated by hand when the set changes. A worker could
+ *  report them through its heartbeat the way it now reports LoRAs, which would make this
+ *  list real rather than remembered.
+ */
+const KNOWN_CHECKPOINTS = [
+  "sulphur_dev_bf16",
+  "10Eros_v1.5_bf16",
+  "ltx-2.3-22b-dev",
+  "ltx-2.3-22b-distilled-1.1",
+];
+
 export default function LoraRecipes() {
   const [book, setBook] = useState<RecipeBook | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
@@ -287,6 +303,10 @@ function PoseDialog({
   const [contentS2, setContentS2] = useState(
     pose?.content_s2 != null ? String(pose.content_s2) : "",
   );
+  // "" means "use the stack's base model", the same empty-means-inherit convention as the
+  // fields above. The stack resolves it before it arrives, so a pose with no override shows
+  // the stack's value and clearing the field restores it.
+  const [checkpoint, setCheckpoint] = useState(pose?.checkpoint ?? "");
   const [validated, setValidated] = useState(pose?.validated ?? false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -325,6 +345,7 @@ function PoseDialog({
         content_lora: contentLora.trim() || null,
         content_s1: overrideNumber(contentS1),
         content_s2: overrideNumber(contentS2),
+        checkpoint: checkpoint.trim() || null,
         validated,
       };
       if (isNew) await createPose(draft);
@@ -437,6 +458,26 @@ function PoseDialog({
               helperText="Empty = 0.6. Detail"
             />
           </Stack>
+
+          {/* Base model. Free text with suggestions rather than a fixed list: the
+              checkpoints are 46 GB files on the GPU box, not in S3, and the engine binds
+              to localhost so the API cannot enumerate them. The engine validates the name
+              and fails loudly if it is wrong, so a typo costs a clear error rather than a
+              bad render. */}
+          <Autocomplete
+            freeSolo
+            options={KNOWN_CHECKPOINTS}
+            value={checkpoint}
+            onInputChange={(_, v) => setCheckpoint(v)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Base model"
+                helperText="Empty = the stack's default (sulphur_dev_bf16). Character LoRAs were trained against sulphur — on another base a LoRA can fuse nothing at all and the render comes back without the character. Check the segment log for 'fuses N/M weights'."
+              />
+            )}
+            sx={{ maxWidth: 640 }}
+          />
 
           <FormControlLabel
             control={

@@ -50,6 +50,11 @@ export interface Pose {
    *  the LoRA and gives it no weight, which is how you measure its contribution. */
   content_s1: number;
   content_s2: number;
+  /** Base model this pose renders on. Already resolved: the pose's own value or the
+   *  stack's. Character LoRAs were trained against sulphur — on another base a LoRA can
+   *  fuse nothing at all, silently, and the render comes back without the character. The
+   *  engine logs its fusion count per render, which is what makes that visible. */
+  checkpoint: string;
   /** The POSE is proven — this prompt produces what it claims. Whether a given
    *  character renders well is a property of its LoRA, which ratings record. */
   validated: boolean;
@@ -201,6 +206,8 @@ export interface PoseDraft {
   content_lora?: string | null;
   content_s1?: number | null;
   content_s2?: number | null;
+  /** Null clears the override and the pose falls back to the stack. */
+  checkpoint?: string | null;
   validated?: boolean;
 }
 
