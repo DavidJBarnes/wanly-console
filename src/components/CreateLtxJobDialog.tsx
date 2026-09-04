@@ -3,6 +3,7 @@ import {
 } from "@mui/material";
 import { Movie } from "@mui/icons-material";
 import RecipeForm from "./RecipeForm";
+import type { SegmentResponse } from "../api/types";
 import { useIsMobile } from "../hooks/useIsMobile";
 
 /**
@@ -25,12 +26,18 @@ interface Props {
   onCreated: () => void;
   /** An image already in S3 — "Use as Starting Image" from the Image Repo. */
   initialStartingImageUri?: string | null;
+  /** Clone: the segment whose settings this new job starts from (console#374).
+   *
+   *  Carries the character, pose, prompt and character-LoRA strengths that segment ran with.
+   *  The base model, content LoRAs and compression are NOT here — they live on the pose, so
+   *  picking the same pose brings them along. */
+  initialFrom?: SegmentResponse | null;
   /** Tags from the source image, carried onto the job. */
   initialTags?: string | null;
 }
 
 export default function CreateLtxJobDialog({
-  open, onClose, onCreated, initialStartingImageUri, initialTags,
+  open, onClose, onCreated, initialStartingImageUri, initialTags, initialFrom,
 }: Props) {
   const isMobile = useIsMobile();
 
@@ -48,6 +55,7 @@ export default function CreateLtxJobDialog({
       <DialogContent dividers>
         <RecipeForm
           variant="dialog"
+          initialFrom={initialFrom}
           initialStartingImageUri={initialStartingImageUri}
           initialTags={initialTags}
           onCreated={() => {
