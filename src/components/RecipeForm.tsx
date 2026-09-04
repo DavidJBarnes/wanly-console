@@ -547,8 +547,18 @@ export default function RecipeForm({
             <AccordionDetails>
               <Stack spacing={0.5}>
                 {book && ([
-                  ["Checkpoint", book.stack.checkpoint],
-                  ["Content LoRA", book.stack.content_lora],
+                  // The POSE's values, not the stack's. These were the same thing when
+                  // checkpoint and content LoRA were globals; they are not any more
+                  // (console#404, console#395), and a panel headed "Fixed by the recipe"
+                  // showing sulphur while the pose renders on 10Eros is worse than showing
+                  // nothing — it is confidently wrong at the moment of choosing.
+                  //
+                  // pose.* arrives already resolved: the pose's own value or the stack's.
+                  ["Base model", pose.checkpoint],
+                  ["Content LoRA",
+                    pose.content_lora && pose.content_lora !== "none"
+                      ? `${pose.content_lora} @ ${pose.content_s1}/${pose.content_s2}`
+                      : "none"],
                   ["Distill", `${book.stack.distill} @ ${book.stack.distill_stage_1}/${book.stack.distill_stage_2}`],
                   ["Guidance", `cfg ${book.stack.cfg}, stg ${book.stack.stg}, rescale ${book.stack.rescale}, blocks ${book.stack.stg_blocks}`],
                   ["Steps", `${book.stack.steps_stage_1} then ${book.stack.sigmas_stage_2}`],
