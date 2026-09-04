@@ -31,6 +31,19 @@ api.interceptors.request.use((config) => {
  * character with no rows had no recipes at all. Every pose is offered for every
  * character, so adding a LoRA costs a character row and nothing else.
  */
+/** One motion/act LoRA in a pose's chain.
+ *
+ *  Per-stage strengths because stage 1 generates at half size from noise and stage 2 refines
+ *  the 2x-upscaled latent. Both default to 0.6 — what the engine applied before any of this
+ *  was configurable — so adding one and touching nothing renders at the validated strength.
+ *  0 is meaningful: the LoRA loads and contributes nothing, which is how you measure it.
+ */
+export interface ContentLora {
+  name: string;
+  s1: number;
+  s2: number;
+}
+
 export interface Pose {
   id: string;
   name: string;
@@ -42,14 +55,10 @@ export interface Pose {
   /** Video CRF applied to the conditioning frame before it anchors the render. Null uses the
    *  global stack's value. 0 is meaningful — it bypasses the encode entirely. */
   img_compression: number | null;
-  /** The pose's content LoRA — motion and act — chained ahead of the character LoRA, which
-   *  is identity. Already resolved: the pose's own value or the stack's, and the stack's is
-   *  "none", which renders without one. Different axis from char_lora entirely. */
-  content_lora: string;
-  /** Per stage, like the character strengths. Already resolved. 0 is meaningful: it loads
-   *  the LoRA and gives it no weight, which is how you measure its contribution. */
-  content_s1: number;
-  content_s2: number;
+  /** Motion/act LoRAs, chained ahead of the character LoRA (which is identity), IN THE
+   *  ORDER GIVEN — order is part of the configuration, not incidental. Empty means none,
+   *  which is what most poses do. */
+  content_loras: ContentLora[];
   /** Base model this pose renders on. Already resolved: the pose's own value or the
    *  stack's. Character LoRAs were trained against sulphur — on another base a LoRA can
    *  fuse nothing at all, silently, and the render comes back without the character. The
@@ -219,9 +228,8 @@ export interface PoseDraft {
   frames?: number | null;
   img_compression?: number | null;
   /** Null clears the override and the pose falls back to the stack, which is "none". */
-  content_lora?: string | null;
-  content_s1?: number | null;
-  content_s2?: number | null;
+  /** An empty array CLEARS them; undefined leaves them alone. */
+  content_loras?: ContentLora[] | null;
   /** Null clears the override and the pose falls back to the stack. */
   checkpoint?: string | null;
   validated?: boolean;

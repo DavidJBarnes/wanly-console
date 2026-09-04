@@ -35,7 +35,7 @@ import {
   updateCharacter,
   updatePose,
 } from "../api/ltx";
-import type { Character, Pose, RecipeBook } from "../api/ltx";
+import type { Character, ContentLora, Pose, RecipeBook } from "../api/ltx";
 import { overrideNumber } from "../lib/overrideValue";
 
 /**
@@ -54,6 +54,10 @@ import { overrideNumber } from "../lib/overrideValue";
  * rather than one with a `resolve` flag, because a flag is how they would quietly become
  * the same component again.
  */
+/** Matches LtxRequest.loras' own max_length in the engine. Four LoRAs on one chain is
+ *  already a lot of competition for the same weights as the character LoRA. */
+const MAX_CONTENT_LORAS = 4;
+
 export default function LoraRecipes() {
   const [book, setBook] = useState<RecipeBook | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
@@ -268,7 +272,7 @@ function PoseList({
 function PoseDialog({
   pose,
   characters,
-  contentLoras,
+  contentLoras: contentLorasAvailable,
   checkpoints,
   onClose,
   onSaved,
@@ -291,20 +295,29 @@ function PoseDialog({
   const [imgCompression, setImgCompression] = useState(
     pose?.img_compression != null ? String(pose.img_compression) : "",
   );
-  // The pose's content LoRA. "" means "use the stack's value", which is "none" — the same
-  // empty-means-inherit convention as frames and img_compression above. The stack resolves
-  // it before it reaches here, so a pose with no override arrives as "none".
-  const [contentLora, setContentLora] = useState(
-    pose?.content_lora && pose.content_lora !== "none" ? pose.content_lora : "",
+  // Content LoRAs, in application order. They stack (console#410): motion, act and framing
+  // are separable and a pose may want several. Order is part of the configuration — the same
+  // LoRAs applied in a different order render differently — so this is a list, not a set,
+  // and adding appends rather than sorting.
+  const [contentLoras, setContentLoras] = useState<ContentLora[]>(
+    pose?.content_loras?.length ? pose.content_loras.map((c) => ({ ...c })) : [],
   );
-  // Empty means the stack's 0.6. "0" is a real setting — LoRA loaded, no weight, which is
-  // how you measure its contribution — so this is not `pose?.content_s1 ? ... : ""`.
-  const [contentS1, setContentS1] = useState(
-    pose?.content_s1 != null ? String(pose.content_s1) : "",
-  );
-  const [contentS2, setContentS2] = useState(
-    pose?.content_s2 != null ? String(pose.content_s2) : "",
-  );
+
+  // 0.6 is what the engine applied before any of this was configurable, so a LoRA added and
+  // left alone renders at the strength the validated graph already used. That is what keeps
+  // four LoRAs from being eight decisions.
+  const addContentLora = (name: string) =>
+    setContentLoras((cur) =>
+      cur.length >= MAX_CONTENT_LORAS ? cur : [...cur, { name, s1: 0.6, s2: 0.6 }]);
+
+  const updateContentLora = (i: number, patch: Partial<ContentLora>) =>
+    setContentLoras((cur) => cur.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+
+  // Removing shifts everything after it up, which changes the chain — that is correct and
+  // is also how order is edited, since there is no drag-to-reorder.
+  const removeContentLora = (i: number) =>
+    setContentLoras((cur) => cur.filter((_, j) => j !== i));
+
   // "" means "use the stack's base model", the same empty-means-inherit convention as the
   // fields above. The stack resolves it before it arrives, so a pose with no override shows
   // the stack's value and clearing the field restores it.
@@ -320,13 +333,13 @@ function PoseDialog({
 
   const save = async () => {
     // Bounded at 2 to match the engine, which rejects anything higher with a 422 — ten
-    // minutes into a claimed segment, not here. Blank is fine and means "use the stack".
-    for (const [label, raw] of [["Stage 1", contentS1], ["Stage 2", contentS2]] as const) {
-      if (!raw.trim()) continue;
-      const n = Number(raw);
-      if (!Number.isFinite(n) || n < 0 || n > 2) {
-        setErr(`Content LoRA ${label} strength must be a number between 0 and 2.`);
-        return;
+    // minutes into a claimed segment, not here.
+    for (const c of contentLoras) {
+      for (const [label, v] of [["stage 1", c.s1], ["stage 2", c.s2]] as const) {
+        if (!Number.isFinite(v) || v < 0 || v > 2) {
+          setErr(`${c.name} ${label} strength must be a number between 0 and 2.`);
+          return;
+        }
       }
     }
     setSaving(true);
@@ -341,12 +354,9 @@ function PoseDialog({
         negative_prompt: negative.trim() || null,
         frames: overrideNumber(frames),
         img_compression: overrideNumber(imgCompression),
-        // "" clears the override and the pose falls back to the stack, which is "none".
-        // `.trim() ?` is safe for the strengths for the same reason it is for
-        // img_compression: "0" is a non-empty string, so a deliberate 0 survives.
-        content_lora: contentLora.trim() || null,
-        content_s1: overrideNumber(contentS1),
-        content_s2: overrideNumber(contentS2),
+        // Sent even when empty: [] is how the LoRAs are CLEARED, and the API distinguishes
+        // that from undefined, which means "leave them alone".
+        content_loras: contentLoras,
         checkpoint: checkpoint.trim() || null,
         validated,
       };
@@ -415,51 +425,69 @@ function PoseDialog({
             />
           </Stack>
 
-          {/* The content LoRA is the POSE's — motion and act — and is chained AHEAD of the
+          {/* Content LoRAs are the POSE's — motion and act — chained AHEAD of the
               character LoRA, which is identity. Two different axes, so this list is filtered
-              to the bucket's content/ shelf and can never offer a character. */}
+              to the bucket's content/ shelf and can never offer a character. They stack, and
+              the order shown is the order applied. */}
           <Divider textAlign="left" sx={{ pt: 1 }}>
             <Typography variant="overline" color="text.secondary">
-              Content LoRA
+              Content LoRAs
             </Typography>
           </Divider>
+
+          {contentLoras.length === 0 && (
+            <Typography variant="caption" color="text.secondary">
+              None. Most poses have none — the recipe renders on the base model plus the
+              character LoRA.
+            </Typography>
+          )}
+
+          {contentLoras.map((c, i) => (
+            <Stack key={`${c.name}-${i}`} direction="row" spacing={1.5} alignItems="center"
+                   useFlexGap flexWrap="wrap">
+              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 18 }}>
+                {i + 1}
+              </Typography>
+              <Typography variant="body2" sx={{ flex: "1 1 220px", minWidth: 160 }} noWrap>
+                {c.name}
+              </Typography>
+              <TextField
+                label="Stage 1" size="small" sx={{ width: 110 }}
+                value={String(c.s1)}
+                onChange={(e) => updateContentLora(i, { s1: Number(e.target.value) })}
+              />
+              <TextField
+                label="Stage 2" size="small" sx={{ width: 110 }}
+                value={String(c.s2)}
+                onChange={(e) => updateContentLora(i, { s2: Number(e.target.value) })}
+              />
+              <IconButton size="small" onClick={() => removeContentLora(i)} aria-label="remove">
+                <DeleteOutline fontSize="small" />
+              </IconButton>
+            </Stack>
+          ))}
+
+          {/* Adding appends, because insertion order IS application order. Reordering means
+              removing and re-adding, which is deterministic and needs no extra UI. */}
           <TextField
-            select={contentLoras.length > 0}
-            label="Content LoRA"
-            value={contentLora}
-            onChange={(e) => setContentLora(e.target.value)}
-            fullWidth
-            helperText="Motion or act for this pose, chained ahead of the character LoRA. Empty = none, which is what every pose does today."
+            select
+            size="small"
+            label={contentLoras.length >= MAX_CONTENT_LORAS
+              ? `Limit of ${MAX_CONTENT_LORAS} reached`
+              : "Add a content LoRA"}
+            value=""
+            disabled={contentLoras.length >= MAX_CONTENT_LORAS}
+            onChange={(e) => e.target.value && addContentLora(e.target.value)}
+            sx={{ maxWidth: 420 }}
+            helperText="Applied in the order listed, ahead of the character LoRA. Strengths default to 0.6 — what the engine used before this was adjustable."
           >
-            {/* An explicit way back to "no content LoRA" — a select with no empty option
-                cannot be cleared once something is chosen. */}
-            <MenuItem value="">
-              <em>None</em>
-            </MenuItem>
-            {contentLoras.map((l) => (
-              <MenuItem key={l} value={l}>
-                {l}
-              </MenuItem>
+            {contentLoras.length === 0 && contentLorasAvailable.length === 0 && (
+              <MenuItem value="" disabled><em>None in the bucket</em></MenuItem>
+            )}
+            {contentLorasAvailable.map((l) => (
+              <MenuItem key={l} value={l}>{l}</MenuItem>
             ))}
           </TextField>
-          <Stack direction="row" spacing={2}>
-            <TextField
-              label="Content stage 1"
-              value={contentS1}
-              onChange={(e) => setContentS1(e.target.value)}
-              disabled={!contentLora}
-              sx={{ maxWidth: 200 }}
-              helperText="Empty = 0.6. Shape and motion"
-            />
-            <TextField
-              label="Content stage 2"
-              value={contentS2}
-              onChange={(e) => setContentS2(e.target.value)}
-              disabled={!contentLora}
-              sx={{ maxWidth: 200 }}
-              helperText="Empty = 0.6. Detail"
-            />
-          </Stack>
 
           {/* Base model. A real dropdown, from what live workers report through their
               heartbeats — the engine binds to localhost so nothing upstream can enumerate
