@@ -120,13 +120,7 @@ export interface SegmentResponse {
    *  would arrive rounded and display as a seed that never generated anything. */
   seed: string | null;
   index: number;
-  /** Human observation. The metrics cannot rank quality — expression rewards the mouth-gape
-   *  artifact it should penalise — so what a person saw is primary evidence, not a footnote. */
-  notes?: string | null;
-  rating?: number | null;
-  /** Comma-separated, from the server's controlled vocabulary. */
-  observation_tags?: string | null;
-  /** Soft-deleted: kept for its feedback, excluded from the video. */
+  /** Soft-deleted: kept with its clip and its seed, excluded from the video. */
   discarded?: boolean;
   prompt: string;
   prompt_template: string | null;

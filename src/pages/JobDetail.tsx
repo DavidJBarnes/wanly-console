@@ -46,8 +46,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ViewInAr,
-  RateReview,
-  RateReviewOutlined,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -75,7 +73,6 @@ import type {
   FramePreviewResponse,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
-import SegmentObservationDialog from "../components/SegmentObservationDialog";
 import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { canRerollSeed } from "../lib/rerollEligibility";
@@ -243,9 +240,6 @@ export default function JobDetail() {
   const [error, setError] = useState("");
   const [videoModal, setVideoModal] = useState<{ path: string; v?: string; segIndex?: number } | null>(null);
   const [imageModal, setImageModal] = useState<{ path: string; segIndex: number } | null>(null);
-  // Which segment's observations are open. Holds the segment itself rather than an id so the
-  // dialog can populate without a second lookup.
-  const [observing, setObserving] = useState<SegmentResponse | null>(null);
   const [loopVideo, setLoopVideo] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<SegmentResponse | null>(null);
@@ -711,21 +705,6 @@ export default function JobDetail() {
                                   />
                                 </Tooltip>
                               )}
-                              {(() => {
-                                const reviewed =
-                                  take.rating != null || !!take.notes || !!take.observation_tags;
-                                return (
-                                  <Tooltip title={reviewed ? "Edit observations" : "Add observations"}>
-                                    <IconButton
-                                      size="small"
-                                      onClick={() => setObserving(take)}
-                                      color={reviewed ? "primary" : "default"}
-                                    >
-                                      {reviewed ? <RateReview fontSize="small" /> : <RateReviewOutlined fontSize="small" />}
-                                    </IconButton>
-                                  </Tooltip>
-                                );
-                              })()}
                               <Typography variant="caption" color="text.secondary">
                                 {formatDate(take.created_at)}
                               </Typography>
@@ -803,9 +782,6 @@ export default function JobDetail() {
                             sx={{ fontFamily: "monospace", fontSize: 11 }}
                           />
                         )}
-                        <IconButton size="small" onClick={() => setObserving(take)}>
-                          <RateReview fontSize="small" />
-                        </IconButton>
                       </Box>
                     ))}
                 </Box>,
@@ -1297,25 +1273,6 @@ export default function JobDetail() {
                     <TableCell>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                         <StatusChip status={seg.status} />
-                        {(() => {
-                          const reviewed =
-                            seg.rating != null || !!seg.notes || !!seg.observation_tags;
-                          return (
-                            <Tooltip title={reviewed ? "Edit observations" : "Add observations"}>
-                              <IconButton
-                                size="small"
-                                onClick={() => setObserving(seg)}
-                                color={reviewed ? "primary" : "default"}
-                              >
-                                {reviewed ? (
-                                  <RateReview fontSize="small" />
-                                ) : (
-                                  <RateReviewOutlined fontSize="small" />
-                                )}
-                              </IconButton>
-                            </Tooltip>
-                          );
-                        })()}
                       </Box>
                     </TableCell>
                     <TableCell>
@@ -1401,7 +1358,7 @@ export default function JobDetail() {
                           (seg.status === "failed" || seg.status === "completed") &&
                           !seg.discarded &&
                           job.segments.filter((x) => !x.discarded).length > 1 && (
-                            <Tooltip title="Discard — keeps the rating and notes, removes it from the video">
+                            <Tooltip title="Discard — keeps the clip, removes it from the video">
                               <IconButton
                                 size="small"
                                 onClick={async () => {
@@ -1547,25 +1504,6 @@ export default function JobDetail() {
                         #{seg.index}
                       </Typography>
                       <StatusChip status={seg.status} />
-                      {(() => {
-                        const reviewed =
-                          seg.rating != null || !!seg.notes || !!seg.observation_tags;
-                        return (
-                          <Tooltip title={reviewed ? "Edit observations" : "Add observations"}>
-                            <IconButton
-                              size="small"
-                              onClick={() => setObserving(seg)}
-                              color={reviewed ? "primary" : "default"}
-                            >
-                              {reviewed ? (
-                                <RateReview fontSize="small" />
-                              ) : (
-                                <RateReviewOutlined fontSize="small" />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        );
-                      })()}
                       <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
                         {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at && (
                           <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -1916,8 +1854,8 @@ export default function JobDetail() {
         <DialogTitle>Re-roll with a new seed?</DialogTitle>
         <DialogContent>
           <Typography>
-            The current take is <strong>archived</strong>, not deleted — its video, rating and
-            notes stay on the job, under the seed that produced it.
+            The current take is <strong>archived</strong>, not deleted — its video stays on the
+            job, under the seed that produced it.
           </Typography>
           <Typography sx={{ mt: 1.5 }}>
             A new segment 0 is queued with the same prompt, LoRAs, preset and start image. Only
@@ -2069,33 +2007,6 @@ export default function JobDetail() {
           </Box>
         </DialogContent>
       </Dialog>
-
-      {/* Human observations. Kept out of the fetch path — saving patches the local segment in
-          place rather than refetching the job, so the row you just rated does not flicker. */}
-      <SegmentObservationDialog
-        open={!!observing}
-        segment={observing}
-        onClose={() => setObserving(null)}
-        onSaved={(updated) =>
-          setJob((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  segments: prev.segments.map((s) =>
-                    s.id === updated.id
-                      ? {
-                          ...s,
-                          rating: updated.rating,
-                          notes: updated.notes,
-                          observation_tags: updated.observation_tags,
-                        }
-                      : s,
-                  ),
-                }
-              : prev,
-          )
-        }
-      />
 
       {/* Frame preview popover */}
       <Popover
