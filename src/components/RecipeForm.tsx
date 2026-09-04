@@ -253,13 +253,11 @@ export default function RecipeForm({
           // Carried so the render records the CRF it actually used, and so the engine can
           // apply a pose's override. Sent as-is including 0, which is a real setting.
           img_compression: pose.img_compression,
-          // The pose's content LoRA — motion and act — chained AHEAD of the character
-          // LoRA, which is identity. Recorded rather than looked up later: the recipe
-          // row can be edited afterwards, and a segment has to say what it actually ran.
-          content_lora: pose.content_lora,
-          // Sent as-is including 0, which is a real setting — LoRA loaded, no weight.
-          content_s1: pose.content_s1,
-          content_s2: pose.content_s2,
+          // The pose's content LoRAs — motion and act — chained AHEAD of the character
+          // LoRA, which is identity, in the order given. Recorded rather than looked up
+          // later: the recipe row can be edited afterwards, and a segment has to say
+          // what it actually ran, including the ORDER, which changes the result.
+          content_loras: pose.content_loras,
           // The base model this render used. Recorded because it materially changes the
           // output and because a character LoRA can fuse NOTHING against a base it was
           // not trained on — a segment has to say which one it ran against.
@@ -316,13 +314,11 @@ export default function RecipeForm({
             // Carried so the render records the CRF it actually used, and so the engine
             // can apply a pose's override. Sent as-is including 0, a real setting.
             img_compression: pose.img_compression,
-            // The pose's content LoRA — motion and act — chained AHEAD of the character
-            // LoRA, which is identity. Recorded rather than looked up later: the recipe
-            // row can be edited afterwards, and a segment has to say what it actually ran.
-            content_lora: pose.content_lora,
-            // Sent as-is including 0, which is a real setting — LoRA loaded, no weight.
-            content_s1: pose.content_s1,
-            content_s2: pose.content_s2,
+            // The pose's content LoRAs — motion and act — chained AHEAD of the character
+            // LoRA, which is identity, in the order given. Recorded rather than looked up
+            // later: the recipe row can be edited afterwards, and a segment has to say
+            // what it actually ran, including the ORDER, which changes the result.
+            content_loras: pose.content_loras,
             // The base model this render used. Recorded because it materially changes the
             // output and because a character LoRA can fuse NOTHING against a base it was
             // not trained on — a segment has to say which one it ran against.
@@ -555,9 +551,11 @@ export default function RecipeForm({
                   //
                   // pose.* arrives already resolved: the pose's own value or the stack's.
                   ["Base model", pose.checkpoint],
-                  ["Content LoRA",
-                    pose.content_lora && pose.content_lora !== "none"
-                      ? `${pose.content_lora} @ ${pose.content_s1}/${pose.content_s2}`
+                  // All of them, in the order applied — order changes the result, so a
+                  // panel that showed only the first would be describing a different chain.
+                  ["Content LoRAs",
+                    pose.content_loras?.length
+                      ? pose.content_loras.map((c) => `${c.name} @ ${c.s1}/${c.s2}`).join(", ")
                       : "none"],
                   ["Distill", `${book.stack.distill} @ ${book.stack.distill_stage_1}/${book.stack.distill_stage_2}`],
                   ["Guidance", `cfg ${book.stack.cfg}, stg ${book.stack.stg}, rescale ${book.stack.rescale}, blocks ${book.stack.stg_blocks}`],
