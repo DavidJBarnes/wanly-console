@@ -27,6 +27,7 @@ import {
   deleteCharacter,
   deletePose,
   listLoras,
+  listCheckpoints,
   listRecipes,
   ltxError,
   poseWarnings,
@@ -60,6 +61,10 @@ export default function LoraRecipes() {
   // character is WHO, content is WHAT IS HAPPENING. Fetched separately so a pose can never
   // be offered an identity LoRA, nor a character a motion one.
   const [contentLoras, setContentLoras] = useState<string[]>([]);
+  // Base models, from what live workers report. Not a constant: a checkpoint is a 46 GB
+  // file on a GPU box, and which ones exist is a fact about the fleet rather than about
+  // this code. See console#404.
+  const [checkpoints, setCheckpoints] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,6 +79,14 @@ export default function LoraRecipes() {
       ]);
       setLoras(chars);
       setContentLoras(contents);
+      try {
+        setCheckpoints((await listCheckpoints()).checkpoints);
+      } catch {
+        // Non-fatal: the field falls back to "stack default" only, which is what every
+        // existing pose already uses. A recipe page that will not load because the fleet is
+        // down would be a worse outcome than a shorter dropdown.
+        setCheckpoints([]);
+      }
       setError(null);
     } catch (e) {
       setError(ltxError(e));
@@ -110,7 +123,7 @@ export default function LoraRecipes() {
         </Alert>
       )}
 
-      <PoseList book={book} contentLoras={contentLoras} onChanged={load} />
+      <PoseList book={book} contentLoras={contentLoras} checkpoints={checkpoints} onChanged={load} />
       <Divider sx={{ my: 4 }} />
       <CharacterList book={book} loras={loras} onChanged={load} />
     </Box>
@@ -124,10 +137,12 @@ export default function LoraRecipes() {
 function PoseList({
   book,
   contentLoras,
+  checkpoints,
   onChanged,
 }: {
   book: RecipeBook | null;
   contentLoras: string[];
+  checkpoints: string[];
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState<Pose | "new" | null>(null);
@@ -222,6 +237,7 @@ function PoseList({
           pose={editing === "new" ? null : editing}
           characters={book?.characters ?? []}
           contentLoras={contentLoras}
+          checkpoints={checkpoints}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -253,12 +269,14 @@ function PoseDialog({
   pose,
   characters,
   contentLoras,
+  checkpoints,
   onClose,
   onSaved,
 }: {
   pose: Pose | null;
   characters: Character[];
   contentLoras: string[];
+  checkpoints: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -287,6 +305,10 @@ function PoseDialog({
   const [contentS2, setContentS2] = useState(
     pose?.content_s2 != null ? String(pose.content_s2) : "",
   );
+  // "" means "use the stack's base model", the same empty-means-inherit convention as the
+  // fields above. The stack resolves it before it arrives, so a pose with no override shows
+  // the stack's value and clearing the field restores it.
+  const [checkpoint, setCheckpoint] = useState(pose?.checkpoint ?? "");
   const [validated, setValidated] = useState(pose?.validated ?? false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -325,6 +347,7 @@ function PoseDialog({
         content_lora: contentLora.trim() || null,
         content_s1: overrideNumber(contentS1),
         content_s2: overrideNumber(contentS2),
+        checkpoint: checkpoint.trim() || null,
         validated,
       };
       if (isNew) await createPose(draft);
@@ -437,6 +460,28 @@ function PoseDialog({
               helperText="Empty = 0.6. Detail"
             />
           </Stack>
+
+          {/* Base model. A real dropdown, from what live workers report through their
+              heartbeats — the engine binds to localhost so nothing upstream can enumerate
+              these, and a hand-maintained list would drift from the boxes it describes. */}
+          <TextField
+            select
+            label="Base model"
+            value={checkpoints.includes(checkpoint) ? checkpoint : ""}
+            onChange={(e) => setCheckpoint(e.target.value)}
+            fullWidth
+            sx={{ maxWidth: 640 }}
+            helperText="Character LoRAs were trained against sulphur. On another base a LoRA can fuse nothing at all and the render comes back without the character — check the segment log for 'fuses N/M weights'."
+          >
+            <MenuItem value="">
+              <em>Stack default</em>
+            </MenuItem>
+            {checkpoints.map((c) => (
+              <MenuItem key={c} value={c}>
+                {c}
+              </MenuItem>
+            ))}
+          </TextField>
 
           <FormControlLabel
             control={

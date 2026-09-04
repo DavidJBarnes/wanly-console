@@ -50,6 +50,11 @@ export interface Pose {
    *  the LoRA and gives it no weight, which is how you measure its contribution. */
   content_s1: number;
   content_s2: number;
+  /** Base model this pose renders on. Already resolved: the pose's own value or the
+   *  stack's. Character LoRAs were trained against sulphur — on another base a LoRA can
+   *  fuse nothing at all, silently, and the render comes back without the character. The
+   *  engine logs its fusion count per render, which is what makes that visible. */
+  checkpoint: string;
   /** The POSE is proven — this prompt produces what it claims. Whether a given
    *  character renders well is a property of its LoRA, which ratings record. */
   validated: boolean;
@@ -168,6 +173,22 @@ export async function listLoras(
   );
 }
 
+/**
+ * Base models a pose can be rendered on.
+ *
+ * The union of what LIVE workers report, not a list held anywhere. A checkpoint is a 46 GB
+ * file on a GPU box, so whether one is loadable is a fact about that box — and the engine
+ * binds to localhost, so workers report it through their heartbeat.
+ *
+ * Offline workers are excluded deliberately: offering a checkpoint that exists only on a box
+ * which is not running produces a job nothing can claim, which is a queue that silently
+ * stops rather than an error.
+ */
+export async function listCheckpoints(): Promise<{ checkpoints: string[]; default: string }> {
+  const { data } = await api.get<{ checkpoints: string[]; default: string }>("/ltx/checkpoints");
+  return data;
+}
+
 export function ltxError(err: unknown): string {
   if (axios.isAxiosError(err)) {
     const d = err.response?.data?.detail;
@@ -201,6 +222,8 @@ export interface PoseDraft {
   content_lora?: string | null;
   content_s1?: number | null;
   content_s2?: number | null;
+  /** Null clears the override and the pose falls back to the stack. */
+  checkpoint?: string | null;
   validated?: boolean;
 }
 

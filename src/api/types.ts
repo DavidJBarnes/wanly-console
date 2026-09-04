@@ -34,6 +34,10 @@ export interface LtxRecipeRef {
    *  rather than being dropped when falsy. */
   content_s1?: number | null;
   content_s2?: number | null;
+  /** Base model this render used. Recorded because it materially changes the output, and
+   *  because a character LoRA can fuse nothing at all against a base it was not trained
+   *  on — a segment must say which one it ran against. */
+  checkpoint?: string | null;
   /** Which of the recipe's defaults the user changed, if any. */
   edited?: (string | null)[];
   graph_sha256?: string;
