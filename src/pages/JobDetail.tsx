@@ -35,6 +35,7 @@ import {
   Casino,
   PlayArrow,
   StopCircle,
+  ContentCopy,
   DeleteOutline,
   RemoveCircleOutline,
   Download,
@@ -66,6 +67,7 @@ import {
 } from "../api/client";
 import { apiError } from "../lib/apiError";
 import NextSegmentDialog from "../components/NextSegmentDialog";
+import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import { useSettingsStore } from "../stores/settingsStore";
 import type {
   JobDetailResponse,
@@ -249,6 +251,9 @@ export default function JobDetail() {
   const [deleteConfirm, setDeleteConfirm] = useState<SegmentResponse | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deleteJobConfirm, setDeleteJobConfirm] = useState(false);
+  // Clone: re-run this job's configuration as a NEW job (console#374). Not a continuation —
+  // it does not chain from the last frame, it starts from the same start image.
+  const [cloneOpen, setCloneOpen] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
@@ -612,6 +617,11 @@ export default function JobDetail() {
 
   if (!job) return null;
 
+  // The live segment 0 — by INDEX among non-discarded segments, not array position. After a
+  // re-roll segments[0] can be the archived take, and cloning a render that was thrown away
+  // would look like it worked.
+  const cloneSource =
+    job.segments.find((sg) => !sg.discarded && sg.index === 0) ?? null;
   const videoSegments = job.segments.filter(isVideoSegment);
   // Archived takes are alternatives, not positions in the video, so they come out of the
   // sequence and sit under the take that replaced them.
@@ -1125,6 +1135,17 @@ export default function JobDetail() {
                 {reopening ? "Re-opening..." : isMobile ? "Re-open" : "Re-open Job"}
               </Button>
             )}
+            {/* Clone. Offered whatever the job's status: re-running a configuration is
+                as useful for a finished job as an unfinished one, and arguably more so —
+                you clone the ones that worked. */}
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setCloneOpen(true)}
+              startIcon={isMobile ? undefined : <ContentCopy />}
+            >
+              {isMobile ? "Clone" : "Clone Job"}
+            </Button>
             {["awaiting", "failed", "paused"].includes(job.status) && (
               <Button
                 variant="outlined"
@@ -1846,6 +1867,21 @@ export default function JobDetail() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Clone. Seeded from segment 0's RECORDED blob rather than the pose's current
+          values: a clone should reproduce the render that happened, and a pose can have
+          been edited since. The start image is referenced, never re-uploaded.
+
+          Live segment 0, not segments[0] — after a re-roll the array position may be the
+          archived take, and cloning a thrown-away render would be silently wrong. */}
+      <CreateLtxJobDialog
+        open={cloneOpen}
+        onClose={() => setCloneOpen(false)}
+        onCreated={() => setCloneOpen(false)}
+        initialFrom={cloneSource}
+        initialStartingImageUri={cloneSource?.start_image ?? job.starting_image ?? null}
+        initialTags={job.tags ?? null}
+      />
 
       {/* Delete job confirm dialog */}
       <Dialog
