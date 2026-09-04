@@ -722,13 +722,19 @@ function CharacterDialog({
             value={lora}
             onChange={(e) => setLora(e.target.value)}
             fullWidth
-            helperText="The LoRA file name, without .safetensors."
+            helperText="The LoRA file name, without .safetensors. None renders on the base model alone — useful for judging what the LoRA is contributing."
           >
             {loras.map((l) => (
               <MenuItem key={l} value={l}>
                 {l}
               </MenuItem>
             ))}
+            {/* console#412. The engine has always understood "none" — want_char excludes
+                it — so this is a character that renders on the checkpoint alone. Last in
+                the list, after the real LoRAs, because it is the deliberate exception. */}
+            <MenuItem value="none">
+              <em>None — no character LoRA</em>
+            </MenuItem>
           </TextField>
           <TextField
             label="Trigger"
