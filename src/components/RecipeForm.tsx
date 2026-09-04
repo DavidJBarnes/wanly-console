@@ -497,6 +497,12 @@ export default function RecipeForm({
               {loras.filter((l) => l !== character.char_lora).map((l) => (
                 <MenuItem key={l} value={l}>{l}</MenuItem>
               ))}
+              {/* Renders on the checkpoint alone — useful for judging what the LoRA is
+                  actually contributing, and for a shot whose start frame already carries
+                  the identity. The engine has always understood "none"; it simply was not
+                  offered (console#412). Last in the list, because it is the deliberate
+                  exception rather than a thing to land on by accident. */}
+              <MenuItem value="none"><em>None — no character LoRA</em></MenuItem>
             </TextField>
             <TextField label="Stage 1" value={s1} size={compact ? "small" : "medium"}
                        sx={{ flex: "1 1 100px", minWidth: 90 }}
