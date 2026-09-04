@@ -6,6 +6,7 @@ import {
 import { ExpandMore, Casino } from "@mui/icons-material";
 import {
   listRecipes, listLoras, ltxError, renderPrompt,
+  NO_CHARACTER,
   type RecipeBook, type Character, type Pose,
 } from "../api/ltx";
 import { addSegment, createJob, describeImage, getFileUrl } from "../api/client";
@@ -144,7 +145,9 @@ export default function RecipeForm({
   const poses = useMemo(() => book?.poses ?? [], [book]);
 
   const character: Character | null =
-    book?.characters.find((c) => c.name === characterName) ?? null;
+    characterName === NO_CHARACTER.name
+      ? NO_CHARACTER
+      : book?.characters.find((c) => c.name === characterName) ?? null;
   // Poses are character-agnostic, so the list never changes with the character —
   // which is the point: a new LoRA gets every pose the moment it exists.
   const pose: Pose | null = poses.find((p) => p.name === poseName) ?? null;
@@ -287,7 +290,10 @@ export default function RecipeForm({
       const { width, height } = await imageSize(start!.previewUrl);
 
       const job: JobCreate = {
-        name: `${character.name} — ${pose.name}`,
+        // "none — Missionary" reads as a broken template. Name it for what it is.
+        name: character.name === NO_CHARACTER.name
+          ? `${pose.name} (no character)`
+          : `${character.name} — ${pose.name}`,
         width,
         height,
         fps,
@@ -406,6 +412,9 @@ export default function RecipeForm({
           {(book?.characters ?? []).map((c) => (
             <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>
           ))}
+          {/* Render on the base model alone — no LoRA, and no trigger token in the prompt.
+              Last, because it is the deliberate exception (console#412). */}
+          <MenuItem value={NO_CHARACTER.name}><em>None — no character</em></MenuItem>
         </TextField>
         <TextField
           select label="Pose" value={poseName}
