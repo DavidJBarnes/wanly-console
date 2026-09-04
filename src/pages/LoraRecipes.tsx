@@ -36,6 +36,7 @@ import {
   updatePose,
 } from "../api/ltx";
 import type { Character, ContentLora, Pose, RecipeBook } from "../api/ltx";
+import { parseContentLoraStrength } from "../lib/contentLoraStrength";
 import { overrideNumber } from "../lib/overrideValue";
 
 /**
@@ -57,6 +58,11 @@ import { overrideNumber } from "../lib/overrideValue";
 /** Matches LtxRequest.loras' own max_length in the engine. Four LoRAs on one chain is
  *  already a lot of competition for the same weights as the character LoRA. */
 const MAX_CONTENT_LORAS = 4;
+
+/** A content LoRA while it is being EDITED. The strengths are the string the user is
+ *  typing, not a number — parsing each keystroke ate the decimal point and made 0.6
+ *  impossible to enter (console#419). Parsed once, on save. */
+type ContentLoraDraft = { name: string; s1: string; s2: string };
 
 export default function LoraRecipes() {
   const [book, setBook] = useState<RecipeBook | null>(null);
@@ -299,8 +305,10 @@ function PoseDialog({
   // are separable and a pose may want several. Order is part of the configuration — the same
   // LoRAs applied in a different order render differently — so this is a list, not a set,
   // and adding appends rather than sorting.
-  const [contentLoras, setContentLoras] = useState<ContentLora[]>(
-    pose?.content_loras?.length ? pose.content_loras.map((c) => ({ ...c })) : [],
+  const [contentLoras, setContentLoras] = useState<ContentLoraDraft[]>(
+    pose?.content_loras?.length
+      ? pose.content_loras.map((c) => ({ name: c.name, s1: String(c.s1), s2: String(c.s2) }))
+      : [],
   );
 
   // 0.6 is what the engine applied before any of this was configurable, so a LoRA added and
@@ -308,9 +316,9 @@ function PoseDialog({
   // four LoRAs from being eight decisions.
   const addContentLora = (name: string) =>
     setContentLoras((cur) =>
-      cur.length >= MAX_CONTENT_LORAS ? cur : [...cur, { name, s1: 0.6, s2: 0.6 }]);
+      cur.length >= MAX_CONTENT_LORAS ? cur : [...cur, { name, s1: "0.6", s2: "0.6" }]);
 
-  const updateContentLora = (i: number, patch: Partial<ContentLora>) =>
+  const updateContentLora = (i: number, patch: Partial<ContentLoraDraft>) =>
     setContentLoras((cur) => cur.map((c, j) => (j === i ? { ...c, ...patch } : c)));
 
   // Removing shifts everything after it up, which changes the chain — that is correct and
@@ -332,15 +340,19 @@ function PoseDialog({
   );
 
   const save = async () => {
-    // Bounded at 2 to match the engine, which rejects anything higher with a 422 — ten
-    // minutes into a claimed segment, not here.
+    // The typed strings become numbers here, once, and a bad one names its LoRA rather
+    // than being sent on. parseContentLoraStrength holds the engine's 0-2 bound, which it
+    // otherwise enforces with a 422 ten minutes into a claimed segment.
+    const resolved: ContentLora[] = [];
     for (const c of contentLoras) {
-      for (const [label, v] of [["stage 1", c.s1], ["stage 2", c.s2]] as const) {
-        if (!Number.isFinite(v) || v < 0 || v > 2) {
-          setErr(`${c.name} ${label} strength must be a number between 0 and 2.`);
-          return;
-        }
+      const s1 = parseContentLoraStrength(c.s1);
+      const s2 = parseContentLoraStrength(c.s2);
+      if (s1 === null || s2 === null) {
+        const label = s1 === null ? "stage 1" : "stage 2";
+        setErr(`${c.name} ${label} strength must be a number between 0 and 2.`);
+        return;
       }
+      resolved.push({ name: c.name, s1, s2 });
     }
     setSaving(true);
     setErr(null);
@@ -356,7 +368,7 @@ function PoseDialog({
         img_compression: overrideNumber(imgCompression),
         // Sent even when empty: [] is how the LoRAs are CLEARED, and the API distinguishes
         // that from undefined, which means "leave them alone".
-        content_loras: contentLoras,
+        content_loras: resolved,
         checkpoint: checkpoint.trim() || null,
         validated,
       };
@@ -453,13 +465,15 @@ function PoseDialog({
               </Typography>
               <TextField
                 label="Stage 1" size="small" sx={{ width: 110 }}
-                value={String(c.s1)}
-                onChange={(e) => updateContentLora(i, { s1: Number(e.target.value) })}
+                value={c.s1}
+                onChange={(e) => updateContentLora(i, { s1: e.target.value })}
+                slotProps={{ htmlInput: { inputMode: "decimal" } }}
               />
               <TextField
                 label="Stage 2" size="small" sx={{ width: 110 }}
-                value={String(c.s2)}
-                onChange={(e) => updateContentLora(i, { s2: Number(e.target.value) })}
+                value={c.s2}
+                onChange={(e) => updateContentLora(i, { s2: e.target.value })}
+                slotProps={{ htmlInput: { inputMode: "decimal" } }}
               />
               <IconButton size="small" onClick={() => removeContentLora(i)} aria-label="remove">
                 <DeleteOutline fontSize="small" />
