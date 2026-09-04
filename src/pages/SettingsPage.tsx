@@ -55,7 +55,7 @@ export default function SettingsPage() {
     setInput2("");
   };
 
-  const handleSaveDefaults = async () => {
+  const handleSaveSettings = async () => {
     setSaving(true);
     setSaved(false);
     setSaveError(null);
@@ -247,10 +247,19 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Was "Job Defaults", which described a WAN 2.2-era card holding seven generation
+          parameters — cfg high/low, lightx2v strengths, steps, flow shift. Those settings
+          are gone with WAN, and the fields that referenced them were removed in console#390.
+          What remains is one global: the negative prompt every segment falls back to.
+          Named for what it is rather than for what used to be here. */}
       <Card sx={{ mt: 3 }}>
         <CardContent>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Job Defaults
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
+            Negative prompt
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Used by any segment that does not set its own. LTX recipes normally leave theirs
+            empty, so in practice this is what most renders use.
           </Typography>
           {!loaded ? (
             <Box sx={{ textAlign: "center", py: 2 }}>
@@ -259,7 +268,7 @@ export default function SettingsPage() {
           ) : (
             <>
               <TextField
-                label="Negative Prompt"
+                label="Applied when a segment sets none"
                 size="small"
                 multiline
                 minRows={3}
@@ -273,14 +282,14 @@ export default function SettingsPage() {
                 <Button
                   variant="contained"
                   size="small"
-                  onClick={handleSaveDefaults}
+                  onClick={handleSaveSettings}
                   disabled={saving}
                 >
-                  {saving ? "Saving..." : "Save Defaults"}
+                  {saving ? "Saving..." : "Save"}
                 </Button>
                 {saved && (
                   <Alert severity="success" sx={{ mt: 1 }}>
-                    Defaults saved
+                    Saved
                   </Alert>
                 )}
                 {saveError && (
