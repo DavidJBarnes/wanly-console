@@ -19,6 +19,7 @@ import type {
   TitleTagCreate,
   ImageFolder,
   ImageFile,
+  ImageScene,
   ImageJobInfo,
   ImageSearchResponse,
   TagCount,
@@ -460,6 +461,33 @@ export async function describeImage(body: {
   instruction?: string;
 }): Promise<{ caption: string; instruction: string; words: number }> {
   const { data } = await api.post("/captions/describe", body);
+  return data;
+}
+
+/**
+ * An image's saved scene description, or nulls if it has never been described.
+ *
+ * Nulls rather than a 404: an image with no description is a perfectly good image, and
+ * every caller has to render that case anyway.
+ */
+export async function getImageScene(path: string): Promise<ImageScene> {
+  const { data } = await api.get<ImageScene>("/images/scene", { params: { path } });
+  return data;
+}
+
+/**
+ * Describe an image NOW and save the result on its record, replacing any previous one.
+ *
+ * This is both the first description and the re-roll — they are the same act, and which
+ * one it is is decided by whether the caller calls. Unlike describeImage() this one
+ * PERSISTS, which is the whole point: the next job that starts from this image gets the
+ * words for free.
+ */
+export async function describeImageScene(
+  path: string,
+  body: { style?: string; instruction?: string } = {},
+): Promise<ImageScene> {
+  const { data } = await api.post<ImageScene>("/images/scene", body, { params: { path } });
   return data;
 }
 

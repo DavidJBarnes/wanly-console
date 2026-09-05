@@ -24,6 +24,8 @@ import {
   useMediaQuery,
   useTheme,
   Snackbar,
+  Stack,
+  Alert,
 } from "@mui/material";
 import {
   ArrowBack,
@@ -63,10 +65,12 @@ import {
   getFavoriteImages,
   getUntaggedImages,
   updateImageTags,
+  describeImageScene,
   searchImages,
   getImageTagCounts,
 } from "../api/client";
 import type { ImageFolder, ImageFile, ImageJobInfo, TagCount } from "../api/types";
+import { shouldAutoDescribe } from "../lib/autoDescribe";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
@@ -131,6 +135,12 @@ export default function ImageRepo() {
   const [cropResizeImage, setCropResizeImage] = useState<ImageFile | null>(null);
   const [lightboxJobs, setLightboxJobs] = useState<ImageJobInfo[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
+  // Scene description (console#414). `describingPaths` is a ref, not state, because it
+  // guards a debounced callback: the tag save closes over whatever it captured, and a
+  // re-render is not what decides whether a second caption may be launched.
+  const describingPaths = useRef<Set<string>>(new Set());
+  const [describingPath, setDescribingPath] = useState<string | null>(null);
+  const [sceneError, setSceneError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [favoritesView, setFavoritesView] = useState(false);
@@ -429,6 +439,49 @@ export default function ImageRepo() {
     setJobDialogOpen(true);
   };
 
+  /**
+   * Describe an image and save the result on its record.
+   *
+   * One function for both callers — the automatic first description and the Re-roll button
+   * — because they are the same act. The endpoint always regenerates; which one this is was
+   * decided by whoever called.
+   *
+   * Every view holding this image is updated, not just the modal: the grid, the favourites
+   * list and the untagged list all carry their own copy of the row, and a description that
+   * only landed in one of them would come back as null the next time the modal opened.
+   */
+  const runDescribe = async (path: string) => {
+    if (describingPaths.current.has(path)) return;
+    describingPaths.current.add(path);
+    setDescribingPath(path);
+    setSceneError(null);
+    try {
+      const scene = await describeImageScene(path);
+      const patch = (img: ImageFile) =>
+        img.path === path
+          ? {
+              ...img,
+              scene_description: scene.scene_description,
+              scene_described_at: scene.scene_described_at,
+            }
+          : img;
+      setImages((prev) => prev.map(patch));
+      setFavImages((prev) => prev.map(patch));
+      setUntaggedImages((prev) => prev.map(patch));
+      setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
+    } catch (err) {
+      // The 2070 also serves Automatic1111 and is not always up. A failed description is a
+      // thing to retry, not a broken image, so it is reported and nothing else changes.
+      console.error("Failed to describe image:", err);
+      setSceneError(
+        err instanceof Error ? err.message : "Could not describe this image. Try again.",
+      );
+    } finally {
+      describingPaths.current.delete(path);
+      setDescribingPath((prev) => (prev === path ? null : prev));
+    }
+  };
+
   const handleTagsChange = (newTags: string) => {
     setLightboxTags(newTags);
     if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
@@ -449,6 +502,18 @@ export default function ImageRepo() {
             setLightboxImage((prev) =>
               prev && prev.path === path ? { ...prev, tags: newTags || null } : prev
             );
+            // Tagging an image is the moment someone decided it was worth keeping, so it is
+            // the moment to describe it (console#414). Asked on every debounce pause, which
+            // is why the rule — and its once-only guard — lives in one tested place.
+            if (
+              shouldAutoDescribe({
+                tags: newTags,
+                existing: lightboxImage.scene_description,
+                inFlight: describingPaths.current.has(path),
+              })
+            ) {
+              void runDescribe(path);
+            }
           })
           .catch((err) => {
             console.error("Failed to save image tags:", err);
@@ -693,6 +758,63 @@ export default function ImageRepo() {
                       ))}
                     </List>
                   )}
+                  {/* Scene description (console#414).
+                      Shown for every image, tagged or not: this block is where a
+                      description lives, and gating the re-roll behind "must be tagged
+                      first" would be an arbitrary rule about a button. */}
+                  <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
+                  <Box>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
+                        Scene description
+                      </Typography>
+                      <Button
+                        size="small"
+                        onClick={() => runDescribe(lightboxImage.path)}
+                        disabled={describingPath === lightboxImage.path}
+                      >
+                        {describingPath === lightboxImage.path
+                          ? "Describing..."
+                          : lightboxImage.scene_description
+                            ? "Re-roll"
+                            : "Describe"}
+                      </Button>
+                    </Stack>
+                    {describingPath === lightboxImage.path ? (
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <CircularProgress size={16} />
+                        <Typography variant="body2" color="text.secondary">
+                          Asking the captioner...
+                        </Typography>
+                      </Stack>
+                    ) : lightboxImage.scene_description ? (
+                      <>
+                        <Typography variant="body2">
+                          {lightboxImage.scene_description}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {lightboxImage.scene_description.trim().split(/\s+/).length} words
+                          {lightboxImage.scene_described_at
+                            ? ` \u2014 ${new Date(lightboxImage.scene_described_at).toLocaleString()}`
+                            : ""}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        Not described yet. Tagging this image describes it automatically.
+                      </Typography>
+                    )}
+                    {sceneError && (
+                      <Alert
+                        severity="warning"
+                        sx={{ mt: 1 }}
+                        onClose={() => setSceneError(null)}
+                      >
+                        {sceneError}
+                      </Alert>
+                    )}
+                  </Box>
+
                   <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
                   <Box>
                     <TextField

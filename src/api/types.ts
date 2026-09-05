@@ -423,6 +423,24 @@ export interface ImageFile {
   last_modified: string;
   in_use: boolean;
   tags: string | null;
+  /** JoyCaption's description of this frame, produced once and kept (console#414).
+   *
+   *  Null means never described, which is an ordinary state — not an error, and not the
+   *  same as a description that came back empty (nothing stores one of those). */
+  scene_description: string | null;
+  scene_described_at: string | null;
+}
+
+/** An image's scene description, as GET/POST /images/scene return it. */
+export interface ImageScene {
+  path: string;
+  scene_description: string | null;
+  /** WHICH instruction produced it. A caption written under "terse" and one under "rich"
+   *  are different artefacts. */
+  scene_instruction: string | null;
+  scene_described_at: string | null;
+  /** Length is the thing being judged: the description sits beside a ~100-word arc. */
+  words: number;
 }
 
 /** One tag and how many items carry it under the current filter. Images and jobs both. */
