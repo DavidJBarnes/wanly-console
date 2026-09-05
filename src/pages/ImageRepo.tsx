@@ -71,6 +71,7 @@ import {
 } from "../api/client";
 import type { ImageFolder, ImageFile, ImageJobInfo, TagCount } from "../api/types";
 import { shouldAutoDescribe } from "../lib/autoDescribe";
+import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
@@ -140,7 +141,10 @@ export default function ImageRepo() {
   // re-render is not what decides whether a second caption may be launched.
   const describingPaths = useRef<Set<string>>(new Set());
   const [describingPath, setDescribingPath] = useState<string | null>(null);
-  const [sceneError, setSceneError] = useState<string | null>(null);
+  // Carries its own path: descriptions run in the background, so by the time one fails the
+  // modal may be showing a different image, and an error pinned to the wrong picture reads
+  // as that picture having failed.
+  const [sceneError, setSceneError] = useState<{ path: string; message: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [favoritesView, setFavoritesView] = useState(false);
@@ -150,7 +154,8 @@ export default function ImageRepo() {
   const [untaggedImages, setUntaggedImages] = useState<ImageFile[]>([]);
   const [loadingUntagged, setLoadingUntagged] = useState(false);
   const [lightboxTags, setLightboxTags] = useState("");
-  const tagSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** A tag edit waiting to be written, and which image it belongs to. */
+  type TagEdit = { path: string; tags: string; existingScene: string | null };
   const [searchResults, setSearchResults] = useState<ImageFile[]>([]);
   const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
   const [searchTotal, setSearchTotal] = useState(0);
@@ -208,16 +213,11 @@ export default function ImageRepo() {
   }, [folderPage, imagePage, searchPage]);
 
   useEffect(() => {
-    return () => {
-      if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (tagSaveTimer.current) {
-      clearTimeout(tagSaveTimer.current);
-      tagSaveTimer.current = undefined;
-    }
+    // Flush, never cancel. This fires when the lightbox opens another image AND when it
+    // closes — and cancelling here is what quietly dropped a tag made a moment before
+    // (console#435). The pending edit carries its own path, so committing it here lands it
+    // on the image it was made for, not on whatever is on screen now.
+    tagSaveRef.current?.flush();
     setLightboxTags(lightboxImage?.tags ?? "");
   }, [lightboxImage]);
 
@@ -473,53 +473,84 @@ export default function ImageRepo() {
       // The 2070 also serves Automatic1111 and is not always up. A failed description is a
       // thing to retry, not a broken image, so it is reported and nothing else changes.
       console.error("Failed to describe image:", err);
-      setSceneError(
-        err instanceof Error ? err.message : "Could not describe this image. Try again.",
-      );
+      setSceneError({
+        path,
+        message:
+          err instanceof Error ? err.message : "Could not describe this image. Try again.",
+      });
     } finally {
       describingPaths.current.delete(path);
       setDescribingPath((prev) => (prev === path ? null : prev));
     }
   };
 
+  /**
+   * Write the pending tag edit now, whatever it was and whichever image it belongs to.
+   *
+   * The edit is held in a ref, captured at the moment it was made, so this can run after the
+   * lightbox has already moved on — the write targets `pending.path`, not whatever is on
+   * screen. That is the whole fix for console#435: switching images used to CANCEL the
+   * debounced save, so tagging an image and closing the modal inside 500ms silently lost the
+   * tags, and with them the description that hangs off the save succeeding.
+   */
+  const writeTags = ({ path, tags, existingScene }: TagEdit) => {
+    updateImageTags(path, tags || null)
+      .then(() => {
+        const patch = (img: ImageFile) =>
+          img.path === path ? { ...img, tags: tags || null } : img;
+        setImages((prev) => prev.map(patch));
+        setFavImages((prev) => prev.map(patch));
+        if (tags.trim()) {
+          setUntaggedImages((prev) => prev.filter((img) => img.path !== path));
+        } else {
+          setUntaggedImages((prev) => prev.map(patch));
+        }
+        setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
+        // Tagging an image is the moment someone decided it was worth keeping, so it is the
+        // moment to describe it (console#414). `existingScene` was captured with the edit
+        // rather than read now: by the time this runs the modal may be showing something
+        // else entirely, and the question is about the image that was tagged.
+        if (
+          shouldAutoDescribe({
+            tags,
+            existing: existingScene,
+            inFlight: describingPaths.current.has(path),
+          })
+        ) {
+          void runDescribe(path);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to save image tags:", err);
+      });
+  };
+
+  // The writer is created once; `writeTags` is re-made every render, so it is reached
+  // through a ref rather than captured. Otherwise the tag box would be saving through
+  // whichever closure happened to exist when the component first mounted.
+  const writeTagsRef = useRef(writeTags);
+  writeTagsRef.current = writeTags;
+  const tagSaveRef = useRef<DeferredWrite<TagEdit> | null>(null);
+  if (tagSaveRef.current === null) {
+    tagSaveRef.current = createDeferredWrite<TagEdit>(500, (edit) =>
+      writeTagsRef.current(edit),
+    );
+  }
+  const tagSave = tagSaveRef.current;
+
+  // Leaving the page mid-edit is the same case as closing the modal mid-edit.
+  useEffect(() => () => tagSaveRef.current?.flush(), []);
+
   const handleTagsChange = (newTags: string) => {
     setLightboxTags(newTags);
-    if (tagSaveTimer.current) clearTimeout(tagSaveTimer.current);
-    tagSaveTimer.current = setTimeout(() => {
-      tagSaveTimer.current = undefined;
-      if (lightboxImage) {
-        const path = lightboxImage.path;
-        updateImageTags(path, newTags || null)
-          .then(() => {
-            setImages((prev) =>
-              prev.map((img) =>
-                img.path === path ? { ...img, tags: newTags || null } : img
-              )
-            );
-            if (newTags && newTags.trim()) {
-              setUntaggedImages((prev) => prev.filter((img) => img.path !== path));
-            }
-            setLightboxImage((prev) =>
-              prev && prev.path === path ? { ...prev, tags: newTags || null } : prev
-            );
-            // Tagging an image is the moment someone decided it was worth keeping, so it is
-            // the moment to describe it (console#414). Asked on every debounce pause, which
-            // is why the rule — and its once-only guard — lives in one tested place.
-            if (
-              shouldAutoDescribe({
-                tags: newTags,
-                existing: lightboxImage.scene_description,
-                inFlight: describingPaths.current.has(path),
-              })
-            ) {
-              void runDescribe(path);
-            }
-          })
-          .catch((err) => {
-            console.error("Failed to save image tags:", err);
-          });
-      }
-    }, 500);
+    if (!lightboxImage) return;
+    // Captured now, not read when the write happens. What is being saved is a decision about
+    // THIS image, and the modal may have moved on by then.
+    tagSave.schedule({
+      path: lightboxImage.path,
+      tags: newTags,
+      existingScene: lightboxImage.scene_description,
+    });
   };
 
   const handleCreateFolder = async () => {
@@ -804,13 +835,13 @@ export default function ImageRepo() {
                         Not described yet. Tagging this image describes it automatically.
                       </Typography>
                     )}
-                    {sceneError && (
+                    {sceneError?.path === lightboxImage.path && (
                       <Alert
                         severity="warning"
                         sx={{ mt: 1 }}
                         onClose={() => setSceneError(null)}
                       >
-                        {sceneError}
+                        {sceneError.message}
                       </Alert>
                     )}
                   </Box>
