@@ -9,7 +9,13 @@ import {
   NO_CHARACTER,
   type RecipeBook, type Character, type Pose,
 } from "../api/ltx";
-import { addSegment, createJob, describeImage, getFileUrl } from "../api/client";
+import {
+  addSegment, createJob, describeImage, describeImageScene, getFileUrl, getImageScene,
+} from "../api/client";
+import {
+  fillScene, hasScenePlaceholder, hasSceneRegion, restoreScenePlaceholder,
+  stripSceneMarkers,
+} from "../lib/sceneRegion";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
 
 /**
@@ -61,9 +67,6 @@ export interface RecipeFormProps {
  * is the shape that dropped ltx_recipe from segment 0: two paths doing one job,
  * and only one of them maintained.
  */
-/** Filled at submit with a description of the segment's start frame. console#405. */
-const SCENE_TOKEN = "<SCENE>";
-
 type StartFrame =
   | { kind: "file"; file: File; previewUrl: string }
   | { kind: "uri"; uri: string; previewUrl: string };
@@ -107,6 +110,14 @@ export default function RecipeForm({
   // landed -- it just cannot be previewed here.
   const [describing, setDescribing] = useState(false);
   const [describeError, setDescribeError] = useState<string | null>(null);
+  // The description already saved against the chosen start frame, if it has one
+  // (console#414). A ref as well as state: the pose/character effect fills the prompt the
+  // moment it renders a template, and it must read the CURRENT value without listing it as
+  // a dependency — that would re-render the template, discarding the user's edits, every
+  // time a description arrived.
+  const [savedScene, setSavedScene] = useState<string | null>(null);
+  const savedSceneRef = useRef<string | null>(null);
+  savedSceneRef.current = savedScene;
 
   // Pre-filled from the recipe, editable. Editing means this is no longer the
   // validated configuration — which is recorded, not prevented.
@@ -164,7 +175,11 @@ export default function RecipeForm({
   // being unable to see what actually renders.
   useEffect(() => {
     if (!pose || !character) return;
-    setPrompt(renderPrompt(pose.prompt_template, character.trigger));
+    const rendered = renderPrompt(pose.prompt_template, character.trigger);
+    // Auto-filled the moment there is something to fill it with (console#427). The words
+    // land in the editable box, so they are still read before they are used — what changes
+    // is that a description already paid for is not paid for again.
+    setPrompt(savedSceneRef.current ? fillScene(rendered, savedSceneRef.current) : rendered);
     setNegative(pose.negative_prompt);
     setCharLora(character.char_lora);
     setS1(String(character.strength_stage_1));
@@ -209,6 +224,60 @@ export default function RecipeForm({
     if (r.frames != null) setFrames(String(r.frames));
   }, [initialFrom, pose, character]);
 
+  /**
+   * The frame this segment will actually start from — which is not always one that was
+   * picked (console#427).
+   *
+   * A continuation picks nothing: the claim endpoint resolves its start image from the
+   * previous segment's last frame. That left `<SCENE>` unfillable in Next Segment — the
+   * button was disabled, the helper said "pick a start frame first", and the placeholder
+   * always shipped to be described blind at claim time with nobody reading it. The frame
+   * usually exists by then, and `initialFrom` is holding it.
+   *
+   * `cacheable` is about WHICH BUCKET it is in, decided by where the path came from rather
+   * than by parsing it. A picked frame is a repo image and its description belongs on its
+   * record; a continuation's last frame is a generated jobs-bucket image, and giving those
+   * image_meta rows would leak them into the Image Repo's search.
+   */
+  const describeTarget: { path: string; cacheable: boolean } | null =
+    start?.kind === "uri"
+      ? { path: start.uri, cacheable: true }
+      : continuing && initialFrom?.last_frame_path
+        ? { path: initialFrom.last_frame_path, cacheable: false }
+        : null;
+
+  // The saved description for a picked repo frame. Only for a cacheable target: a generated
+  // continuation frame has no record to have been saved against, and asking for one would
+  // be a guaranteed 400.
+  const describePath = describeTarget?.cacheable ? describeTarget.path : null;
+  useEffect(() => {
+    if (!describePath) {
+      setSavedScene(null);
+      return;
+    }
+    let live = true;
+    getImageScene(describePath)
+      .then((s) => {
+        if (live) setSavedScene(s.scene_description);
+      })
+      // A failure here costs the auto-fill, not the form. The manual button still works and
+      // the API still resolves the placeholder at claim time.
+      .catch(() => {
+        if (live) setSavedScene(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [describePath]);
+
+  // The description can arrive after the prompt was rendered — the fetch is async and the
+  // pose effect does not wait for it. Fills only a prompt that is still UNFILLED, so a
+  // description landing late can never overwrite one the user re-rolled or edited.
+  useEffect(() => {
+    if (!savedScene) return;
+    setPrompt((p) => (hasScenePlaceholder(p) ? fillScene(p, savedScene) : p));
+  }, [savedScene]);
+
   // An image passed in from the Image Repo. Referenced, never re-uploaded.
   useEffect(() => {
     if (!initialStartingImageUri) return;
@@ -238,8 +307,13 @@ export default function RecipeForm({
 
       // The segment, identical either way. What differs is only where it is posted: a new job
       // carries it as first_segment, a continuation appends it to an existing one.
+      // The markers are an editing affordance and stop here. A literal <scene> or <SCENE>
+      // reaching the text encoder is garbage tokens -- the same reason the API drops an
+      // unresolved placeholder rather than shipping it.
+      const submittedPrompt = stripSceneMarkers(prompt).trim();
+
       const segment = {
-        prompt: prompt.trim(),
+        prompt: submittedPrompt,
         negative_prompt: negative.trim() || null,
         // The queue speaks seconds; LTX speaks frames. Sent both ways round so neither side
         // has to guess, and ltx_recipe.frames is authoritative.
@@ -266,7 +340,7 @@ export default function RecipeForm({
           // not trained on — a segment has to say which one it ran against.
           checkpoint: pose.checkpoint,
           edited: [
-            prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,
+            restoreScenePlaceholder(prompt).trim() !== renderedPrompt.trim() ? "prompt" : null,
             negative.trim() !== pose.negative_prompt.trim() ? "negative" : null,
             charLora !== character.char_lora ? "char_lora" : null,
             Number(s1) !== character.strength_stage_1 ? "char_s1" : null,
@@ -301,7 +375,7 @@ export default function RecipeForm({
         continuation_mode: "traditional",
         tags: initialTags || null,
         first_segment: {
-          prompt: prompt.trim(),
+          prompt: submittedPrompt,
           negative_prompt: negative.trim() || null,
           // The queue speaks seconds; LTX speaks frames. Sent both ways round so
           // neither side has to guess, and ltx_pose.frames is authoritative.
@@ -331,7 +405,7 @@ export default function RecipeForm({
             checkpoint: pose.checkpoint,
             edited:
               [
-                prompt.trim() !== renderedPrompt.trim() ? "prompt" : null,
+                restoreScenePlaceholder(prompt).trim() !== renderedPrompt.trim() ? "prompt" : null,
                 negative.trim() !== pose.negative_prompt.trim() ? "negative" : null,
                 charLora !== character.char_lora ? "char_lora" : null,
                 Number(s1) !== character.strength_stage_1 ? "char_s1" : null,
@@ -362,21 +436,36 @@ export default function RecipeForm({
     }
   };
 
+  // The scene is put back to its placeholder first: filling <SCENE> is the recipe working
+  // as designed, not somebody departing from it, and reading it as an edit would light this
+  // up on every auto-filled render.
   const edited = pose
-    ? prompt.trim() !== renderedPrompt.trim() || negative.trim() !== pose.negative_prompt.trim()
+    ? restoreScenePlaceholder(prompt).trim() !== renderedPrompt.trim()
+      || negative.trim() !== pose.negative_prompt.trim()
     : false;
 
-  // Replace <SCENE> in the editable prompt with a description of the chosen start frame.
-  // Deliberately a manual action rather than automatic: the prompt is the single biggest
-  // determinant of output quality, and silently rewriting it would make a disappointing
-  // render impossible to attribute. The person sees the words before they are used.
+  /**
+   * Describe the start frame and put the words into the prompt's scene region.
+   *
+   * Manual for a frame with nothing saved, and the re-roll for one that has: the same act
+   * either way, so the same button. A cacheable frame is described through the image record
+   * so the result is SAVED — the next job starting from it, and the Image Repo modal, see
+   * the same words. A continuation's generated frame is described statelessly, because a
+   * jobs-bucket frame must never acquire a repo record.
+   */
   const handleDescribe = async () => {
-    if (start?.kind !== "uri") return;
+    if (!describeTarget) return;
     setDescribing(true);
     setDescribeError(null);
     try {
-      const { caption } = await describeImage({ image_uri: start.uri });
-      setPrompt((p) => p.split(SCENE_TOKEN).join(caption));
+      const caption = describeTarget.cacheable
+        ? (await describeImageScene(describeTarget.path)).scene_description
+        : (await describeImage({ image_uri: describeTarget.path })).caption;
+      if (!caption) throw new Error("the captioner returned nothing for this frame");
+      if (describeTarget.cacheable) setSavedScene(caption);
+      // fillScene rewrites an existing region, so re-rolling replaces the words rather than
+      // pasting a second description beside the first.
+      setPrompt((p) => fillScene(p, caption));
     } catch (e) {
       // Never blocks submission. Left unresolved, the API fills it in at claim time; failing
       // that it drops the placeholder for a valid generic prompt.
@@ -468,25 +557,37 @@ export default function RecipeForm({
             size={compact ? "small" : "medium"}
             onChange={(e) => setPrompt(e.target.value)}
           />
-          {/* Offered only while the placeholder is actually present -- once replaced there
-              is nothing left to fill, and the caption is ordinary editable text like the
-              rest of the prompt. */}
-          {prompt.includes(SCENE_TOKEN) && (
+          {/* Offered while there is a scene at all -- unfilled OR filled. A filled region is
+              still a thing to re-roll, which the old one-way paste could not express: once
+              <SCENE> was gone there was nothing left to aim at. */}
+          {(hasScenePlaceholder(prompt) || hasSceneRegion(prompt)) && (
             <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
               <Button
                 size="small"
                 variant="outlined"
                 onClick={handleDescribe}
-                disabled={describing || start?.kind !== "uri"}
+                disabled={describing || !describeTarget}
               >
-                {describing ? "Describing..." : "Describe start frame"}
+                {describing
+                  ? "Describing..."
+                  : hasSceneRegion(prompt)
+                    ? "Re-describe frame"
+                    : "Describe start frame"}
               </Button>
               <Typography variant="caption" color="text.secondary">
-                {start?.kind === "uri"
-                  ? "Replaces <SCENE> with a description of this frame. Edit it afterwards like any other text."
-                  : start
+                {!describeTarget
+                  ? start
                     ? "Available once the frame is saved -- it is described automatically when the segment runs."
-                    : "Pick a start frame first."}
+                    : continuing
+                      ? "The previous segment has not rendered yet, so there is no frame to describe. It is described automatically when this segment runs."
+                      : "Pick a start frame first."
+                  : hasSceneRegion(prompt)
+                    ? describeTarget.cacheable
+                      ? "Re-rolls the scene and saves the new words on the image."
+                      : "Re-rolls the scene from the previous segment's last frame."
+                    : describeTarget.cacheable
+                      ? "Describes this frame and saves the words on the image, so the next job gets them free."
+                      : "Describes the previous segment's last frame -- the one this segment continues from."}
               </Typography>
             </Stack>
           )}
