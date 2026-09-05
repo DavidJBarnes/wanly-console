@@ -45,6 +45,7 @@ import {
   Visibility,
   ChevronLeft,
   ChevronRight,
+  Lock,
   ViewInAr,
   WarningAmber,
 } from "@mui/icons-material";
@@ -1893,15 +1894,38 @@ export default function JobDetail() {
           Re-roll segment {rerollTarget?.index ?? ""}?
         </DialogTitle>
         <DialogContent>
-          <Typography>
-            The current take is <strong>archived</strong>, not deleted — its video stays on the
-            job, under the seed that produced it.
-          </Typography>
-          <Typography sx={{ mt: 1.5 }}>
-            A new segment {rerollTarget?.index ?? ""} is queued with the same LoRAs, preset and
-            start image. Leave the prompt alone and only the seed changes, which is what makes
-            the two takes directly comparable.
-          </Typography>
+          {/* The seed state, not an explanation of re-roll — and it differs by index, which is
+              the reason to show it. Segment 0 IS the chain's first frame, so rolling it asks
+              for a different shot and draws a new seed. A continuation keeps the chain's seed,
+              because that lock is what makes segment 3 look like segment 2 carrying on: the
+              prompt is then the only thing a roll there varies. */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 2 }}>
+            {rerollTarget?.index === 0 ? (
+              <>
+                <Chip size="small" color="primary" variant="outlined"
+                      icon={<Casino sx={{ fontSize: 14 }} />}
+                      label="Seed: auto-generated" />
+                <Typography variant="caption" color="text.secondary">
+                  replacing{" "}
+                  <Box component="span" sx={{ fontFamily: "monospace" }}>
+                    {rerollTarget?.seed ?? job.seed}
+                  </Box>
+                </Typography>
+              </>
+            ) : (
+              <>
+                <Chip size="small" color="default" variant="outlined"
+                      icon={<Lock sx={{ fontSize: 14 }} />}
+                      label="Seed: locked to the chain" />
+                <Typography variant="caption" color="text.secondary">
+                  <Box component="span" sx={{ fontFamily: "monospace" }}>
+                    {rerollTarget?.seed ?? job.seed}
+                  </Box>
+                  {" "}— edit the prompt to change this take
+                </Typography>
+              </>
+            )}
+          </Box>
           <TextField
             label="Prompt"
             value={rerollPrompt}
@@ -1909,8 +1933,11 @@ export default function JobDetail() {
             fullWidth
             multiline
             minRows={3}
-            sx={{ mt: 2 }}
-            helperText="Edit to nudge the wording for this take. Changing it means the two takes differ in more than the seed, and the new one records that."
+            helperText={
+              rerollTarget?.index === 0
+                ? "Edit to nudge the wording. Changing it means the two takes differ in more than the seed, and the new one records that."
+                : "The seed is fixed for this shot, so the prompt is what a roll here varies. Left alone, the new take will look much like the one being archived."
+            }
           />
         </DialogContent>
         <DialogActions>
