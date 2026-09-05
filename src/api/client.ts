@@ -446,23 +446,6 @@ export async function uploadImage(file: File, folder: string): Promise<{ path: s
 
 // --- App Settings ---
 
-/**
- * Describe a start frame, for the <SCENE> placeholder (console#405).
- *
- * The "a human is present" half: the console shows the caption, the person edits or accepts
- * it, and the RESOLVED text is submitted. Continuations have no human and no frame yet, so
- * the API resolves those itself at claim time.
- *
- * Nothing is stored by this call — a caption the user rejects must leave no trace.
- */
-export async function describeImage(body: {
-  image_uri: string;
-  style?: string;
-  instruction?: string;
-}): Promise<{ caption: string; instruction: string; words: number }> {
-  const { data } = await api.post("/captions/describe", body);
-  return data;
-}
 
 /**
  * An image's saved scene description, or nulls if it has never been described.
@@ -479,9 +462,12 @@ export async function getImageScene(path: string): Promise<ImageScene> {
  * Describe an image NOW and save the result on its record, replacing any previous one.
  *
  * This is both the first description and the re-roll — they are the same act, and which
- * one it is is decided by whether the caller calls. Unlike describeImage() this one
- * PERSISTS, which is the whole point: the next job that starts from this image gets the
- * words for free.
+ * one it is is decided by whether the caller calls. It PERSISTS, which is the whole point:
+ * the next job starting from this frame gets the words for free, and a claim renders with
+ * the same description that was shown rather than generating a different one.
+ *
+ * Works for a generated frame too (console#438) -- a segment's last frame is the start
+ * frame of the one after it, and the Next Segment dialog describes it on open.
  */
 export async function describeImageScene(
   path: string,
