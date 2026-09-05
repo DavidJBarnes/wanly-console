@@ -258,8 +258,9 @@ export default function SettingsPage() {
             Negative prompt
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Used by any segment that does not set its own. LTX recipes normally leave theirs
-            empty, so in practice this is what most renders use.
+            The default for every render. A pose can override it, and most do not — so in
+            practice this is what a render uses. Leave it empty and the built-in negative
+            applies instead; clearing the box does not render without one.
           </Typography>
           {!loaded ? (
             <Box sx={{ textAlign: "center", py: 2 }}>
@@ -268,14 +269,14 @@ export default function SettingsPage() {
           ) : (
             <>
               <TextField
-                label="Applied when a segment sets none"
+                label="Applied when a pose sets none"
                 size="small"
                 multiline
                 minRows={3}
                 maxRows={8}
                 value={negativePrompt}
                 onChange={(e) => setNegativePrompt(e.target.value)}
-                helperText="Sent as negative conditioning to ComfyUI"
+                helperText="Sent as negative conditioning to the engine"
                 sx={{ mt: 2, width: "100%", maxWidth: 500 }}
               />
               <Box sx={{ mt: 2 }}>

@@ -38,6 +38,10 @@ import {
 import type { Character, ContentLora, Pose, RecipeBook } from "../api/ltx";
 import { parseContentLoraStrength } from "../lib/contentLoraStrength";
 import { overrideNumber } from "../lib/overrideValue";
+import {
+  initialNegativeOverride,
+  negativeOverrideToSend,
+} from "../lib/poseNegativeOverride";
 
 /**
  * Authoring poses and characters.
@@ -245,6 +249,7 @@ function PoseList({
       {editing && (
         <PoseDialog
           pose={editing === "new" ? null : editing}
+          defaultNegative={book?.default_negative_prompt ?? ""}
           characters={book?.characters ?? []}
           contentLoras={contentLoras}
           checkpoints={checkpoints}
@@ -277,6 +282,7 @@ function PoseList({
 
 function PoseDialog({
   pose,
+  defaultNegative,
   characters,
   contentLoras: contentLorasAvailable,
   checkpoints,
@@ -284,6 +290,9 @@ function PoseDialog({
   onSaved,
 }: {
   pose: Pose | null;
+  /** What a pose with no override renders with — the Settings negative prompt. Shown as
+   *  the field's placeholder, never as its value. */
+  defaultNegative: string;
   characters: Character[];
   contentLoras: string[];
   checkpoints: string[];
@@ -294,7 +303,12 @@ function PoseDialog({
   const isNew = !pose?.id;
   const [name, setName] = useState(pose?.name ?? "");
   const [template, setTemplate] = useState(pose?.prompt_template ?? `${TRIGGER_PLACEHOLDER}, `);
-  const [negative, setNegative] = useState(pose?.negative_prompt ?? "");
+  // The pose's OWN override, not the resolved value. Binding to the resolved one is what
+  // pinned every pose in production to a copy of the default: the box came up pre-filled
+  // with it, save wrote it back as an override, and the Settings negative prompt could
+  // then never apply to anything (console#430). Empty means "inherit", and the default is
+  // shown as the placeholder so that is visible without being typed in.
+  const [negative, setNegative] = useState(initialNegativeOverride(pose));
   const [frames, setFrames] = useState(pose?.frames ? String(pose.frames) : "");
   // Empty string means "use the stack's value". "0" is a real setting and must survive,
   // so this is deliberately not `pose?.img_compression ? ... : ""`.
@@ -360,10 +374,10 @@ function PoseDialog({
       const draft = {
         name: name.trim(),
         prompt_template: template,
-        // "" is the user clearing an override, which means "use the stack's negative".
+        // "" is the user clearing an override, which means "use the Settings default".
         // Sending "" instead would store an empty negative prompt, which is a different
         // and much worse thing.
-        negative_prompt: negative.trim() || null,
+        negative_prompt: negativeOverrideToSend(negative),
         frames: overrideNumber(frames),
         img_compression: overrideNumber(imgCompression),
         // Sent even when empty: [] is how the LoRAs are CLEARED, and the API distinguishes
@@ -415,10 +429,11 @@ function PoseDialog({
             label="Negative prompt"
             value={negative}
             onChange={(e) => setNegative(e.target.value)}
+            placeholder={defaultNegative}
             fullWidth
             multiline
             minRows={2}
-            helperText="Leave empty to use the global stack's negative."
+            helperText="Empty inherits the default from Settings, shown greyed out above."
           />
           <Stack direction="row" spacing={2}>
             <TextField

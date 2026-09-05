@@ -49,8 +49,16 @@ export interface Pose {
   name: string;
   /** Contains TRIGGER_PLACEHOLDER, filled with the character's trigger word. */
   prompt_template: string;
-  /** Already resolved: the pose's own override, or the stack's. */
+  /** Already resolved: the pose's own override, or the Settings default. */
   negative_prompt: string;
+  /** The pose's OWN override, unresolved. Null means it inherits the default.
+   *
+   *  Both are needed, and confusing them is the bug this field was added for
+   *  (console#430): the editor used to bind to the resolved value, so saving an
+   *  untouched pose wrote the default back as an override and pinned it forever. Every
+   *  pose in production had been pinned that way, which is what kept the Settings
+   *  negative prompt from ever being used. */
+  negative_prompt_override: string | null;
   frames: number;
   /** Video CRF applied to the conditioning frame before it anchors the render. Null uses the
    *  global stack's value. 0 is meaningful — it bypasses the encode entirely. */
@@ -143,6 +151,10 @@ export interface LtxStack {
 
 export interface RecipeBook {
   stack: LtxStack;
+  /** What a pose with no override of its own renders with: the Settings negative prompt,
+   *  or the stack's built-in when that is blank. Shown as the editor's placeholder, so
+   *  "inherits" is visible without being typed into the field. */
+  default_negative_prompt: string;
   /** Every pose, available to every character. */
   poses: Pose[];
   characters: Character[];
