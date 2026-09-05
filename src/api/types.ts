@@ -155,6 +155,11 @@ export interface SegmentResponse {
   error_message: string | null;
   progress_log: string | null;
   estimated_run_time: number | null;
+  /** Why a PENDING segment is going nowhere: the models it names are on no online worker
+   *  (console#422). Computed per request from what workers report, so it clears by itself
+   *  the moment a worker holding the file comes online. Null means nothing to say — either
+   *  somebody can run it, or no worker has reported an inventory to judge against. */
+  blocked_reason: string | null;
 }
 
 export interface HologramRequest {
