@@ -46,6 +46,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ViewInAr,
+  WarningAmber,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -1273,6 +1274,17 @@ export default function JobDetail() {
                     <TableCell>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                         <StatusChip status={seg.status} />
+                        {seg.blocked_reason && (
+                          <Tooltip title={seg.blocked_reason}>
+                            <Chip
+                              size="small"
+                              color="warning"
+                              variant="outlined"
+                              icon={<WarningAmber sx={{ fontSize: 14 }} />}
+                              label="Blocked"
+                            />
+                          </Tooltip>
+                        )}
                       </Box>
                     </TableCell>
                     <TableCell>
@@ -1504,6 +1516,17 @@ export default function JobDetail() {
                         #{seg.index}
                       </Typography>
                       <StatusChip status={seg.status} />
+                      {seg.blocked_reason && (
+                        <Tooltip title={seg.blocked_reason}>
+                          <Chip
+                            size="small"
+                            color="warning"
+                            variant="outlined"
+                            icon={<WarningAmber sx={{ fontSize: 14 }} />}
+                            label="Blocked"
+                          />
+                        </Tooltip>
+                      )}
                       <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
                         {(seg.status === "claimed" || seg.status === "processing") && seg.claimed_at && (
                           <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
