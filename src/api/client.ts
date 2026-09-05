@@ -168,16 +168,26 @@ export async function addSegment(
   return data;
 }
 
-/** Archive segment 0 and queue an identical one with a new random seed.
+/** Archive this take and queue another one at the same index, with a new random seed.
+ *
+ *  Addressed by SEGMENT (console#424): re-roll used to mean "the job's one segment", which
+ *  stopped being unambiguous once any index could be the target. The API refuses anything but
+ *  the job's current segment, so naming it here is what lets that refusal be meaningful
+ *  rather than a guess about what the user was looking at.
+ *
+ *  `prompt` is optional and changes the wording for the new take only. Omitted — the default
+ *  — the roll changes nothing but the seed, which is what makes two takes comparable.
  *
  *  Returns the NEW segment. The job also moves back to pending and the old take becomes
- *  discarded, so callers refetch the job rather than patching this into state.
- *
- *  An optional rule ("re-roll until") makes it a loop: the API judges the finished take
- *  against metric >= threshold and rolls again on a miss, up to the max_rerolls_per_job
- *  setting. */
-export async function rerollJobSeed(jobId: string): Promise<SegmentResponse> {
-  const { data } = await api.post<SegmentResponse>(`/jobs/${jobId}/reroll`, {});
+ *  discarded, so callers refetch the job rather than patching this into state. */
+export async function rerollSegment(
+  segmentId: string,
+  prompt?: string,
+): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(
+    `/segments/${segmentId}/reroll`,
+    prompt === undefined ? {} : { prompt },
+  );
   return data;
 }
 

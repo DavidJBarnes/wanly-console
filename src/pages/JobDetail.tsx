@@ -53,7 +53,7 @@ import {
   getJob,
   updateJob,
   retrySegment,
-  rerollJobSeed,
+  rerollSegment,
   cancelSegment,
   deleteSegment,
   makeHologram,
@@ -76,7 +76,7 @@ import type {
 import StatusChip from "../components/StatusChip";
 import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
-import { canRerollSeed } from "../lib/rerollEligibility";
+import { rerollableSegment } from "../lib/rerollEligibility";
 import { allArchivedTakes, groupTakes, takeSeed } from "../lib/segmentTakes";
 import { useGoBack } from "../hooks/useGoBack";
 import HologramConfig from "../components/HologramConfig";
@@ -253,6 +253,9 @@ export default function JobDetail() {
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
   const [rerollConfirm, setRerollConfirm] = useState(false);
+  // The prompt as edited in the re-roll dialog. Seeded from the take being rolled each time
+  // the dialog opens, so an abandoned edit never leaks into the next roll.
+  const [rerollPrompt, setRerollPrompt] = useState("");
   const [nextSegmentOpen, setNextSegmentOpen] = useState(false);
   // "" = plain one-shot re-roll (no rule). The threshold is text state so a half-typed
   // number doesn't fight the input; parsed at roll time.
@@ -342,12 +345,23 @@ export default function JobDetail() {
     }
   };
 
+  const openReroll = (segment: SegmentResponse) => {
+    setRerollPrompt(segment.prompt);
+    setRerollConfirm(true);
+  };
+
   const handleReroll = async () => {
-    if (!id) return;
+    if (!rerollTarget) return;
     setRerollConfirm(false);
     setRerolling(true);
     try {
-      await rerollJobSeed(id);
+      // Only send a prompt when it actually changed. An unchanged one would still be recorded
+      // as an edit on the new take, and a seed-only roll would stop looking like one.
+      const edited = rerollPrompt.trim();
+      await rerollSegment(
+        rerollTarget.id,
+        edited && edited !== rerollTarget.prompt.trim() ? edited : undefined,
+      );
       // Refetch rather than patching state in: the response is the new segment, but the job's
       // status went back to pending and the old take is now archived, so the whole page moved.
       await fetchJob();
@@ -630,7 +644,8 @@ export default function JobDetail() {
       ["pending", "claimed", "processing"].includes(seg.status),
     );
 
-  const canReroll = canRerollSeed(videoSegments);
+  // The job's CURRENT take, or null when re-roll should not be offered at all (console#424).
+  const rerollTarget = rerollableSegment(videoSegments, job.status);
 
   /** The "N previous takes" fold for one index — used under the live segment that replaced
    *  them, and standalone for a position whose takes were all discarded with no replacement. */
@@ -1044,16 +1059,16 @@ export default function JobDetail() {
                 </Typography>
               </>
             )}
-            {canReroll && (
+            {rerollTarget && (
               <Tooltip
-                title="Archive this take and generate another one from the same settings with a new random seed"
+                title={`Archive take ${rerollTarget.index} and generate another one with a new random seed — and, if you want, different wording`}
                 arrow
               >
                 <span>
                   <Button
                     variant="outlined"
                     size="small"
-                    onClick={() => setRerollConfirm(true)}
+                    onClick={() => openReroll(rerollTarget)}
                     disabled={rerolling}
                     startIcon={
                       rerolling ? (
@@ -1873,17 +1888,30 @@ export default function JobDetail() {
 
       {/* Re-open job confirm dialog */}
       {/* Re-roll confirmation */}
-      <Dialog open={rerollConfirm} onClose={() => setRerollConfirm(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Re-roll with a new seed?</DialogTitle>
+      <Dialog open={rerollConfirm} onClose={() => setRerollConfirm(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Re-roll segment {rerollTarget?.index ?? ""}?
+        </DialogTitle>
         <DialogContent>
           <Typography>
             The current take is <strong>archived</strong>, not deleted — its video stays on the
             job, under the seed that produced it.
           </Typography>
           <Typography sx={{ mt: 1.5 }}>
-            A new segment 0 is queued with the same prompt, LoRAs, preset and start image. Only
-            the seed changes, so the two takes are directly comparable.
+            A new segment {rerollTarget?.index ?? ""} is queued with the same LoRAs, preset and
+            start image. Leave the prompt alone and only the seed changes, which is what makes
+            the two takes directly comparable.
           </Typography>
+          <TextField
+            label="Prompt"
+            value={rerollPrompt}
+            onChange={(e) => setRerollPrompt(e.target.value)}
+            fullWidth
+            multiline
+            minRows={3}
+            sx={{ mt: 2 }}
+            helperText="Edit to nudge the wording for this take. Changing it means the two takes differ in more than the seed, and the new one records that."
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRerollConfirm(false)}>Cancel</Button>

@@ -1,36 +1,47 @@
 import { describe, it, expect } from "vitest";
-import type { SegmentResponse, SegmentStatus } from "../api/types";
-import { canRerollSeed } from "./rerollEligibility";
+import type { JobStatus, SegmentResponse, SegmentStatus } from "../api/types";
+import { rerollableSegment } from "./rerollEligibility";
 
 const seg = (over: Partial<SegmentResponse>): SegmentResponse =>
-  ({ index: 0, status: "completed", discarded: false, ...over }) as SegmentResponse;
+  ({ id: `s${over.index ?? 0}`, index: 0, status: "completed", discarded: false, ...over }) as SegmentResponse;
 
-describe("canRerollSeed", () => {
-  it("allows a job with one finished take", () => {
-    expect(canRerollSeed([seg({})])).toBe(true);
-    expect(canRerollSeed([seg({ status: "failed" })])).toBe(true);
+const target = (segments: SegmentResponse[], status: JobStatus = "awaiting") =>
+  rerollableSegment(segments, status);
+
+describe("rerollableSegment", () => {
+  it("offers a job with one finished take", () => {
+    expect(target([seg({})])?.index).toBe(0);
+    expect(target([seg({ status: "failed" })])?.index).toBe(0);
   });
 
-  it("still allows it once earlier takes have been archived", () => {
+  it("offers the CURRENT segment of a chain, not segment 0", () => {
+    // console#424. "That take was close" applies to segment 3 as much as to segment 0.
+    expect(target([seg({}), seg({ index: 1 }), seg({ index: 2 })])?.index).toBe(2);
+  });
+
+  it("still offers it once earlier takes have been archived", () => {
     // The workflow is rolling repeatedly. Counting archived takes would hide the button after
     // the first use — the opposite of what it is for.
-    expect(canRerollSeed([seg({ discarded: true }), seg({})])).toBe(true);
+    expect(target([seg({ discarded: true }), seg({})])?.index).toBe(0);
+    expect(target([seg({}), seg({ index: 1, discarded: true }), seg({ index: 1 })])?.index).toBe(1);
   });
 
-  it("refuses once a successor segment exists", () => {
-    // Segment 1 was generated from segment 0's last frame; replacing 0 orphans it.
-    expect(canRerollSeed([seg({}), seg({ index: 1 })])).toBe(false);
-  });
-
-  it("refuses while the take is still running", () => {
+  it("refuses while the current take is still running", () => {
     const running: SegmentStatus[] = ["pending", "claimed", "processing"];
     for (const status of running) {
-      expect(canRerollSeed([seg({ status })])).toBe(false);
+      expect(target([seg({}), seg({ index: 1, status })])).toBeNull();
     }
   });
 
   it("refuses a job with no live take at all", () => {
-    expect(canRerollSeed([])).toBe(false);
-    expect(canRerollSeed([seg({ discarded: true })])).toBe(false);
+    expect(target([])).toBeNull();
+    expect(target([seg({ discarded: true })])).toBeNull();
+  });
+
+  it("refuses a finalized job", () => {
+    // Its stitched output describes the takes that were live when it was built.
+    for (const status of ["finalized", "finalizing", "archived"] as JobStatus[]) {
+      expect(target([seg({})], status)).toBeNull();
+    }
   });
 });
