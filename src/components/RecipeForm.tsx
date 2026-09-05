@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import axios from "axios";
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip,
   CircularProgress, MenuItem, Stack, TextField, Typography,
@@ -499,10 +500,17 @@ export default function RecipeForm({
       // pasting a second description beside the first.
       setPrompt((p) => fillScene(p, caption));
     } catch (e) {
-      // Never blocks submission. Left unresolved, the API fills it in at claim time; failing
-      // that it drops the placeholder for a valid generic prompt.
+      // A MISSING FRAME IS NOT A CAPTION PROBLEM (console#440). 404 means the object the
+      // previous segment points at is not in storage — the claim resolves this segment's
+      // start image from that same path, so the render will fail too, not merely lose its
+      // description. Saying "you can still submit" there would be false comfort.
+      const missing = axios.isAxiosError(e) && e.response?.status === 404;
       setDescribeError(
-        ltxError(e) + " -- you can still submit; it will be described when the segment runs.",
+        missing
+          ? "The frame this segment would continue from is missing from storage, so this "
+            + "segment would fail. Pick a start frame above to continue from instead."
+          : ltxError(e)
+            + " -- you can still submit; it will be described when the segment runs.",
       );
     } finally {
       setDescribing(false);
@@ -624,7 +632,10 @@ export default function RecipeForm({
             </Stack>
           )}
           {describeError && (
-            <Alert severity="warning" onClose={() => setDescribeError(null)}>
+            <Alert
+              severity={describeError.startsWith("The frame this segment") ? "error" : "warning"}
+              onClose={() => setDescribeError(null)}
+            >
               {describeError}
             </Alert>
           )}
