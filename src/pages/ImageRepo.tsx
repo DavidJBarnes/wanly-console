@@ -789,65 +789,11 @@ export default function ImageRepo() {
                       ))}
                     </List>
                   )}
-                  {/* Scene description (console#414).
-                      Shown for every image, tagged or not: this block is where a
-                      description lives, and gating the re-roll behind "must be tagged
-                      first" would be an arbitrary rule about a button. */}
                   <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
                   <Box>
-                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
-                        Scene description
-                      </Typography>
-                      <Button
-                        size="small"
-                        onClick={() => runDescribe(lightboxImage.path)}
-                        disabled={describingPath === lightboxImage.path}
-                      >
-                        {describingPath === lightboxImage.path
-                          ? "Describing..."
-                          : lightboxImage.scene_description
-                            ? "Re-roll"
-                            : "Describe"}
-                      </Button>
-                    </Stack>
-                    {describingPath === lightboxImage.path ? (
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <CircularProgress size={16} />
-                        <Typography variant="body2" color="text.secondary">
-                          Asking the captioner...
-                        </Typography>
-                      </Stack>
-                    ) : lightboxImage.scene_description ? (
-                      <>
-                        <Typography variant="body2">
-                          {lightboxImage.scene_description}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {lightboxImage.scene_description.trim().split(/\s+/).length} words
-                          {lightboxImage.scene_described_at
-                            ? ` \u2014 ${new Date(lightboxImage.scene_described_at).toLocaleString()}`
-                            : ""}
-                        </Typography>
-                      </>
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">
-                        Not described yet. Tagging this image describes it automatically.
-                      </Typography>
-                    )}
-                    {sceneError?.path === lightboxImage.path && (
-                      <Alert
-                        severity="warning"
-                        sx={{ mt: 1 }}
-                        onClose={() => setSceneError(null)}
-                      >
-                        {sceneError.message}
-                      </Alert>
-                    )}
-                  </Box>
-
-                  <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
-                  <Box>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                      Tags
+                    </Typography>
                     <TextField
                       size="small"
                       fullWidth
@@ -914,6 +860,63 @@ export default function ImageRepo() {
                           />
                         ))}
                       </Box>
+                    )}
+                  </Box>
+
+                  {/* Scene description (console#414, moved below the tags in #443).
+                      Shown for every image, tagged or not: this block is where a
+                      description lives, and gating the re-roll behind "must be tagged
+                      first" would be an arbitrary rule about a button. */}
+                  <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
+                  <Box>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
+                        Scene description
+                      </Typography>
+                      <Button
+                        size="small"
+                        onClick={() => runDescribe(lightboxImage.path)}
+                        disabled={describingPath === lightboxImage.path}
+                      >
+                        {describingPath === lightboxImage.path
+                          ? "Describing..."
+                          : lightboxImage.scene_description
+                            ? "Re-roll"
+                            : "Describe"}
+                      </Button>
+                    </Stack>
+                    {describingPath === lightboxImage.path ? (
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <CircularProgress size={16} />
+                        <Typography variant="body2" color="text.secondary">
+                          Asking the captioner...
+                        </Typography>
+                      </Stack>
+                    ) : lightboxImage.scene_description ? (
+                      <>
+                        <Typography variant="body2">
+                          {lightboxImage.scene_description}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {lightboxImage.scene_description.trim().split(/\s+/).length} words
+                          {lightboxImage.scene_described_at
+                            ? ` \u2014 ${new Date(lightboxImage.scene_described_at).toLocaleString()}`
+                            : ""}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        Not described yet. Tagging this image describes it automatically.
+                      </Typography>
+                    )}
+                    {sceneError?.path === lightboxImage.path && (
+                      <Alert
+                        severity="warning"
+                        sx={{ mt: 1 }}
+                        onClose={() => setSceneError(null)}
+                      >
+                        {sceneError.message}
+                      </Alert>
                     )}
                   </Box>
                 </Box>
