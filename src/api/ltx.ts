@@ -68,9 +68,10 @@ export interface Pose {
    *  which is what most poses do. */
   content_loras: ContentLora[];
   /** Base model this pose renders on. Already resolved: the pose's own value or the
-   *  stack's. Character LoRAs were trained against sulphur — on another base a LoRA can
-   *  fuse nothing at all, silently, and the render comes back without the character. The
-   *  engine logs its fusion count per render, which is what makes that visible. */
+   *  stack's, which is 10Eros_v1.5_bf16 since console#431. Character LoRAs were trained
+   *  against sulphur — on any other base, the default included, a LoRA can fuse nothing at
+   *  all, silently, and the render comes back without the character. The engine logs its
+   *  fusion count per render, which is what makes that visible. */
   checkpoint: string;
   /** The POSE is proven — this prompt produces what it claims. Whether a given
    *  character renders well is a property of its LoRA, which ratings record. */
