@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip,
@@ -33,6 +33,24 @@ import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
  * character LoRA and the prompt ever varied; everything else is one global
  * stack. Character, pose and start frame really is the whole decision.
  */
+/**
+ * The submit action, handed to whoever is drawing the frame around this form.
+ *
+ * The button used to live at the bottom of the form itself. In a dialog that put it above
+ * the footer, with Close sitting below the thing it was not the primary action for. The
+ * form still OWNS the action -- it is the only thing that knows whether a pose is chosen or
+ * a render is in flight -- it just no longer decides where the button is painted.
+ */
+export interface RecipeFormActions {
+  submit: () => void;
+  busy: boolean;
+  disabled: boolean;
+  label: string;
+  /** The chosen pose is not validated. Shown beside the button, where it is a warning about
+   *  what is ABOUT to be queued rather than a note about a dropdown. */
+  unvalidated: boolean;
+}
+
 export interface RecipeFormProps {
   /** "dialog" drops the heading and tightens spacing. The fields are identical. */
   variant?: "page" | "dialog";
@@ -57,6 +75,9 @@ export interface RecipeFormProps {
    *  making the user re-pick them from defaults every time is how a chain silently changes
    *  configuration halfway through. */
   initialFrom?: SegmentResponse | null;
+  /** Receives the submit action so a dialog can render it in its own footer. MUST be stable
+   *  — a plain setState suffices — or the effect that reports state will loop. */
+  onActions?: (actions: RecipeFormActions) => void;
 }
 
 /**
@@ -96,6 +117,7 @@ export default function RecipeForm({
   initialTags,
   continueJobId,
   initialFrom,
+  onActions,
 }: RecipeFormProps) {
   const continuing = Boolean(continueJobId);
   const compact = variant === "dialog";
@@ -469,6 +491,30 @@ export default function RecipeForm({
     }
   };
 
+  const submitDisabled = !pose || busy || (!continuing && !start);
+  const submitLabel = busy
+    ? "Queueing…"
+    : continuing
+      ? "Queue next segment"
+      : "Queue render";
+
+  // `submit` is a new function every render, so it is reached through a ref: putting it in
+  // the dependency list below would report new actions on every render, and a parent that
+  // stores them in state would then re-render forever.
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  const stableSubmit = useCallback(() => submitRef.current(), []);
+
+  useEffect(() => {
+    onActions?.({
+      submit: stableSubmit,
+      busy,
+      disabled: submitDisabled,
+      label: submitLabel,
+      unvalidated: Boolean(pose && !pose.validated),
+    });
+  }, [onActions, stableSubmit, busy, submitDisabled, submitLabel, pose]);
+
   // The scene is put back to its placeholder first: filling <SCENE> is the recipe working
   // as designed, not somebody departing from it, and reading it as an edit would light this
   // up on every auto-filled render.
@@ -732,18 +778,19 @@ export default function RecipeForm({
         </>
       )}
 
-      <Box>
-        <Button
-          variant="contained"
-          onClick={submit}
-          disabled={!pose || busy || (!continuing && !start)}
-        >
-          {busy ? "Queueing…" : continuing ? "Queue next segment" : "Queue render"}
-        </Button>
-        {pose && !pose.validated && (
-          <Chip size="small" label="unvalidated pose" sx={{ ml: 1 }} />
-        )}
-      </Box>
+      {/* No submit button here: the dialog paints it in its footer, beside Close. See
+          RecipeFormActions. A form rendered without an onActions handler would have no way
+          to submit, which is why the fallback below exists. */}
+      {!onActions && (
+        <Box>
+          <Button variant="contained" onClick={submit} disabled={submitDisabled}>
+            {submitLabel}
+          </Button>
+          {pose && !pose.validated && (
+            <Chip size="small" label="unvalidated pose" sx={{ ml: 1 }} />
+          )}
+        </Box>
+      )}
     </Stack>
   );
 }
