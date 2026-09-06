@@ -1,8 +1,9 @@
+import { useState } from "react";
 import {
-  Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Stack,
+  Dialog, DialogTitle, DialogContent, DialogActions, Button, Chip, Typography, Stack,
 } from "@mui/material";
 import { Movie } from "@mui/icons-material";
-import RecipeForm from "./RecipeForm";
+import RecipeForm, { type RecipeFormActions } from "./RecipeForm";
 import type { SegmentResponse } from "../api/types";
 import { useIsMobile } from "../hooks/useIsMobile";
 
@@ -40,6 +41,9 @@ export default function CreateLtxJobDialog({
   open, onClose, onCreated, initialStartingImageUri, initialTags, initialFrom,
 }: Props) {
   const isMobile = useIsMobile();
+  // The form owns the action; the dialog owns where it is drawn. setState is stable, which
+  // is what RecipeForm requires of this callback.
+  const [actions, setActions] = useState<RecipeFormActions | null>(null);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={isMobile}>
@@ -58,6 +62,7 @@ export default function CreateLtxJobDialog({
           initialFrom={initialFrom}
           initialStartingImageUri={initialStartingImageUri}
           initialTags={initialTags}
+          onActions={setActions}
           onCreated={() => {
             onCreated();
             onClose();
@@ -65,6 +70,14 @@ export default function CreateLtxJobDialog({
         />
       </DialogContent>
       <DialogActions>
+        {actions?.unvalidated && <Chip size="small" label="unvalidated pose" />}
+        <Button
+          variant="contained"
+          onClick={actions?.submit}
+          disabled={!actions || actions.disabled}
+        >
+          {actions?.label ?? "Queue render"}
+        </Button>
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>

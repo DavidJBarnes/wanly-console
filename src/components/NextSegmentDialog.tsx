@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import {
-  Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Stack,
+  Dialog, DialogTitle, DialogContent, DialogActions, Button, Chip, Typography, Stack,
 } from "@mui/material";
 import { PlayArrow } from "@mui/icons-material";
-import RecipeForm from "./RecipeForm";
+import RecipeForm, { type RecipeFormActions } from "./RecipeForm";
 import { getJob } from "../api/client";
 import { pickPreviousSegment } from "../lib/previousSegment";
 import type { SegmentResponse } from "../api/types";
@@ -42,6 +42,9 @@ export default function NextSegmentDialog({ open, jobId, onClose, onAdded }: Pro
   // Discarded takes are skipped: a re-rolled segment leaves its old take behind, and
   // continuing from the take that was thrown away is exactly wrong.
   const [previous, setPrevious] = useState<SegmentResponse | null>(null);
+  // The form owns the action; the dialog owns where it is drawn. setState is stable, which
+  // is what RecipeForm requires of this callback.
+  const [actions, setActions] = useState<RecipeFormActions | null>(null);
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -74,6 +77,7 @@ export default function NextSegmentDialog({ open, jobId, onClose, onAdded }: Pro
           variant="dialog"
           continueJobId={jobId}
           initialFrom={previous}
+          onActions={setActions}
           onCreated={() => {
             onAdded();
             onClose();
@@ -81,6 +85,14 @@ export default function NextSegmentDialog({ open, jobId, onClose, onAdded }: Pro
         />
       </DialogContent>
       <DialogActions>
+        {actions?.unvalidated && <Chip size="small" label="unvalidated pose" />}
+        <Button
+          variant="contained"
+          onClick={actions?.submit}
+          disabled={!actions || actions.disabled}
+        >
+          {actions?.label ?? "Queue next segment"}
+        </Button>
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>
