@@ -528,7 +528,7 @@ function PoseDialog({
             onChange={(e) => setCheckpoint(e.target.value)}
             fullWidth
             sx={{ maxWidth: 640 }}
-            helperText="Character LoRAs were trained against sulphur. On another base a LoRA can fuse nothing at all and the render comes back without the character — check the segment log for 'fuses N/M weights'."
+            helperText="Stack default is 10Eros_v1.5_bf16. Character LoRAs were trained against sulphur, so on any other base — the default included — a LoRA can fuse nothing at all and the render comes back without the character; check the segment log for 'fuses N/M weights'."
           >
             <MenuItem value="">
               <em>Stack default</em>
