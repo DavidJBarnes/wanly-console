@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Typography,
@@ -50,6 +50,7 @@ import { findBootingPods, costForWorker } from "../lib/bootingPods";
 
 import { describeWindow, describePolicy, describeAttempts, describeGpu } from "../lib/reservationDisplay";
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
+import { buildLabel, driftingWorkers } from "../lib/workerBuild";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
 import StalledQueueBanner from "../components/StalledQueueBanner";
@@ -172,6 +173,12 @@ export default function Workers() {
       setError("Failed to cancel drain");
     }
   };
+
+  // Which workers disagree with the fleet about what code they run (#72). Computed
+
+  // here rather than per-card: a card cannot see the others.
+
+  const drifting = useMemo(() => driftingWorkers(workers), [workers]);
 
   const sorted = [...workers].sort((a, b) => {
     const order: Record<string, number> = {
@@ -341,6 +348,7 @@ export default function Workers() {
               onDrain={setDrainConfirm}
               onCancelDrain={handleCancelDrain}
               onRenamed={fetchWorkers}
+              drifting={drifting.has(worker.id)}
               onClick={() => navigate(`/workers/${worker.id}`)}
             />
           </Grid>
@@ -452,8 +460,12 @@ function WorkerCard({
   onCancelDrain,
   onRenamed,
   onClick,
+  drifting,
 }: {
   worker: WorkerResponse;
+  /** This worker's build disagrees with the rest of the fleet (wanly-gpu-docker#72).
+   *  Computed across all workers, so the card cannot work it out for itself. */
+  drifting: boolean;
   /** The pod's actual hourly rate as RunPod reports it, or null when this worker is not a pod.
    *  Distinct from the launch dialog's pre-launch quote — this is what is being billed. */
   costPerHr: number | null;
@@ -584,6 +596,42 @@ function WorkerCard({
             </Tooltip>
           </Box>
         </Box>
+
+        {/* What this worker is running (wanly-gpu-docker#72): daemon commit / image ref.
+            Two values because they drift separately -- `docker restart` re-clones the daemon
+            and reuses the image, which is how the 3090 ran a current daemon on a 37-hour-old
+            image while a pod ran both current. The only symptom was a 422 that looked random.
+
+            Rendered for every worker that reports, not only the drifting one: knowing what
+            the fleet agrees on is what makes the odd one out meaningful. */}
+        {(worker.daemon_commit || worker.image_ref) && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1 }}>
+            <Tooltip
+              title={
+                <>
+                  daemon {worker.daemon_commit ?? "unknown"}
+                  <br />
+                  image {worker.image_ref ?? "unknown"}
+                </>
+              }
+            >
+              <Typography
+                variant="caption"
+                sx={{ fontFamily: "monospace", color: drifting ? "#f57f17" : "text.disabled" }}
+              >
+                {buildLabel(worker)}
+              </Typography>
+            </Tooltip>
+            {drifting && (
+              <Chip
+                label="build differs"
+                size="small"
+                sx={{ bgcolor: "#fff8e1", color: "#f57f17", fontWeight: 600, fontSize: "0.65rem",
+                      height: 18 }}
+              />
+            )}
+          </Box>
+        )}
 
         <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
           <InfoRow

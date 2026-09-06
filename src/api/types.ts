@@ -308,6 +308,17 @@ export interface WorkerResponse {
    *  live check: verifying one LoRA means hashing 650 MB. null means never reported (or an
    *  older daemon), which is not the same as an empty inventory. See daemon#165. */
   loras: WorkerLoras | null;
+  /** What code this worker is actually running (wanly-gpu-docker#72). TWO fields because
+   *  there are two update channels that drift separately: the daemon is re-cloned from main
+   *  at every container boot, while the image carries start.sh, the downloader and the
+   *  engine and only changes on a pull + recreate. `docker restart` moves the first and not
+   *  the second — the 3090 spent 37 hours in exactly that state while a pod ran current
+   *  code, and the difference showed up only as a 422 that looked random.
+   *
+   *  null means the daemon does not report it (too old, or not running from the image),
+   *  which is NOT the same as "unknown build". */
+  daemon_commit: string | null;
+  image_ref: string | null;
   drain_after_jobs: number | null;
   last_heartbeat: string;
   registered_at: string;
