@@ -319,6 +319,12 @@ export interface WorkerResponse {
    *  which is NOT the same as "unknown build". */
   daemon_commit: string | null;
   image_ref: string | null;
+  /** wanly-api#269. Never null. */
+  kind: WorkerKind;
+  /** What it runs: ["ltx-engine"], ["joycaption", "qwen-edit"]. A list, because a services
+   *  container runs several at once. null means never reported — which is every render
+   *  daemon today, since none of them sends it yet — and is NOT the same as "runs nothing". */
+  provides: string[] | null;
   drain_after_jobs: number | null;
   last_heartbeat: string;
   registered_at: string;
@@ -354,7 +360,26 @@ export interface WorkerLoraItem {
   note?: string;
 }
 
-export type WorkerStatus = "online-idle" | "online-busy" | "offline" | "draining";
+/** `online` and `degraded` are the SERVICE vocabulary (wanly-api#269).
+ *
+ *  Reusing `online-idle` for a service was the cheap wrong answer: it already means both
+ *  "waiting for work" and "cannot do work" on a render worker, and that ambiguity hid a dead
+ *  ComfyUI for 33 minutes (wanly-gpu-docker#80). A service is never waiting for work.
+ *
+ *  `degraded` means some but not all of what a services box was asked to run is answering —
+ *  a state a single green dot cannot express. */
+export type WorkerStatus =
+  | "online-idle"
+  | "online-busy"
+  | "online"
+  | "degraded"
+  | "offline"
+  | "draining";
+
+/** What a worker IS. `render` takes segments; `service` never can — the API's claim gate keys
+ *  on this, so it is not a display label with a UI consequence, it is the reverse. Never null:
+ *  the column is NOT NULL with a `render` default, so there is no "unclassified" branch. */
+export type WorkerKind = "render" | "service";
 
 export interface WorkerStatsItem {
   worker_name: string;

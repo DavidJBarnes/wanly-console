@@ -51,6 +51,7 @@ import { findBootingPods, costForWorker } from "../lib/bootingPods";
 import { describeWindow, describePolicy, describeAttempts, describeGpu } from "../lib/reservationDisplay";
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import { buildLabel, driftingWorkers } from "../lib/workerBuild";
+import { byStatus, canDrain as canDrainWorker, fleetCounts, isService as isServiceWorker } from "../lib/workerKind";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
 import StalledQueueBanner from "../components/StalledQueueBanner";
@@ -66,6 +67,10 @@ function formatAge(seconds: number): string {
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
   "online-idle": { color: "#4caf50", label: "Idle" },
   "online-busy": { color: "#ff9800", label: "Busy" },
+  // Service vocabulary (wanly-api#269). A service is never idle-waiting-for-work, so it gets
+  // words of its own rather than borrowing one that already means two things.
+  online: { color: "#4caf50", label: "Online" },
+  degraded: { color: "#ff9800", label: "Degraded" },
   offline: { color: "#9e9e9e", label: "Offline" },
   draining: { color: "#f57f17", label: "Draining" },
 };
@@ -180,19 +185,9 @@ export default function Workers() {
 
   const drifting = useMemo(() => driftingWorkers(workers), [workers]);
 
-  const sorted = [...workers].sort((a, b) => {
-    const order: Record<string, number> = {
-      "online-busy": 0,
-      draining: 1,
-      "online-idle": 2,
-      offline: 3,
-    };
-    return (order[a.status] ?? 9) - (order[b.status] ?? 9);
-  });
+  const sorted = [...workers].sort(byStatus);
 
-  const onlineCount = workers.filter(
-    (w) => w.status !== "offline",
-  ).length;
+  const { liveRender, liveServices } = fleetCounts(workers);
 
   const booting = findBootingPods(pods, workers);
   const hourlySpend = pods
@@ -204,7 +199,8 @@ export default function Workers() {
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 2, mb: 3 }}>
         <Typography variant="h4">Workers</Typography>
         <Typography variant="body2" color="text.secondary">
-          {onlineCount} online / {workers.length} total
+          {liveRender} online / {workers.length} total
+          {liveServices > 0 && ` · ${liveServices} service${liveServices === 1 ? "" : "s"}`}
         </Typography>
         {hourlySpend > 0 && (
           <Chip
@@ -476,7 +472,8 @@ function WorkerCard({
   onClick: () => void;
 }) {
   const cfg = STATUS_CONFIG[worker.status];
-  const canDrain = worker.status === "online-idle" || worker.status === "online-busy";
+  const isService = isServiceWorker(worker);
+  const canDrain = canDrainWorker(worker);
   const hasPendingDrain = worker.drain_after_jobs !== null && worker.drain_after_jobs > 0;
   const canCancelDrain = hasPendingDrain || worker.status === "draining";
   const [editing, setEditing] = useState(false);
@@ -555,6 +552,27 @@ function WorkerCard({
             >
               {cfg.label}
             </Typography>
+            {/* Only on services. A chip on every row would be noise on a page that is almost
+                all render workers, and the useful signal here is "this one is different". */}
+            {isService && (
+              <Chip
+                label="service"
+                size="small"
+                title="Runs supporting services. Never claims segments."
+                sx={{ bgcolor: "#e8eaf6", color: "#3949ab", fontWeight: 600, fontSize: "0.7rem" }}
+              />
+            )}
+            {/* null means never reported, which is every render daemon today — so an absent
+                list must render as nothing, not as an empty one. */}
+            {worker.provides?.length ? (
+              <Chip
+                label={worker.provides.join(", ")}
+                size="small"
+                variant="outlined"
+                title="What this worker runs"
+                sx={{ fontSize: "0.7rem" }}
+              />
+            ) : null}
             {hasPendingDrain && (
               <Chip
                 label={`Drain in ${worker.drain_after_jobs} job${worker.drain_after_jobs === 1 ? "" : "s"}`}
