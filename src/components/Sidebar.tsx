@@ -9,15 +9,16 @@ import {
   Box,
 } from "@mui/material";
 import {
+  AutoAwesomeMotion,
+  Casino,
   Dashboard as DashboardIcon,
-  VideoLibrary,
-  QueueMusic,
   Dns,
   Image,
-  Settings,
+  ModelTraining,
   Movie,
-  Casino,
-  AutoAwesomeMotion,
+  QueueMusic,
+  Settings,
+  VideoLibrary,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router";
 import type { ReactNode } from "react";
@@ -31,6 +32,7 @@ const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }
   { label: "Dashboard", icon: <DashboardIcon />, path: "/" },
   { label: "Job Queue", icon: <QueueMusic />, path: "/jobs" },
   { label: "Workers", icon: <Dns />, path: "/workers" },
+  { label: "Training", icon: <ModelTraining />, path: "/training" },
   // LoRA Recipes was indented under Storyboard. That page is gone (recipe renders go through
   // the New Job dialog and the queue like anything else), so this is top level rather than
   // orphaned: with `sub` still set it would have indented under Workers, which means nothing.

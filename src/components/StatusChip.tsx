@@ -12,6 +12,10 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   finalizing: { bg: "#e0f2f1", fg: "#00695c" },
   finalized: { bg: "#e0f2f1", fg: "#00695c" },
   draining: { bg: "#fff8e1", fg: "#f57f17" },
+  // Training statuses (#454). "running" is distinct from a segment's "processing" because a
+  // training run has phases a render does not.
+  running: { bg: "#e3f2fd", fg: "#1565c0" },
+  cancelled: { bg: "#eeeeee", fg: "#616161" },
   archived: { bg: "#eeeeee", fg: "#424242" },
 };
 

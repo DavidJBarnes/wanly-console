@@ -30,6 +30,8 @@ import type {
   FavoriteListResponse,
   AppSettingsResponse,
   AppSettingsUpdate,
+  TrainingCreate,
+  TrainingJob,
 } from "./types";
 import { REPEAT_ARRAY_PARAMS } from "../lib/repeatArrayParams";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
@@ -299,6 +301,27 @@ export async function getStats(): Promise<StatsResponse> {
 }
 
 // --- LoRAs ---
+
+/** Queue a character-LoRA training run from a set of image keys (wanly-console#454). */
+export async function createTrainingJob(body: TrainingCreate): Promise<TrainingJob> {
+  const { data } = await api.post<TrainingJob>("/training", body);
+  return data;
+}
+
+export async function listTrainingJobs(): Promise<TrainingJob[]> {
+  const { data } = await api.get<TrainingJob[]>("/training");
+  return data;
+}
+
+export async function getTrainingJob(id: string): Promise<TrainingJob> {
+  const { data } = await api.get<TrainingJob>(`/training/${id}`);
+  return data;
+}
+
+export async function cancelTrainingJob(id: string): Promise<TrainingJob> {
+  const { data } = await api.post<TrainingJob>(`/training/${id}/cancel`);
+  return data;
+}
 
 
 
