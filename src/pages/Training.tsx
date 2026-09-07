@@ -3,7 +3,9 @@ import {
   Alert, Box, Button, Card, CardContent, Chip, LinearProgress, Stack, Typography,
 } from "@mui/material";
 
-import { cancelTrainingJob, listTrainingJobs } from "../api/client";
+import { Download } from "@mui/icons-material";
+
+import { cancelTrainingJob, getFileUrl, listTrainingJobs } from "../api/client";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import { byTrainingInterest, trainingPct, trainingSummary } from "../lib/trainingJob";
@@ -61,6 +63,13 @@ export default function Training() {
   );
 }
 
+/** "e05" out of pay_v2_e05.safetensors, falling back to the filename. The epoch is the whole
+ *  point of the label — that is what distinguishes one checkpoint from the next. */
+function epochLabel(uri: string): string {
+  const name = uri.split("/").pop() ?? uri;
+  return /_e(\d+)\./.exec(name)?.[0].replace(/[_.]/g, "") ?? name;
+}
+
 function TrainingRow({ job, onChanged }: { job: TrainingJob; onChanged: () => void }) {
   const pct = trainingPct(job);
   const live = job.status === "running" || job.status === "claimed" || job.status === "pending";
@@ -103,10 +112,33 @@ function TrainingRow({ job, onChanged }: { job: TrainingJob; onChanged: () => vo
           {trainingSummary(job)}
         </Typography>
 
-        {job.status === "completed" && job.checkpoints?.length ? (
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-            Loss does not rank these — pick by eye at a fixed seed, one checkpoint per arm.
-          </Typography>
+        {job.checkpoints?.length ? (
+          <Box sx={{ mt: 1.5 }}>
+            <Typography variant="subtitle2">
+              Checkpoints ({job.checkpoints.length})
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+              Loss does not rank these — pick by eye at a fixed seed, one checkpoint per arm,
+              same start image.
+            </Typography>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              {job.checkpoints.map((uri) => (
+                <Button
+                  key={uri}
+                  size="small"
+                  variant="outlined"
+                  startIcon={<Download fontSize="small" />}
+                  // getFileUrl goes through the API's /files proxy, which 307s to a presigned
+                  // URL — so the browser never needs S3 credentials and the link works for
+                  // anyone who can see the page.
+                  href={getFileUrl(uri)}
+                  download
+                >
+                  {epochLabel(uri)}
+                </Button>
+              ))}
+            </Box>
+          </Box>
         ) : null}
       </CardContent>
     </Card>

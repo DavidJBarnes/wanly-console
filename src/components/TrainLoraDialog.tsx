@@ -17,15 +17,20 @@ import {
  * covered at all.
  */
 export default function TrainLoraDialog({
-  open, imageKeys, onClose, onQueued,
+  open, imageKeys, datasetId, defaultCharacter, onClose, onQueued,
 }: {
   open: boolean;
-  /** s3:// URIs of the selected images, in selection order. */
+  /** s3:// URIs, in order. Used for the eligibility check and, when there is no dataset, as
+   *  the payload. */
   imageKeys: string[];
+  /** When set, the job references the dataset instead of an inline list — so the run records
+   *  which dataset it came from rather than an anonymous snapshot of URIs. */
+  datasetId?: string;
+  defaultCharacter?: string;
   onClose: () => void;
   onQueued: (id: string) => void;
 }) {
-  const [character, setCharacter] = useState("");
+  const [character, setCharacter] = useState(defaultCharacter ?? "");
   const [trigger, setTrigger] = useState("");
   const [loraName, setLoraName] = useState("");
   const [version, setVersion] = useState(1);
@@ -37,6 +42,10 @@ export default function TrainLoraDialog({
   // The trigger and the filename both follow the character until the user says otherwise.
   // Kept as one effect rather than derived at render so a deliberate edit is not overwritten
   // on the next keystroke.
+  useEffect(() => {
+    if (defaultCharacter) setCharacter((c) => (c === "" ? defaultCharacter : c));
+  }, [defaultCharacter]);
+
   useEffect(() => {
     setTrigger((t) => (t === "" ? character : t));
     setLoraName((n) => (n === "" ? defaultLoraName(character) : n));
@@ -53,7 +62,9 @@ export default function TrainLoraDialog({
         character, trigger, version, steps,
         lora_name: loraName || defaultLoraName(character),
         caption: caption || null,
-        dataset_images: imageKeys,
+        // A dataset reference when there is one, so the run records where its images came
+        // from; a bare list otherwise, for an ad-hoc selection in the Image Repo.
+        ...(datasetId ? { dataset_id: datasetId } : { dataset_images: imageKeys }),
       });
       onQueued(job.id);
       onClose();
