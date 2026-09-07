@@ -157,3 +157,17 @@ describe("what the dialog needs to get right", () => {
     expect(canTrain(resolved).ok).toBe(false);
   });
 });
+
+describe("selecting a whole dataset", () => {
+  it("a folder-sized selection is trainable", () => {
+    // The point of Select All: training a 50-image character meant fifty clicks, which is not
+    // a flow anyone would use.
+    expect(canTrain(keys(50)).ok).toBe(true);
+    expect(canTrain(keys(13)).ok).toBe(true);
+  });
+
+  it("selecting everything in a folder that is too small still fails the floor", () => {
+    // Select All must not make an ineligible folder look eligible.
+    expect(canTrain(keys(4)).ok).toBe(false);
+  });
+});

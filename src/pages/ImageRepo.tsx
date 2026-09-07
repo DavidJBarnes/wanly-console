@@ -595,6 +595,21 @@ export default function ImageRepo() {
    * have produced a selection: select mode survives navigation between views, and a selection
    * made in search and completed in a folder must not silently lose half its images.
    */
+  /**
+   * The images the current view is showing.
+   *
+   * Which list that is depends on the view, and Select All has to agree with what is on screen
+   * or it selects things the user cannot see. The order here mirrors the render order below:
+   * a filter wins over favourites, which wins over untagged, which wins over the folder.
+   */
+  const visibleImages = (): ImageFile[] => {
+    if (filterActive) return searchResults;
+    if (favoritesView) return favImages;
+    if (untaggedView) return untaggedImages;
+    if (favoritesOnly) return images.filter((img) => favoritesSet.has(img.path));
+    return images;
+  };
+
   const selectedUris = (): string[] => {
     const byKey = new Map<string, string>();
     for (const list of [images, favImages, untaggedImages, searchResults]) {
@@ -1908,6 +1923,27 @@ export default function ImageRepo() {
         >
           {selectMode ? "Cancel" : "Select"}
         </Button>
+        {/* Select all, because select mode without it is unusable for a dataset: training a
+            50-image character meant fifty clicks. Operates on the CURRENT VIEW's images —
+            whatever the folder, favourites, untagged or search filter is showing — so what it
+            selects is what is on screen. */}
+        {selectMode && (
+          <Button
+            variant="outlined"
+            size={isMobile ? "small" : "medium"}
+            onClick={() => {
+              const shown = visibleImages();
+              const all = shown.length > 0 && shown.every((i) => selectedKeys.has(i.key));
+              setSelectedKeys(all ? new Set() : new Set(shown.map((i) => i.key)));
+            }}
+          >
+            {(() => {
+              const shown = visibleImages();
+              const all = shown.length > 0 && shown.every((i) => selectedKeys.has(i.key));
+              return all ? "None" : `All (${shown.length})`;
+            })()}
+          </Button>
+        )}
         <Button
           variant="outlined"
           startIcon={
