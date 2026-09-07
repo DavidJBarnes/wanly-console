@@ -30,6 +30,7 @@ import type {
   FavoriteListResponse,
   AppSettingsResponse,
   AppSettingsUpdate,
+  Dataset,
   TrainingCreate,
   TrainingJob,
 } from "./types";
@@ -298,6 +299,45 @@ export function getImageDownloadUrl(s3Path: string): string {
 export async function getStats(): Promise<StatsResponse> {
   const { data } = await api.get<StatsResponse>("/stats");
   return data;
+}
+
+// --- Datasets ---
+
+export async function listDatasets(): Promise<Dataset[]> {
+  const { data } = await api.get<Dataset[]>("/datasets");
+  return data;
+}
+
+export async function getDataset(id: string): Promise<Dataset> {
+  const { data } = await api.get<Dataset>(`/datasets/${id}`);
+  return data;
+}
+
+export async function createDataset(body: {
+  name: string; tags?: string | null; notes?: string | null;
+}): Promise<Dataset> {
+  const { data } = await api.post<Dataset>("/datasets", body);
+  return data;
+}
+
+export async function updateDataset(
+  id: string,
+  body: { name?: string; tags?: string | null; notes?: string | null; images?: string[] },
+): Promise<Dataset> {
+  const { data } = await api.patch<Dataset>(`/datasets/${id}`, body);
+  return data;
+}
+
+/** Upload many images at once — a dataset is 13-50 of them, not one. */
+export async function addDatasetImages(id: string, files: File[]): Promise<Dataset> {
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  const { data } = await api.post<Dataset>(`/datasets/${id}/images`, form);
+  return data;
+}
+
+export async function deleteDataset(id: string, purge = false): Promise<void> {
+  await api.delete(`/datasets/${id}`, { params: { purge } });
 }
 
 // --- LoRAs ---

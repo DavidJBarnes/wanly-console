@@ -434,11 +434,30 @@ export interface TrainingJob {
   completed_at: string | null;
 }
 
+/** A named, taggable set of images kept for training (wanly-api#277).
+ *
+ *  `images` is an ORDERED list of s3:// URIs, not a folder listing: it survives an image being
+ *  moved, and it fixes the order the trainer stages them in, which the captions pair against. */
+export interface Dataset {
+  id: string;
+  name: string;
+  /** Comma-separated, same convention as ImageFile.tags. */
+  tags: string | null;
+  notes: string | null;
+  images: string[];
+  prefix: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface TrainingCreate {
   character: string;
   trigger: string;
   version: number;
-  dataset_images: string[];
+  /** Give the images, or name a dataset and let the API resolve them. A dataset is the normal
+   *  path — a set worth training is a set worth being able to re-open. */
+  dataset_id?: string;
+  dataset_images?: string[];
   caption?: string | null;
   steps: number;
   /** The filename stem. Asked rather than derived — see src/lib/trainingJob.ts. */

@@ -16,6 +16,7 @@ import {
   Image,
   ModelTraining,
   Movie,
+  PhotoLibrary,
   QueueMusic,
   Settings,
   VideoLibrary,
@@ -32,6 +33,7 @@ const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }
   { label: "Dashboard", icon: <DashboardIcon />, path: "/" },
   { label: "Job Queue", icon: <QueueMusic />, path: "/jobs" },
   { label: "Workers", icon: <Dns />, path: "/workers" },
+  { label: "Datasets", icon: <PhotoLibrary />, path: "/datasets" },
   { label: "Training", icon: <ModelTraining />, path: "/training" },
   // LoRA Recipes was indented under Storyboard. That page is gone (recipe renders go through
   // the New Job dialog and the queue like anything else), so this is top level rather than
