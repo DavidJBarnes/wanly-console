@@ -32,15 +32,16 @@ import {
   ArrowDownward,
   ArrowUpward,
   CheckBox as CheckBoxIcon,
+  Close,
   CloudUpload,
   ContentCut,
   CreateNewFolder,
   Delete,
   DriveFileMove,
-  Close,
   Favorite,
-  NavigateNext,
   LabelOff,
+  ModelTraining,
+  NavigateNext,
   PlayArrow,
   Refresh,
   Search,
@@ -76,6 +77,7 @@ import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
+import TrainLoraDialog from "../components/TrainLoraDialog";
 import TagFilterBar from "../components/TagFilterBar";
 import {
   describeFilter,
@@ -125,6 +127,7 @@ export default function ImageRepo() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
+  const [trainOpen, setTrainOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveTargetKeys, setMoveTargetKeys] = useState<string[]>([]);
   const [moving, setMoving] = useState(false);
@@ -581,6 +584,25 @@ export default function ImageRepo() {
     } finally {
       setUploading(false);
     }
+  };
+
+  /**
+   * The s3:// URIs behind the selected keys.
+   *
+   * selectedKeys holds bare S3 keys, but everything that leaves this page wants the full URI —
+   * `image.path` — and there is no way to build one from a key without knowing the bucket,
+   * which the console deliberately does not. So it is looked up across every list that could
+   * have produced a selection: select mode survives navigation between views, and a selection
+   * made in search and completed in a folder must not silently lose half its images.
+   */
+  const selectedUris = (): string[] => {
+    const byKey = new Map<string, string>();
+    for (const list of [images, favImages, untaggedImages, searchResults]) {
+      for (const img of list) byKey.set(img.key, img.path);
+    }
+    return Array.from(selectedKeys)
+      .map((k) => byKey.get(k))
+      .filter((p): p is string => Boolean(p));
   };
 
   const toggleSelect = (key: string) => {
@@ -1080,6 +1102,17 @@ export default function ImageRepo() {
       </Dialog>
 
       {/* Move to Folder Dialog */}
+      <TrainLoraDialog
+        open={trainOpen}
+        imageKeys={selectedUris()}
+        onClose={() => setTrainOpen(false)}
+        onQueued={() => {
+          setSelectMode(false);
+          setSelectedKeys(new Set());
+          navigate("/training");
+        }}
+      />
+
       <Dialog
         open={moveDialogOpen}
         onClose={() => setMoveDialogOpen(false)}
@@ -1782,6 +1815,17 @@ export default function ImageRepo() {
         />
         {selectMode && selectedKeys.size > 0 && (
           <>
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={isMobile ? undefined : <ModelTraining />}
+            size={isMobile ? "small" : "medium"}
+            onClick={() => setTrainOpen(true)}
+          >
+            {isMobile
+              ? `Train (${selectedKeys.size})`
+              : `Train LoRA from ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
+          </Button>
           <Button
             variant="contained"
             startIcon={isMobile ? undefined : <DriveFileMove />}

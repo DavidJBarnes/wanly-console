@@ -397,6 +397,54 @@ export interface PresetLoraSlot {
 
 
 
+/** A character-LoRA training run (wanly-api#274). Shaped on the segment lifecycle: the console
+ *  creates it, a trainer claims it, and it reports back. */
+export type TrainingStatus =
+  | "pending"
+  | "claimed"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface TrainingJob {
+  id: string;
+  character: string;
+  /** The token the captions used. NOT the filename — a LoRA is served over HTTP and lands in
+   *  JSON and URLs, so `p@y` can be a trigger and cannot be a filename. */
+  trigger: string;
+  version: number;
+  status: TrainingStatus;
+  dataset_images: string[];
+  config: Record<string, unknown>;
+  worker_name: string | null;
+  gpu_name: string | null;
+  progress_log: string | null;
+  /** Structured progress, which a render segment has no equivalent of. null until the trainer
+   *  reports one; a queued job has no honest percentage. */
+  step: number | null;
+  total_steps: number | null;
+  error_message: string | null;
+  /** Every epoch is a candidate — loss does not rank them, so the choice is made by eye at a
+   *  fixed seed and all of them are kept. */
+  checkpoints: string[] | null;
+  output_lora_path: string | null;
+  created_at: string | null;
+  claimed_at: string | null;
+  completed_at: string | null;
+}
+
+export interface TrainingCreate {
+  character: string;
+  trigger: string;
+  version: number;
+  dataset_images: string[];
+  caption?: string | null;
+  steps: number;
+  /** The filename stem. Asked rather than derived — see src/lib/trainingJob.ts. */
+  lora_name?: string;
+}
+
 export interface WildcardResponse {
   id: string;
   name: string;
