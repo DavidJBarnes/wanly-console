@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, Radio, RadioGroup, Stack, TextField, Typography,
+  FormControlLabel, MenuItem, Radio, RadioGroup, Stack, TextField, Typography,
 } from "@mui/material";
 
 import { createTrainingJob, listTrainingJobs } from "../api/client";
@@ -49,7 +49,7 @@ export default function TrainLoraDialog({
   const [loraNameTouched, setLoraNameTouched] = useState(false);
   const [version, setVersion] = useState(1);
   const [versionTouched, setVersionTouched] = useState(false);
-  const [caption, setCaption] = useState("");
+  const [gender, setGender] = useState<"" | "woman" | "man" | "person">("");
   // Epochs, not steps: "how many passes over each image" is the question a person asks,
   // and a whole number of them puts the last epoch checkpoint on the final step. The default
   // is the recipe's proven 1200 steps expressed for this set's size.
@@ -99,7 +99,7 @@ export default function TrainLoraDialog({
         character: known?.name ?? character.trim(),
         trigger: trigger.trim(), version, steps,
         lora_name: loraName.trim() || defaultLoraName(character),
-        caption: caption || null,
+        gender: gender || undefined,
         publish,
         // A dataset reference when there is one, so the run records where its images came
         // from; a bare list otherwise, for an ad-hoc selection in the Image Repo.
@@ -154,7 +154,7 @@ export default function TrainLoraDialog({
             label="Trigger"
             value={trigger}
             onChange={(e) => { setTriggerTouched(true); setTrigger(e.target.value); }}
-            helperText="What the captions say and a prompt types. May differ from the name."
+            helperText="The word a prompt types to get this face. It goes into every training caption."
             fullWidth
           />
           <TextField
@@ -216,17 +216,27 @@ export default function TrainLoraDialog({
             </Typography>
           </Box>
 
-          <TextField
-            label="Caption (optional)"
-            value={caption}
-            onChange={(e) => setCaption(e.target.value)}
-            placeholder={`${trigger || "trigger"}, woman`}
-            helperText={
-              "Applied to every image. Captions bind whatever they do not name — one caption " +
-              "over close-ups makes the trigger carry close-up framing as part of its identity."
-            }
-            fullWidth
-          />
+          <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+            <TextField
+              select
+              label="Gender"
+              value={gender}
+              onChange={(e) => setGender(e.target.value as typeof gender)}
+              error={gender === ""}
+              helperText={gender === "" ? "Required." : " "}
+              sx={{ width: 160 }}
+            >
+              <MenuItem value="woman">woman</MenuItem>
+              <MenuItem value="man">man</MenuItem>
+              <MenuItem value="person">person</MenuItem>
+            </TextField>
+            <Alert severity={gender ? "info" : "warning"} sx={{ flex: 1 }}>
+              Every image will be captioned exactly{" "}
+              <strong>“{trigger.trim() || "trigger"}, {gender || "…"}”</strong>. The trigger
+              is what a prompt types to get this face; the gender is what the model binds it
+              to. Nothing else goes in the caption.
+            </Alert>
+          </Box>
         </Stack>
       </DialogContent>
       <DialogActions>
@@ -234,7 +244,7 @@ export default function TrainLoraDialog({
         <Button
           variant="contained"
           disabled={!eligible.ok || busy || nameProblem !== null || fileProblem !== null
-            || stepsProblem !== null || !trigger.trim()}
+            || stepsProblem !== null || !trigger.trim() || gender === ""}
           onClick={submit}
         >
           {busy ? "Queueing…" : "Queue training"}
