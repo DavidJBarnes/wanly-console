@@ -416,6 +416,20 @@ function CropDialog({
       <DialogContent dividers>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
+          {/* A LABEL ON A BUTTON IS NOT PROGRESS. This runs for a minute or more -- detection is
+              a second or two per image on CPU, and every image has to be fetched from S3 and
+              posted to another host first -- and "Cropping…" on a disabled button is
+              indistinguishable from a dialog that has wedged. */}
+          {busy && (
+            <Box>
+              <LinearProgress />
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                Detecting faces in {ds.images.length} images — a second or two each on CPU,
+                plus fetching them, so up to a couple of minutes. This closes itself when the new
+                dataset exists.
+              </Typography>
+            </Box>
+          )}
           <Typography variant="body2" color="text.secondary">
             {largestOnly
               ? `Detects the largest face in each of the ${ds.images.length} images`
