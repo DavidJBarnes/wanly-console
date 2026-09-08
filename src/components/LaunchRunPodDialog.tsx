@@ -134,6 +134,7 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
               value={gpu}
               onChange={(e) => setGpu(e.target.value)}
               SelectProps={{ native: true }}
+              InputLabelProps={{ shrink: true }}
               helperText="Price and stock are live. Stock is a band, not a guarantee of placement."
               fullWidth
             >
@@ -205,6 +206,7 @@ export default function LaunchRunPodDialog({ open, onClose, onLaunched }: Props)
                 value={minutes}
                 onChange={(e) => setMinutes(Number(e.target.value))}
                 SelectProps={{ native: true }}
+                InputLabelProps={{ shrink: true }}
                 fullWidth
               >
                 {[15, 30, 60, 120, 240].map((m) => (
