@@ -6,10 +6,25 @@
  * console's half of a bug the API had to be fixed for. A judgement worth getting right is
  * worth being able to test without rendering a page.
  */
-import type { WorkerResponse } from "../api/types";
+import type { WorkerKind, WorkerResponse } from "../api/types";
 
-export function isService(w: Pick<WorkerResponse, "kind">): boolean {
-  return w.kind === "service";
+/**
+ * Every kind a worker is (wanly-gpu-docker#83). One container per GPU registers once as
+ * ["render", "trainer"]; a row from before the column is its one `kind`; a row from an older
+ * API with neither is render, for the reason fleetCounts gives.
+ */
+export function kindsOf(w: Pick<WorkerResponse, "kind"> & { kinds?: WorkerKind[] | null }): WorkerKind[] {
+  if (w.kinds?.length) return w.kinds;
+  return [w.kind ?? "render"];
+}
+
+export function canRender(w: Pick<WorkerResponse, "kind"> & { kinds?: WorkerKind[] | null }): boolean {
+  return kindsOf(w).includes("render");
+}
+
+/** A box that renders nothing — however many other things it does. */
+export function isService(w: Pick<WorkerResponse, "kind"> & { kinds?: WorkerKind[] | null }): boolean {
+  return !canRender(w);
 }
 
 /**
@@ -17,8 +32,8 @@ export function isService(w: Pick<WorkerResponse, "kind">): boolean {
  * segments, so there is nothing to finish — the button would be inert on a row where every
  * other control does something, which is worse than its absence.
  */
-export function canDrain(w: Pick<WorkerResponse, "kind" | "status">): boolean {
-  if (isService(w)) return false;
+export function canDrain(w: Pick<WorkerResponse, "kind" | "status"> & { kinds?: WorkerKind[] | null }): boolean {
+  if (!canRender(w)) return false;
   return w.status === "online-idle" || w.status === "online-busy";
 }
 
@@ -41,7 +56,7 @@ export interface FleetCounts {
  * this only matters for a response from an older API, and treating an unknown worker as one
  * that renders keeps the count meaning what it meant before.
  */
-export function fleetCounts(workers: Pick<WorkerResponse, "kind" | "status">[]): FleetCounts {
+export function fleetCounts(workers: (Pick<WorkerResponse, "kind" | "status"> & { kinds?: WorkerKind[] | null })[]): FleetCounts {
   const live = workers.filter((w) => w.status !== "offline");
   return {
     liveRender: live.filter((w) => !isService(w)).length,
