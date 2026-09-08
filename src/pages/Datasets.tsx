@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, LinearProgress,
@@ -33,6 +34,7 @@ export default function Datasets() {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [trainFor, setTrainFor] = useState<Dataset | null>(null);
+  const navigate = useNavigate();
 
   const fetchAll = useCallback(async () => {
     try {
@@ -86,14 +88,15 @@ export default function Datasets() {
         onClose={() => setCreateOpen(false)}
         onCreated={fetchAll}
       />
-      <TrainLoraDialog
-        open={trainFor !== null}
-        imageKeys={trainFor?.images ?? []}
-        datasetId={trainFor?.id}
-        defaultCharacter={trainFor?.name ?? ""}
-        onClose={() => setTrainFor(null)}
-        onQueued={() => setTrainFor(null)}
-      />
+      {trainFor && (
+        <TrainLoraDialog
+          imageKeys={trainFor.images}
+          datasetId={trainFor.id}
+          defaultCharacter={trainFor.name}
+          onClose={() => setTrainFor(null)}
+          onQueued={() => { setTrainFor(null); navigate("/training"); }}
+        />
+      )}
     </Box>
   );
 }

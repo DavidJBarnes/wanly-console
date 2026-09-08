@@ -8,6 +8,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  characterProblem, checkpointInUse, checkpointLabel, defaultCharacterFor, loraStem,
+  nextVersion, versionOfLora,
   MAX_IMAGES,
   MIN_IMAGES,
   byTrainingInterest,
@@ -155,5 +157,68 @@ describe("what the dialog needs to get right", () => {
     // rather than quietly training on fewer images than were selected.
     const resolved = keys(5);
     expect(canTrain(resolved).ok).toBe(false);
+  });
+});
+
+const character = (name: string, char_lora: string) => ({
+  id: name, name, char_lora, trigger: name, strength_stage_1: 0.8, strength_stage_2: 1.5,
+});
+
+describe("characterProblem mirrors the API rule", () => {
+  it("refuses the dataset-name default that used to 422 at submit", () => {
+    expect(characterProblem("Test faces")).toMatch(/spaces/);
+  });
+  it("suggests a name the rule accepts", () => {
+    expect(defaultCharacterFor("Test faces")).toBe("Test-faces");
+    expect(characterProblem(defaultCharacterFor("Test faces"))).toBeNull();
+  });
+  it("keeps p@y, which is a real character", () => {
+    expect(characterProblem("p@y")).toBeNull();
+  });
+});
+
+describe("nextVersion", () => {
+  const done = (ch: string, version: number, status = "completed") =>
+    ({ character: ch, version, status }) as unknown as TrainingJob;
+
+  it("is one more than the highest finished run", () => {
+    expect(nextVersion("p@y", [done("p@y", 2), done("p@y", 1)], [])).toBe(3);
+  });
+  it("reads the version off the character's LoRA when the runs predate the console", () => {
+    expect(nextVersion("p@y", [], [character("p@y", "pay_v2_e05")])).toBe(3);
+  });
+  it("does not let a failed or cancelled run use a number up", () => {
+    const jobs = [done("p@y", 1), done("p@y", 2, "failed"), done("p@y", 2, "cancelled")];
+    expect(nextVersion("p@y", jobs, [])).toBe(2);
+  });
+  it("is 1 for a brand new character", () => {
+    expect(nextVersion("newgirl", [done("p@y", 2)], [character("p@y", "pay_v2")])).toBe(1);
+  });
+  it("matches the character case-insensitively", () => {
+    expect(nextVersion("P@Y", [done("p@y", 2)], [])).toBe(3);
+  });
+});
+
+describe("checkpoint names", () => {
+  it("labels an epoch and the final one", () => {
+    expect(checkpointLabel("s3://ltx-loras/character/pay_v2_e05.safetensors")).toBe("e05");
+    expect(checkpointLabel("s3://ltx-loras/character/pay_v2_final.safetensors")).toBe("final");
+  });
+  it("gives the stem a character row stores", () => {
+    expect(loraStem("s3://ltx-loras/character/pay_v2_e05.safetensors")).toBe("pay_v2_e05");
+    expect(versionOfLora("pay_v2_e05")).toBe(2);
+    expect(versionOfLora("k3llydw_v2")).toBe(2);
+    expect(versionOfLora("k3llydw")).toBeNull();
+  });
+  it("finds which checkpoint the character is using", () => {
+    const job = {
+      character: "p@y",
+      checkpoints: ["s3://ltx-loras/character/pay_v2_e01.safetensors",
+                    "s3://ltx-loras/character/pay_v2_final.safetensors"],
+    } as unknown as TrainingJob;
+    expect(checkpointInUse(job, [character("p@y", "pay_v2_final")]))
+      .toBe("s3://ltx-loras/character/pay_v2_final.safetensors");
+    expect(checkpointInUse(job, [character("p@y", "pay_v2_e05")])).toBeNull();
+    expect(checkpointInUse(job, [])).toBeNull();
   });
 });
