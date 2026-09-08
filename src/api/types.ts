@@ -209,6 +209,10 @@ export interface HologramManifest {
   subject_height_m: number;
   premultiplied: boolean;
   alpha_encoding: string;
+  /** The packed mp4 carries the source's audio track (console#475). Absent on artifacts
+   *  built before the daemon recorded it — they are silent, which is what the player
+   *  must assume. */
+  has_audio?: boolean;
 }
 
 export interface WorkerSegmentResponse {
@@ -503,6 +507,9 @@ export interface TrainingCreate {
   dataset_id?: string;
   dataset_images?: string[];
   caption?: string | null;
+  /** Every image is captioned "<trigger>, <gender>". Explicit, because a free caption
+   *  field was once filled with "man" alone and the trigger was never learned. */
+  gender?: "woman" | "man" | "person";
   steps: number;
   /** The filename stem. Asked rather than derived — see src/lib/trainingJob.ts. */
   lora_name?: string;

@@ -122,11 +122,25 @@ function radialShadowTexture(): THREE.Texture {
 
 // The life-size subject mesh (video texture + tier shaders), shared by the AR session and
 // the desktop 3D preview so both render the exact same thing.
+// The audio control surface handed to the imperative player builders (console#475).
+// `muted` is what the element CREATES with — preview and AR each build their own element,
+// and the toggle after that acts on the live element directly.
+interface AudioOpts {
+  muted: boolean;
+  /** Hand the live element up to React so the mute toggle and the tap-for-sound button
+   *  act on the same element the shader samples. */
+  onVideo?: (video: HTMLVideoElement) => void;
+  /** Unmuted play() lost the gesture race (the AR play runs after requestSession resolves,
+   *  outside the click's transient activation). The caller shows the tap-for-sound button. */
+  onPlayBlocked?: () => void;
+}
+
 function buildHologramMesh(
   manifest: HologramManifest,
   videoUrl: string,
   onVideoError?: (message: string) => void,
   edge?: { edgeMin: number; edgeMax: number },
+  audio?: AudioOpts,
 ) {
   // Video → texture (packed color+alpha). crossOrigin BEFORE src so the fetch is CORS-mode
   // from the start — the WebGL texture upload requires a CORS-clean video.
@@ -139,8 +153,9 @@ function buildHologramMesh(
   });
   video.src = videoUrl;
   video.loop = true;
-  video.muted = true;
+  video.muted = audio?.muted ?? false;
   video.playsInline = true;
+  audio?.onVideo?.(video);
   const videoTex = new THREE.VideoTexture(video);
   videoTex.flipY = false;
   videoTex.colorSpace = THREE.SRGBColorSpace;
@@ -223,14 +238,26 @@ function buildHologramMesh(
   return { video, quad, shadow, width, height, isDepth, uniforms, edgeDefaults, dispose };
 }
 
+// Unmuted play may be refused by autoplay policy; failing silently is exactly how the old
+// hardcoded-mute path worked — the difference is that now there IS audio to lose. Fail open
+// to muted and let the user gesture (tap-for-sound) win it back.
+function playWithAudioFallback(video: HTMLVideoElement, onPlayBlocked?: () => void): void {
+  video.play().catch(() => {
+    video.muted = true;
+    onPlayBlocked?.();
+    video.play().catch(() => undefined);
+  });
+}
+
 function startPreview(
   container: HTMLDivElement,
   manifest: HologramManifest,
   videoUrl: string,
   onVideoError?: (message: string) => void,
   settingsRef?: { current: ArSettings },
+  audio?: AudioOpts,
 ): () => void {
-  const holo = buildHologramMesh(manifest, videoUrl, onVideoError, settingsRef?.current);
+  const holo = buildHologramMesh(manifest, videoUrl, onVideoError, settingsRef?.current, audio);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x14181c);
@@ -258,7 +285,7 @@ function startPreview(
   controls.maxDistance = 8;
   controls.update();
 
-  holo.video.play().catch(() => undefined);
+  playWithAudioFallback(holo.video, audio?.onPlayBlocked);
   renderer.setAnimationLoop(() => {
     // Same live edge uniforms as AR, so the matte cut can be dialled in on a desktop before
     // burning a headset session on it.
@@ -296,10 +323,11 @@ async function startArSession(
   onSession: (s: XRSession) => void,
   settingsRef: { current: ArSettings },
   onOverlayState: (type: string | null) => void,
+  audio?: AudioOpts,
 ): Promise<void> {
   const xr = (navigator as unknown as { xr: XRSystem }).xr;
 
-  const holo = buildHologramMesh(manifest, videoUrl, undefined, settingsRef.current);
+  const holo = buildHologramMesh(manifest, videoUrl, undefined, settingsRef.current, audio);
   const { video } = holo;
 
   const group = new THREE.Group();
@@ -339,7 +367,7 @@ async function startArSession(
   onOverlayState(
     (session as unknown as { domOverlayState?: { type?: string } }).domOverlayState?.type ?? null,
   );
-  video.play().catch(() => undefined);
+  playWithAudioFallback(video, audio?.onPlayBlocked);
 
   const viewerSpace = await session.requestReferenceSpace("viewer");
   const hitSource = await (
@@ -784,6 +812,15 @@ export default function HologramPlayer() {
   const [arSupported, setArSupported] = useState<boolean | null>(null);
   const [inAr, setInAr] = useState(false);
   const [inPreview, setInPreview] = useState(false);
+  // console#475: the sound control. The live element lands in videoRef (handed up from the
+  // imperative builders), audioMuted mirrors element state for the toggle, and
+  // tapForSound shows the gesture button when unmuted autoplay lost the race.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [audioMuted, setAudioMuted] = useState(false);
+  const [tapForSound, setTapForSound] = useState(false);
+  // What the element CREATES with, read at session start — not reactive, so toggling never
+  // re-enters (and re-creates) a running preview or session.
+  const audioMutedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ArSettings>({
     ...DEFAULT_AR_SETTINGS,
@@ -878,6 +915,20 @@ export default function HologramPlayer() {
     // !inAr as well: the two modes each append their own canvas to the same container and render
     // their own panel, so any state where both are true duplicates the entire player.
     if (inAr || !inPreview || !manifest || !videoUrl || !containerRef.current) return;
+    // The sound element is built per session/preview — every handback replaces the old one.
+    const audio: AudioOpts = {
+      muted: audioMutedRef.current,
+      onVideo: (v) => {
+        videoRef.current = v;
+        setAudioMuted(v.muted);
+      },
+      onPlayBlocked: () => {
+        // The builder already muted the element to survive autoplay policy; mirror that
+        // here so the toggle reads true, and offer the gesture-ful way back.
+        setAudioMuted(true);
+        setTapForSound(manifest?.has_audio === true);
+      },
+    };
     const stop = startPreview(
       containerRef.current,
       manifest,
@@ -887,9 +938,32 @@ export default function HologramPlayer() {
         setError(msg);
       },
       settingsRef,
+      audio,
     );
-    return stop;
+    return () => {
+      stop();
+      videoRef.current = null;
+    };
   }, [inAr, inPreview, manifest, videoUrl]);
+
+  const toggleMute = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = !v.muted;
+    setAudioMuted(v.muted);
+    if (!v.muted) setTapForSound(false);
+  };
+
+  // A user gesture: transient activation is fresh, so unmuted play wins here where the
+  // session-start play() lost it.
+  const tapForSoundClick = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = false;
+    setAudioMuted(false);
+    setTapForSound(false);
+    v.play().catch(() => setTapForSound(true));
+  };
 
   const enterAR = async () => {
     if (!manifest || !videoUrl || !containerRef.current || !overlayRef.current) return;
@@ -905,18 +979,57 @@ export default function HologramPlayer() {
         () => {
           sessionRef.current = null;
           setInAr(false);
+          videoRef.current = null;
         },
         (s) => {
           sessionRef.current = s;
         },
         settingsRef,
         setOverlayType,
-      );
-    } catch (e) {
+        {
+          muted: audioMutedRef.current,
+          onVideo: (v) => {
+            videoRef.current = v;
+            setAudioMuted(v.muted);
+          },
+          onPlayBlocked: () => {
+            setAudioMuted(true);
+            setTapForSound(manifest?.has_audio === true);
+          },
+        },
+      );    } catch (e) {
       setInAr(false);
+      videoRef.current = null;
       setError(e instanceof Error ? e.message : "Could not start AR session");
     }
   };
+
+  // Shared overlay styling for the two sound buttons; the plain-DOM look matches this page,
+  // which does not use MUI.
+  const soundButtonStyle: React.CSSProperties = {
+    position: "absolute",
+    top: 76,
+    right: 20,
+    pointerEvents: "auto",
+    fontSize: 14,
+    padding: "8px 14px",
+    borderRadius: 8,
+    border: "1px solid rgba(0,229,255,0.6)",
+    background: "rgba(0,0,0,0.65)",
+    color: "#00e5ff",
+    fontWeight: 600,
+    cursor: "pointer",
+  };
+
+  const tapForSoundStyle: React.CSSProperties = {
+    position: "absolute",
+    bottom: 72,
+    width: "100%",
+    textAlign: "center",
+    pointerEvents: "auto",
+  };
+
+  const showAudioControls = manifest?.has_audio === true;
 
   // What's ACTUALLY playing (from the fetched manifest, not the DB label) — makes a stale
   // cache or silent tier downgrade visible instead of a mystery "looks the same".
@@ -1009,6 +1122,18 @@ export default function HologramPlayer() {
             >
               Exit AR
             </button>
+            {showAudioControls && (
+              <button onClick={toggleMute} style={soundButtonStyle}>
+                {audioMuted ? "Unmute" : "Mute"}
+              </button>
+            )}
+            {tapForSound && showAudioControls && (
+              <div style={tapForSoundStyle}>
+                <button onClick={tapForSoundClick} style={{ ...soundButtonStyle, position: "static" }}>
+                  Tap for sound
+                </button>
+              </div>
+            )}
             <div style={{ position: "absolute", bottom: 24, width: "100%", textAlign: "center", color: "#fff" }}>
               {settings.lockMode === "placed"
                 ? "Point at your floor and tap to place"
@@ -1065,6 +1190,18 @@ export default function HologramPlayer() {
           >
             Exit Preview
           </button>
+          {showAudioControls && (
+            <button onClick={toggleMute} style={{ ...soundButtonStyle, zIndex: 2 }}>
+              {audioMuted ? "Unmute" : "Mute"}
+            </button>
+          )}
+          {tapForSound && showAudioControls && (
+            <div style={tapForSoundStyle}>
+              <button onClick={tapForSoundClick} style={{ ...soundButtonStyle, position: "static" }}>
+                Tap for sound
+              </button>
+            </div>
+          )}
           <div
             style={{
               position: "absolute",
@@ -1182,12 +1319,14 @@ export default function HologramPlayer() {
                 // HTTP cache for the same URL, and a cached no-CORS response (no
                 // Access-Control-Allow-Origin stored) poisons the later CORS-mode texture
                 // fetch — the mesh then renders invisible in preview AND emulated AR.
+                // NOT muted: native controls own playback here, and with LTX audio in the
+                // artifact (console#475) there is no reason to hard-mute a fallback that
+                // the user starts by hand.
                 <video
                   src={videoUrl}
                   crossOrigin="anonymous"
                   controls
                   loop
-                  muted
                   playsInline
                   style={{ maxWidth: "80vw", maxHeight: "40vh", marginTop: 12, borderRadius: 8 }}
                 />
