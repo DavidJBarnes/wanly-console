@@ -336,6 +336,25 @@ export async function addDatasetImages(id: string, files: File[]): Promise<Datas
   return data;
 }
 
+/** Turn a dataset of photographs into a dataset of face crops.
+ *
+ *  `referenceDatasetId` is what makes the identity gate meaningful: scored against a known-good
+ *  set, a crop below 0.4 is a different person. Without one it scores against the crops' own
+ *  mean, which proves internal consistency and nothing about identity — the resulting dataset's
+ *  note says so. */
+export async function cropDatasetFaces(
+  id: string,
+  opts: { referenceDatasetId?: string; gate?: boolean } = {},
+): Promise<Dataset> {
+  const { data } = await api.post<Dataset>(`/datasets/${id}/crop`, null, {
+    params: {
+      reference_dataset_id: opts.referenceDatasetId,
+      gate: opts.gate ?? true,
+    },
+  });
+  return data;
+}
+
 export async function deleteDataset(id: string, purge = false): Promise<void> {
   await api.delete(`/datasets/${id}`, { params: { purge } });
 }
