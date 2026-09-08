@@ -336,8 +336,11 @@ export interface WorkerResponse {
    *  which is NOT the same as "unknown build". */
   daemon_commit: string | null;
   image_ref: string | null;
-  /** wanly-api#269. Never null. */
+  /** wanly-api#269. Never null. The FIRST of `kinds`, render first whenever present. */
   kind: WorkerKind;
+  /** Every kind at once (wanly-gpu-docker#83): one container per GPU is ["render", "trainer"].
+   *  null from a row registered before the column existed — then it is [kind]. */
+  kinds: WorkerKind[] | null;
   /** What it runs: ["ltx-engine"], ["joycaption", "qwen-edit"]. A list, because a services
    *  container runs several at once. null means never reported — which is every render
    *  daemon today, since none of them sends it yet — and is NOT the same as "runs nothing". */
@@ -396,7 +399,7 @@ export type WorkerStatus =
 /** What a worker IS. `render` takes segments; `service` never can — the API's claim gate keys
  *  on this, so it is not a display label with a UI consequence, it is the reverse. Never null:
  *  the column is NOT NULL with a `render` default, so there is no "unclassified" branch. */
-export type WorkerKind = "render" | "service";
+export type WorkerKind = "render" | "service" | "trainer";
 
 export interface WorkerStatsItem {
   worker_name: string;

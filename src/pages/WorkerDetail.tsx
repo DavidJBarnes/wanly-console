@@ -22,6 +22,7 @@ import { useParams, Link as RouterLink } from "react-router";
 import { useGoBack } from "../hooks/useGoBack";
 import { getWorker, getWorkerSegments } from "../api/client";
 import { orderForDisplay, severityOf, summarise } from "../lib/loraInventory";
+import { isService, kindsOf } from "../lib/workerKind";
 import StatusChip from "../components/StatusChip";
 import type { WorkerResponse, WorkerStatus, WorkerSegmentResponse } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
@@ -210,12 +211,19 @@ export default function WorkerDetail() {
           Without this a services box shows "has not reported a LoRA inventory", which is
           true and useless — it reads as a render worker that has lost its models, which is
           a real state worth being able to spot. */}
-      {worker.kind === "service" && (
+      {(isService(worker) || (worker.kinds?.length ?? 0) > 1) && (
         <Card sx={{ mt: 3 }}>
           <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
             <Typography variant="h6">Services</Typography>
           </Box>
           <CardContent>
+            {/* Every kind this box is (wanly-gpu-docker#83): one container per GPU is both a
+                render worker and a trainer, and claims from both queues. */}
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 1.5 }}>
+              {kindsOf(worker).map((k) => (
+                <Chip key={k} label={k} size="small" color={k === "render" ? "primary" : "default"} variant="outlined" />
+              ))}
+            </Box>
             {worker.provides?.length ? (
               <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                 {worker.provides.map((name) => (
@@ -227,11 +235,13 @@ export default function WorkerDetail() {
                 This worker has not reported what it runs.
               </Typography>
             )}
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-              A service never claims segments. Its status is what it reports about itself:
-              <strong> Online</strong> when everything it was asked to run is answering,
-              <strong> Degraded</strong> when some of it is not.
-            </Typography>
+            {isService(worker) && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+                A service never claims segments. Its status is what it reports about itself:
+                <strong> Online</strong> when everything it was asked to run is answering,
+                <strong> Degraded</strong> when some of it is not.
+              </Typography>
+            )}
           </CardContent>
         </Card>
       )}
@@ -242,7 +252,7 @@ export default function WorkerDetail() {
 
           Hidden for a service, which has no LoRA directory to report and would otherwise
           show the never-reported message as though something were missing. */}
-      {worker.kind !== "service" && (
+      {!isService(worker) && (
       <Card sx={{ mt: 3 }}>
         <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid", borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>LoRAs</Typography>

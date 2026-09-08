@@ -51,7 +51,7 @@ import { findBootingPods, costForWorker } from "../lib/bootingPods";
 import { describeWindow, describePolicy, describeAttempts, describeGpu } from "../lib/reservationDisplay";
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import { buildLabel, driftingWorkers } from "../lib/workerBuild";
-import { byStatus, canDrain as canDrainWorker, fleetCounts, isService as isServiceWorker } from "../lib/workerKind";
+import { byStatus, canDrain as canDrainWorker, fleetCounts, isService as isServiceWorker, kindsOf } from "../lib/workerKind";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
 import StalledQueueBanner from "../components/StalledQueueBanner";
@@ -562,6 +562,18 @@ function WorkerCard({
                 sx={{ bgcolor: "#e8eaf6", color: "#3949ab", fontWeight: 600, fontSize: "0.7rem" }}
               />
             )}
+            {/* A render worker that is ALSO a trainer (wanly-gpu-docker#83): one container per
+                GPU claims from both queues, and a training run parks its renders. Worth a chip
+                because it explains a "draining" status that nobody asked for. */}
+            {!isService && kindsOf(worker).filter((k) => k !== "render").map((k) => (
+              <Chip
+                key={k}
+                label={k}
+                size="small"
+                title={`Also a ${k}. Claims from that queue as well as rendering.`}
+                sx={{ bgcolor: "#e8eaf6", color: "#3949ab", fontWeight: 600, fontSize: "0.7rem" }}
+              />
+            ))}
             {/* null means never reported, which is every render daemon today — so an absent
                 list must render as nothing, not as an empty one. */}
             {worker.provides?.length ? (

@@ -9,10 +9,37 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { byStatus, canDrain, fleetCounts, isService } from "./workerKind";
+import type { WorkerKind } from "../api/types";
+import { byStatus, canDrain, canRender, fleetCounts, isService, kindsOf } from "./workerKind";
 
 const render = (status: string) => ({ kind: "render" as const, status: status as never });
 const service = (status: string) => ({ kind: "service" as const, status: status as never });
+
+describe("kindsOf (wanly-gpu-docker#83)", () => {
+  it("is the list when the API sends one", () => {
+    expect(kindsOf({ kind: "render", kinds: ["render", "trainer"] })).toEqual(["render", "trainer"]);
+  });
+
+  it("is the one kind for a row from before the column", () => {
+    expect(kindsOf({ kind: "trainer", kinds: null })).toEqual(["trainer"]);
+    expect(kindsOf({ kind: "service", kinds: [] })).toEqual(["service"]);
+  });
+
+  it("a box that is render AND trainer renders, drains, and is not a service", () => {
+    const both = { kind: "render" as const, kinds: ["render", "trainer"] as WorkerKind[], status: "online-idle" as never };
+    expect(canRender(both)).toBe(true);
+    expect(isService(both)).toBe(false);
+    expect(canDrain(both)).toBe(true);
+    expect(fleetCounts([both]).liveRender).toBe(1);
+  });
+
+  it("a trainer alone is a service: renders nothing, cannot be drained", () => {
+    const trainer = { kind: "trainer" as const, kinds: ["trainer"] as WorkerKind[], status: "online" as never };
+    expect(isService(trainer)).toBe(true);
+    expect(canDrain(trainer)).toBe(false);
+    expect(fleetCounts([trainer]).liveServices).toBe(1);
+  });
+});
 
 describe("isService", () => {
   it("is true only for a service", () => {
