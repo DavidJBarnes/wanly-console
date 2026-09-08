@@ -19,7 +19,7 @@ import {
 } from "../lib/sceneRegion";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
 import {
-  buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor, slotTriggers,
+  buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor,
 } from "../lib/recipeBlob";
 import type { CharacterSlot } from "../lib/recipeBlob";
 
@@ -216,15 +216,22 @@ export default function RecipeForm({
   const twoPerson = nSlots > 1;
   const slotCharacters: (Character | null)[] = Array.from(
     { length: nSlots }, (_, i) => lookup(characterNames[i] ?? ""));
+  // Every slot is required to SUBMIT; an empty one must not blank the form in the
+  // meantime. Switching to a two-person pose used to leave the previous pose's prompt on
+  // screen and hide every LoRA row until the second character was picked, which read as
+  // the pose not having loaded. The filled slots render; an empty slot leaves its
+  // placeholder in the prompt where the missing person will go.
   const slotsReady = slotCharacters.every((c) => c !== null);
-  const slots: CharacterSlot[] = slotsReady
-    ? slotCharacters.map((c, i) => ({ character: c as Character, ...editAt(i) }))
-    : [];
+  const filledSlots: (CharacterSlot | null)[] = slotCharacters.map((c, i) =>
+    c ? { character: c, ...editAt(i) } : null);
+  const slots: CharacterSlot[] = filledSlots.filter((s): s is CharacterSlot => s !== null);
   const slotKey = slotCharacters.map((c) => c?.name ?? "").join("|");
   // What this pose renders as for THESE characters — the baseline an edit is measured
-  // against.
+  // against. An unfilled slot keeps its placeholder.
+  const triggersOf = (list: (CharacterSlot | null)[]) =>
+    list.map((s) => s?.character.trigger) as string[];
   const renderedPrompt =
-    pose && slotsReady ? renderPrompt(pose.prompt_template, slotTriggers(slots)) : "";
+    pose && character ? renderPrompt(pose.prompt_template, triggersOf(filledSlots)) : "";
 
   useEffect(() => {
     if (book && !poseName) setPoseName(poses[0]?.name ?? "");
@@ -234,17 +241,19 @@ export default function RecipeForm({
   // showing "<TRIGGER>, a woman..." would mean editing around a placeholder and
   // being unable to see what actually renders.
   useEffect(() => {
-    if (!pose || !slotsReady) return;
-    const rendered = renderPrompt(pose.prompt_template, slotTriggers(
-      slotCharacters.map((c) => slotFor(c as Character))));
+    if (!pose || !character) return;
+    const rendered = renderPrompt(
+      pose.prompt_template,
+      slotCharacters.map((c) => c?.trigger) as string[]);
     // Auto-filled the moment there is something to fill it with (console#427). The words
     // land in the editable box, so they are still read before they are used — what changes
     // is that a description already paid for is not paid for again.
     setPrompt(savedSceneRef.current ? fillScene(rendered, savedSceneRef.current) : rendered);
     setNegative(pose.negative_prompt);
-    // Every slot starts as its character's own LoRA and strengths.
+    // Every filled slot starts as its character's own LoRA and strengths.
     setSlotEdits(slotCharacters.map((c) => {
-      const d = slotFor(c as Character);
+      if (!c) return { charLora: "", s1: "", s2: "" };
+      const d = slotFor(c);
       return { charLora: d.charLora, s1: d.s1, s2: d.s2 };
     }));
     setFrames(String(pose.frames));
@@ -277,7 +286,7 @@ export default function RecipeForm({
   useEffect(() => {
     if (prefilled.current) return;
     const r = initialFrom?.ltx_recipe;
-    if (!r || !pose || !slotsReady) return;
+    if (!r || !pose || !character) return;
     // Only once the defaults for the RIGHT pose have landed, otherwise this overwrites
     // values that are about to be replaced.
     const people = recipeCharacters(r);
@@ -304,7 +313,7 @@ export default function RecipeForm({
     if (r.frames != null) setFrames(String(r.frames));
     // slotKey stands in for the slot characters, which are rebuilt every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialFrom, pose, slotKey, slotsReady]);
+  }, [initialFrom, pose, slotKey]);
 
   /**
    * The frame this segment will actually start from — which is not always one that was
@@ -695,7 +704,7 @@ export default function RecipeForm({
               {describeError}
             </Alert>
           )}
-          {slots.map((slot, i) => (
+          {filledSlots.map((slot, i) => slot && (
             <Stack key={i} direction="row" spacing={2} useFlexGap flexWrap="wrap">
               <TextField
                 select label={i === 0 ? "Char LoRA" : `${slot.character.name} LoRA`}
