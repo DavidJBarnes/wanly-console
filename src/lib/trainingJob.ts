@@ -303,3 +303,32 @@ export function lossPath(
   const sy = (v: number) => height - pad - ((v - min) / (max - min)) * (height - 2 * pad);
   return { points: pts.map((p) => ({ x: sx(p[0]), y: sy(p[1]), step: p[0], loss: p[1] })), min, max };
 }
+
+/** The recipe's `num_repeats`: every image is seen this many times per epoch. */
+export const NUM_REPEATS = 10;
+/** The recipe's proven step count. Strong at 750-1000, brittle well past 1200. */
+export const RECIPE_STEPS = 1200;
+/** Measured on the 3090 for this recipe (100 steps in ~6 min). */
+export const SECONDS_PER_STEP = 3.7;
+
+/** Steps in one epoch over this many images. */
+export function stepsPerEpoch(images: number): number {
+  return Math.max(1, images) * NUM_REPEATS;
+}
+
+/**
+ * A reasonable epoch count for this set: the recipe's 1200 steps, expressed in whole epochs.
+ * 8 images -> 15, 27 -> 4, 50 -> 2. Never below 1.
+ */
+export function defaultEpochs(images: number): number {
+  return Math.max(1, Math.round(RECIPE_STEPS / stepsPerEpoch(images)));
+}
+
+/** Steps for a whole number of epochs, so the last epoch checkpoint is also the final. */
+export function stepsForEpochs(epochs: number, images: number): number {
+  return Math.max(1, Math.floor(epochs)) * stepsPerEpoch(images);
+}
+
+export function estimatedMinutes(steps: number): number {
+  return Math.round((steps * SECONDS_PER_STEP) / 60);
+}
