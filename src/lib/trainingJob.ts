@@ -224,3 +224,54 @@ export function groupByCharacter(jobs: TrainingJob[]): CharacterGroup[] {
   out.sort((a, b) => Number(live(b)) - Number(live(a)) || activity(b) - activity(a));
   return out;
 }
+
+/** One row of a finished run's checkpoint list: what was written, and whether it is here. */
+export interface EpochRow {
+  label: string;
+  step: number | null;
+  loss: number | null;
+  /** The s3:// URI when it is in the bucket. */
+  uri: string | null;
+  /** Asked for, not yet uploaded. */
+  requested: boolean;
+}
+
+/**
+ * Merge what the trainer wrote (`epochs`) with what reached the bucket (`checkpoints`).
+ * Older runs have no `epochs`; their checkpoints still list, without step or loss.
+ */
+export function epochRows(job: Pick<TrainingJob, "epochs" | "checkpoints" | "publish_requests">): EpochRow[] {
+  const byLabel = new Map<string, string>();
+  for (const u of job.checkpoints ?? []) byLabel.set(checkpointLabel(u), u);
+  const requested = new Set(job.publish_requests ?? []);
+  const rows: EpochRow[] = (job.epochs ?? []).map((e) => ({
+    label: e.label, step: e.step, loss: e.loss,
+    uri: byLabel.get(e.label) ?? null, requested: requested.has(e.label),
+  }));
+  const seen = new Set(rows.map((r) => r.label));
+  for (const [label, uri] of byLabel) {
+    if (!seen.has(label)) rows.push({ label, step: null, loss: null, uri, requested: false });
+  }
+  const order = (l: string) => (l === "final" ? Number.MAX_SAFE_INTEGER : parseInt(l.slice(1), 10));
+  return rows.sort((a, b) => order(a.label) - order(b.label));
+}
+
+/**
+ * Points for a small loss line: x by step across the run, y by loss within [min, max] of
+ * the data (not from zero -- a curve that goes 0.9 -> 0.7 is a flat line on a 0-based axis
+ * and the whole point is to see it move). Returns [] with fewer than two points.
+ */
+export function lossPath(
+  log: [number, number][] | null | undefined, width: number, height: number, pad = 4,
+): { points: { x: number; y: number; step: number; loss: number }[]; min: number; max: number } {
+  const pts = (log ?? []).filter((p) => Array.isArray(p) && p.length === 2 && Number.isFinite(p[1]));
+  if (pts.length < 2) return { points: [], min: 0, max: 0 };
+  const steps = pts.map((p) => p[0]);
+  const losses = pts.map((p) => p[1]);
+  const x0 = Math.min(...steps), x1 = Math.max(...steps);
+  let min = Math.min(...losses), max = Math.max(...losses);
+  if (max === min) { max = min + 0.01; }
+  const sx = (v: number) => pad + ((v - x0) / Math.max(1, x1 - x0)) * (width - 2 * pad);
+  const sy = (v: number) => height - pad - ((v - min) / (max - min)) * (height - 2 * pad);
+  return { points: pts.map((p) => ({ x: sx(p[0]), y: sy(p[1]), step: p[0], loss: p[1] })), min, max };
+}

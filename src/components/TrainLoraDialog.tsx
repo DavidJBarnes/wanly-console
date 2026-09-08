@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
-  Stack, TextField, Typography,
+  FormControlLabel, Radio, RadioGroup, Stack, TextField, Typography,
 } from "@mui/material";
 
 import { createTrainingJob, listTrainingJobs } from "../api/client";
@@ -50,6 +50,7 @@ export default function TrainLoraDialog({
   const [versionTouched, setVersionTouched] = useState(false);
   const [caption, setCaption] = useState("");
   const [steps, setSteps] = useState(1200);
+  const [publish, setPublish] = useState<"final" | "all">("final");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -91,6 +92,7 @@ export default function TrainLoraDialog({
         trigger: trigger.trim(), version, steps,
         lora_name: loraName || defaultLoraName(character),
         caption: caption || null,
+        publish,
         // A dataset reference when there is one, so the run records where its images came
         // from; a bare list otherwise, for an ad-hoc selection in the Image Repo.
         ...(datasetId ? { dataset_id: datasetId } : { dataset_images: imageKeys }),
@@ -181,6 +183,22 @@ export default function TrainLoraDialog({
               helperText={`~${epochs} epochs over ${imageKeys.length} images`}
               sx={{ flex: 1 }}
             />
+          </Box>
+
+          <Box>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>Upload</Typography>
+            <RadioGroup
+              row
+              value={publish}
+              onChange={(e) => setPublish(e.target.value as "final" | "all")}
+            >
+              <FormControlLabel value="final" control={<Radio size="small" />} label="Final checkpoint only" />
+              <FormControlLabel value="all" control={<Radio size="small" />} label="Every epoch" />
+            </RadioGroup>
+            <Typography variant="caption" color="text.secondary">
+              Every epoch stays on the trainer either way and can be uploaded later from the
+              run. A checkpoint takes about 18 minutes to upload.
+            </Typography>
           </Box>
 
           <TextField

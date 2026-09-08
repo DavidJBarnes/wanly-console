@@ -405,6 +405,12 @@ export async function cancelTrainingJob(id: string): Promise<TrainingJob> {
   return data;
 }
 
+/** Ask for a checkpoint that stayed on the trainer to be uploaded after all. */
+export async function publishTrainingEpoch(id: string, label: string): Promise<TrainingJob> {
+  const { data } = await api.post<TrainingJob>(`/training/${id}/publish`, null, { params: { label } });
+  return data;
+}
+
 /** Take a finished run off the board. With `purge` (the default) its LoRA files go too; the
  *  API refuses if a character currently renders with one of them. */
 export async function deleteTrainingJob(id: string, purge = true): Promise<void> {
