@@ -8,6 +8,7 @@
  * doomed job through costs a GPU hour to discover.
  */
 import type { TrainingJob } from "../api/types";
+import type { Character } from "../api/ltx";
 
 /** Below this a run is not worth the GPU hour. p@y worked on 13, which is the floor anyone has
  *  actually proved; the API refuses under 8 and this must agree with it or the dialog offers a
@@ -120,4 +121,75 @@ export function byTrainingInterest(a: TrainingJob, b: TrainingJob): number {
   const d = (order[a.status] ?? 9) - (order[b.status] ?? 9);
   if (d !== 0) return d;
   return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+}
+
+/**
+ * The same rule the API enforces on a character name. Mirrored so the dialog can say so
+ * before the button is pressed: a dataset called "Test faces" defaulted the character to
+ * "Test faces", which the API refused with a 422 the user only saw after filling everything
+ * in.
+ */
+export function characterProblem(name: string): string | null {
+  if (!name) return "a character is required";
+  if (name.length > 64) return "keep it under 64 characters";
+  if (/\s/.test(name)) return "no spaces — it becomes a directory and a filename on the trainer";
+  if (name.includes("/") || name.startsWith(".")) return "no slashes, and it cannot start with a dot";
+  return null;
+}
+
+/** A character name a dataset name can suggest without breaking the rule above. */
+export function defaultCharacterFor(datasetName: string): string {
+  return datasetName.trim().replace(/\s+/g, "-").replace(/\//g, "-").replace(/^\.+/, "");
+}
+
+/** `2` out of `pay_v2_e05` or `pay_v2`. */
+export function versionOfLora(stem: string): number | null {
+  const m = /_v(\d+)(?:_|$)/.exec(stem);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/**
+ * The version the next run of this character should be.
+ *
+ * One more than the highest that exists -- in a finished run, or on the character's current
+ * LoRA when it was trained before the console kept runs at all. A failed or cancelled run
+ * did not use its number up; retrying it as the same version is the point of retrying. The
+ * dialog defaulted to 1 for everything, which for a character with a v2 in the library
+ * meant a v1 that silently overwrote the last v1's files.
+ */
+export function nextVersion(
+  character: string, jobs: TrainingJob[], characters: Character[],
+): number {
+  const name = character.trim().toLowerCase();
+  if (!name) return 1;
+  let highest = 0;
+  for (const j of jobs) {
+    if (j.character.toLowerCase() === name && j.status === "completed") {
+      highest = Math.max(highest, j.version);
+    }
+  }
+  const c = characters.find((x) => x.name.toLowerCase() === name);
+  if (c) highest = Math.max(highest, versionOfLora(c.char_lora) ?? 0);
+  return highest + 1;
+}
+
+/** `e05` or `final` out of an S3 URI -- what distinguishes one checkpoint from the next. */
+export function checkpointLabel(uri: string): string {
+  const stem = loraStem(uri);
+  const m = /_(e\d+|final)$/.exec(stem);
+  return m ? m[1] : stem;
+}
+
+/** `pay_v2_e05` out of `s3://ltx-loras/character/pay_v2_e05.safetensors` -- the name a
+ *  character row stores. */
+export function loraStem(uri: string): string {
+  const name = uri.split("/").pop() ?? uri;
+  return name.replace(/\.safetensors$/, "");
+}
+
+/** Which of a job's checkpoints the character currently renders with, if any. */
+export function checkpointInUse(job: TrainingJob, characters: Character[]): string | null {
+  const c = characters.find((x) => x.name === job.character);
+  if (!c) return null;
+  return (job.checkpoints ?? []).find((u) => loraStem(u) === c.char_lora) ?? null;
 }

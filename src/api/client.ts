@@ -412,6 +412,11 @@ export async function cancelTrainingJob(id: string): Promise<TrainingJob> {
   return data;
 }
 
+/** Take a finished run off the board. Its LoRAs stay in the library. */
+export async function deleteTrainingJob(id: string): Promise<void> {
+  await api.delete(`/training/${id}`);
+}
+
 
 
 

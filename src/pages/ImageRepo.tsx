@@ -1102,16 +1102,17 @@ export default function ImageRepo() {
       </Dialog>
 
       {/* Move to Folder Dialog */}
-      <TrainLoraDialog
-        open={trainOpen}
-        imageKeys={selectedUris()}
-        onClose={() => setTrainOpen(false)}
-        onQueued={() => {
-          setSelectMode(false);
-          setSelectedKeys(new Set());
-          navigate("/training");
-        }}
-      />
+      {trainOpen && (
+        <TrainLoraDialog
+          imageKeys={selectedUris()}
+          onClose={() => setTrainOpen(false)}
+          onQueued={() => {
+            setSelectMode(false);
+            setSelectedKeys(new Set());
+            navigate("/training");
+          }}
+        />
+      )}
 
       <Dialog
         open={moveDialogOpen}

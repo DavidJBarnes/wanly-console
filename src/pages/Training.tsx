@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Alert, Box, Button, Card, CardContent, Chip, LinearProgress, Stack, Typography,
+  Alert, Box, Button, Card, CardContent, Chip, IconButton, LinearProgress, Stack, Tooltip,
+  Typography,
 } from "@mui/material";
 
-import { Download } from "@mui/icons-material";
+import { CheckCircle, Delete, Download } from "@mui/icons-material";
 
-import { cancelTrainingJob, getFileUrl, listTrainingJobs } from "../api/client";
+import { cancelTrainingJob, deleteTrainingJob, getFileUrl, listTrainingJobs } from "../api/client";
+import { createCharacter, listRecipes, updateCharacter } from "../api/ltx";
+import type { Character } from "../api/ltx";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
-import { byTrainingInterest, trainingPct, trainingSummary } from "../lib/trainingJob";
+import {
+  byTrainingInterest, checkpointInUse, checkpointLabel, loraStem, trainingPct, trainingSummary,
+} from "../lib/trainingJob";
 import type { TrainingJob } from "../api/types";
 
 /**
@@ -17,9 +22,14 @@ import type { TrainingJob } from "../api/types";
  * Polls with the house pattern — useEffect + setInterval, errors swallowed into a string, and
  * existing data never blanked on a failed fetch, because a momentary API blip should not empty
  * a page someone is watching a 50-minute job on.
+ *
+ * It also knows the characters, because the point of a finished run is to pick, by eye, which
+ * of its checkpoints the character renders with — and until now that meant leaving this page,
+ * finding the character under LoRA Recipes, and retyping a filename from memory.
  */
 export default function Training() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
   const [error, setError] = useState("");
 
   const fetchJobs = useCallback(async () => {
@@ -31,11 +41,20 @@ export default function Training() {
     }
   }, []);
 
+  const fetchCharacters = useCallback(async () => {
+    try {
+      setCharacters((await listRecipes()).characters);
+    } catch {
+      // The runs still show without it; only the "in use" mark and the Use button go quiet.
+    }
+  }, []);
+
   useEffect(() => {
     fetchJobs();
+    fetchCharacters();
     const interval = setInterval(fetchJobs, POLL_INTERVAL_FAST);
     return () => clearInterval(interval);
-  }, [fetchJobs]);
+  }, [fetchJobs, fetchCharacters]);
 
   return (
     <Box>
@@ -50,29 +69,54 @@ export default function Training() {
 
       {jobs.length === 0 && !error && (
         <Typography variant="body2" color="text.secondary">
-          No training runs yet. Select images in the Image Repo and choose “Train LoRA”.
+          No training runs yet. Open a dataset and choose “Train”, or select images in the
+          Image Repo and choose “Train LoRA”.
         </Typography>
       )}
 
       <Stack spacing={2}>
         {jobs.map((job) => (
-          <TrainingRow key={job.id} job={job} onChanged={fetchJobs} />
+          <TrainingRow
+            key={job.id}
+            job={job}
+            characters={characters}
+            onChanged={() => { fetchJobs(); fetchCharacters(); }}
+          />
         ))}
       </Stack>
     </Box>
   );
 }
 
-/** "e05" out of pay_v2_e05.safetensors, falling back to the filename. The epoch is the whole
- *  point of the label — that is what distinguishes one checkpoint from the next. */
-function epochLabel(uri: string): string {
-  const name = uri.split("/").pop() ?? uri;
-  return /_e(\d+)\./.exec(name)?.[0].replace(/[_.]/g, "") ?? name;
-}
-
-function TrainingRow({ job, onChanged }: { job: TrainingJob; onChanged: () => void }) {
+function TrainingRow({
+  job, characters, onChanged,
+}: { job: TrainingJob; characters: Character[]; onChanged: () => void }) {
   const pct = trainingPct(job);
   const live = job.status === "running" || job.status === "claimed" || job.status === "pending";
+  const inUse = checkpointInUse(job, characters);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  /** Point the character at this checkpoint. Creates the character if the run is its first. */
+  const use = async (uri: string) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const existing = characters.find((c) => c.name === job.character);
+      const stem = loraStem(uri);
+      if (existing) {
+        await updateCharacter(existing.id, { char_lora: stem, trigger: job.trigger });
+      } else {
+        await createCharacter({ name: job.character, char_lora: stem, trigger: job.trigger });
+      }
+      setMsg(`${job.character} now renders with ${stem}`);
+      onChanged();
+    } catch {
+      setMsg("could not update the character");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Card>
@@ -85,7 +129,7 @@ function TrainingRow({ job, onChanged }: { job: TrainingJob; onChanged: () => vo
           <Chip size="small" variant="outlined" label={`${job.dataset_images.length} images`} />
           {job.gpu_name && <Chip size="small" variant="outlined" label={job.gpu_name} />}
           <Box sx={{ flexGrow: 1 }} />
-          {live && (
+          {live ? (
             <Button
               size="small"
               color="error"
@@ -93,6 +137,20 @@ function TrainingRow({ job, onChanged }: { job: TrainingJob; onChanged: () => vo
             >
               Cancel
             </Button>
+          ) : (
+            <Tooltip title="Remove this run from the list. Its LoRAs stay in the library.">
+              <IconButton
+                size="small"
+                color="error"
+                onClick={async () => {
+                  if (!confirm(`Delete the ${job.character} v${job.version} run?`)) return;
+                  await deleteTrainingJob(job.id);
+                  onChanged();
+                }}
+              >
+                <Delete fontSize="small" />
+              </IconButton>
+            </Tooltip>
           )}
         </Box>
 
@@ -108,7 +166,16 @@ function TrainingRow({ job, onChanged }: { job: TrainingJob; onChanged: () => vo
           </Box>
         ) : null}
 
-        <Typography variant="body2" color="text.secondary">
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          // A failure's last output is a stack trace. Keep it readable, and keep it from
+          // turning the row into a page.
+          sx={job.status === "failed"
+            ? { whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12, maxHeight: 200,
+                overflow: "auto" }
+            : undefined}
+        >
           {trainingSummary(job)}
         </Typography>
 
@@ -119,25 +186,50 @@ function TrainingRow({ job, onChanged }: { job: TrainingJob; onChanged: () => vo
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
               Loss does not rank these — pick by eye at a fixed seed, one checkpoint per arm,
-              same start image.
+              same start image. “Use” points {job.character} at that one; the character renders
+              with it from then on.
             </Typography>
-            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-              {job.checkpoints.map((uri) => (
-                <Button
-                  key={uri}
-                  size="small"
-                  variant="outlined"
-                  startIcon={<Download fontSize="small" />}
-                  // getFileUrl goes through the API's /files proxy, which 307s to a presigned
-                  // URL — so the browser never needs S3 credentials and the link works for
-                  // anyone who can see the page.
-                  href={getFileUrl(uri)}
-                  download
-                >
-                  {epochLabel(uri)}
-                </Button>
-              ))}
-            </Box>
+            <Stack spacing={0.5}>
+              {job.checkpoints.map((uri) => {
+                const current = uri === inUse;
+                return (
+                  <Box key={uri} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Typography sx={{ width: 56, fontFamily: "monospace" }}>
+                      {checkpointLabel(uri)}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<Download fontSize="small" />}
+                      // getFileUrl goes through the API's /files proxy, which 307s to a
+                      // presigned URL — so the browser never needs S3 credentials.
+                      href={getFileUrl(uri)}
+                      download
+                    >
+                      Download
+                    </Button>
+                    <Button
+                      size="small"
+                      variant={current ? "contained" : "outlined"}
+                      color={current ? "success" : "primary"}
+                      startIcon={current ? <CheckCircle fontSize="small" /> : undefined}
+                      disabled={busy || current}
+                      onClick={() => use(uri)}
+                    >
+                      {current ? "In use" : "Use"}
+                    </Button>
+                    <Typography variant="caption" color="text.secondary">
+                      {loraStem(uri)}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Stack>
+            {msg && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                {msg}
+              </Typography>
+            )}
           </Box>
         ) : null}
       </CardContent>
