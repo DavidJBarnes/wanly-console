@@ -12,9 +12,22 @@ export interface TokenResponse {
  *  look anything up — an engine that cannot look a recipe up cannot look up a
  *  stale one. `graph_sha256` is written back by the worker once the engine has
  *  resolved the graph; it is a record, not an input. */
+/** One person in the shot (console#473). Slot 0 fills `<TRIGGER>`, slot 1 `<TRIGGER2>`. */
+export interface LtxRecipeCharacter {
+  name: string;
+  trigger: string;
+  char_lora: string;
+  s1: number;
+  s2: number;
+}
+
 export interface LtxRecipeRef {
-  /** The pose name. Poses are character-agnostic; the character is recorded beside it. */
+  /** The pose name. Poses are character-agnostic; the characters are recorded beside it. */
   recipe: string;
+  /** The people in the shot, in slot order, at most two. Blobs from before console#473
+   *  have only the scalar fields below, which are ALWAYS written too, mirrored from
+   *  `characters[0]`, so every reader of either shape keeps working. */
+  characters?: LtxRecipeCharacter[];
   character: string;
   /** The trigger word that filled the pose's placeholder, recorded so the render can be
    *  reproduced without depending on the character row still existing or still having it. */

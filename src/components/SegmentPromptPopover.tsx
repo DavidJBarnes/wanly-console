@@ -11,12 +11,13 @@ import {
 import { Link as RouterLink } from "react-router";
 import NotesIcon from "@mui/icons-material/Notes";
 import type { LtxRecipeRef } from "../api/types";
+import { recipeCharacters } from "../lib/recipeBlob";
 import {
   contentLoraLine,
   editedFields,
   recipeTitle,
   shortGraphHash,
-  trainingLink,
+  trainingLinks,
 } from "../lib/recipeDisplay";
 
 /**
@@ -75,7 +76,10 @@ export default function SegmentPromptPopover({
   const recipe = ltxRecipe ?? null;
   const recipeEdits = editedFields(recipe);
   const graphHash = shortGraphHash(recipe);
-  const loraRunLink = trainingLink(recipe);
+  // One row per person in the shot (console#473); a blob from before the list still yields
+  // its one character.
+  const people = recipeCharacters(recipe);
+  const runLinks = Object.fromEntries(trainingLinks(recipe).map((l) => [l.name, l.href]));
 
   // The hash is compared against other segments', so click copies the eight characters
   // rather than the full 64, and says so for a moment after it has.
@@ -157,35 +161,36 @@ export default function SegmentPromptPopover({
               {recipeTitle(recipe)}
             </Typography>
             <Stack spacing={0.5}>
-              <RecipeRow label="Character LoRA">
-                {loraRunLink ? (
-                  // Ties yesterday's training runs to the job view: the recorded name opens
-                  // the character's runs on the LoRA Training page. The blob carries a name,
-                  // not an id, so a renamed or deleted character simply lands unhighlighted.
-                  <RouterLink
-                    to={loraRunLink}
-                    style={{ color: "inherit", textDecorationLine: "none" }}
-                  >
-                    <Typography
-                      component="span"
-                      variant="caption"
-                      sx={{ "&:hover": { textDecorationLine: "underline" } }}
-                    >
-                      {recipe.char_lora} @ {recipe.char_s1}/{recipe.char_s2}
-                    </Typography>
-                  </RouterLink>
-                ) : (
-                  <Typography variant="caption">
-                    {recipe.char_lora} @ {recipe.char_s1}/{recipe.char_s2}
-                  </Typography>
-                )}
-              </RecipeRow>
-
-              {recipe.trigger && (
-                <RecipeRow label="Trigger">
-                  <Typography variant="caption">{recipe.trigger}</Typography>
-                </RecipeRow>
-              )}
+              {people.map((person, i) => {
+                const link = runLinks[person.name];
+                const line = `${person.char_lora} @ ${person.s1}/${person.s2}`;
+                return (
+                  <RecipeRow key={i} label={i === 0 ? "Character LoRA" : "Second character"}>
+                    {link ? (
+                      // Ties the training runs to the job view: the recorded name opens
+                      // the character's runs on the LoRA Training page. The blob carries a
+                      // name, not an id, so a renamed or deleted character simply lands
+                      // unhighlighted.
+                      <RouterLink to={link} style={{ color: "inherit", textDecorationLine: "none" }}>
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          sx={{ "&:hover": { textDecorationLine: "underline" } }}
+                        >
+                          {line}
+                        </Typography>
+                      </RouterLink>
+                    ) : (
+                      <Typography variant="caption">{line}</Typography>
+                    )}
+                    {person.trigger && (
+                      <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                        trigger “{person.trigger}”
+                      </Typography>
+                    )}
+                  </RecipeRow>
+                );
+              })}
 
               {/* One LoRA to a line: after the second content LoRA the chain acquired names
                   long enough to wrap mid-pair inside a 560px popover. */}

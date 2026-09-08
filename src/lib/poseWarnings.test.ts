@@ -51,3 +51,16 @@ describe("renderPrompt", () => {
     expect(renderPrompt("a woman standing", "k9")).toBe("a woman standing");
   });
 });
+
+describe("two-person poses", () => {
+  const chars = [
+    { id: "1", name: "k3lly2026", char_lora: "k", trigger: "k3lly2026", strength_stage_1: 0.8, strength_stage_2: 1.5 },
+  ];
+  it("a template with <TRIGGER2> and <TRIGGER> is not flagged", () => {
+    expect(poseWarnings("<TRIGGER2> stands behind <TRIGGER>", chars)).toEqual([]);
+  });
+  it("<TRIGGER2> without <TRIGGER> says which is missing", () => {
+    const [w] = poseWarnings("<TRIGGER2> alone", chars);
+    expect(w).toMatch(/<TRIGGER2> without <TRIGGER>/);
+  });
+});

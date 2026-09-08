@@ -33,6 +33,8 @@ import {
   ltxError,
   poseWarnings,
   TRIGGER_PLACEHOLDER,
+  TRIGGER2_PLACEHOLDER,
+  isTwoPersonPose,
   updateCharacter,
   updatePose,
 } from "../api/ltx";
@@ -206,6 +208,11 @@ function PoseList({
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
                   <Typography variant="subtitle2">{p.name}</Typography>
                   {p.validated && <Chip size="small" color="success" label="validated" />}
+                  {isTwoPersonPose(p.prompt_template) && (
+                    <Tooltip title={`Names two people (${TRIGGER2_PLACEHOLDER})`}>
+                      <Chip size="small" color="info" label="two people" />
+                    </Tooltip>
+                  )}
                   {!p.prompt_template.includes(TRIGGER_PLACEHOLDER) && (
                     <Tooltip title="This pose never names the subject">
                       <Chip size="small" color="warning" label={`no ${TRIGGER_PLACEHOLDER}`} />
@@ -418,7 +425,7 @@ function PoseDialog({
             fullWidth
             multiline
             minRows={4}
-            helperText={`${TRIGGER_PLACEHOLDER} is replaced with the character's trigger word. This box shows the template, not the result.`}
+            helperText={`${TRIGGER_PLACEHOLDER} is replaced with the first character's trigger word; add ${TRIGGER2_PLACEHOLDER} for a second person and the render takes two characters. This box shows the template, not the result.`}
           />
 
           {warnings.map((w) => (
