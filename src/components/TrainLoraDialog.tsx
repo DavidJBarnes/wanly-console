@@ -9,8 +9,9 @@ import { listRecipes } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import type { TrainingJob } from "../api/types";
 import {
-  apiErrorText, canTrain, characterProblem, defaultCharacterFor, defaultLoraName,
-  loraFilename, loraNameProblem, nameNeedsSanitising, nextVersion,
+  apiErrorText, canTrain, characterProblem, defaultCharacterFor, defaultEpochs,
+  defaultLoraName, estimatedMinutes, loraFilename, loraNameProblem, nameNeedsSanitising,
+  nextVersion, stepsForEpochs,
 } from "../lib/trainingJob";
 
 /**
@@ -49,7 +50,10 @@ export default function TrainLoraDialog({
   const [version, setVersion] = useState(1);
   const [versionTouched, setVersionTouched] = useState(false);
   const [caption, setCaption] = useState("");
-  const [steps, setSteps] = useState(1200);
+  // Epochs, not steps: "how many passes over each image" is the question a person asks,
+  // and a whole number of them puts the last epoch checkpoint on the final step. The default
+  // is the recipe's proven 1200 steps expressed for this set's size.
+  const [epochs, setEpochs] = useState(defaultEpochs(imageKeys.length));
   const [publish, setPublish] = useState<"final" | "all">("final");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -80,7 +84,10 @@ export default function TrainLoraDialog({
   const nameProblem = characterProblem(character.trim());
   const fileProblem = loraNameProblem(loraName.trim());
   const known = characters.find((c) => c.name.toLowerCase() === character.trim().toLowerCase());
-  const epochs = Math.max(1, Math.floor(steps / Math.max(1, imageKeys.length * 10)));
+  const steps = stepsForEpochs(epochs, imageKeys.length);
+  const stepsProblem = steps > 6000
+    ? `${steps} steps is over the 6000 the trainer accepts — fewer epochs`
+    : null;
 
   const submit = async () => {
     setBusy(true);
@@ -178,11 +185,17 @@ export default function TrainLoraDialog({
               sx={{ width: 140 }}
             />
             <TextField
-              label="Steps"
+              label="Epochs"
               type="number"
-              value={steps}
-              onChange={(e) => setSteps(parseInt(e.target.value) || 1200)}
-              helperText={`~${epochs} epochs over ${imageKeys.length} images`}
+              value={epochs}
+              onChange={(e) => setEpochs(Math.max(1, parseInt(e.target.value) || 1))}
+              error={stepsProblem !== null}
+              helperText={
+                stepsProblem
+                  ?? `${steps} steps (${imageKeys.length} images × 10 repeats × ${epochs}) — ` +
+                     `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch`
+              }
+              slotProps={{ htmlInput: { min: 1 } }}
               sx={{ flex: 1 }}
             />
           </Box>
@@ -220,7 +233,8 @@ export default function TrainLoraDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={!eligible.ok || busy || nameProblem !== null || fileProblem !== null || !trigger.trim()}
+          disabled={!eligible.ok || busy || nameProblem !== null || fileProblem !== null
+            || stepsProblem !== null || !trigger.trim()}
           onClick={submit}
         >
           {busy ? "Queueing…" : "Queue training"}

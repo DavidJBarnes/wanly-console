@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  defaultEpochs, estimatedMinutes, stepsForEpochs,
   apiErrorText, loraNameProblem,
   epochRows, lossPath,
   groupByCharacter,
@@ -310,5 +311,21 @@ describe("apiErrorText", () => {
   it("passes a plain detail through and falls back otherwise", () => {
     expect(apiErrorText({ response: { data: { detail: "nope" } } }, "x")).toBe("nope");
     expect(apiErrorText(new Error("boom"), "x")).toBe("x");
+  });
+});
+
+describe("epochs", () => {
+  it("defaults to the recipe's 1200 steps in whole epochs", () => {
+    expect(defaultEpochs(8)).toBe(15);
+    expect(defaultEpochs(27)).toBe(4);
+    expect(defaultEpochs(50)).toBe(2);
+    expect(defaultEpochs(400)).toBe(1);
+  });
+  it("derives steps so the last epoch lands on the final step", () => {
+    expect(stepsForEpochs(4, 27)).toBe(1080);
+    expect(stepsForEpochs(15, 8)).toBe(1200);
+  });
+  it("estimates minutes from the measured rate", () => {
+    expect(estimatedMinutes(100)).toBe(6);
   });
 });
