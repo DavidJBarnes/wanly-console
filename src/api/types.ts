@@ -446,8 +446,24 @@ export interface Dataset {
   notes: string | null;
   images: string[];
   prefix: string | null;
+  /** The one image every other one is scored against. Null until somebody picks one. */
+  anchor_uri: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface DatasetScore {
+  uri: string;
+  /** Null means no face was detected — an absent score, not a low one. */
+  cos: number | null;
+  is_anchor: boolean;
+}
+
+export interface DatasetScores {
+  anchor_uri: string;
+  /** buffalo_l's same-person floor. A line to read against, not a delete rule. */
+  cos_floor: number;
+  scores: DatasetScore[];
 }
 
 export interface TrainingCreate {
