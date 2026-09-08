@@ -4,10 +4,20 @@ import {
   Divider,
   IconButton,
   Popover,
+  Stack,
   Tooltip,
   Typography,
 } from "@mui/material";
+import { Link as RouterLink } from "react-router";
 import NotesIcon from "@mui/icons-material/Notes";
+import type { LtxRecipeRef } from "../api/types";
+import {
+  contentLoraLine,
+  editedFields,
+  recipeTitle,
+  shortGraphHash,
+  trainingLink,
+} from "../lib/recipeDisplay";
 
 /**
  * The prompt behind a segment, on demand.
@@ -20,6 +30,13 @@ import NotesIcon from "@mui/icons-material/Notes";
  * text that costs roughly 0.13 identity. Without this there is no way to tell after the fact
  * which variant a given segment drew, so two segments of the "same" job can differ for reasons
  * invisible in the UI.
+ *
+ * And for recipe renders (#452), the RECORD of what the segment ran: pose, character, LoRAs
+ * and the base model. The base model and content LoRAs show even when nothing was overridden
+ * -- a render that looks different from last week is most often a base-model or content-LoRA
+ * change, and this is the line that answers it. Whole sections stay out of the popover when
+ * the segment carries no recipe (WAN-era, hologram, free-form), which is most of the time:
+ * the blob is a record, not a lookup, and there is nothing to display but the record.
  */
 
 interface Props {
@@ -27,6 +44,19 @@ interface Props {
   prompt: string;
   promptTemplate?: string | null;
   negativePrompt?: string | null;
+  ltxRecipe?: LtxRecipeRef | null;
+}
+
+/** One labelled line, in the "Fixed by the recipe" accordion's format. */
+function RecipeRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
+      <Typography variant="caption" sx={{ minWidth: 96 }} color="text.secondary">
+        {label}
+      </Typography>
+      <Box sx={{ flex: 1 }}>{children}</Box>
+    </Stack>
+  );
 }
 
 export default function SegmentPromptPopover({
@@ -34,6 +64,7 @@ export default function SegmentPromptPopover({
   prompt,
   promptTemplate,
   negativePrompt,
+  ltxRecipe,
 }: Props) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
 
@@ -41,9 +72,31 @@ export default function SegmentPromptPopover({
   // so an equal value just means "no wildcards in this prompt".
   const resolvedFromTemplate = !!promptTemplate && promptTemplate !== prompt;
 
+  const recipe = ltxRecipe ?? null;
+  const recipeEdits = editedFields(recipe);
+  const graphHash = shortGraphHash(recipe);
+  const loraRunLink = trainingLink(recipe);
+
+  // The hash is compared against other segments', so click copies the eight characters
+  // rather than the full 64, and says so for a moment after it has.
+  const [hashCopied, setHashCopied] = useState(false);
+  const copyHash = async (prefix: string) => {
+    try {
+      await navigator.clipboard.writeText(prefix);
+    } catch {
+      return;
+    }
+    setHashCopied(true);
+    window.setTimeout(() => setHashCopied(false), 1500);
+  };
+
   return (
     <>
-      <Tooltip title={resolvedFromTemplate ? "Prompt (wildcards resolved)" : "Prompt"}>
+      <Tooltip
+        title={
+          resolvedFromTemplate ? "Prompt (wildcards resolved)" : recipe ? "Prompt and recipe" : "Prompt"
+        }
+      >
         <IconButton size="small" onClick={(e) => setAnchorEl(e.currentTarget)}>
           <NotesIcon
             fontSize="small"
@@ -91,6 +144,105 @@ export default function SegmentPromptPopover({
             <Box component={Typography} variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
               {negativePrompt}
             </Box>
+          </>
+        )}
+
+        {recipe && (
+          <>
+            <Divider sx={{ my: 1.5 }} />
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Recipe — what this segment ran, as recorded when it was queued
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              {recipeTitle(recipe)}
+            </Typography>
+            <Stack spacing={0.5}>
+              <RecipeRow label="Character LoRA">
+                {loraRunLink ? (
+                  // Ties yesterday's training runs to the job view: the recorded name opens
+                  // the character's runs on the LoRA Training page. The blob carries a name,
+                  // not an id, so a renamed or deleted character simply lands unhighlighted.
+                  <RouterLink
+                    to={loraRunLink}
+                    style={{ color: "inherit", textDecorationLine: "none" }}
+                  >
+                    <Typography
+                      component="span"
+                      variant="caption"
+                      sx={{ "&:hover": { textDecorationLine: "underline" } }}
+                    >
+                      {recipe.char_lora} @ {recipe.char_s1}/{recipe.char_s2}
+                    </Typography>
+                  </RouterLink>
+                ) : (
+                  <Typography variant="caption">
+                    {recipe.char_lora} @ {recipe.char_s1}/{recipe.char_s2}
+                  </Typography>
+                )}
+              </RecipeRow>
+
+              {recipe.trigger && (
+                <RecipeRow label="Trigger">
+                  <Typography variant="caption">{recipe.trigger}</Typography>
+                </RecipeRow>
+              )}
+
+              {/* One LoRA to a line: after the second content LoRA the chain acquired names
+                  long enough to wrap mid-pair inside a 560px popover. */}
+              <RecipeRow label="Content LoRAs">
+                {recipe.content_loras?.length ? (
+                  <Stack spacing={0}>
+                    {recipe.content_loras.map((lora) => (
+                      <Typography key={lora.name} variant="caption">
+                        {contentLoraLine(lora)}
+                      </Typography>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Typography variant="caption">none</Typography>
+                )}
+              </RecipeRow>
+
+              <RecipeRow label="Base model">
+                <Typography variant="caption">{recipe.checkpoint ?? "not recorded"}</Typography>
+              </RecipeRow>
+
+              <RecipeRow label="Frames">
+                <Typography variant="caption">
+                  {recipe.frames ? `${recipe.frames} frames` : "not recorded"}
+                  {recipe.img_compression != null ? ` · conditioning CRF ${recipe.img_compression}` : ""}
+                </Typography>
+              </RecipeRow>
+
+              {recipeEdits.length > 0 && (
+                <RecipeRow label="Overrode">
+                  <Typography variant="caption">{recipeEdits.join(", ")}</Typography>
+                </RecipeRow>
+              )}
+
+              {graphHash && (
+                <RecipeRow label="Graph hash">
+                  <Tooltip title={hashCopied ? "Copied" : "Copy — to compare against another segment"}>
+                    <Typography
+                      component="button"
+                      type="button"
+                      variant="caption"
+                      onClick={() => copyHash(graphHash)}
+                      sx={{
+                        background: "none",
+                        border: 0,
+                        padding: 0,
+                        cursor: "pointer",
+                        fontFamily: "monospace",
+                        color: hashCopied ? "success.main" : "text.primary",
+                      }}
+                    >
+                      {hashCopied ? "copied" : graphHash}
+                    </Typography>
+                  </Tooltip>
+                </RecipeRow>
+              )}
+            </Stack>
           </>
         )}
       </Popover>
