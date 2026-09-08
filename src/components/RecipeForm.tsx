@@ -18,6 +18,10 @@ import {
   stripSceneMarkers,
 } from "../lib/sceneRegion";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
+import {
+  buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor, slotTriggers,
+} from "../lib/recipeBlob";
+import type { CharacterSlot } from "../lib/recipeBlob";
 
 /**
  * Pick a validated (character, pose) configuration and a start frame. Everything
@@ -124,7 +128,21 @@ export default function RecipeForm({
 
   const [book, setBook] = useState<RecipeBook | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
-  const [characterName, setCharacterName] = useState("");
+  // One entry per PERSON in the shot (console#473): the chosen character names in slot
+  // order, and the editable LoRA/strengths beside each. Slot 0 keeps its old accessors
+  // below so the one-person code reads as it always did; slot 1 exists only for a pose
+  // whose template names a second person.
+  const [characterNames, setCharacterNames] = useState<string[]>([""]);
+  const characterName = characterNames[0] ?? "";
+  const setCharacterName = (name: string) =>
+    setCharacterNames((prev) => [name, ...prev.slice(1)]);
+  const setCharacterNameAt = (i: number, name: string) =>
+    setCharacterNames((prev) => {
+      const next = [...prev];
+      while (next.length <= i) next.push("");
+      next[i] = name;
+      return next;
+    });
   const [poseName, setPoseName] = useState("");
   const [start, setStart] = useState<StartFrame | null>(null);
   // <SCENE> preview (console#405). Only for a start frame already in S3: a freshly picked
@@ -146,9 +164,16 @@ export default function RecipeForm({
   // validated configuration — which is recorded, not prevented.
   const [prompt, setPrompt] = useState("");
   const [negative, setNegative] = useState("");
-  const [charLora, setCharLora] = useState("");
-  const [s1, setS1] = useState("");
-  const [s2, setS2] = useState("");
+  type SlotEdit = { charLora: string; s1: string; s2: string };
+  const [slotEdits, setSlotEdits] = useState<SlotEdit[]>([]);
+  const editAt = (i: number): SlotEdit => slotEdits[i] ?? { charLora: "", s1: "", s2: "" };
+  const setEditAt = (i: number, patch: Partial<SlotEdit>) =>
+    setSlotEdits((prev) => {
+      const next = [...prev];
+      while (next.length <= i) next.push({ charLora: "", s1: "", s2: "" });
+      next[i] = { ...next[i], ...patch };
+      return next;
+    });
   const [frames, setFrames] = useState("");
 
   // A DRAW, not part of the recipe: a new seed is still the validated
@@ -178,16 +203,28 @@ export default function RecipeForm({
   // effect below forever.
   const poses = useMemo(() => book?.poses ?? [], [book]);
 
-  const character: Character | null =
-    characterName === NO_CHARACTER.name
+  const lookup = (name: string): Character | null =>
+    name === NO_CHARACTER.name
       ? NO_CHARACTER
-      : book?.characters.find((c) => c.name === characterName) ?? null;
+      : book?.characters.find((c) => c.name === name) ?? null;
+  const character: Character | null = lookup(characterName);
   // Poses are character-agnostic, so the list never changes with the character —
   // which is the point: a new LoRA gets every pose the moment it exists.
   const pose: Pose | null = poses.find((p) => p.name === poseName) ?? null;
-  // What this pose renders as for THIS character — the baseline an edit is measured against.
+  // How many people this pose names: one, or two when its template uses <TRIGGER2>.
+  const nSlots = slotCount(pose);
+  const twoPerson = nSlots > 1;
+  const slotCharacters: (Character | null)[] = Array.from(
+    { length: nSlots }, (_, i) => lookup(characterNames[i] ?? ""));
+  const slotsReady = slotCharacters.every((c) => c !== null);
+  const slots: CharacterSlot[] = slotsReady
+    ? slotCharacters.map((c, i) => ({ character: c as Character, ...editAt(i) }))
+    : [];
+  const slotKey = slotCharacters.map((c) => c?.name ?? "").join("|");
+  // What this pose renders as for THESE characters — the baseline an edit is measured
+  // against.
   const renderedPrompt =
-    pose && character ? renderPrompt(pose.prompt_template, character.trigger) : "";
+    pose && slotsReady ? renderPrompt(pose.prompt_template, slotTriggers(slots)) : "";
 
   useEffect(() => {
     if (book && !poseName) setPoseName(poses[0]?.name ?? "");
@@ -197,18 +234,23 @@ export default function RecipeForm({
   // showing "<TRIGGER>, a woman..." would mean editing around a placeholder and
   // being unable to see what actually renders.
   useEffect(() => {
-    if (!pose || !character) return;
-    const rendered = renderPrompt(pose.prompt_template, character.trigger);
+    if (!pose || !slotsReady) return;
+    const rendered = renderPrompt(pose.prompt_template, slotTriggers(
+      slotCharacters.map((c) => slotFor(c as Character))));
     // Auto-filled the moment there is something to fill it with (console#427). The words
     // land in the editable box, so they are still read before they are used — what changes
     // is that a description already paid for is not paid for again.
     setPrompt(savedSceneRef.current ? fillScene(rendered, savedSceneRef.current) : rendered);
     setNegative(pose.negative_prompt);
-    setCharLora(character.char_lora);
-    setS1(String(character.strength_stage_1));
-    setS2(String(character.strength_stage_2));
+    // Every slot starts as its character's own LoRA and strengths.
+    setSlotEdits(slotCharacters.map((c) => {
+      const d = slotFor(c as Character);
+      return { charLora: d.charLora, s1: d.s1, s2: d.s2 };
+    }));
     setFrames(String(pose.frames));
-  }, [pose, character]);
+    // slotKey stands in for the slot characters, which are rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pose, slotKey]);
 
   // ---- Prefill a continuation from the segment it follows -------------------------------
   //
@@ -227,17 +269,20 @@ export default function RecipeForm({
     if (!book || prefilled.current) return;
     const r = initialFrom?.ltx_recipe;
     if (!r) return;
-    setCharacterName(r.character);
+    const people = recipeCharacters(r);
+    setCharacterNames(people.length ? people.map((c) => c.name) : [r.character]);
     setPoseName(r.recipe);
   }, [book, initialFrom]);
 
   useEffect(() => {
     if (prefilled.current) return;
     const r = initialFrom?.ltx_recipe;
-    if (!r || !pose || !character) return;
+    if (!r || !pose || !slotsReady) return;
     // Only once the defaults for the RIGHT pose have landed, otherwise this overwrites
     // values that are about to be replaced.
-    if (pose.name !== r.recipe || character.name !== r.character) return;
+    const people = recipeCharacters(r);
+    if (pose.name !== r.recipe) return;
+    if (people.some((c, i) => i < nSlots && slotCharacters[i]?.name !== c.name)) return;
     prefilled.current = true;
     // The PROMPT is deliberately not carried forward (console#438). It holds the previous
     // segment's resolved scene — a description of the frame that segment STARTED from, which
@@ -247,11 +292,19 @@ export default function RecipeForm({
     // segment actually continues from. The cost is that hand-edits to the previous segment's
     // wording do not follow; the arc comes from the pose, clean, every time.
     if (initialFrom?.negative_prompt) setNegative(initialFrom.negative_prompt);
-    if (r.char_lora) setCharLora(r.char_lora);
-    if (r.char_s1 != null) setS1(String(r.char_s1));
-    if (r.char_s2 != null) setS2(String(r.char_s2));
+    // What actually RAN in each slot, including anything the user had overridden.
+    people.forEach((c, i) => {
+      if (i >= nSlots) return;
+      setEditAt(i, {
+        ...(c.char_lora ? { charLora: c.char_lora } : {}),
+        ...(c.s1 != null ? { s1: String(c.s1) } : {}),
+        ...(c.s2 != null ? { s2: String(c.s2) } : {}),
+      });
+    });
     if (r.frames != null) setFrames(String(r.frames));
-  }, [initialFrom, pose, character]);
+    // slotKey stands in for the slot characters, which are rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFrom, pose, slotKey, slotsReady]);
 
   /**
    * The frame this segment will actually start from — which is not always one that was
@@ -352,7 +405,7 @@ export default function RecipeForm({
   };
 
   const submit = async () => {
-    if (!pose || !character || !book) return;
+    if (!pose || !character || !book || !slotsReady) return;
     if (!continuing && !start) return;
     setBusy(true);
     setError(null);
@@ -374,34 +427,15 @@ export default function RecipeForm({
         // has to guess, and ltx_recipe.frames is authoritative.
         duration_seconds: nFrames / fps,
         speed: 1.0,
-        ltx_recipe: {
-          recipe: pose.name,
-          character: character.name,
-          trigger: character.trigger,
-          char_lora: charLora,
-          char_s1: Number(s1),
-          char_s2: Number(s2),
-          frames: nFrames,
-          // Carried so the render records the CRF it actually used, and so the engine can
-          // apply a pose's override. Sent as-is including 0, which is a real setting.
-          img_compression: pose.img_compression,
-          // The pose's content LoRAs — motion and act — chained AHEAD of the character
-          // LoRA, which is identity, in the order given. Recorded rather than looked up
-          // later: the recipe row can be edited afterwards, and a segment has to say
-          // what it actually ran, including the ORDER, which changes the result.
-          content_loras: pose.content_loras,
-          // The base model this render used. Recorded because it materially changes the
-          // output and because a character LoRA can fuse NOTHING against a base it was
-          // not trained on — a segment has to say which one it ran against.
-          checkpoint: pose.checkpoint,
-          edited: [
-            restoreScenePlaceholder(prompt).trim() !== renderedPrompt.trim() ? "prompt" : null,
-            negative.trim() !== pose.negative_prompt.trim() ? "negative" : null,
-            charLora !== character.char_lora ? "char_lora" : null,
-            Number(s1) !== character.strength_stage_1 ? "char_s1" : null,
-            Number(s2) !== character.strength_stage_2 ? "char_s2" : null,
-          ].filter(Boolean),
-        },
+        // What actually ran, recorded against the segment (console#473: one entry per
+        // person, and the scalar mirror of the first). graph_sha256 is filled in by the
+        // worker once the engine resolves the graph — a record of what happened, not an
+        // input.
+        ltx_recipe: buildLtxRecipe({
+          pose, slots, negative, frames: nFrames,
+          prompt: restoreScenePlaceholder(prompt),
+          renderedPrompt,
+        }),
       };
 
       if (continuing) {
@@ -420,54 +454,14 @@ export default function RecipeForm({
 
       const job: JobCreate = {
         // "none — Missionary" reads as a broken template. Name it for what it is.
-        name: character.name === NO_CHARACTER.name
-          ? `${pose.name} (no character)`
-          : `${character.name} — ${pose.name}`,
+        name: jobName(pose, slots),
         width,
         height,
         fps,
         seed: seed.trim() === "" ? null : Number(seed),
         continuation_mode: "traditional",
         tags: initialTags || null,
-        first_segment: {
-          prompt: submittedPrompt,
-          negative_prompt: negative.trim() || null,
-          // The queue speaks seconds; LTX speaks frames. Sent both ways round so
-          // neither side has to guess, and ltx_pose.frames is authoritative.
-          duration_seconds: nFrames / fps,
-          speed: 1.0,
-          // What actually ran, recorded against the segment. graph_sha256 is
-          // filled in by the worker once the engine resolves the graph — it is a
-          // record of what happened, not an input.
-          ltx_recipe: {
-            recipe: pose.name,
-            character: character.name,
-            char_lora: charLora,
-            char_s1: Number(s1),
-            char_s2: Number(s2),
-            frames: nFrames,
-            // Carried so the render records the CRF it actually used, and so the engine
-            // can apply a pose's override. Sent as-is including 0, a real setting.
-            img_compression: pose.img_compression,
-            // The pose's content LoRAs — motion and act — chained AHEAD of the character
-            // LoRA, which is identity, in the order given. Recorded rather than looked up
-            // later: the recipe row can be edited afterwards, and a segment has to say
-            // what it actually ran, including the ORDER, which changes the result.
-            content_loras: pose.content_loras,
-            // The base model this render used. Recorded because it materially changes the
-            // output and because a character LoRA can fuse NOTHING against a base it was
-            // not trained on — a segment has to say which one it ran against.
-            checkpoint: pose.checkpoint,
-            edited:
-              [
-                restoreScenePlaceholder(prompt).trim() !== renderedPrompt.trim() ? "prompt" : null,
-                negative.trim() !== pose.negative_prompt.trim() ? "negative" : null,
-                charLora !== character.char_lora ? "char_lora" : null,
-                Number(s1) !== character.strength_stage_1 ? "char_s1" : null,
-                Number(s2) !== character.strength_stage_2 ? "char_s2" : null,
-              ].filter(Boolean),
-          },
-        },
+        first_segment: segment,
       } as JobCreate;
 
       // One decision about how the start frame is sent, in one place. An uploaded
@@ -591,6 +585,22 @@ export default function RecipeForm({
               Last, because it is the deliberate exception (console#412). */}
           <MenuItem value={NO_CHARACTER.name}><em>None — no character</em></MenuItem>
         </TextField>
+        {twoPerson && (
+          // Only for a pose whose template names a second person (<TRIGGER2>), and
+          // required then: the API refuses a two-person prompt with one character.
+          <TextField
+            select label="Second character" value={characterNames[1] ?? ""}
+            sx={{ flex: "1 1 180px", minWidth: 160 }} size={compact ? "small" : "medium"}
+            onChange={(e) => setCharacterNameAt(1, e.target.value)}
+            error={!characterNames[1]}
+            helperText={compact ? undefined : "This pose names two people."}
+          >
+            {(book?.characters ?? []).map((c) => (
+              <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>
+            ))}
+            <MenuItem value={NO_CHARACTER.name}><em>None — no character</em></MenuItem>
+          </TextField>
+        )}
         <TextField
           select label="Pose" value={poseName}
           sx={{ flex: "2 1 240px", minWidth: 200 }} size={compact ? "small" : "medium"}
@@ -685,30 +695,35 @@ export default function RecipeForm({
               {describeError}
             </Alert>
           )}
+          {slots.map((slot, i) => (
+            <Stack key={i} direction="row" spacing={2} useFlexGap flexWrap="wrap">
+              <TextField
+                select label={i === 0 ? "Char LoRA" : `${slot.character.name} LoRA`}
+                value={slot.charLora}
+                sx={{ flex: "2 1 220px", minWidth: 180 }} size={compact ? "small" : "medium"}
+                onChange={(e) => setEditAt(i, { charLora: e.target.value })}
+              >
+                {/* the recipe's own first, so it is never buried under the rest */}
+                <MenuItem value={slot.character.char_lora}>{slot.character.char_lora}</MenuItem>
+                {loras.filter((l) => l !== slot.character.char_lora).map((l) => (
+                  <MenuItem key={l} value={l}>{l}</MenuItem>
+                ))}
+                {/* Renders on the checkpoint alone — useful for judging what the LoRA is
+                    actually contributing, and for a shot whose start frame already carries
+                    the identity. The engine has always understood "none"; it simply was
+                    not offered (console#412). Last in the list, because it is the
+                    deliberate exception rather than a thing to land on by accident. */}
+                <MenuItem value="none"><em>None — no character LoRA</em></MenuItem>
+              </TextField>
+              <TextField label="Stage 1" value={slot.s1} size={compact ? "small" : "medium"}
+                         sx={{ flex: "1 1 100px", minWidth: 90 }}
+                         onChange={(e) => setEditAt(i, { s1: e.target.value })} />
+              <TextField label="Stage 2" value={slot.s2} size={compact ? "small" : "medium"}
+                         sx={{ flex: "1 1 100px", minWidth: 90 }}
+                         onChange={(e) => setEditAt(i, { s2: e.target.value })} />
+            </Stack>
+          ))}
           <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
-            <TextField
-              select label="Char LoRA" value={charLora}
-              sx={{ flex: "2 1 220px", minWidth: 180 }} size={compact ? "small" : "medium"}
-              onChange={(e) => setCharLora(e.target.value)}
-            >
-              {/* the recipe's own first, so it is never buried under the rest */}
-              <MenuItem value={character.char_lora}>{character.char_lora}</MenuItem>
-              {loras.filter((l) => l !== character.char_lora).map((l) => (
-                <MenuItem key={l} value={l}>{l}</MenuItem>
-              ))}
-              {/* Renders on the checkpoint alone — useful for judging what the LoRA is
-                  actually contributing, and for a shot whose start frame already carries
-                  the identity. The engine has always understood "none"; it simply was not
-                  offered (console#412). Last in the list, because it is the deliberate
-                  exception rather than a thing to land on by accident. */}
-              <MenuItem value="none"><em>None — no character LoRA</em></MenuItem>
-            </TextField>
-            <TextField label="Stage 1" value={s1} size={compact ? "small" : "medium"}
-                       sx={{ flex: "1 1 100px", minWidth: 90 }}
-                       onChange={(e) => setS1(e.target.value)} />
-            <TextField label="Stage 2" value={s2} size={compact ? "small" : "medium"}
-                       sx={{ flex: "1 1 100px", minWidth: 90 }}
-                       onChange={(e) => setS2(e.target.value)} />
             <TextField label="Frames" value={frames} size={compact ? "small" : "medium"}
                        sx={{ flex: "1 1 100px", minWidth: 90 }}
                        onChange={(e) => setFrames(e.target.value)} />

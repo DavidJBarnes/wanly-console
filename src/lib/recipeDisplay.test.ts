@@ -5,6 +5,7 @@ import {
   contentLoraLine,
   editedFields,
   recipeTitle,
+  trainingLinks,
   shortGraphHash,
   trainingLink,
 } from "./recipeDisplay";
@@ -94,5 +95,33 @@ describe("trainingLink", () => {
   it("skips the link for no-character renders and absent blobs", () => {
     expect(trainingLink({ ...full, character: "none" })).toBeNull();
     expect(trainingLink(null)).toBeNull();
+  });
+});
+
+describe("two people (console#473)", () => {
+  const two = {
+    recipe: "Bedroom", character: "p@y", trigger: "p@y", char_lora: "pay_v2_e05",
+    char_s1: 0.8, char_s2: 1.5, frames: 241,
+    characters: [
+      { name: "p@y", trigger: "p@y", char_lora: "pay_v2_e05", s1: 0.8, s2: 1.5 },
+      { name: "Me", trigger: "d@vid", char_lora: "david_v1_final", s1: 0.7, s2: 1.2 },
+    ],
+  };
+  it("the title names both", () => {
+    expect(recipeTitle(two)).toBe("Bedroom — p@y & Me");
+  });
+  it("one training link per person", () => {
+    expect(trainingLinks(two).map((l) => l.name)).toEqual(["p@y", "Me"]);
+    expect(trainingLinks(two)[1].href).toBe("/training?character=Me");
+  });
+  it("a legacy scalar blob still titles and links", () => {
+    const one = { ...two, characters: undefined };
+    expect(recipeTitle(one)).toBe("Bedroom — p@y");
+    expect(trainingLinks(one)).toHaveLength(1);
+  });
+  it("the second character's edits have words", () => {
+    expect(editedFields({ ...two, edited: ["char2_lora", "char2_s1"] })).toEqual([
+      "second character's LoRA", "second character's strength (stage 1)",
+    ]);
   });
 });

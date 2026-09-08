@@ -95,20 +95,38 @@ export interface Character {
 
 /** What a pose carries and a character's trigger fills. */
 export const TRIGGER_PLACEHOLDER = "<TRIGGER>";
+/** A second person (console#473). A pose is two-person exactly when its template uses it. */
+export const TRIGGER2_PLACEHOLDER = "<TRIGGER2>";
+/** In slot order: index i is filled by the i-th character. */
+export const TRIGGER_PLACEHOLDERS = [TRIGGER_PLACEHOLDER, TRIGGER2_PLACEHOLDER] as const;
+export const MAX_CHARACTERS = TRIGGER_PLACEHOLDERS.length;
 
-/** Fill a pose's placeholder with a character's trigger word.
+export function isTwoPersonPose(template: string | null | undefined): boolean {
+  return (template ?? "").includes(TRIGGER2_PLACEHOLDER);
+}
+
+/** Fill a pose's placeholders with the characters' trigger words, slot by slot.
  *
  *  The API does this too, before wildcard resolution — doing it here as well
  *  means the user SEES the prompt that will actually render rather than a
- *  template, which matters because the prompt is editable. */
-export function renderPrompt(template: string, trigger: string): string {
-  const out = template.split(TRIGGER_PLACEHOLDER).join(trigger);
-  if (trigger) return out;
+ *  template, which matters because the prompt is editable. A single string is the
+ *  one-person shorthand. A slot that is not given is left as its placeholder. */
+export function renderPrompt(template: string, triggers: string | string[]): string {
+  const list = typeof triggers === "string" ? [triggers] : triggers;
+  let out = template;
+  let tidy = false;
+  TRIGGER_PLACEHOLDERS.forEach((placeholder, i) => {
+    const trigger = list[i];
+    if (trigger === undefined) return;
+    out = out.split(placeholder).join(trigger);
+    if (!trigger) tidy = true;
+  });
+  if (!tidy) return out;
   // An EMPTY trigger is the "no character" case (console#412): the pose renders on the base
   // model alone, so there is no token to name anyone. Substituting "" leaves the comma that
   // followed it — ", a woman kneeling in front of..." — which reaches the text encoder as a
   // leading empty clause. Tidy it, the same way the API tidies a dropped <SCENE>.
-  return out.replace(/^\s*,\s*/, "").replace(/,\s*,/g, ",").trim();
+  return out.replace(/^\s*,\s*/, "").replace(/,\s*,/g, ",").replace(/\s{2,}/g, " ").trim();
 }
 
 /**
@@ -332,8 +350,11 @@ export function poseWarnings(template: string, characters: Character[]): string[
   const out: string[] = [];
   if (!template.includes(TRIGGER_PLACEHOLDER)) {
     out.push(
-      `No ${TRIGGER_PLACEHOLDER} — this pose will render the same prompt for every ` +
-        `character, so nothing names the subject.`,
+      isTwoPersonPose(template)
+        ? `${TRIGGER2_PLACEHOLDER} without ${TRIGGER_PLACEHOLDER} — the second person is ` +
+          `named and the first is not. Use ${TRIGGER_PLACEHOLDER} for the first character.`
+        : `No ${TRIGGER_PLACEHOLDER} — this pose will render the same prompt for every ` +
+          `character, so nothing names the subject.`,
     );
   }
   const named = characters

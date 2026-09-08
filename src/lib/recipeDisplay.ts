@@ -1,5 +1,6 @@
 import { NO_CHARACTER } from "../api/ltx";
 import type { LtxRecipeRef } from "../api/types";
+import { recipeCharacters } from "./recipeBlob";
 
 /**
  * Display strings for a segment's recorded LTX recipe (console#452).
@@ -31,9 +32,11 @@ export interface ContentLoraEntry {
  */
 export function recipeTitle(ref: LtxRecipeRef | null | undefined): string | null {
   if (!ref?.recipe) return null;
-  const character = ref.character;
-  if (!character || character === NO_CHARACTER.name) return `${ref.recipe} (no character)`;
-  return `${ref.recipe} — ${character}`;
+  const names = recipeCharacters(ref)
+    .map((c) => c.name)
+    .filter((n) => n && n !== NO_CHARACTER.name);
+  if (!names.length) return `${ref.recipe} (no character)`;
+  return `${ref.recipe} — ${names.join(" & ")}`;
 }
 
 /**
@@ -49,6 +52,9 @@ const EDITED_FIELD_WORDS: Record<string, string> = {
   char_lora: "character LoRA",
   char_s1: "character strength (stage 1)",
   char_s2: "character strength (stage 2)",
+  char2_lora: "second character's LoRA",
+  char2_s1: "second character's strength (stage 1)",
+  char2_s2: "second character's strength (stage 2)",
 };
 
 export function editedFields(ref: LtxRecipeRef | null | undefined): string[] {
@@ -84,7 +90,12 @@ export function shortGraphHash(ref: LtxRecipeRef | null | undefined): string | n
  * highlighted, which is the honest amount of certainty the blob carries.
  */
 export function trainingLink(ref: LtxRecipeRef | null | undefined): string | null {
-  const character = ref?.character;
-  if (!character || character === NO_CHARACTER.name) return null;
-  return `/training?character=${encodeURIComponent(character)}`;
+  return trainingLinks(ref)[0]?.href ?? null;
+}
+
+/** One link per person in the shot (console#473), in slot order, real characters only. */
+export function trainingLinks(ref: LtxRecipeRef | null | undefined): { name: string; href: string }[] {
+  return recipeCharacters(ref)
+    .filter((c) => c.name && c.name !== NO_CHARACTER.name)
+    .map((c) => ({ name: c.name, href: `/training?character=${encodeURIComponent(c.name)}` }));
 }
