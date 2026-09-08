@@ -9,8 +9,8 @@ import { listRecipes } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import type { TrainingJob } from "../api/types";
 import {
-  canTrain, characterProblem, defaultCharacterFor, defaultLoraName, loraFilename,
-  nameNeedsSanitising, nextVersion,
+  apiErrorText, canTrain, characterProblem, defaultCharacterFor, defaultLoraName,
+  loraFilename, loraNameProblem, nameNeedsSanitising, nextVersion,
 } from "../lib/trainingJob";
 
 /**
@@ -78,6 +78,7 @@ export default function TrainLoraDialog({
 
   const eligible = canTrain(imageKeys);
   const nameProblem = characterProblem(character.trim());
+  const fileProblem = loraNameProblem(loraName.trim());
   const known = characters.find((c) => c.name.toLowerCase() === character.trim().toLowerCase());
   const epochs = Math.max(1, Math.floor(steps / Math.max(1, imageKeys.length * 10)));
 
@@ -90,7 +91,7 @@ export default function TrainLoraDialog({
         // new character that differs by case.
         character: known?.name ?? character.trim(),
         trigger: trigger.trim(), version, steps,
-        lora_name: loraName || defaultLoraName(character),
+        lora_name: loraName.trim() || defaultLoraName(character),
         caption: caption || null,
         publish,
         // A dataset reference when there is one, so the run records where its images came
@@ -100,8 +101,7 @@ export default function TrainLoraDialog({
       onQueued(job.id);
       onClose();
     } catch (e: unknown) {
-      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(typeof detail === "string" ? detail : "could not queue the job");
+      setError(apiErrorText(e, "could not queue the job"));
     } finally {
       setBusy(false);
     }
@@ -154,11 +154,13 @@ export default function TrainLoraDialog({
             label="LoRA filename"
             value={loraName}
             onChange={(e) => { setLoraNameTouched(true); setLoraName(e.target.value); }}
+            error={fileProblem !== null}
             helperText={
-              nameNeedsSanitising(character)
-                ? `A LoRA is served over HTTP, so the filename cannot hold every character the ` +
-                  `name can. Installs as ${loraFilename(loraName || "lora", version)}`
-                : `Installs as ${loraFilename(loraName || "lora", version)}`
+              fileProblem
+                ?? (nameNeedsSanitising(character)
+                  ? `A LoRA is served over HTTP, so the filename cannot hold every character ` +
+                    `the name can. Installs as ${loraFilename(loraName || "lora", version)}`
+                  : `Installs as ${loraFilename(loraName || "lora", version)}`)
             }
             fullWidth
           />
@@ -218,7 +220,7 @@ export default function TrainLoraDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={!eligible.ok || busy || nameProblem !== null || !trigger.trim()}
+          disabled={!eligible.ok || busy || nameProblem !== null || fileProblem !== null || !trigger.trim()}
           onClick={submit}
         >
           {busy ? "Queueing…" : "Queue training"}

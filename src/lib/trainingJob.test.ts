@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  apiErrorText, loraNameProblem,
   epochRows, lossPath,
   groupByCharacter,
   characterProblem, checkpointInUse, checkpointLabel, defaultCharacterFor, loraStem,
@@ -286,5 +287,28 @@ describe("lossPath", () => {
   });
   it("ignores junk", () => {
     expect(lossPath([[0, NaN], [1, 0.5]] as [number, number][], 10, 10).points).toEqual([]);
+  });
+});
+
+describe("loraNameProblem mirrors the API's filename rule", () => {
+  it("refuses d@vid before the button is pressed", () => {
+    expect(loraNameProblem("d@vid")).toMatch(/@/);
+  });
+  it("accepts what the API accepts", () => {
+    expect(loraNameProblem("david")).toBeNull();
+    expect(loraNameProblem("k3lly_2026.v2-x")).toBeNull();
+  });
+});
+
+describe("apiErrorText", () => {
+  it("turns pydantic's list of errors into a sentence", () => {
+    const e = { response: { data: { detail: [
+      { loc: ["body", "lora_name"], msg: "String should match pattern '^[A-Za-z0-9._-]+$'" },
+    ] } } };
+    expect(apiErrorText(e, "x")).toBe("lora_name: String should match pattern '^[A-Za-z0-9._-]+$'");
+  });
+  it("passes a plain detail through and falls back otherwise", () => {
+    expect(apiErrorText({ response: { data: { detail: "nope" } } }, "x")).toBe("nope");
+    expect(apiErrorText(new Error("boom"), "x")).toBe("x");
   });
 });

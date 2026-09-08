@@ -70,6 +70,34 @@ export function loraFilename(stem: string, version: number, epoch?: number): str
   return `${stem}_v${version}${e}.safetensors`;
 }
 
+/** The same rule the API enforces on the filename stem, so the dialog can say so before the
+ *  button is pressed. `d@vid` was refused at submit with a message that did not say why. */
+export function loraNameProblem(stem: string): string | null {
+  if (!stem) return "a filename is required";
+  if (stem.length > 64) return "keep it under 64 characters";
+  if (!/^[A-Za-z0-9._-]+$/.test(stem)) {
+    return "letters, digits, . _ - only — a LoRA is served over HTTP, so @ and spaces cannot be in the filename";
+  }
+  return null;
+}
+
+/** A readable sentence out of an API error, including pydantic's list-of-errors shape. */
+export function apiErrorText(e: unknown, fallback: string): string {
+  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((d) => {
+        const loc = Array.isArray(d?.loc) ? d.loc.filter((x: unknown) => x !== "body").join(".") : "";
+        const msg = typeof d?.msg === "string" ? d.msg.replace(/^Value error, /, "") : "";
+        return loc && msg ? `${loc}: ${msg}` : msg || loc;
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join("; ");
+  }
+  return fallback;
+}
+
 /** True when the default drops something the character name has, so the dialog can say why the
  *  filename field is not simply the name. */
 export function nameNeedsSanitising(character: string): boolean {
