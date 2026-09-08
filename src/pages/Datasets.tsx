@@ -277,6 +277,12 @@ function CropDialog({
           <TextField
             select
             SelectProps={{ native: true }}
+            // A NATIVE SELECT ALWAYS SHOWS AN OPTION, so the label has nowhere to sit unshrunk.
+            // MUI decides by looking at `value`, and "no reference" is the empty string -- so it
+            // left the label full-size and painted "Score against" straight over "no reference
+            // (weak check)". The two selects in LaunchRunPodDialog only escape this because
+            // their values are never empty; explicit here and there, so it cannot come back.
+            InputLabelProps={{ shrink: true }}
             label="Score against"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
