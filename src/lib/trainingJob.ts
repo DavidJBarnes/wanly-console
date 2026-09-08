@@ -193,3 +193,34 @@ export function checkpointInUse(job: TrainingJob, characters: Character[]): stri
   if (!c) return null;
   return (job.checkpoints ?? []).find((u) => loraStem(u) === c.char_lora) ?? null;
 }
+
+/**
+ * The Training page is a list of CHARACTERS, each with its versions -- not a run history.
+ * "It is supposed to be a list of uniquely named/version characters" (console#464). A
+ * character's versions sort newest first; within a version the live or most recent run
+ * comes first, so a retried v2 shows its current attempt on top of the failed one.
+ */
+export interface CharacterGroup {
+  character: string;
+  runs: TrainingJob[];
+}
+
+export function groupByCharacter(jobs: TrainingJob[]): CharacterGroup[] {
+  const groups = new Map<string, TrainingJob[]>();
+  for (const j of jobs) {
+    const list = groups.get(j.character) ?? [];
+    list.push(j);
+    groups.set(j.character, list);
+  }
+  const out: CharacterGroup[] = [];
+  for (const [character, runs] of groups) {
+    runs.sort((a, b) => b.version - a.version || byTrainingInterest(a, b));
+    out.push({ character, runs });
+  }
+  // Characters with something live first, then by most recent activity.
+  const activity = (g: CharacterGroup) =>
+    Math.max(...g.runs.map((r) => Date.parse(r.claimed_at ?? r.created_at ?? "") || 0));
+  const live = (g: CharacterGroup) => g.runs.some((r) => byTrainingInterest(r, { status: "failed" } as TrainingJob) < 0);
+  out.sort((a, b) => Number(live(b)) - Number(live(a)) || activity(b) - activity(a));
+  return out;
+}

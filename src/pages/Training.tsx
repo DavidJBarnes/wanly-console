@@ -12,7 +12,7 @@ import type { Character } from "../api/ltx";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import {
-  byTrainingInterest, checkpointInUse, checkpointLabel, loraStem, trainingPct, trainingSummary,
+  checkpointInUse, checkpointLabel, groupByCharacter, loraStem, trainingPct, trainingSummary,
 } from "../lib/trainingJob";
 import type { TrainingJob } from "../api/types";
 
@@ -23,9 +23,10 @@ import type { TrainingJob } from "../api/types";
  * existing data never blanked on a failed fetch, because a momentary API blip should not empty
  * a page someone is watching a 50-minute job on.
  *
- * It also knows the characters, because the point of a finished run is to pick, by eye, which
- * of its checkpoints the character renders with — and until now that meant leaving this page,
- * finding the character under LoRA Recipes, and retyping a filename from memory.
+ * A LIST OF CHARACTERS, each with its versions -- not a run history (#464). A version is one
+ * training run; a retried version shows its current attempt above the failed one, and a
+ * finished one shows its checkpoints with a Use button, because the point of a finished run
+ * is to pick, by eye, which checkpoint the character renders with.
  */
 export default function Training() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
@@ -34,7 +35,7 @@ export default function Training() {
 
   const fetchJobs = useCallback(async () => {
     try {
-      setJobs((await listTrainingJobs()).sort(byTrainingInterest));
+      setJobs(await listTrainingJobs());
       setError("");
     } catch {
       setError("could not reach the API");
@@ -56,12 +57,14 @@ export default function Training() {
     return () => clearInterval(interval);
   }, [fetchJobs, fetchCharacters]);
 
+  const groups = groupByCharacter(jobs);
+
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 2, mb: 3 }}>
-        <Typography variant="h4">Training</Typography>
+        <Typography variant="h4">LoRA Training</Typography>
         <Typography variant="body2" color="text.secondary">
-          {jobs.length} run{jobs.length === 1 ? "" : "s"}
+          {groups.length} character{groups.length === 1 ? "" : "s"}
         </Typography>
       </Box>
 
@@ -74,14 +77,21 @@ export default function Training() {
         </Typography>
       )}
 
-      <Stack spacing={2}>
-        {jobs.map((job) => (
-          <TrainingRow
-            key={job.id}
-            job={job}
-            characters={characters}
-            onChanged={() => { fetchJobs(); fetchCharacters(); }}
-          />
+      <Stack spacing={3}>
+        {groups.map((g) => (
+          <Box key={g.character}>
+            <Typography variant="h5" sx={{ mb: 1 }}>{g.character}</Typography>
+            <Stack spacing={1.5}>
+              {g.runs.map((job) => (
+                <TrainingRow
+                  key={job.id}
+                  job={job}
+                  characters={characters}
+                  onChanged={() => { fetchJobs(); fetchCharacters(); }}
+                />
+              ))}
+            </Stack>
+          </Box>
         ))}
       </Stack>
     </Box>
@@ -122,9 +132,7 @@ function TrainingRow({
     <Card>
       <CardContent>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
-          <Typography variant="h6">
-            {job.character} <Typography component="span" color="text.secondary">v{job.version}</Typography>
-          </Typography>
+          <Typography variant="h6">v{job.version}</Typography>
           <StatusChip status={job.status} />
           <Chip size="small" variant="outlined" label={`${job.dataset_images.length} images`} />
           {job.gpu_name && <Chip size="small" variant="outlined" label={job.gpu_name} />}
@@ -138,14 +146,21 @@ function TrainingRow({
               Cancel
             </Button>
           ) : (
-            <Tooltip title="Remove this run from the list. Its LoRAs stay in the library.">
+            <Tooltip title="Delete this version and its LoRA files">
               <IconButton
                 size="small"
                 color="error"
                 onClick={async () => {
-                  if (!confirm(`Delete the ${job.character} v${job.version} run?`)) return;
-                  await deleteTrainingJob(job.id);
-                  onChanged();
+                  const n = job.checkpoints?.length ?? 0;
+                  if (!confirm(`Delete ${job.character} v${job.version}`
+                               + (n ? ` and its ${n} LoRA file${n === 1 ? "" : "s"}?` : "?"))) return;
+                  try {
+                    await deleteTrainingJob(job.id);
+                    onChanged();
+                  } catch (e: unknown) {
+                    const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+                    setMsg(typeof d === "string" ? d : "could not delete it");
+                  }
                 }}
               >
                 <Delete fontSize="small" />
@@ -178,6 +193,12 @@ function TrainingRow({
         >
           {trainingSummary(job)}
         </Typography>
+
+        {msg && !job.checkpoints?.length && (
+          <Typography variant="caption" color="error.main" sx={{ display: "block", mt: 1 }}>
+            {msg}
+          </Typography>
+        )}
 
         {job.checkpoints?.length ? (
           <Box sx={{ mt: 1.5 }}>

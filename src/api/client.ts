@@ -340,24 +340,17 @@ export async function addDatasetImages(id: string, files: File[]): Promise<Datas
   return data;
 }
 
-/** Turn a dataset of photographs into a dataset of face crops.
- *
- *  `referenceDatasetId` is what makes the identity gate meaningful: scored against a known-good
- *  set, a crop below 0.4 is a different person. Without one it scores against the crops' own
- *  mean, which proves internal consistency and nothing about identity — the resulting dataset's
- *  note says so. */
+/** Replace the dataset's images with the faces cropped out of them. The photographs stay
+ *  in the bucket; the dataset IS the crops afterwards. Cull them by starring an anchor and
+ *  removing what scores low. */
 export async function cropDatasetFaces(
   id: string,
-  opts: { referenceDatasetId?: string; gate?: boolean; largestOnly?: boolean } = {},
+  opts: { largestOnly?: boolean } = {},
 ): Promise<Dataset> {
   const { data } = await api.post<Dataset>(`/datasets/${id}/crop`, null, {
-    params: {
-      reference_dataset_id: opts.referenceDatasetId,
-      gate: opts.gate ?? true,
-      // Defaults to one face per photo. False is for a set of group shots, where "largest" is
-      // only whoever stood closer to the camera.
-      largest_only: opts.largestOnly ?? true,
-    },
+    // Defaults to every face. "Largest" in a group shot is only whoever stood closer to the
+    // camera, and an unwanted crop is one click to remove.
+    params: { largest_only: opts.largestOnly ?? false },
   });
   return data;
 }
@@ -412,9 +405,10 @@ export async function cancelTrainingJob(id: string): Promise<TrainingJob> {
   return data;
 }
 
-/** Take a finished run off the board. Its LoRAs stay in the library. */
-export async function deleteTrainingJob(id: string): Promise<void> {
-  await api.delete(`/training/${id}`);
+/** Take a finished run off the board. With `purge` (the default) its LoRA files go too; the
+ *  API refuses if a character currently renders with one of them. */
+export async function deleteTrainingJob(id: string, purge = true): Promise<void> {
+  await api.delete(`/training/${id}`, { params: { purge } });
 }
 
 
