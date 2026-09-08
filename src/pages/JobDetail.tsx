@@ -78,6 +78,7 @@ import StatusChip from "../components/StatusChip";
 import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { rerollableSegment } from "../lib/rerollEligibility";
+import { rerollNegativeToSend } from "../lib/rerollNegative";
 import { allArchivedTakes, groupTakes, takeSeed } from "../lib/segmentTakes";
 import { useGoBack } from "../hooks/useGoBack";
 import HologramConfig from "../components/HologramConfig";
@@ -257,6 +258,8 @@ export default function JobDetail() {
   // The prompt as edited in the re-roll dialog. Seeded from the take being rolled each time
   // the dialog opens, so an abandoned edit never leaks into the next roll.
   const [rerollPrompt, setRerollPrompt] = useState("");
+  // The negative prompt likewise (console#449); "" while the take ran with none.
+  const [rerollNegative, setRerollNegative] = useState("");
   const [nextSegmentOpen, setNextSegmentOpen] = useState(false);
   // "" = plain one-shot re-roll (no rule). The threshold is text state so a half-typed
   // number doesn't fight the input; parsed at roll time.
@@ -348,6 +351,9 @@ export default function JobDetail() {
 
   const openReroll = (segment: SegmentResponse) => {
     setRerollPrompt(segment.prompt);
+    // Seeded from what the take actually ran with, not from the live default — an abandoned
+    // dialog must not leak an edit into the next roll either.
+    setRerollNegative(segment.negative_prompt ?? "");
     setRerollConfirm(true);
   };
 
@@ -356,13 +362,16 @@ export default function JobDetail() {
     setRerollConfirm(false);
     setRerolling(true);
     try {
-      // Only send a prompt when it actually changed. An unchanged one would still be recorded
-      // as an edit on the new take, and a seed-only roll would stop looking like one.
-      const edited = rerollPrompt.trim();
-      await rerollSegment(
-        rerollTarget.id,
-        edited && edited !== rerollTarget.prompt.trim() ? edited : undefined,
-      );
+      // Only send what actually changed. An unchanged prompt would still be recorded as
+      // an edit on the new take, and a seed-only roll would stop looking like one; the
+      // negative follows the same rule, plus the explicit drop: a CLEARED box on a take
+      // that had a value sends "" and the API stores NULL (console#449).
+      const patch: { prompt?: string; negative_prompt?: string } = {};
+      const prompt = rerollPrompt.trim();
+      if (prompt && prompt !== rerollTarget.prompt.trim()) patch.prompt = prompt;
+      const negative = rerollNegativeToSend(rerollTarget.negative_prompt, rerollNegative);
+      if (negative !== undefined) patch.negative_prompt = negative;
+      await rerollSegment(rerollTarget.id, patch);
       // Refetch rather than patching state in: the response is the new segment, but the job's
       // status went back to pending and the old take is now archived, so the whole page moved.
       await fetchJob();
@@ -1939,6 +1948,19 @@ export default function JobDetail() {
                 ? "Edit to nudge the wording. Changing it means the two takes differ in more than the seed, and the new one records that."
                 : "The seed is fixed for this shot, so the prompt is what a roll here varies. Left alone, the new take will look much like the one being archived."
             }
+          />
+          <TextField
+            label="Negative prompt"
+            value={rerollNegative}
+            onChange={(e) => setRerollNegative(e.target.value)}
+            fullWidth
+            multiline
+            minRows={2}
+            sx={{ mt: 2 }}
+            // console#449. Same shape as RecipeForm's field; the promise in the helper text
+            // is what the API implements: "drop it" stores NULL, so the claim resolves the
+            // live Settings default again — it never renders with no negative at all.
+            helperText="Left alone, the new take keeps this take's negative. Cleared, it returns to the live default from Settings."
           />
         </DialogContent>
         <DialogActions>
