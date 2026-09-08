@@ -1231,6 +1231,7 @@ export default function JobDetail() {
                         prompt={seg.prompt}
                         promptTemplate={seg.prompt_template}
                         negativePrompt={seg.negative_prompt}
+                        ltxRecipe={seg.ltx_recipe}
                       />
                     </TableCell>
                     <TableCell>

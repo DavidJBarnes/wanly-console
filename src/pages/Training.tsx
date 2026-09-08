@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   Alert, Avatar, Box, Button, Card, CardContent, Chip, IconButton, LinearProgress, Stack,
   Tooltip, Typography,
@@ -36,6 +37,12 @@ export default function Training() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [error, setError] = useState("");
+  // A segment's recipe popover links here as /training?character=<name> (#452). Convenient,
+  // not load-bearing: an unknown or renamed character simply no-ops, because the blob holds
+  // a name, not an id.
+  const [searchParams] = useSearchParams();
+  const askedCharacter = searchParams.get("character");
+  const matchedRef = useRef<HTMLDivElement | null>(null);
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -63,6 +70,14 @@ export default function Training() {
 
   const groups = groupByCharacter(jobs);
 
+  // Scroll to the character the segment popover came for, once the runs that could contain
+  // it have loaded. Harmless if it never matches.
+  useEffect(() => {
+    if (askedCharacter && matchedRef.current) {
+      matchedRef.current.scrollIntoView({ block: "start" });
+    }
+  }, [askedCharacter, groups.length]);
+
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 2, mb: 3 }}>
@@ -85,18 +100,27 @@ export default function Training() {
         {groups.map((g) => {
           const face = characters.find((c) => c.name === g.character)?.image_uri
             ?? g.runs.find((r) => r.thumbnail_uri)?.thumbnail_uri;
+          const askedHere = !!askedCharacter && g.character === askedCharacter;
           return (
-          <Box key={g.character}>
+          <Box
+            key={g.character}
+            ref={askedHere ? matchedRef : undefined}
+            // scrollIntoView can only stop at the container's top; the fixed TopBar would
+            // cover the name. The margin is the room it needs.
+            sx={askedHere ? { scrollMarginTop: 80 } : undefined}
+          >
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
               {/* The dataset's anchor: the face this LoRA is of. */}
               <Avatar
                 src={face ? getFileUrl(face) : undefined}
                 variant="rounded"
-                sx={{ width: 56, height: 56 }}
+                // The one who arrived from a segment popover: the name takes the accent and
+                // the face gets a ring, so scrolling lands somewhere visibly specific.
+                sx={{ width: 56, height: 56, ...(askedHere && { border: 2, borderColor: "primary.main" }) }}
               >
                 {g.character.slice(0, 1).toUpperCase()}
               </Avatar>
-              <Typography variant="h5">{g.character}</Typography>
+              <Typography variant="h5" color={askedHere ? "primary" : undefined}>{g.character}</Typography>
             </Box>
             <Stack spacing={1.5}>
               {g.runs.map((job) => (
