@@ -26,11 +26,6 @@ export function datasetNameProblem(name: string): string | null {
   return null;
 }
 
-/** The S3 prefix the API will use. Shown so the folder name is not a surprise later. */
-export function datasetPrefix(name: string): string {
-  return "dataset-" + name.trim().toLowerCase().replace(/ /g, "-");
-}
-
 /** Newest activity first — a dataset you just uploaded into is the one you are working on. */
 export function byRecent(a: Dataset, b: Dataset): number {
   return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");

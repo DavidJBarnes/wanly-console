@@ -40,8 +40,8 @@ import {
   DriveFileMove,
   Favorite,
   LabelOff,
-  ModelTraining,
   NavigateNext,
+  PhotoLibrary,
   PlayArrow,
   Refresh,
   Search,
@@ -77,7 +77,7 @@ import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
-import TrainLoraDialog from "../components/TrainLoraDialog";
+import AddToDatasetDialog from "../components/AddToDatasetDialog";
 import TagFilterBar from "../components/TagFilterBar";
 import {
   describeFilter,
@@ -127,7 +127,7 @@ export default function ImageRepo() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
-  const [trainOpen, setTrainOpen] = useState(false);
+  const [addToDatasetOpen, setAddToDatasetOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveTargetKeys, setMoveTargetKeys] = useState<string[]>([]);
   const [moving, setMoving] = useState(false);
@@ -1102,14 +1102,14 @@ export default function ImageRepo() {
       </Dialog>
 
       {/* Move to Folder Dialog */}
-      {trainOpen && (
-        <TrainLoraDialog
-          imageKeys={selectedUris()}
-          onClose={() => setTrainOpen(false)}
-          onQueued={() => {
+      {addToDatasetOpen && (
+        <AddToDatasetDialog
+          imageUris={selectedUris()}
+          onClose={() => setAddToDatasetOpen(false)}
+          onAdded={() => {
             setSelectMode(false);
             setSelectedKeys(new Set());
-            navigate("/training");
+            navigate("/datasets");
           }}
         />
       )}
@@ -1816,16 +1816,18 @@ export default function ImageRepo() {
         />
         {selectMode && selectedKeys.size > 0 && (
           <>
+          {/* The one link from the repo to training, and it goes one way: images become
+              part of a dataset, and training happens from the dataset (#464). */}
           <Button
             variant="contained"
             color="secondary"
-            startIcon={isMobile ? undefined : <ModelTraining />}
+            startIcon={isMobile ? undefined : <PhotoLibrary />}
             size={isMobile ? "small" : "medium"}
-            onClick={() => setTrainOpen(true)}
+            onClick={() => setAddToDatasetOpen(true)}
           >
             {isMobile
-              ? `Train (${selectedKeys.size})`
-              : `Train LoRA from ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
+              ? `Dataset (${selectedKeys.size})`
+              : `Add ${selectedKeys.size} to a dataset`}
           </Button>
           <Button
             variant="contained"

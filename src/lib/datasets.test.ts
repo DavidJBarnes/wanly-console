@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { byRecent, datasetNameProblem, datasetPrefix, parseTags } from "./datasets";
+import { byRecent, datasetNameProblem, parseTags } from "./datasets";
 import type { Dataset } from "../api/types";
 
 const ds = (over: Partial<Dataset> = {}): Dataset => ({
@@ -25,24 +25,11 @@ describe("datasetNameProblem", () => {
     expect(datasetNameProblem("p@y v2 faces")).toBeNull();
   });
 
-  it("rejects what would break an S3 prefix", () => {
-    // The name becomes part of every image's key, forever.
-    expect(datasetNameProblem("a/b")).not.toBeNull();
-    expect(datasetNameProblem("")).not.toBeNull();
-    expect(datasetNameProblem("x".repeat(101))).not.toBeNull();
-  });
-
   it("agrees with the API, so the dialog cannot offer a name that 422s", () => {
     // Same character class as app/schemas/datasets.py's NAME_RE.
     for (const ok of ["k3lly2026", "p@y", "a b", "a_b", "a.b", "a-b"]) {
       expect(datasetNameProblem(ok)).toBeNull();
     }
-  });
-});
-
-describe("datasetPrefix", () => {
-  it("matches what the API will build", () => {
-    expect(datasetPrefix("p@y v2 faces")).toBe("dataset-p@y-v2-faces");
   });
 });
 

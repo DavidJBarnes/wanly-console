@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  groupByCharacter,
   characterProblem, checkpointInUse, checkpointLabel, defaultCharacterFor, loraStem,
   nextVersion, versionOfLora,
   MAX_IMAGES,
@@ -220,5 +221,36 @@ describe("checkpoint names", () => {
       .toBe("s3://ltx-loras/character/pay_v2_final.safetensors");
     expect(checkpointInUse(job, [character("p@y", "pay_v2_e05")])).toBeNull();
     expect(checkpointInUse(job, [])).toBeNull();
+  });
+});
+
+describe("groupByCharacter", () => {
+  const run = (character: string, version: number, status: string, created_at: string) =>
+    ({ character, version, status, created_at, id: `${character}${version}${status}` }) as unknown as TrainingJob;
+
+  it("is one group per character with versions newest first", () => {
+    const groups = groupByCharacter([
+      run("p@y", 1, "completed", "2026-09-01"),
+      run("l@ura", 2, "completed", "2026-09-04"),
+      run("p@y", 2, "completed", "2026-09-07"),
+    ]);
+    expect(groups.map((g) => g.character)).toEqual(["p@y", "l@ura"]);
+    expect(groups[0].runs.map((r) => r.version)).toEqual([2, 1]);
+  });
+
+  it("puts the live attempt of a version above its failed one", () => {
+    const groups = groupByCharacter([
+      run("p@y", 2, "failed", "2026-09-07T22:57"),
+      run("p@y", 2, "running", "2026-09-07T23:21"),
+    ]);
+    expect(groups[0].runs.map((r) => r.status)).toEqual(["running", "failed"]);
+  });
+
+  it("floats a character that is training to the top", () => {
+    const groups = groupByCharacter([
+      run("l@ura", 1, "completed", "2026-09-08"),
+      run("p@y", 3, "running", "2026-09-01"),
+    ]);
+    expect(groups[0].character).toBe("p@y");
   });
 });
