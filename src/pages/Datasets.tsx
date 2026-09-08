@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, IconButton, LinearProgress, Stack, TextField, Tooltip, Typography,
+  Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog,
+  DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, LinearProgress,
+  Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
-import { Add, Delete, ModelTraining, Upload } from "@mui/icons-material";
+import { Add, ContentCut, Delete, ModelTraining, Upload } from "@mui/icons-material";
 
 import {
-  addDatasetImages, createDataset, deleteDataset, getFileUrl, listDatasets, updateDataset,
+  addDatasetImages, createDataset, cropDatasetFaces, deleteDataset, getFileUrl, listDatasets,
+  updateDataset,
 } from "../api/client";
 import TrainLoraDialog from "../components/TrainLoraDialog";
 import { byRecent, datasetNameProblem, datasetPrefix, parseTags } from "../lib/datasets";
@@ -67,6 +69,7 @@ export default function Datasets() {
           <DatasetCard
             key={ds.id}
             ds={ds}
+            all={datasets}
             onChanged={fetchAll}
             onTrain={() => setTrainFor(ds)}
           />
@@ -91,12 +94,13 @@ export default function Datasets() {
 }
 
 function DatasetCard({
-  ds, onChanged, onTrain,
-}: { ds: Dataset; onChanged: () => void; onTrain: () => void }) {
+  ds, all, onChanged, onTrain,
+}: { ds: Dataset; all: Dataset[]; onChanged: () => void; onTrain: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [tags, setTags] = useState(ds.tags ?? "");
   const [msg, setMsg] = useState("");
+  const [cropOpen, setCropOpen] = useState(false);
   const eligible = canTrain(ds.images);
 
   const upload = async (files: FileList | null) => {
@@ -139,6 +143,14 @@ function DatasetCard({
               </Button>
             </span>
           </Tooltip>
+          <Button
+            size="small"
+            startIcon={<ContentCut />}
+            disabled={busy || ds.images.length === 0}
+            onClick={() => setCropOpen(true)}
+          >
+            Crop faces
+          </Button>
           <Button
             size="small"
             startIcon={<Upload />}
@@ -199,6 +211,17 @@ function DatasetCard({
           )}
         </Box>
 
+        <CropDialog
+          open={cropOpen}
+          ds={ds}
+          all={all}
+          onClose={() => setCropOpen(false)}
+          onDone={(created) => {
+            setMsg(`created "${created.name}" — ${created.images.length} crops`);
+            onChanged();
+          }}
+        />
+
         <TextField
           size="small"
           label="Tags"
@@ -215,6 +238,100 @@ function DatasetCard({
         />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Crop faces out of a dataset, optionally gated against a reference.
+ *
+ * The reference is the whole point of the dialog. Detection is easy; telling this character
+ * from someone else in the same photo set is what hand-culling failed at twice, and without a
+ * known-good set to score against, a cos number only says the crops resemble each other.
+ */
+function CropDialog({
+  open, ds, all, onClose, onDone,
+}: {
+  open: boolean;
+  ds: Dataset;
+  all: Dataset[];
+  onClose: () => void;
+  onDone: (created: Dataset) => void;
+}) {
+  const [reference, setReference] = useState("");
+  const [gate, setGate] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const others = all.filter((d) => d.id !== ds.id && d.images.length > 0);
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Crop faces from “{ds.name}”</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Typography variant="body2" color="text.secondary">
+            Detects the largest face in each of the {ds.images.length} images and writes the
+            crops to a new dataset. The originals are left alone.
+          </Typography>
+
+          <TextField
+            select
+            SelectProps={{ native: true }}
+            label="Score against"
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            helperText={
+              reference
+                ? "A crop scoring below 0.4 against this set is a different person, and is dropped."
+                : "Without a reference the crops are scored against their own mean — that shows they resemble each other, not that they are the right person."
+            }
+            fullWidth
+          >
+            <option value="">no reference (weak check)</option>
+            {others.map((d) => (
+              <option key={d.id} value={d.id}>{d.name} ({d.images.length})</option>
+            ))}
+          </TextField>
+
+          <FormControlLabel
+            control={<Checkbox checked={gate} onChange={(e) => setGate(e.target.checked)} />}
+            label="Drop faces below the 0.4 same-person floor"
+          />
+          {!gate && (
+            <Alert severity="warning">
+              Hand-culling let two different people into this project&apos;s training sets, one
+              of them into a set already culled by eye. The gate is what caught it.
+            </Alert>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="contained"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              const created = await cropDatasetFaces(ds.id, {
+                referenceDatasetId: reference || undefined,
+                gate,
+              });
+              onDone(created);
+              onClose();
+            } catch (e: unknown) {
+              const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+              setError(d || "cropping failed");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Cropping…" : "Crop"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
