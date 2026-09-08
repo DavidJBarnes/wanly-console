@@ -43,7 +43,9 @@ export default function TrainLoraDialog({
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [character, setCharacter] = useState(defaultCharacterFor(defaultCharacter ?? ""));
   const [trigger, setTrigger] = useState("");
+  const [triggerTouched, setTriggerTouched] = useState(false);
   const [loraName, setLoraName] = useState("");
+  const [loraNameTouched, setLoraNameTouched] = useState(false);
   const [version, setVersion] = useState(1);
   const [versionTouched, setVersionTouched] = useState(false);
   const [caption, setCaption] = useState("");
@@ -59,14 +61,15 @@ export default function TrainLoraDialog({
     listTrainingJobs().then(setJobs).catch(() => {});
   }, []);
 
-  // The trigger and the filename follow the character until the user says otherwise. One
-  // effect rather than derived at render so a deliberate edit is not overwritten on the next
-  // keystroke. An existing character also lends its trigger, which may differ from its name.
+  // The trigger and the filename follow the character until the user EDITS them -- tracked
+  // as a touch, not as "still empty": the dataset name pre-fills both, so "still empty" was
+  // never true, and retyping the character left the filename as the dataset's name. An
+  // existing character also lends its trigger, which may differ from its name.
   useEffect(() => {
     const known = characters.find((c) => c.name.toLowerCase() === character.trim().toLowerCase());
-    setTrigger((t) => (t === "" ? (known?.trigger ?? character) : t));
-    setLoraName((n) => (n === "" ? defaultLoraName(character) : n));
-  }, [character, characters]);
+    if (!triggerTouched) setTrigger(known?.trigger ?? character);
+    if (!loraNameTouched) setLoraName(defaultLoraName(character));
+  }, [character, characters, triggerTouched, loraNameTouched]);
 
   useEffect(() => {
     if (!versionTouched) setVersion(nextVersion(character, jobs, characters));
@@ -141,14 +144,14 @@ export default function TrainLoraDialog({
           <TextField
             label="Trigger"
             value={trigger}
-            onChange={(e) => setTrigger(e.target.value)}
+            onChange={(e) => { setTriggerTouched(true); setTrigger(e.target.value); }}
             helperText="What the captions say and a prompt types. May differ from the name."
             fullWidth
           />
           <TextField
             label="LoRA filename"
             value={loraName}
-            onChange={(e) => setLoraName(e.target.value)}
+            onChange={(e) => { setLoraNameTouched(true); setLoraName(e.target.value); }}
             helperText={
               nameNeedsSanitising(character)
                 ? `A LoRA is served over HTTP, so the filename cannot hold every character the ` +
