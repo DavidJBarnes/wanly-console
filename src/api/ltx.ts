@@ -89,6 +89,8 @@ export interface Character {
    *  the face. 0.8/1.5 is the validated pair. */
   strength_stage_1: number;
   strength_stage_2: number;
+  /** A face for the LoRA: the anchor image of the dataset that trained it. */
+  image_uri?: string | null;
 }
 
 /** What a pose carries and a character's trigger fills. */
@@ -298,6 +300,7 @@ export interface CharacterDraft {
   trigger?: string | null;
   strength_stage_1?: number;
   strength_stage_2?: number;
+  image_uri?: string | null;
 }
 
 export async function createCharacter(draft: CharacterDraft): Promise<Character> {

@@ -429,9 +429,24 @@ export interface TrainingJob {
    *  fixed seed and all of them are kept. */
   checkpoints: string[] | null;
   output_lora_path: string | null;
+  /** [[step, avr_loss], ...] as the trainer reports it. */
+  loss_log: [number, number][] | null;
+  /** Every checkpoint the run wrote, uploaded or not. Only the final goes up by default. */
+  epochs: TrainingEpoch[] | null;
+  /** Labels asked for after the fact; the trainer uploads them on its next poll. */
+  publish_requests: string[] | null;
+  /** The dataset's anchor image at creation -- the face this LoRA is of. */
+  thumbnail_uri: string | null;
   created_at: string | null;
   claimed_at: string | null;
   completed_at: string | null;
+}
+
+export interface TrainingEpoch {
+  /** `e01` .. `eNN`, or `final`. */
+  label: string;
+  step: number;
+  loss: number | null;
 }
 
 /** A named, taggable set of images kept for training (wanly-api#277).
@@ -478,6 +493,9 @@ export interface TrainingCreate {
   steps: number;
   /** The filename stem. Asked rather than derived — see src/lib/trainingJob.ts. */
   lora_name?: string;
+  /** Which checkpoints to upload as they are written. Final only by default: a checkpoint
+   *  takes ~18 minutes to leave the 3090 and most epochs go unused. */
+  publish?: "final" | "all";
 }
 
 export interface WildcardResponse {

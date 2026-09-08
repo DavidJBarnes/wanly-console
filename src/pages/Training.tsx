@@ -1,19 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Alert, Box, Button, Card, CardContent, Chip, IconButton, LinearProgress, Stack, Tooltip,
-  Typography,
+  Alert, Avatar, Box, Button, Card, CardContent, Chip, IconButton, LinearProgress, Stack,
+  Tooltip, Typography,
 } from "@mui/material";
 
-import { CheckCircle, Delete, Download } from "@mui/icons-material";
+import { CheckCircle, CloudUpload, Delete, Download } from "@mui/icons-material";
 
-import { cancelTrainingJob, deleteTrainingJob, getFileUrl, listTrainingJobs } from "../api/client";
+import {
+  cancelTrainingJob, deleteTrainingJob, getFileUrl, listTrainingJobs, publishTrainingEpoch,
+} from "../api/client";
 import { createCharacter, listRecipes, updateCharacter } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import {
-  checkpointInUse, checkpointLabel, groupByCharacter, loraStem, trainingPct, trainingSummary,
+  checkpointInUse, epochRows, groupByCharacter, loraStem, lossPath, trainingPct,
+  trainingSummary,
 } from "../lib/trainingJob";
+import LossChart from "../components/LossChart";
 import type { TrainingJob } from "../api/types";
 
 /**
@@ -78,9 +82,22 @@ export default function Training() {
       )}
 
       <Stack spacing={3}>
-        {groups.map((g) => (
+        {groups.map((g) => {
+          const face = characters.find((c) => c.name === g.character)?.image_uri
+            ?? g.runs.find((r) => r.thumbnail_uri)?.thumbnail_uri;
+          return (
           <Box key={g.character}>
-            <Typography variant="h5" sx={{ mb: 1 }}>{g.character}</Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
+              {/* The dataset's anchor: the face this LoRA is of. */}
+              <Avatar
+                src={face ? getFileUrl(face) : undefined}
+                variant="rounded"
+                sx={{ width: 56, height: 56 }}
+              >
+                {g.character.slice(0, 1).toUpperCase()}
+              </Avatar>
+              <Typography variant="h5">{g.character}</Typography>
+            </Box>
             <Stack spacing={1.5}>
               {g.runs.map((job) => (
                 <TrainingRow
@@ -92,7 +109,8 @@ export default function Training() {
               ))}
             </Stack>
           </Box>
-        ))}
+          );
+        })}
       </Stack>
     </Box>
   );
@@ -114,10 +132,11 @@ function TrainingRow({
     try {
       const existing = characters.find((c) => c.name === job.character);
       const stem = loraStem(uri);
+      const face = job.thumbnail_uri ? { image_uri: job.thumbnail_uri } : {};
       if (existing) {
-        await updateCharacter(existing.id, { char_lora: stem, trigger: job.trigger });
+        await updateCharacter(existing.id, { char_lora: stem, trigger: job.trigger, ...face });
       } else {
-        await createCharacter({ name: job.character, char_lora: stem, trigger: job.trigger });
+        await createCharacter({ name: job.character, char_lora: stem, trigger: job.trigger, ...face });
       }
       setMsg(`${job.character} now renders with ${stem}`);
       onChanged();
@@ -127,6 +146,24 @@ function TrainingRow({
       setBusy(false);
     }
   };
+
+  const publish = async (label: string) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      await publishTrainingEpoch(job.id, label);
+      setMsg(`${label} will upload on the trainer's next poll — about 18 minutes once it starts`);
+      onChanged();
+    } catch (e: unknown) {
+      const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setMsg(typeof d === "string" ? d : "could not request it");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rows = epochRows(job);
+  const curve = lossPath(job.loss_log, 320, 72);
 
   return (
     <Card>
@@ -194,54 +231,83 @@ function TrainingRow({
           {trainingSummary(job)}
         </Typography>
 
-        {msg && !job.checkpoints?.length && (
+        {curve.points.length > 0 && (
+          <Box sx={{ mt: 1.5 }}>
+            <LossChart
+              curve={curve}
+              width={320}
+              height={72}
+              lastStep={job.loss_log?.[job.loss_log.length - 1]?.[0] ?? null}
+            />
+          </Box>
+        )}
+
+        {msg && rows.length === 0 && (
           <Typography variant="caption" color="error.main" sx={{ display: "block", mt: 1 }}>
             {msg}
           </Typography>
         )}
 
-        {job.checkpoints?.length ? (
+        {rows.length > 0 && (
           <Box sx={{ mt: 1.5 }}>
             <Typography variant="subtitle2">
-              Checkpoints ({job.checkpoints.length})
+              Checkpoints ({rows.length})
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-              Loss does not rank these — pick by eye at a fixed seed, one checkpoint per arm,
-              same start image. “Use” points {job.character} at that one; the character renders
-              with it from then on.
+              Loss does not rank these — pick by eye at a fixed seed, same start image. “Use”
+              points {job.character} at one. An epoch that stayed on the trainer can be
+              uploaded from here.
             </Typography>
             <Stack spacing={0.5}>
-              {job.checkpoints.map((uri) => {
-                const current = uri === inUse;
+              {rows.map((row) => {
+                const current = row.uri !== null && row.uri === inUse;
                 return (
-                  <Box key={uri} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Typography sx={{ width: 56, fontFamily: "monospace" }}>
-                      {checkpointLabel(uri)}
+                  <Box key={row.label} sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                    <Typography sx={{ width: 48, fontFamily: "monospace" }}>{row.label}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ width: 150 }}>
+                      {row.step !== null ? `step ${row.step}` : ""}
+                      {row.loss !== null ? ` · loss ${row.loss.toFixed(3)}` : ""}
                     </Typography>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<Download fontSize="small" />}
-                      // getFileUrl goes through the API's /files proxy, which 307s to a
-                      // presigned URL — so the browser never needs S3 credentials.
-                      href={getFileUrl(uri)}
-                      download
-                    >
-                      Download
-                    </Button>
-                    <Button
-                      size="small"
-                      variant={current ? "contained" : "outlined"}
-                      color={current ? "success" : "primary"}
-                      startIcon={current ? <CheckCircle fontSize="small" /> : undefined}
-                      disabled={busy || current}
-                      onClick={() => use(uri)}
-                    >
-                      {current ? "In use" : "Use"}
-                    </Button>
-                    <Typography variant="caption" color="text.secondary">
-                      {loraStem(uri)}
-                    </Typography>
+                    {row.uri ? (
+                      <>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<Download fontSize="small" />}
+                          // getFileUrl goes through the API's /files proxy, which 307s to a
+                          // presigned URL — so the browser never needs S3 credentials.
+                          href={getFileUrl(row.uri)}
+                          download
+                        >
+                          Download
+                        </Button>
+                        <Button
+                          size="small"
+                          variant={current ? "contained" : "outlined"}
+                          color={current ? "success" : "primary"}
+                          startIcon={current ? <CheckCircle fontSize="small" /> : undefined}
+                          disabled={busy || current}
+                          onClick={() => use(row.uri as string)}
+                        >
+                          {current ? "In use" : "Use"}
+                        </Button>
+                        <Typography variant="caption" color="text.secondary">
+                          {loraStem(row.uri)}
+                        </Typography>
+                      </>
+                    ) : row.requested ? (
+                      <Chip size="small" variant="outlined" label="uploading soon" />
+                    ) : (
+                      <Button
+                        size="small"
+                        variant="text"
+                        startIcon={<CloudUpload fontSize="small" />}
+                        disabled={busy || live}
+                        onClick={() => publish(row.label)}
+                      >
+                        Upload
+                      </Button>
+                    )}
                   </Box>
                 );
               })}
@@ -252,7 +318,7 @@ function TrainingRow({
               </Typography>
             )}
           </Box>
-        ) : null}
+        )}
       </CardContent>
     </Card>
   );

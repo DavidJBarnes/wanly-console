@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Avatar,
   Box,
   Button,
   Card,
@@ -36,6 +37,7 @@ import {
   updatePose,
 } from "../api/ltx";
 import type { Character, ContentLora, Pose, RecipeBook } from "../api/ltx";
+import { getFileUrl } from "../api/client";
 import { parseContentLoraStrength } from "../lib/contentLoraStrength";
 import { overrideNumber } from "../lib/overrideValue";
 import {
@@ -612,6 +614,14 @@ function CharacterList({
         {characters.map((c) => (
           <Card key={c.id} sx={{ p: 1.5 }} variant="outlined">
             <Stack direction="row" alignItems="center" spacing={2}>
+              {/* The anchor image of the dataset that trained it, when a run set one. */}
+              <Avatar
+                src={c.image_uri ? getFileUrl(c.image_uri) : undefined}
+                variant="rounded"
+                sx={{ width: 48, height: 48 }}
+              >
+                {c.name.slice(0, 1).toUpperCase()}
+              </Avatar>
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                 <Typography variant="subtitle2">{c.name}</Typography>
                 <Typography variant="body2" color="text.secondary" noWrap>

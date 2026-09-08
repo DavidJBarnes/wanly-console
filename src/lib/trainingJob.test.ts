@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  epochRows, lossPath,
   groupByCharacter,
   characterProblem, checkpointInUse, checkpointLabel, defaultCharacterFor, loraStem,
   nextVersion, versionOfLora,
@@ -29,7 +30,8 @@ const job = (over: Partial<TrainingJob> = {}): TrainingJob => ({
   id: "j1", character: "p@y", trigger: "p@y", version: 2, status: "pending",
   dataset_images: keys(13), config: {}, worker_name: null, gpu_name: null,
   progress_log: null, step: null, total_steps: null, error_message: null,
-  checkpoints: null, output_lora_path: null,
+  checkpoints: null, output_lora_path: null, loss_log: null, epochs: null,
+  publish_requests: null, thumbnail_uri: null,
   created_at: "2026-09-07T10:00:00Z", claimed_at: null, completed_at: null, ...over,
 });
 
@@ -252,5 +254,37 @@ describe("groupByCharacter", () => {
       run("p@y", 3, "running", "2026-09-01"),
     ]);
     expect(groups[0].character).toBe("p@y");
+  });
+});
+
+describe("epochRows", () => {
+  it("merges what was written with what reached the bucket, final last", () => {
+    const rows = epochRows({
+      epochs: [{ label: "final", step: 100, loss: 0.68 }, { label: "e01", step: 80, loss: 0.7 }],
+      checkpoints: ["s3://ltx-loras/character/pay_v1_final.safetensors"],
+      publish_requests: ["e01"],
+    });
+    expect(rows.map((r) => r.label)).toEqual(["e01", "final"]);
+    expect(rows[0].uri).toBeNull();
+    expect(rows[0].requested).toBe(true);
+    expect(rows[1].uri).toContain("pay_v1_final");
+  });
+  it("still lists an older run's checkpoints that have no epoch record", () => {
+    const rows = epochRows({ epochs: null, checkpoints: ["s3://x/pay_v2_e03.safetensors"], publish_requests: null });
+    expect(rows).toEqual([{ label: "e03", step: null, loss: null, uri: "s3://x/pay_v2_e03.safetensors", requested: false }]);
+  });
+});
+
+describe("lossPath", () => {
+  it("needs two points and scales y to the data, not to zero", () => {
+    expect(lossPath([[1, 0.9]], 100, 40).points).toEqual([]);
+    const { points, min, max } = lossPath([[0, 0.9], [50, 0.8], [100, 0.7]], 100, 40, 0);
+    expect(min).toBe(0.7);
+    expect(max).toBe(0.9);
+    expect(points[0]).toMatchObject({ x: 0, y: 0 });
+    expect(points[2]).toMatchObject({ x: 100, y: 40 });
+  });
+  it("ignores junk", () => {
+    expect(lossPath([[0, NaN], [1, 0.5]] as [number, number][], 10, 10).points).toEqual([]);
   });
 });
