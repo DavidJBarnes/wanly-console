@@ -124,6 +124,19 @@ function TrainingRow({
   const inUse = checkpointInUse(job, characters);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  /** The API's reason for refusing to delete this run with its files, while it stands. */
+  const [refusal, setRefusal] = useState("");
+
+  const remove = async (purge: boolean) => {
+    setRefusal("");
+    try {
+      await deleteTrainingJob(job.id, purge);
+      onChanged();
+    } catch (e: unknown) {
+      const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setRefusal(typeof d === "string" ? d : "could not delete it");
+    }
+  };
 
   /** Point the character at this checkpoint. Creates the character if the run is its first. */
   const use = async (uri: string) => {
@@ -187,17 +200,11 @@ function TrainingRow({
               <IconButton
                 size="small"
                 color="error"
-                onClick={async () => {
+                onClick={() => {
                   const n = job.checkpoints?.length ?? 0;
                   if (!confirm(`Delete ${job.character} v${job.version}`
                                + (n ? ` and its ${n} LoRA file${n === 1 ? "" : "s"}?` : "?"))) return;
-                  try {
-                    await deleteTrainingJob(job.id);
-                    onChanged();
-                  } catch (e: unknown) {
-                    const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-                    setMsg(typeof d === "string" ? d : "could not delete it");
-                  }
+                  remove(true);
                 }}
               >
                 <Delete fontSize="small" />
@@ -205,6 +212,30 @@ function TrainingRow({
             </Tooltip>
           )}
         </Box>
+
+        {/* WHERE IT CAN BE SEEN. The API's refusal used to land in the small caption under
+            the checkpoint list, and "delete did not work" was the report. */}
+        {refusal && (
+          <Alert
+            severity="warning"
+            sx={{ mb: 1 }}
+            onClose={() => setRefusal("")}
+            action={
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  if (!confirm(`Delete the ${job.character} v${job.version} run and KEEP its LoRA files in the library?`)) return;
+                  remove(false);
+                }}
+              >
+                Delete, keep the files
+              </Button>
+            }
+          >
+            {refusal}
+          </Alert>
+        )}
 
         {/* Determinate only when the trainer has actually reported a step. A queued job has no
             honest percentage, and a bar sitting at 0% reads as started-and-stuck. */}
