@@ -344,15 +344,25 @@ export async function addDatasetImages(id: string, files: File[]): Promise<Datas
  *  note says so. */
 export async function cropDatasetFaces(
   id: string,
-  opts: { referenceDatasetId?: string; gate?: boolean } = {},
+  opts: { referenceDatasetId?: string; gate?: boolean; largestOnly?: boolean } = {},
 ): Promise<Dataset> {
   const { data } = await api.post<Dataset>(`/datasets/${id}/crop`, null, {
     params: {
       reference_dataset_id: opts.referenceDatasetId,
       gate: opts.gate ?? true,
+      // Defaults to one face per photo. False is for a set of group shots, where "largest" is
+      // only whoever stood closer to the camera.
+      largest_only: opts.largestOnly ?? true,
     },
   });
   return data;
+}
+
+/** Remove one image from a dataset. PATCH replaces the list wholesale, so this sends the
+ *  remaining URIs — see withoutImage in lib/datasets.ts. The object stays in S3; it is still
+ *  in the Image Repo and may be in another dataset. */
+export async function removeDatasetImage(ds: Dataset, uri: string): Promise<Dataset> {
+  return updateDataset(ds.id, { images: ds.images.filter((u) => u !== uri) });
 }
 
 export async function deleteDataset(id: string, purge = false): Promise<void> {

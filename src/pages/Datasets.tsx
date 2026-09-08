@@ -4,14 +4,16 @@ import {
   DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, LinearProgress,
   Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
-import { Add, ContentCut, Delete, ModelTraining, Upload } from "@mui/icons-material";
+import { Add, Close, ContentCut, Delete, ModelTraining, Upload } from "@mui/icons-material";
 
 import {
   addDatasetImages, createDataset, cropDatasetFaces, deleteDataset, getFileUrl, listDatasets,
-  updateDataset,
+  removeDatasetImage, updateDataset,
 } from "../api/client";
 import TrainLoraDialog from "../components/TrainLoraDialog";
-import { byRecent, datasetNameProblem, datasetPrefix, parseTags } from "../lib/datasets";
+import {
+  byRecent, datasetNameProblem, datasetPrefix, parseTags, removalWarning,
+} from "../lib/datasets";
 import { canTrain } from "../lib/trainingJob";
 import type { Dataset } from "../api/types";
 
@@ -101,7 +103,24 @@ function DatasetCard({
   const [tags, setTags] = useState(ds.tags ?? "");
   const [msg, setMsg] = useState("");
   const [cropOpen, setCropOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const eligible = canTrain(ds.images);
+
+  const remove = async (uri: string) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      // No confirm. The object stays in S3 and in the Image Repo, so this is reversible by
+      // re-adding it — and culling a crop set means doing this a dozen times in a row.
+      const updated = await removeDatasetImage(ds, uri);
+      setMsg(`${updated.images.length} images in the set`);
+      onChanged();
+    } catch {
+      setMsg("could not remove that image");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const upload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -193,23 +212,46 @@ function DatasetCard({
           </Typography>
         )}
 
-        {/* A strip of what is actually in the set. Twelve is enough to recognise it without
-            turning the page into a gallery — the Image Repo is the gallery. */}
+        {/* Twelve by default — enough to recognise the set without turning the page into a
+            gallery. It expands, because culling is the point: a crop of group photos comes back
+            with people you did not mean, and you cannot remove what you cannot see. */}
         <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
-          {ds.images.slice(0, 12).map((uri) => (
-            <Box
-              key={uri}
-              component="img"
-              src={getFileUrl(uri)}
-              sx={{ width: 56, height: 56, objectFit: "cover", borderRadius: 1 }}
-            />
+          {(showAll ? ds.images : ds.images.slice(0, 12)).map((uri) => (
+            <Box key={uri} sx={{ position: "relative", "&:hover .rm": { opacity: 1 } }}>
+              <Box
+                component="img"
+                src={getFileUrl(uri)}
+                sx={{ width: 56, height: 56, objectFit: "cover", borderRadius: 1, display: "block" }}
+              />
+              {/* Always visible rather than hover-only: this page is used on a phone, where
+                  there is no hover and a hidden control does not exist. */}
+              <IconButton
+                className="rm"
+                size="small"
+                aria-label={`Remove ${uri.split("/").pop()}`}
+                disabled={busy}
+                onClick={() => remove(uri)}
+                sx={{
+                  position: "absolute", top: -6, right: -6, p: 0.25,
+                  bgcolor: "background.paper", boxShadow: 1,
+                  "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
+                }}
+              >
+                <Close sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Box>
           ))}
           {ds.images.length > 12 && (
-            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: "center", ml: 1 }}>
-              +{ds.images.length - 12} more
-            </Typography>
+            <Button size="small" onClick={() => setShowAll((v) => !v)} sx={{ alignSelf: "center" }}>
+              {showAll ? "show fewer" : `+${ds.images.length - 12} more`}
+            </Button>
           )}
         </Box>
+        {removalWarning(ds.images.length) && (
+          <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 0.5 }}>
+            {removalWarning(ds.images.length)}
+          </Typography>
+        )}
 
         <CropDialog
           open={cropOpen}
@@ -259,6 +301,7 @@ function CropDialog({
 }) {
   const [reference, setReference] = useState("");
   const [gate, setGate] = useState(true);
+  const [largestOnly, setLargestOnly] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const others = all.filter((d) => d.id !== ds.id && d.images.length > 0);
@@ -270,9 +313,35 @@ function CropDialog({
         <Stack spacing={2} sx={{ mt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
           <Typography variant="body2" color="text.secondary">
-            Detects the largest face in each of the {ds.images.length} images and writes the
-            crops to a new dataset. The originals are left alone.
+            {largestOnly
+              ? `Detects the largest face in each of the ${ds.images.length} images`
+              : `Detects every face in all ${ds.images.length} images`}{" "}
+            and writes the crops to a new dataset. The originals are left alone.
           </Typography>
+
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={!largestOnly}
+                onChange={(e) => setLargestOnly(!e.target.checked)}
+              />
+            }
+            label="Every face, not just the largest"
+          />
+          {!largestOnly && (
+            <Typography variant="caption" color="text.secondary">
+              For group shots. “Largest” is only whoever stood closer to the camera, so a set of
+              couples comes back as two people interleaved. Take every face, then remove the ones
+              you did not mean with the × on each thumbnail.
+            </Typography>
+          )}
+          {!largestOnly && gate && !reference && (
+            <Alert severity="warning">
+              With several people in the set, scoring against the crops’ own mean cannot separate
+              them — the mean is a blend of everyone. Turn the gate off, cull by hand, then crop
+              again using the result as the reference.
+            </Alert>
+          )}
 
           <TextField
             select
@@ -323,6 +392,7 @@ function CropDialog({
               const created = await cropDatasetFaces(ds.id, {
                 referenceDatasetId: reference || undefined,
                 gate,
+                largestOnly,
               });
               onDone(created);
               onClose();
