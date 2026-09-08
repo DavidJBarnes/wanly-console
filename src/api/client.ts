@@ -31,6 +31,7 @@ import type {
   AppSettingsResponse,
   AppSettingsUpdate,
   Dataset,
+  DatasetScores,
   TrainingCreate,
   TrainingJob,
 } from "./types";
@@ -322,7 +323,10 @@ export async function createDataset(body: {
 
 export async function updateDataset(
   id: string,
-  body: { name?: string; tags?: string | null; notes?: string | null; images?: string[] },
+  body: {
+    name?: string; tags?: string | null; notes?: string | null; images?: string[];
+    anchor_uri?: string;
+  },
 ): Promise<Dataset> {
   const { data } = await api.patch<Dataset>(`/datasets/${id}`, body);
   return data;
@@ -363,6 +367,22 @@ export async function cropDatasetFaces(
  *  in the Image Repo and may be in another dataset. */
 export async function removeDatasetImage(ds: Dataset, uri: string): Promise<Dataset> {
   return updateDataset(ds.id, { images: ds.images.filter((u) => u !== uri) });
+}
+
+/** Score every image in a set against one image in it.
+ *
+ *  Returns numbers and deletes nothing. The anchor is remembered on the dataset, so re-scoring
+ *  after a cull compares against the same face rather than a moving target. */
+export async function scoreDataset(id: string, anchorUri?: string): Promise<DatasetScores> {
+  const { data } = await api.post<DatasetScores>(`/datasets/${id}/score`, null, {
+    params: { anchor_uri: anchorUri },
+  });
+  return data;
+}
+
+/** Nominate (or, with "", clear) the image everything else is scored against. */
+export async function setDatasetAnchor(id: string, uri: string): Promise<Dataset> {
+  return updateDataset(id, { anchor_uri: uri });
 }
 
 export async function deleteDataset(id: string, purge = false): Promise<void> {

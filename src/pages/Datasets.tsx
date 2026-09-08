@@ -4,18 +4,21 @@ import {
   DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, LinearProgress,
   Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
-import { Add, Close, ContentCut, Delete, ModelTraining, Upload } from "@mui/icons-material";
+import {
+  Add, Close, ContentCut, Delete, ModelTraining, Star, StarBorder, Upload,
+} from "@mui/icons-material";
 
 import {
   addDatasetImages, createDataset, cropDatasetFaces, deleteDataset, getFileUrl, listDatasets,
-  removeDatasetImage, updateDataset,
+  removeDatasetImage, scoreDataset, setDatasetAnchor, updateDataset,
 } from "../api/client";
 import TrainLoraDialog from "../components/TrainLoraDialog";
 import {
-  byRecent, datasetNameProblem, datasetPrefix, parseTags, removalWarning,
+  byLikeness, byRecent, datasetNameProblem, datasetPrefix, formatCos, parseTags, removalWarning,
+  verdictFor,
 } from "../lib/datasets";
 import { canTrain } from "../lib/trainingJob";
-import type { Dataset } from "../api/types";
+import type { Dataset, DatasetScore } from "../api/types";
 
 /**
  * Named, taggable training datasets (wanly-api#277).
@@ -104,7 +107,51 @@ function DatasetCard({
   const [msg, setMsg] = useState("");
   const [cropOpen, setCropOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [scores, setScores] = useState<Record<string, DatasetScore>>({});
+  const [worstFirst, setWorstFirst] = useState(false);
   const eligible = canTrain(ds.images);
+
+  const score = async (anchor?: string) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await scoreDataset(ds.id, anchor);
+      setScores(Object.fromEntries(res.scores.map((x) => [x.uri, x])));
+      const below = res.scores.filter((x) => !x.is_anchor && x.cos !== null
+                                             && x.cos < res.cos_floor).length;
+      const none = res.scores.filter((x) => x.cos === null).length;
+      setMsg(`scored against the anchor — ${below} below ${res.cos_floor}`
+             + (none ? `, ${none} with no face detected` : ""));
+      setWorstFirst(true);
+      onChanged();
+    } catch (e: unknown) {
+      const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setMsg(d || "scoring failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pickAnchor = async (uri: string) => {
+    setBusy(true);
+    try {
+      await setDatasetAnchor(ds.id, uri);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+    // Scoring immediately is the point of picking one; a separate button to do it would be a
+    // step nobody wants and would leave stale numbers on screen in the meantime.
+    await score(uri);
+  };
+
+  // Worst first once a score exists, so a cull starts where the answer is obvious. Before
+  // that, the set's own order, which is the order the trainer will stage them in.
+  const ordered = worstFirst && Object.keys(scores).length
+    ? [...ds.images].sort((a, b) =>
+        byLikeness(scores[a] ?? { cos: null, is_anchor: false },
+                   scores[b] ?? { cos: null, is_anchor: false }))
+    : ds.images;
 
   const remove = async (uri: string) => {
     setBusy(true);
@@ -170,6 +217,13 @@ function DatasetCard({
           >
             Crop faces
           </Button>
+          {/* Only once an anchor exists — without one there is nothing to score against, and a
+              button that always fails is worse than one that is not there. */}
+          {ds.anchor_uri && (
+            <Button size="small" startIcon={<Star />} disabled={busy} onClick={() => score()}>
+              Re-score
+            </Button>
+          )}
           <Button
             size="small"
             startIcon={<Upload />}
@@ -215,38 +269,83 @@ function DatasetCard({
         {/* Twelve by default — enough to recognise the set without turning the page into a
             gallery. It expands, because culling is the point: a crop of group photos comes back
             with people you did not mean, and you cannot remove what you cannot see. */}
-        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
-          {(showAll ? ds.images : ds.images.slice(0, 12)).map((uri) => (
-            <Box key={uri} sx={{ position: "relative", "&:hover .rm": { opacity: 1 } }}>
-              <Box
-                component="img"
-                src={getFileUrl(uri)}
-                sx={{ width: 56, height: 56, objectFit: "cover", borderRadius: 1, display: "block" }}
-              />
-              {/* Always visible rather than hover-only: this page is used on a phone, where
-                  there is no hover and a hidden control does not exist. */}
-              <IconButton
-                className="rm"
-                size="small"
-                aria-label={`Remove ${uri.split("/").pop()}`}
-                disabled={busy}
-                onClick={() => remove(uri)}
-                sx={{
-                  position: "absolute", top: -6, right: -6, p: 0.25,
-                  bgcolor: "background.paper", boxShadow: 1,
-                  "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
-                }}
-              >
-                <Close sx={{ fontSize: 14 }} />
-              </IconButton>
-            </Box>
-          ))}
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mt: 1.5 }}>
+          {ordered.slice(0, showAll ? undefined : 12).map((uri) => {
+            const sc = scores[uri];
+            const verdict = verdictFor(sc ?? (uri === ds.anchor_uri
+              ? { cos: 1, is_anchor: true } : undefined));
+            const ring = {
+              anchor: "primary.main", match: "success.main", below: "error.main",
+              "no-face": "warning.main", unscored: "transparent",
+            }[verdict];
+            return (
+              <Box key={uri} sx={{ position: "relative", width: 64 }}>
+                <Box
+                  component="img"
+                  src={getFileUrl(uri)}
+                  sx={{
+                    width: 64, height: 64, objectFit: "cover", borderRadius: 1, display: "block",
+                    border: "2px solid", borderColor: ring,
+                  }}
+                />
+                {/* Always visible rather than hover-only: this page is used on a phone, where
+                    there is no hover and a hidden control does not exist. */}
+                <IconButton
+                  size="small"
+                  aria-label={`Remove ${uri.split("/").pop()}`}
+                  disabled={busy}
+                  onClick={() => remove(uri)}
+                  sx={{
+                    position: "absolute", top: -8, right: -8, p: 0.25,
+                    bgcolor: "background.paper", boxShadow: 1,
+                    "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
+                  }}
+                >
+                  <Close sx={{ fontSize: 14 }} />
+                </IconButton>
+                {/* Picking an anchor scores the set immediately — that is the whole reason to
+                    pick one, and a separate button would leave stale numbers on screen. */}
+                <Tooltip title={verdict === "anchor" ? "the anchor" : "use as anchor"}>
+                  <IconButton
+                    size="small"
+                    aria-label={`Use ${uri.split("/").pop()} as the anchor`}
+                    disabled={busy}
+                    onClick={() => pickAnchor(uri)}
+                    sx={{
+                      position: "absolute", top: -8, left: -8, p: 0.25,
+                      bgcolor: "background.paper", boxShadow: 1,
+                      color: verdict === "anchor" ? "primary.main" : "text.disabled",
+                    }}
+                  >
+                    {verdict === "anchor"
+                      ? <Star sx={{ fontSize: 14 }} />
+                      : <StarBorder sx={{ fontSize: 14 }} />}
+                  </IconButton>
+                </Tooltip>
+                {(sc || verdict === "anchor") && (
+                  <Typography
+                    variant="caption"
+                    align="center"
+                    sx={{ display: "block", lineHeight: 1.4, color: `${ring}`, fontSize: 11 }}
+                  >
+                    {verdict === "anchor" ? "anchor" : formatCos(sc?.cos ?? null)}
+                  </Typography>
+                )}
+              </Box>
+            );
+          })}
           {ds.images.length > 12 && (
             <Button size="small" onClick={() => setShowAll((v) => !v)} sx={{ alignSelf: "center" }}>
               {showAll ? "show fewer" : `+${ds.images.length - 12} more`}
             </Button>
           )}
         </Box>
+        {!ds.anchor_uri && ds.images.length > 1 && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+            Star one image to make it the anchor — every other image is then scored for likeness
+            against it, worst first.
+          </Typography>
+        )}
         {removalWarning(ds.images.length) && (
           <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 0.5 }}>
             {removalWarning(ds.images.length)}
@@ -300,8 +399,13 @@ function CropDialog({
   onDone: (created: Dataset) => void;
 }) {
   const [reference, setReference] = useState("");
-  const [gate, setGate] = useState(true);
-  const [largestOnly, setLargestOnly] = useState(true);
+  // Off by default now. Scoring a mixed set against its own mean is not a check -- the mean is
+  // a blend of everyone in it -- so the API drops nothing without a real reference either way.
+  // Culling happens afterwards, against an anchor, with the numbers on screen.
+  const [gate, setGate] = useState(false);
+  // Matches the API default. Keeping everything is the recoverable choice: an unwanted crop is
+  // one click to remove, a missing one is a re-run.
+  const [largestOnly, setLargestOnly] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const others = all.filter((d) => d.id !== ds.id && d.images.length > 0);
@@ -328,18 +432,18 @@ function CropDialog({
             }
             label="Every face, not just the largest"
           />
-          {!largestOnly && (
-            <Typography variant="caption" color="text.secondary">
-              For group shots. “Largest” is only whoever stood closer to the camera, so a set of
-              couples comes back as two people interleaved. Take every face, then remove the ones
-              you did not mean with the × on each thumbnail.
-            </Typography>
-          )}
-          {!largestOnly && gate && !reference && (
-            <Alert severity="warning">
-              With several people in the set, scoring against the crops’ own mean cannot separate
-              them — the mean is a blend of everyone. Turn the gate off, cull by hand, then crop
-              again using the result as the reference.
+          <Typography variant="caption" color="text.secondary">
+            {largestOnly
+              ? "One face per photo. In a group shot “largest” is only whoever stood closer to "
+                + "the camera, and the other face is thrown away — untick this to keep both."
+              : "Every face is kept, including people you did not mean. Remove them with the × "
+                + "on each thumbnail; an unwanted crop is one click, a missing one is a re-run."}
+          </Typography>
+          {gate && !reference && (
+            <Alert severity="info">
+              Nothing will be dropped: there is no reference to score against. Crop, then star
+              one crop as the anchor — every other one is scored against it and you remove what
+              you do not want, with the numbers in front of you.
             </Alert>
           )}
 

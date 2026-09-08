@@ -65,3 +65,48 @@ export function removalWarning(count: number): string | null {
   }
   return null;
 }
+
+/** buffalo_l's same-person floor. Shown as a line to read against, never used to delete. */
+export const COS_FLOOR = 0.4;
+
+export type ScoreVerdict = "anchor" | "match" | "below" | "no-face" | "unscored";
+
+/**
+ * How to label one image's likeness to the anchor.
+ *
+ * `null` cos is an ABSENT score, not a low one — the detector found no face. Rendering that as
+ * the worst match in the set would send you to delete a photo whose only problem is that the
+ * face is turned away, and it reads identically to "this is a different person".
+ */
+export function verdictFor(
+  score: { cos: number | null; is_anchor: boolean } | undefined,
+  floor = COS_FLOOR,
+): ScoreVerdict {
+  if (!score) return "unscored";
+  if (score.is_anchor) return "anchor";
+  if (score.cos === null) return "no-face";
+  return score.cos >= floor ? "match" : "below";
+}
+
+/** Two decimals is the resolution the decision is made at; more digits imply precision the
+ *  0.4 floor does not have. */
+export function formatCos(cos: number | null): string {
+  return cos === null ? "no face" : cos.toFixed(2);
+}
+
+/**
+ * Worst first, so a cull starts where the answer is obvious.
+ *
+ * The anchor sorts last — it always scores 1.0 against itself, and floating it to the top on
+ * that basis would put the one image you must not delete under the delete button. Images with
+ * no face sort with the worst, because they are the other thing worth looking at, but they are
+ * distinguishable by their label.
+ */
+export function byLikeness<T extends { cos: number | null; is_anchor: boolean }>(
+  a: T, b: T,
+): number {
+  if (a.is_anchor !== b.is_anchor) return a.is_anchor ? 1 : -1;
+  const av = a.cos ?? -1;
+  const bv = b.cos ?? -1;
+  return av - bv;
+}

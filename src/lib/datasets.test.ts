@@ -5,7 +5,7 @@ import type { Dataset } from "../api/types";
 
 const ds = (over: Partial<Dataset> = {}): Dataset => ({
   id: "d", name: "n", tags: null, notes: null, images: [], prefix: null,
-  created_at: null, updated_at: null, ...over,
+  anchor_uri: null, created_at: null, updated_at: null, ...over,
 });
 
 describe("parseTags", () => {
