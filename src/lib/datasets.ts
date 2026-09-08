@@ -35,3 +35,33 @@ export function datasetPrefix(name: string): string {
 export function byRecent(a: Dataset, b: Dataset): number {
   return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
 }
+
+/**
+ * Remove one image from a set, returning the list to PATCH back.
+ *
+ * The API replaces `images` wholesale, so removal is "send the list without it" — which means
+ * the caller has to get the list right. Here rather than in the component so the rules below
+ * are actually covered.
+ *
+ * IDENTITY IS THE URI, not the index. The grid is rendered from a filtered or sliced view as
+ * often as not, so an index into what is on screen is not an index into `ds.images`.
+ */
+export function withoutImage(images: string[], uri: string): string[] {
+  return images.filter((u) => u !== uri);
+}
+
+/**
+ * Whether removing one more would take the set below what training accepts.
+ *
+ * Removal is still allowed — a set of the wrong person is worse than a small one, and the
+ * intended flow is crop-every-face then cull. But the button should say what it costs, because
+ * the alternative is a 422 at train time with no hint of which step caused it.
+ */
+export const MIN_TRAINABLE = 8;
+
+export function removalWarning(count: number): string | null {
+  if (count <= MIN_TRAINABLE) {
+    return `Removing another leaves ${count - 1}; training needs at least ${MIN_TRAINABLE}.`;
+  }
+  return null;
+}
