@@ -180,18 +180,20 @@ export async function addSegment(
  *  the job's current segment, so naming it here is what lets that refusal be meaningful
  *  rather than a guess about what the user was looking at.
  *
- *  `prompt` is optional and changes the wording for the new take only. Omitted — the default
- *  — the roll changes nothing but the seed, which is what makes two takes comparable.
+ *  `patch` carries the fields changing for the new take only — `prompt` the wording,
+ *  `negative_prompt` (console#449) the negative, where an EMPTY string means "drop it back to
+ *  the live default". An untouched field is just left out of the object: omitted — the
+ *  default — the roll changes nothing but the seed, which is what makes two takes comparable.
  *
  *  Returns the NEW segment. The job also moves back to pending and the old take becomes
  *  discarded, so callers refetch the job rather than patching this into state. */
 export async function rerollSegment(
   segmentId: string,
-  prompt?: string,
+  patch: { prompt?: string; negative_prompt?: string } = {},
 ): Promise<SegmentResponse> {
   const { data } = await api.post<SegmentResponse>(
     `/segments/${segmentId}/reroll`,
-    prompt === undefined ? {} : { prompt },
+    patch,
   );
   return data;
 }
