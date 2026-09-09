@@ -168,30 +168,10 @@ export default function WorkerDetail() {
             <MetaItem label="Hostname" value={worker.hostname} />
             <MetaItem label="IP Address" value={worker.ip_address} />
             <MetaItem label="ComfyUI" value={worker.comfyui_running ? "Running" : "Stopped"} />
-            <MetaItem
-              label="sd-scripts"
-              value={
-                !worker.sd_scripts
-                  ? "N/A"
-                  : worker.sd_scripts.sd_scripts_training
-                    ? `Training: ${worker.sd_scripts.sd_scripts_training_info?.output_name ?? "unknown"}`
-                    : worker.sd_scripts.sd_scripts_installed
-                      ? "Idle"
-                      : "Not installed"
-              }
-            />
-            <MetaItem
-              label="A1111"
-              value={
-                !worker.a1111
-                  ? "N/A"
-                  : worker.a1111.a1111_running
-                    ? "Running"
-                    : worker.a1111.a1111_installed
-                      ? "Stopped"
-                      : "Not installed"
-              }
-            />
+            {/* sd-scripts and A1111 reported here until 2026-09-09 and were "Not installed"
+                or N/A on every box for months -- A1111 was disabled outright (2026-08-07) and
+                the container image has no sd-scripts checkout. A run that IS training has
+                its own card below, driven by the same report; idle states are noise. */}
             <MetaItem label="Last Heartbeat" value={timeAgo(worker.last_heartbeat)} />
             <MetaItem label="Registered" value={formatDate(worker.registered_at)} />
             <MetaItem label="Updated" value={formatDate(worker.updated_at)} />
