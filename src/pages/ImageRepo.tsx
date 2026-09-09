@@ -1,3 +1,4 @@
+import { ltxError } from "../api/ltx";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Box,
@@ -473,14 +474,13 @@ export default function ImageRepo() {
       setUntaggedImages((prev) => prev.map(patch));
       setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
     } catch (err) {
-      // The 2070 also serves Automatic1111 and is not always up. A failed description is a
-      // thing to retry, not a broken image, so it is reported and nothing else changes.
+      // A failed description is a thing to retry, not a broken image, so it is reported
+      // and nothing else changes. THE API'S REASON, not axios's "Request failed with status
+      // code 503": the captioner shares the 3090 with the render stack and the 503 says
+      // which box is rendering (wanly-gpu-docker#83) -- a status code alone reads as an
+      // outage.
       console.error("Failed to describe image:", err);
-      setSceneError({
-        path,
-        message:
-          err instanceof Error ? err.message : "Could not describe this image. Try again.",
-      });
+      setSceneError({ path, message: ltxError(err) });
     } finally {
       describingPaths.current.delete(path);
       setDescribingPath((prev) => (prev === path ? null : prev));
