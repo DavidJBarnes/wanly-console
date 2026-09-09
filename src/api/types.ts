@@ -455,6 +455,9 @@ export interface TrainingJob {
   epochs: TrainingEpoch[] | null;
   /** Labels asked for after the fact; the trainer uploads them on its next poll. */
   publish_requests: string[] | null;
+  /** Free-form operator notes, written only by a human (wanly-console#484). The trainer's
+   *  reports cannot reach it, so it does not fight the progress log for the field. */
+  notes: string | null;
   /** The dataset's anchor image at creation -- the face this LoRA is of. */
   thumbnail_uri: string | null;
   created_at: string | null;
