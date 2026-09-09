@@ -552,46 +552,6 @@ function WorkerCard({
             >
               {cfg.label}
             </Typography>
-            {/* Only on services. A chip on every row would be noise on a page that is almost
-                all render workers, and the useful signal here is "this one is different". */}
-            {isService && (
-              <Chip
-                label="service"
-                size="small"
-                title="Runs supporting services. Never claims segments."
-                sx={{ bgcolor: "#e8eaf6", color: "#3949ab", fontWeight: 600, fontSize: "0.7rem" }}
-              />
-            )}
-            {/* A render worker that is ALSO a trainer (wanly-gpu-docker#83): one container per
-                GPU claims from both queues, and a training run parks its renders. Worth a chip
-                because it explains a "draining" status that nobody asked for. */}
-            {!isService && kindsOf(worker).filter((k) => k !== "render").map((k) => (
-              <Chip
-                key={k}
-                label={k}
-                size="small"
-                title={`Also a ${k}. Claims from that queue as well as rendering.`}
-                sx={{ bgcolor: "#e8eaf6", color: "#3949ab", fontWeight: 600, fontSize: "0.7rem" }}
-              />
-            ))}
-            {/* null means never reported, which is every render daemon today — so an absent
-                list must render as nothing, not as an empty one. */}
-            {worker.provides?.length ? (
-              <Chip
-                label={worker.provides.join(", ")}
-                size="small"
-                variant="outlined"
-                title="What this worker runs"
-                sx={{ fontSize: "0.7rem" }}
-              />
-            ) : null}
-            {hasPendingDrain && (
-              <Chip
-                label={`Drain in ${worker.drain_after_jobs} job${worker.drain_after_jobs === 1 ? "" : "s"}`}
-                size="small"
-                sx={{ bgcolor: "#fff8e1", color: "#f57f17", fontWeight: 600, fontSize: "0.7rem" }}
-              />
-            )}
             {canCancelDrain && (
               <Tooltip title="Cancel drain">
                 <IconButton
@@ -626,6 +586,57 @@ function WorkerCard({
             </Tooltip>
           </Box>
         </Box>
+
+
+        {/* WHAT IT IS AND WHAT IT RUNS, on their own line. In the header these chips pushed
+            the name and the drain button off the edge of the card once a box ran four
+            services (wanly-gpu-docker#83) -- the name was unreadable and the rename pencil sat
+            beside a truncated string, which is how 3090.zero became 3090.zero3090. */}
+        {(isService || kindsOf(worker).length > 1 || worker.provides?.length || hasPendingDrain) ? (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1.5 }} onClick={(e) => e.stopPropagation()}>
+            {/* Only on services. A chip on every row would be noise on a page that is almost
+                all render workers, and the useful signal here is "this one is different". */}
+            {isService && (
+              <Chip
+                label="service"
+                size="small"
+                title="Runs supporting services. Never claims segments."
+                sx={{ bgcolor: "#e8eaf6", color: "#3949ab", fontWeight: 600, fontSize: "0.7rem" }}
+              />
+            )}
+            {/* A render worker that is ALSO a trainer (wanly-gpu-docker#83): one container per
+                GPU claims from both queues, and a training run parks its renders. Worth a chip
+                because it explains a "draining" status that nobody asked for. */}
+            {!isService && kindsOf(worker).filter((k) => k !== "render").map((k) => (
+              <Chip
+                key={k}
+                label={k}
+                size="small"
+                title={`Also a ${k}. Claims from that queue as well as rendering.`}
+                sx={{ bgcolor: "#e8eaf6", color: "#3949ab", fontWeight: 600, fontSize: "0.7rem" }}
+              />
+            ))}
+            {/* null means never reported, which is every render daemon today — so an absent
+                list must render as nothing, not as an empty one. */}
+            {(worker.provides ?? []).map((name) => (
+              <Chip
+                key={name}
+                label={name}
+                size="small"
+                variant="outlined"
+                title="A service this worker runs"
+                sx={{ fontSize: "0.7rem" }}
+              />
+            ))}
+            {hasPendingDrain && (
+              <Chip
+                label={`Drain in ${worker.drain_after_jobs} job${worker.drain_after_jobs === 1 ? "" : "s"}`}
+                size="small"
+                sx={{ bgcolor: "#fff8e1", color: "#f57f17", fontWeight: 600, fontSize: "0.7rem" }}
+              />
+            )}
+          </Box>
+        ) : null}
 
         {/* What this worker is running (wanly-gpu-docker#72): daemon commit / image ref.
             Two values because they drift separately -- `docker restart` re-clones the daemon
@@ -673,66 +684,25 @@ function WorkerCard({
             icon={<Timer sx={{ fontSize: 16 }} />}
             label={`Heartbeat ${timeAgo(worker.last_heartbeat)}`}
           />
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 0.5,
-            }}
-          >
-            <Circle
+          {/* Only a render worker has a ComfyUI to report on. sd-scripts and A1111 used to
+              be listed here too and were "not installed" on every box for months. */}
+          {!isService && (
+            <Box
               sx={{
-                fontSize: 8,
-                color: worker.comfyui_running ? "#4caf50" : "#9e9e9e",
-                ml: 0.25,
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
               }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              ComfyUI {worker.comfyui_running ? "running" : "stopped"}
-            </Typography>
-          </Box>
-          {worker.sd_scripts && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            >
               <Circle
                 sx={{
                   fontSize: 8,
-                  color: worker.sd_scripts.sd_scripts_training ? "#ff9800" : worker.sd_scripts.sd_scripts_installed ? "#4caf50" : "#9e9e9e",
+                  color: worker.comfyui_running ? "#4caf50" : "#9e9e9e",
                   ml: 0.25,
                 }}
               />
               <Typography variant="caption" color="text.secondary">
-                sd-scripts{" "}
-                {worker.sd_scripts.sd_scripts_training
-                  ? "training"
-                  : worker.sd_scripts.sd_scripts_installed
-                    ? "idle"
-                    : "not installed"}
-              </Typography>
-              {worker.sd_scripts.sd_scripts_training && worker.sd_scripts.sd_scripts_training_info && (
-                <Chip
-                  label={worker.sd_scripts.sd_scripts_training_info.output_name}
-                  size="small"
-                  sx={{ fontSize: "0.7rem", height: 20 }}
-                />
-              )}
-            </Box>
-          )}
-          {worker.a1111 && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              <Circle
-                sx={{
-                  fontSize: 8,
-                  color: worker.a1111.a1111_running ? "#4caf50" : worker.a1111.a1111_installed ? "#9e9e9e" : "#9e9e9e",
-                  ml: 0.25,
-                }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                A1111{" "}
-                {worker.a1111.a1111_running
-                  ? "running"
-                  : worker.a1111.a1111_installed
-                    ? "stopped"
-                    : "not installed"}
+                ComfyUI {worker.comfyui_running ? "running" : "stopped"}
               </Typography>
             </Box>
           )}
