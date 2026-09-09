@@ -33,7 +33,7 @@ const job = (over: Partial<TrainingJob> = {}): TrainingJob => ({
   dataset_images: keys(13), config: {}, worker_name: null, gpu_name: null,
   progress_log: null, step: null, total_steps: null, error_message: null,
   checkpoints: null, output_lora_path: null, loss_log: null, epochs: null,
-  publish_requests: null, thumbnail_uri: null,
+  publish_requests: null, notes: null, thumbnail_uri: null,
   created_at: "2026-09-07T10:00:00Z", claimed_at: null, completed_at: null, ...over,
 });
 

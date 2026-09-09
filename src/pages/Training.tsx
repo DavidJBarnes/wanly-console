@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   Alert, Avatar, Box, Button, Card, CardContent, Chip, IconButton, LinearProgress, Stack,
-  Tooltip, Typography,
+  TextField, Tooltip, Typography,
 } from "@mui/material";
 
-import { CheckCircle, CloudUpload, Delete, Download } from "@mui/icons-material";
+import { CheckCircle, CloudUpload, Delete, Download, EditNote } from "@mui/icons-material";
 
 import {
   cancelTrainingJob, deleteTrainingJob, getFileUrl, listTrainingJobs, publishTrainingEpoch,
+  updateTrainingNotes,
 } from "../api/client";
 import { createCharacter, listRecipes, updateCharacter } from "../api/ltx";
 import type { Character } from "../api/ltx";
@@ -150,6 +151,27 @@ function TrainingRow({
   const [msg, setMsg] = useState("");
   /** The API's reason for refusing to delete this run with its files, while it stands. */
   const [refusal, setRefusal] = useState("");
+  /** null = the note is not being edited. Held HERE rather than read off `job` because the
+   *  page polls and a poll replaces the job object -- a textarea reading props would be
+   *  clobbered mid-typing by the next refresh of the same run. */
+  const [notesDraft, setNotesDraft] = useState<string | null>(null);
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  const saveNotes = async () => {
+    if (notesDraft === null) return;
+    setSavingNotes(true);
+    setMsg("");
+    try {
+      // A whitespace-only draft is a deliberate clear, not a save to ignore.
+      await updateTrainingNotes(job.id, notesDraft.trim() === "" ? null : notesDraft);
+      setNotesDraft(null);
+      onChanged();
+    } catch {
+      setMsg("could not save the note");
+    } finally {
+      setSavingNotes(false);
+    }
+  };
 
   const remove = async (purge: boolean) => {
     setRefusal("");
@@ -294,6 +316,52 @@ function TrainingRow({
               height={72}
               lastStep={job.loss_log?.[job.loss_log.length - 1]?.[0] ?? null}
             />
+          </Box>
+        )}
+
+        {/* NOTES. The judgements a run earns that no machine field fits -- loss does not rank
+            checkpoints, tags are vocabulary, and progress_log is the trainer's channel that is
+            overwritten on every report. Saved explicitly: a poll replaces the job object, so a
+            textarea bound to it would be clobbered mid-typing. */}
+        {notesDraft === null ? (
+          <Box sx={{ mt: 1.5, display: "flex", alignItems: "flex-start", gap: 0.5 }}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ whiteSpace: "pre-wrap", flex: 1, minWidth: 0 }}
+            >
+              {job.notes || "No notes."}
+            </Typography>
+            <Tooltip title={job.notes ? "Edit notes" : "Add a note"}>
+              <IconButton size="small" onClick={() => setNotesDraft(job.notes ?? "")}
+                          sx={{ color: "text.disabled" }}>
+                <EditNote fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        ) : (
+          <Box sx={{ mt: 1.5 }} onClick={(e) => e.stopPropagation()}>
+            <TextField
+              size="small"
+              fullWidth
+              multiline
+              minRows={3}
+              value={notesDraft}
+              onChange={(e) => setNotesDraft(e.target.value)}
+              placeholder="What you learned by eye: why a checkpoint was picked, what was rejected…"
+              autoFocus
+            />
+            <Box sx={{ display: "flex", gap: 1, mt: 0.5, justifyContent: "flex-end" }}>
+              <Button size="small" onClick={() => setNotesDraft(null)}>Cancel</Button>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={saveNotes}
+                disabled={savingNotes}
+              >
+                {savingNotes ? "Saving…" : "Save note"}
+              </Button>
+            </Box>
           </Box>
         )}
 

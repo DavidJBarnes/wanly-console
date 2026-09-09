@@ -413,6 +413,12 @@ export async function publishTrainingEpoch(id: string, label: string): Promise<T
   return data;
 }
 
+/** Operator notes on a run, whole-field replace (wanly-console#484). Blank clears it. */
+export async function updateTrainingNotes(id: string, notes: string | null): Promise<TrainingJob> {
+  const { data } = await api.patch<TrainingJob>(`/training/${id}/notes`, { notes });
+  return data;
+}
+
 /** Take a finished run off the board. With `purge` (the default) its LoRA files go too; the
  *  API refuses if a character currently renders with one of them. */
 export async function deleteTrainingJob(id: string, purge = true): Promise<void> {
