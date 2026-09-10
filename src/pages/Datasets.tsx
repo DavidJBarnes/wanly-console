@@ -6,7 +6,8 @@ import {
   Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
 import {
-  Add, Check, Close, ContentCut, Delete, Edit, ModelTraining, Star, StarBorder, Upload,
+  Add, Check, Close, ContentCut, Delete, Edit, ModelTraining, PhotoLibrary, Star, StarBorder,
+  Upload,
 } from "@mui/icons-material";
 
 import {
@@ -14,6 +15,7 @@ import {
   removeDatasetImage, scoreDataset, setDatasetAnchor, updateDataset,
 } from "../api/client";
 import TrainLoraDialog from "../components/TrainLoraDialog";
+import AddFromRepoDialog from "../components/AddFromRepoDialog";
 import {
   byLikeness, byRecent, datasetNameProblem, formatCos, parseTags, removalWarning, verdictFor,
 } from "../lib/datasets";
@@ -114,6 +116,7 @@ function DatasetCard({
   const [tags, setTags] = useState(ds.tags ?? "");
   const [msg, setMsg] = useState("");
   const [cropOpen, setCropOpen] = useState(false);
+  const [repoOpen, setRepoOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [scores, setScores] = useState<Record<string, DatasetScore>>({});
   const [worstFirst, setWorstFirst] = useState(false);
@@ -289,6 +292,14 @@ function DatasetCard({
           >
             Add images
           </Button>
+          <Button
+            size="small"
+            startIcon={<PhotoLibrary />}
+            disabled={busy}
+            onClick={() => setRepoOpen(true)}
+          >
+            From repo
+          </Button>
           <IconButton
             size="small"
             color="error"
@@ -408,6 +419,17 @@ function DatasetCard({
           <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 0.5 }}>
             {removalWarning(ds.images.length)}
           </Typography>
+        )}
+
+        {repoOpen && (
+          <AddFromRepoDialog
+            ds={ds}
+            onClose={() => setRepoOpen(false)}
+            onAdded={(updated) => {
+              setMsg(`${updated.images.length} images in the set`);
+              onChanged();
+            }}
+          />
         )}
 
         <CropDialog

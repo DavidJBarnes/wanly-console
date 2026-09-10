@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { withoutImage, removalWarning, MIN_TRAINABLE } from "./datasets";
+import {
+  mergeIntoSet, withoutImage, removalWarning, MIN_TRAINABLE,
+} from "./datasets";
 
 /**
  * Removing an image is how a crop of a group photo becomes a dataset of one person: take every
@@ -44,5 +46,42 @@ describe("removalWarning", () => {
   it("keeps warning below the floor rather than going quiet", () => {
     // Going quiet again would read as "fixed".
     expect(removalWarning(3)).not.toBeNull();
+  });
+});
+
+/**
+ * Pulling images in from the Image Repo (#489): the workflow lived where the images are, so
+ * the dataset side had no path at all. The merge is the rule the picker depends on — get it
+ * wrong and the PATCH replaces the set with something the user did not choose.
+ */
+describe("mergeIntoSet", () => {
+  const set = ["s3://b/a.png", "s3://b/b.png"];
+
+  it("appends the new images after what is already in the set", () => {
+    expect(mergeIntoSet(set, ["s3://b/c.png", "s3://b/d.png"]))
+      .toEqual(["s3://b/a.png", "s3://b/b.png", "s3://b/c.png", "s3://b/d.png"]);
+  });
+
+  it("keeps the set's own order, because the trainer reads it in order", () => {
+    expect(mergeIntoSet(set, ["s3://b/z.png"])).toEqual([...set, "s3://b/z.png"]);
+  });
+
+  it("drops an image that is already in the set rather than adding it twice", () => {
+    expect(mergeIntoSet(set, ["s3://b/b.png", "s3://b/c.png"]))
+      .toEqual(["s3://b/a.png", "s3://b/b.png", "s3://b/c.png"]);
+  });
+
+  it("drops duplicates within the selection itself", () => {
+    expect(mergeIntoSet([], ["s3://b/a.png", "s3://b/a.png"])).toEqual(["s3://b/a.png"]);
+  });
+
+  it("is a no-op for an empty selection", () => {
+    expect(mergeIntoSet(set, [])).toEqual(set);
+  });
+
+  it("does not mutate the original", () => {
+    const copy = [...set];
+    mergeIntoSet(set, ["s3://b/c.png"]);
+    expect(set).toEqual(copy);
   });
 });

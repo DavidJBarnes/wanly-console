@@ -61,6 +61,26 @@ export function removalWarning(count: number): string | null {
   return null;
 }
 
+/**
+ * Merge repo images into a set, returning the list to PATCH back.
+ *
+ * Appending to the set's own order — the trainer stages them in this order, and the captions
+ * pair against it, so a merge must not shuffle what is already there. Duplicates are dropped:
+ * an image already in the set gains nothing by being added twice, and training refuses
+ * duplicates outright.
+ */
+export function mergeIntoSet(images: string[], uris: string[]): string[] {
+  const have = new Set(images);
+  const out = [...images];
+  for (const u of uris) {
+    if (!have.has(u)) {
+      have.add(u);
+      out.push(u);
+    }
+  }
+  return out;
+}
+
 /** buffalo_l's same-person floor. Shown as a line to read against, never used to delete. */
 export const COS_FLOOR = 0.4;
 
