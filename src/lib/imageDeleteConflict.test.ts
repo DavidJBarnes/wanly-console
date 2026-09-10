@@ -24,6 +24,14 @@ describe("parseImageInUse", () => {
     expect(out.path).toBe("s3://wanly-images/2026-07-09/x.png");
   });
 
+  it("extracts dataset membership (wanly-api#305)", () => {
+    // Before datasets counted, a refusal naming only datasets fell through to an ordinary
+    // error — the gate worked and the user was told nothing about what held the image.
+    const out = parseImageInUse(conflict({ job_ids: [], segment_ids: [], dataset_ids: ["ds-1", "ds-2"] }))!;
+    expect(out.datasetIds).toEqual(["ds-1", "ds-2"]);
+    expect(out.jobIds).toEqual([]);
+  });
+
   it("returns null for anything that is not a 409", () => {
     // A network failure must never be reported to the user as "image in use".
     expect(parseImageInUse({ response: { status: 500, data: {} } })).toBeNull();
@@ -34,7 +42,9 @@ describe("parseImageInUse", () => {
   it("returns null when a 409 names no holders", () => {
     // The API contradicting itself. Better to fall back to ordinary error handling than to
     // render "still used by 0 things".
-    expect(parseImageInUse(conflict({ job_ids: [], segment_ids: [] }))).toBeNull();
+    expect(
+      parseImageInUse(conflict({ job_ids: [], segment_ids: [], dataset_ids: [] })),
+    ).toBeNull();
   });
 
   it("survives a malformed detail without throwing", () => {
@@ -48,11 +58,20 @@ describe("parseImageInUse", () => {
 
 describe("describeHolders", () => {
   it("reads naturally at one and at many", () => {
-    expect(describeHolders({ path: "", jobIds: ["a"], segmentIds: [] })).toBe("1 job");
-    expect(describeHolders({ path: "", jobIds: ["a", "b"], segmentIds: [] })).toBe("2 jobs");
-    expect(describeHolders({ path: "", jobIds: [], segmentIds: ["s"] })).toBe("1 segment");
-    expect(describeHolders({ path: "", jobIds: ["a"], segmentIds: ["s", "t"] })).toBe(
+    expect(describeHolders({ path: "", jobIds: ["a"], segmentIds: [], datasetIds: [] })).toBe("1 job");
+    expect(describeHolders({ path: "", jobIds: ["a", "b"], segmentIds: [], datasetIds: [] })).toBe("2 jobs");
+    expect(describeHolders({ path: "", jobIds: [], segmentIds: ["s"], datasetIds: [] })).toBe("1 segment");
+    expect(describeHolders({ path: "", jobIds: ["a"], segmentIds: ["s", "t"], datasetIds: [] })).toBe(
       "1 job and 2 segments",
     );
+  });
+
+  it("names datasets alongside jobs and segments (wanly-api#305)", () => {
+    expect(
+      describeHolders({ path: "", jobIds: [], segmentIds: [], datasetIds: ["d"] }),
+    ).toBe("1 dataset");
+    expect(
+      describeHolders({ path: "", jobIds: ["a"], segmentIds: [], datasetIds: ["d", "e"] }),
+    ).toBe("1 job and 2 datasets");
   });
 });
