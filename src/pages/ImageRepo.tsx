@@ -1032,7 +1032,9 @@ export default function ImageRepo() {
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
             Deleting it anyway leaves those pointing at a file that no longer exists. They will
-            fail when a worker picks them up, which is how images went missing before.
+            fail when a worker picks them up, which is how images went missing before — and a
+            dataset keeps a dead entry in its list, so its count lies and training fetches a 404
+            (wanly-api#305).
           </Typography>
           {!!inUse?.conflict.jobIds.length && (
             <Box sx={{ mt: 2 }}>
@@ -1052,6 +1054,28 @@ export default function ImageRepo() {
               {inUse.conflict.jobIds.length > 5 && (
                 <Typography variant="caption" color="text.secondary">
                   …and {inUse.conflict.jobIds.length - 5} more
+                </Typography>
+              )}
+            </Box>
+          )}
+          {!!inUse?.conflict.datasetIds.length && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="caption" color="text.secondary">
+                Datasets
+              </Typography>
+              {inUse.conflict.datasetIds.slice(0, 5).map((id) => (
+                <Typography
+                  key={id}
+                  variant="body2"
+                  sx={{ cursor: "pointer", color: "primary.main", wordBreak: "break-all" }}
+                  onClick={() => navigate("/datasets")}
+                >
+                  {id}
+                </Typography>
+              ))}
+              {inUse.conflict.datasetIds.length > 5 && (
+                <Typography variant="caption" color="text.secondary">
+                  …and {inUse.conflict.datasetIds.length - 5} more
                 </Typography>
               )}
             </Box>
