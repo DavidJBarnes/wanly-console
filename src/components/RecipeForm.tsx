@@ -6,7 +6,7 @@ import {
 } from "@mui/material";
 import { ExpandMore, Casino } from "@mui/icons-material";
 import {
-  listRecipes, listLoras, ltxError, renderPrompt,
+  listRecipes, listLoras, ltxError, renderPrompt, triggerPhrase,
   NO_CHARACTER,
   type RecipeBook, type Character, type Pose,
 } from "../api/ltx";
@@ -228,8 +228,9 @@ export default function RecipeForm({
   const slotKey = slotCharacters.map((c) => c?.name ?? "").join("|");
   // What this pose renders as for THESE characters — the baseline an edit is measured
   // against. An unfilled slot keeps its placeholder.
+  // The trigger PHRASE, "p@yton, woman" — what the LoRA trained on (console#487).
   const triggersOf = (list: (CharacterSlot | null)[]) =>
-    list.map((s) => s?.character.trigger) as string[];
+    list.map((s) => (s ? triggerPhrase(s.character) : undefined)) as string[];
   const renderedPrompt =
     pose && character ? renderPrompt(pose.prompt_template, triggersOf(filledSlots)) : "";
 
@@ -244,7 +245,7 @@ export default function RecipeForm({
     if (!pose || !character) return;
     const rendered = renderPrompt(
       pose.prompt_template,
-      slotCharacters.map((c) => c?.trigger) as string[]);
+      slotCharacters.map((c) => (c ? triggerPhrase(c) : undefined)) as string[]);
     // Auto-filled the moment there is something to fill it with (console#427). The words
     // land in the editable box, so they are still read before they are used — what changes
     // is that a description already paid for is not paid for again.

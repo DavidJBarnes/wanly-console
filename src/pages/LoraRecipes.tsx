@@ -37,8 +37,10 @@ import {
   isTwoPersonPose,
   updateCharacter,
   updatePose,
+  triggerPhrase,
 } from "../api/ltx";
 import type { Character, ContentLora, Pose, RecipeBook } from "../api/ltx";
+import type { Gender } from "../api/types";
 import { getFileUrl } from "../api/client";
 import { parseContentLoraStrength } from "../lib/contentLoraStrength";
 import { overrideNumber } from "../lib/overrideValue";
@@ -632,7 +634,7 @@ function CharacterList({
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                 <Typography variant="subtitle2">{c.name}</Typography>
                 <Typography variant="body2" color="text.secondary" noWrap>
-                  {c.char_lora} · trigger “{c.trigger}” · stage 1 {c.strength_stage_1} ·
+                  {c.char_lora} · renders “{triggerPhrase(c)}” · stage 1 {c.strength_stage_1} ·
                   stage 2 {c.strength_stage_2}
                 </Typography>
               </Box>
@@ -702,6 +704,9 @@ function CharacterDialog({
   const [name, setName] = useState(character?.name ?? "");
   const [lora, setLora] = useState(character?.char_lora ?? "");
   const [trigger, setTrigger] = useState(character?.trigger ?? "");
+  // "" is "none": the row's gender is cleared, and the bare trigger renders as it did
+  // before console#487.
+  const [gender, setGender] = useState<"" | Gender>(character?.gender ?? "");
   const [s1, setS1] = useState(String(character?.strength_stage_1 ?? 0.8));
   const [s2, setS2] = useState(String(character?.strength_stage_2 ?? 1.5));
   const [saving, setSaving] = useState(false);
@@ -727,6 +732,7 @@ function CharacterDialog({
           char_lora: lora.trim(),
           // Absent means "no opinion" and the API defaults it to the name.
           trigger: trigger.trim() || null,
+          gender: gender || null,
           strength_stage_1: n1,
           strength_stage_2: n2,
         });
@@ -737,6 +743,8 @@ function CharacterDialog({
           // Only sent when non-empty: on update an absent trigger means "leave it alone",
           // and clearing it here must not silently rewrite it to the (possibly new) name.
           ...(trigger.trim() ? { trigger: trigger.trim() } : {}),
+          // Always sent: unlike the trigger, "" here is a real answer (clear it).
+          gender: gender || null,
           strength_stage_1: n1,
           strength_stage_2: n2,
         });
@@ -787,6 +795,23 @@ function CharacterDialog({
                 : `Fills every pose's ${TRIGGER_PLACEHOLDER}. Left empty, it is kept as it is.`
             }
           />
+          <TextField
+            select
+            label="Gender"
+            value={gender}
+            onChange={(e) => setGender(e.target.value as "" | Gender)}
+            fullWidth
+            helperText={
+              `The word the LoRA's caption bound the trigger to. Every pose renders ` +
+              `“${(trigger.trim() || name.trim() || "trigger")}${gender ? `, ${gender}` : ""}” ` +
+              `— match what trained, or the identity is only half named.`
+            }
+          >
+            <MenuItem value=""><em>None — bare trigger</em></MenuItem>
+            <MenuItem value="woman">woman</MenuItem>
+            <MenuItem value="man">man</MenuItem>
+            <MenuItem value="person">person</MenuItem>
+          </TextField>
           <Stack direction="row" spacing={2}>
             <TextField
               label="Strength stage 1"

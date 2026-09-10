@@ -12,10 +12,17 @@ export interface TokenResponse {
  *  look anything up — an engine that cannot look a recipe up cannot look up a
  *  stale one. `graph_sha256` is written back by the worker once the engine has
  *  resolved the graph; it is a record, not an input. */
+/** The word a LoRA's caption bound its trigger to: every run captions its images
+ *  "<trigger>, <gender>", and a render prompt has to say the same pair (console#487). */
+export type Gender = "woman" | "man" | "person";
+
 /** One person in the shot (console#473). Slot 0 fills `<TRIGGER>`, slot 1 `<TRIGGER2>`. */
 export interface LtxRecipeCharacter {
   name: string;
   trigger: string;
+  /** Recorded since console#487 so a re-roll can rebuild "p@yton, woman" after the
+   *  character row is gone. Absent on older blobs. */
+  gender?: Gender | null;
   char_lora: string;
   s1: number;
   s2: number;
@@ -515,7 +522,7 @@ export interface TrainingCreate {
   caption?: string | null;
   /** Every image is captioned "<trigger>, <gender>". Explicit, because a free caption
    *  field was once filled with "man" alone and the trigger was never learned. */
-  gender?: "woman" | "man" | "person";
+  gender?: Gender;
   steps: number;
   /** The filename stem. Asked rather than derived — see src/lib/trainingJob.ts. */
   lora_name?: string;
