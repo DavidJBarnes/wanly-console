@@ -3,9 +3,9 @@ import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, List, ListItemButton, ListItemText, Typography,
 } from "@mui/material";
-import { ArrowBackIosNew as ArrowBackIosNewIcon, Close as CloseIcon } from "@mui/icons-material";
+import { ArrowBackIosNew as ArrowBackIosNewIcon } from "@mui/icons-material";
 
-import { getImageFolder, getImageFolders, updateDataset } from "../api/client";
+import { getFileUrl, getImageFolder, getImageFolders, updateDataset } from "../api/client";
 import { mergeIntoSet } from "../lib/datasets";
 import type { Dataset, ImageFile, ImageFolder } from "../api/types";
 
@@ -120,26 +120,49 @@ export default function AddFromRepoDialog({
                 <CircularProgress size={22} />
               </Box>
             )}
-            <List dense>
-              {images.map((img) => {
-                const inSet = alreadyIn(img.path);
-                const picked = selected.has(img.path);
-                return (
-                  <ListItemButton
-                    key={img.path}
-                    disabled={inSet || busy}
-                    selected={picked}
-                    onClick={() => toggle(img.path)}
-                  >
-                    <ListItemText
-                      primary={img.filename}
-                      {...(inSet ? { secondary: "already in this dataset" } : {})}
-                    />
-                    {picked && <CloseIcon fontSize="small" />}
-                  </ListItemButton>
-                );
-              })}
-            </List>
+            {/* Thumbnails, not file names (console#492): selecting a face from a name is
+                selecting blind. Big enough to tap on a phone, which is where this dialog
+                gets used. A name under each thumbnail — thumb covers the image, the name
+                disambiguates two shots of the same scene. */}
+            {!loadingImages && images.length > 0 && (
+              <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", p: 2 }}>
+                {images.map((img) => {
+                  const inSet = alreadyIn(img.path);
+                  const picked = selected.has(img.path);
+                  return (
+                    <Box
+                      key={img.path}
+                      onClick={inSet || busy ? undefined : () => toggle(img.path)}
+                      sx={{
+                        width: 96, cursor: inSet || busy ? "default" : "pointer",
+                        textAlign: "center",
+                      }}
+                    >
+                      <Box
+                        component="img"
+                        src={getFileUrl(img.path)}
+                        sx={{
+                          width: 96, height: 96, objectFit: "cover", borderRadius: 1,
+                          display: "block", border: "3px solid",
+                          borderColor: inSet ? "divider" : picked ? "secondary.main" : "transparent",
+                          opacity: inSet ? 0.4 : picked ? 1 : 0.75,
+                        }}
+                      />
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          display: "block", overflow: "hidden", textOverflow: "ellipsis",
+                          whiteSpace: "nowrap", mt: 0.25,
+                          color: inSet ? "text.disabled" : picked ? "secondary.main" : "text.secondary",
+                        }}
+                      >
+                        {inSet ? "in dataset" : img.filename}
+                      </Typography>
+                    </Box>
+                  );
+                })}
+              </Box>
+            )}
             {!loadingImages && images.length === 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ px: 2, pb: 2, display: "block" }}>
                 That folder is empty.
