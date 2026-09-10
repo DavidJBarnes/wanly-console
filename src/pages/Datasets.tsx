@@ -17,7 +17,8 @@ import {
 import TrainLoraDialog from "../components/TrainLoraDialog";
 import AddFromRepoDialog from "../components/AddFromRepoDialog";
 import {
-  byLikeness, byRecent, datasetNameProblem, formatCos, parseTags, removalWarning, verdictFor,
+  byLikeness, byRecent, cropSelectionProblem, datasetNameProblem, formatCos, parseTags,
+  removalWarning, verdictFor,
 } from "../lib/datasets";
 import { canTrain } from "../lib/trainingJob";
 import type { Dataset, DatasetScore } from "../api/types";
@@ -463,7 +464,10 @@ function DatasetCard({
   );
 }
 
-/** Crop the faces out of every image in the set. One choice, one sentence. */
+/** Crop the faces out of the selected images — every one of them unless a subset is picked.
+ *  One choice for what happens to the output, made once for the whole batch: replace the
+ *  cropped photographs with their faces, or keep the set and add the crops (Save / Save As).
+ *  The cropped images themselves are chosen per image, below. */
 function CropDialog({
   open, ds, onClose, onDone,
 }: {
@@ -473,11 +477,30 @@ function CropDialog({
   onDone: (updated: Dataset) => void;
 }) {
   const [largestOnly, setLargestOnly] = useState(false);
+  const [saveAs, setSaveAs] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  // Reopening the dialog restarts the selection: a stale one from last time would crop
+  // images the user removed since, silently and with no way to see it.
+  useEffect(() => {
+    if (open) setSelected(new Set());
+  }, [open]);
+
+  const toggled = (uri: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(uri)) next.delete(uri);
+      else next.add(uri);
+      return next;
+    });
+  };
+
+  const problem = cropSelectionProblem(selected);
+
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Crop faces</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2} sx={{ mt: 1 }}>
@@ -486,44 +509,87 @@ function CropDialog({
             <Box>
               <LinearProgress />
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                Detecting faces in {ds.images.length} images — up to a couple of minutes.
+                Detecting faces in {selected.size || ds.images.length} images — up to a couple of
+                minutes.
               </Typography>
             </Box>
           )}
           <Typography variant="body2">
-            Replaces the {ds.images.length} images in “{ds.name}” with the faces cropped out of
-            them. Remove any you do not want afterwards.
+            {selected.size > 0
+              ? `Crops ${selected.size} of ${ds.images.length} — the rest are left alone.`
+              : `Crops every image in “${ds.name}” (${ds.images.length}). Pick images below to crop only those.`}
           </Typography>
+          {ds.images.length > 0 && (
+            <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+              {ds.images.map((uri) => {
+                const picked = selected.has(uri);
+                return (
+                  <Box
+                    key={uri}
+                    component="img"
+                    src={getFileUrl(uri)}
+                    onClick={() => toggled(uri)}
+                    sx={{
+                      width: 72, height: 72, objectFit: "cover", borderRadius: 1,
+                      cursor: "pointer", display: "block",
+                      border: "3px solid", borderColor: picked ? "secondary.main" : "divider",
+                      opacity: picked ? 1 : 0.55,
+                    }}
+                  />
+                );
+              })}
+            </Box>
+          )}
           <FormControlLabel
             control={
               <Checkbox checked={largestOnly} onChange={(e) => setLargestOnly(e.target.checked)} />
             }
             label="Only the largest face in each image"
           />
+          <FormControlLabel
+            control={<Checkbox checked={saveAs} onChange={(e) => setSaveAs(e.target.checked)} />}
+            label="Keep the photographs and add the crops (save as)"
+          />
+          {!saveAs && (
+            <Typography variant="caption" color="text.secondary">
+              Otherwise the cropped photographs are replaced by their faces. The originals stay
+              in the bucket either way.
+            </Typography>
+          )}
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button
-          variant="contained"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            setError("");
-            try {
-              const updated = await cropDatasetFaces(ds.id, { largestOnly });
-              onDone(updated);
-              onClose();
-            } catch (e: unknown) {
-              const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-              setError(typeof d === "string" ? d : "cropping failed");
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? "Cropping…" : "Crop"}
-        </Button>
+        <Tooltip title={problem ?? ""}>
+          <span>
+            <Button
+              variant="contained"
+              disabled={busy || problem !== null}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  const updated = await cropDatasetFaces(ds.id, {
+                    largestOnly,
+                    saveAs,
+                    // Only send a selection when the user made one: an empty set means every
+                    // image, and sending an empty list means none of them.
+                    ...(selected.size > 0 ? { uris: [...selected] } : {}),
+                  });
+                  onDone(updated);
+                  onClose();
+                } catch (e: unknown) {
+                  const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+                  setError(typeof d === "string" ? d : "cropping failed");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Cropping…" : "Crop"}
+            </Button>
+          </span>
+        </Tooltip>
       </DialogActions>
     </Dialog>
   );

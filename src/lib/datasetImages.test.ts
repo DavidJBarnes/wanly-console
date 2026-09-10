@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  mergeIntoSet, withoutImage, removalWarning, MIN_TRAINABLE,
+  cropSelectionProblem, mergeIntoSet, withoutImage, removalWarning, MIN_TRAINABLE,
 } from "./datasets";
 
 /**
@@ -83,5 +83,20 @@ describe("mergeIntoSet", () => {
     const copy = [...set];
     mergeIntoSet(set, ["s3://b/c.png"]);
     expect(set).toEqual(copy);
+  });
+});
+
+/**
+ * The crop dialog's one gate (#303): a crop of nothing would send an empty selection and the
+ * API crops the whole set — a silently-changed scope at the exact moment the user believes
+ * they narrowed it. Gated in the dialog, asserted here.
+ */
+describe("cropSelectionProblem", () => {
+  it("blocks an empty selection", () => {
+    expect(cropSelectionProblem(new Set())).not.toBeNull();
+  });
+
+  it("allows any non-empty one", () => {
+    expect(cropSelectionProblem(new Set(["s3://b/a.png"]))).toBeNull();
   });
 });

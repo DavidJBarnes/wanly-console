@@ -81,6 +81,12 @@ export function mergeIntoSet(images: string[], uris: string[]): string[] {
   return out;
 }
 
+/** What stands between a selection and a crop, or null if none does. */
+export function cropSelectionProblem(selected: Set<string>): string | null {
+  if (selected.size === 0) return "pick at least one image";
+  return null;
+}
+
 /** buffalo_l's same-person floor. Shown as a line to read against, never used to delete. */
 export const COS_FLOOR = 0.4;
 
