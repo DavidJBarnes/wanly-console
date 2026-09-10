@@ -10,6 +10,7 @@ import {
 } from "@mui/material";
 import { Link as RouterLink } from "react-router";
 import NotesIcon from "@mui/icons-material/Notes";
+import { triggerPhrase } from "../api/ltx";
 import type { LtxRecipeRef } from "../api/types";
 import { recipeCharacters } from "../lib/recipeBlob";
 import {
@@ -185,7 +186,7 @@ export default function SegmentPromptPopover({
                     )}
                     {person.trigger && (
                       <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                        trigger “{person.trigger}”
+                        trigger “{triggerPhrase(person)}”
                       </Typography>
                     )}
                   </RecipeRow>

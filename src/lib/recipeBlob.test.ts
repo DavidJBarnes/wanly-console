@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { NO_CHARACTER, renderPrompt } from "../api/ltx";
+import { NO_CHARACTER, renderPrompt, triggerPhrase } from "../api/ltx";
 import type { Character, Pose } from "../api/ltx";
 import {
   buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor, slotTriggers,
@@ -22,6 +22,35 @@ const pose = (template: string): Pose => ({
 const two = pose("<TRIGGER2> stands behind <TRIGGER>");
 const one = pose("<TRIGGER>, a woman");
 
+describe("triggerPhrase (console#487)", () => {
+  const payton: Character = { ...pay, name: "Payton", trigger: "p@yton", gender: "woman" };
+  const david: Character = { ...me, gender: "man" };
+
+  it("is the caption the LoRA trained on: trigger, gender", () => {
+    expect(triggerPhrase(payton)).toBe("p@yton, woman");
+    expect(triggerPhrase(david)).toBe("d@vid, man");
+  });
+
+  it("is the bare trigger for a character with no gender, as before", () => {
+    expect(triggerPhrase(pay)).toBe("p@y");
+    expect(triggerPhrase({ ...pay, gender: null })).toBe("p@y");
+  });
+
+  it("never grows a gender on the no-character slot", () => {
+    expect(triggerPhrase({ ...NO_CHARACTER, gender: "woman" })).toBe("");
+  });
+
+  it("fills both slots bound to their gender, and records it in the blob", () => {
+    const slots = [slotFor(payton), slotFor(david)];
+    const rendered = renderPrompt(two.prompt_template, slotTriggers(slots));
+    expect(rendered).toBe("d@vid, man stands behind p@yton, woman");
+    const blob = buildLtxRecipe({ pose: two, slots, prompt: rendered, renderedPrompt: rendered,
+                                  negative: "bad", frames: 241 });
+    expect(blob.characters?.map((c) => c.gender)).toEqual(["woman", "man"]);
+    expect(blob.trigger).toBe("p@yton");
+  });
+});
+
 describe("slotCount", () => {
   it("is one per placeholder the template uses, and at least one", () => {
     expect(slotCount(two)).toBe(2);
@@ -39,8 +68,8 @@ describe("buildLtxRecipe", () => {
     const blob = buildLtxRecipe({ pose: two, slots, prompt: rendered, renderedPrompt: rendered,
                                   negative: "bad", frames: 241 });
     expect(blob.characters).toEqual([
-      { name: "p@y", trigger: "p@y", char_lora: "pay_v2_e05", s1: 0.8, s2: 1.5 },
-      { name: "Me", trigger: "d@vid", char_lora: "david_v1_final", s1: 0.8, s2: 1.5 },
+      { name: "p@y", trigger: "p@y", gender: null, char_lora: "pay_v2_e05", s1: 0.8, s2: 1.5 },
+      { name: "Me", trigger: "d@vid", gender: null, char_lora: "david_v1_final", s1: 0.8, s2: 1.5 },
     ]);
     expect(blob.character).toBe("p@y");
     expect(blob.trigger).toBe("p@y");

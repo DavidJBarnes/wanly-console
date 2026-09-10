@@ -1,6 +1,7 @@
 import axios from "axios";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 import { mergeLoraOptions } from "../lib/loraOptions";
+import type { Gender } from "./types";
 
 /**
  * LTX 2.3 recipes.
@@ -85,12 +86,25 @@ export interface Character {
   /** Fills a pose's placeholder. "Adding a character costs a LoRA and a trigger
    *  swap" — this is the trigger half. */
   trigger: string;
+  /** The other half of the caption the LoRA trained on (console#487). Null for a
+   *  character that predates the trainer: it renders the bare trigger as before. */
+  gender?: Gender | null;
   /** Per-stage, never flat. Stage 1 decides body and anatomy; stage 2 resolves
    *  the face. 0.8/1.5 is the validated pair. */
   strength_stage_1: number;
   strength_stage_2: number;
   /** A face for the LoRA: the anchor image of the dataset that trained it. */
   image_uri?: string | null;
+}
+
+/** What fills a placeholder: the trigger AND the word its LoRA bound it to, exactly as
+ *  the training caption read — "p@yton, woman". With two identity LoRAs summed into the
+ *  same weights this pair is the only thing that says which face goes on which body
+ *  (console#487). No trigger is the "no character" slot and never grows a gender; no
+ *  gender is the bare trigger, which is what every character rendered before. */
+export function triggerPhrase(c: { trigger: string; gender?: Gender | null }): string {
+  if (!c.trigger || !c.gender) return c.trigger;
+  return `${c.trigger}, ${c.gender}`;
 }
 
 /** What a pose carries and a character's trigger fills. */
@@ -316,6 +330,8 @@ export interface CharacterDraft {
   char_lora: string;
   /** Optional on create only — the API defaults it to the name. */
   trigger?: string | null;
+  /** Null clears it: a LoRA that trained on a bare caption should not render one. */
+  gender?: Gender | null;
   strength_stage_1?: number;
   strength_stage_2?: number;
   image_uri?: string | null;

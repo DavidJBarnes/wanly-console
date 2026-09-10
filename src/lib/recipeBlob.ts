@@ -6,7 +6,7 @@
  * pure-logic only, so a blob with a right answer has to live outside a component to be
  * covered at all. A second person doubled the number of things that could drift.
  */
-import { NO_CHARACTER, TRIGGER_PLACEHOLDERS } from "../api/ltx";
+import { NO_CHARACTER, TRIGGER_PLACEHOLDERS, triggerPhrase } from "../api/ltx";
 import type { Character, Pose } from "../api/ltx";
 import type { LtxRecipeCharacter, LtxRecipeRef } from "../api/types";
 
@@ -66,6 +66,7 @@ export function buildLtxRecipe(args: {
   const characters: LtxRecipeCharacter[] = slots.map((s) => ({
     name: s.character.name,
     trigger: s.character.trigger,
+    gender: s.character.gender ?? null,
     char_lora: s.charLora,
     s1: Number(s.s1),
     s2: Number(s.s2),
@@ -95,9 +96,10 @@ export function buildLtxRecipe(args: {
   };
 }
 
-/** The triggers in slot order, as renderPrompt takes them. */
+/** What fills each slot, in order, as renderPrompt takes them: the trigger phrase —
+ *  "p@yton, woman" — not the bare trigger (console#487). */
 export function slotTriggers(slots: CharacterSlot[]): string[] {
-  return slots.map((s) => s.character.trigger);
+  return slots.map((s) => triggerPhrase(s.character));
 }
 
 /** "p@y & Me — Bedroom", "p@y — Missionary", "Missionary (no character)". */
