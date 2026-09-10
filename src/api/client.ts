@@ -342,17 +342,23 @@ export async function addDatasetImages(id: string, files: File[]): Promise<Datas
   return data;
 }
 
-/** Replace the dataset's images with the faces cropped out of them. The photographs stay
- *  in the bucket; the dataset IS the crops afterwards. Cull them by starring an anchor and
- *  removing what scores low. */
+/** Crop the faces out of the given images (all of them when uris is omitted). saveAs keeps
+ *  the set's photographs and appends the crops instead of replacing them — Save vs Save As,
+ *  chosen once for the whole batch. The originals always stay in the bucket. Cull the output
+ *  by starring an anchor and removing what scores low. */
 export async function cropDatasetFaces(
   id: string,
-  opts: { largestOnly?: boolean } = {},
+  opts: { largestOnly?: boolean; uris?: string[]; saveAs?: boolean } = {},
 ): Promise<Dataset> {
   const { data } = await api.post<Dataset>(`/datasets/${id}/crop`, null, {
     // Defaults to every face. "Largest" in a group shot is only whoever stood closer to the
     // camera, and an unwanted crop is one click to remove.
-    params: { largest_only: opts.largestOnly ?? false },
+    params: {
+      largest_only: opts.largestOnly ?? false,
+      ...(opts.saveAs !== undefined ? { save_as: opts.saveAs } : {}),
+      ...(opts.uris ? { uris: opts.uris } : {}),
+    },
+    ...REPEAT_ARRAY_PARAMS,
   });
   return data;
 }
