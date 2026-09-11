@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, MenuItem, Radio, RadioGroup, Stack, TextField, Typography,
+  FormControlLabel, MenuItem, Radio, RadioGroup, Stack, Switch, TextField, Typography,
 } from "@mui/material";
 
-import { createTrainingJob, listTrainingJobs } from "../api/client";
+import { createTrainingJob, listDatasets, listTrainingJobs } from "../api/client";
 import { listRecipes } from "../api/ltx";
 import type { Character } from "../api/ltx";
-import type { TrainingJob } from "../api/types";
+import type { Dataset, TrainingJob } from "../api/types";
 import {
   apiErrorText, canTrain, characterProblem, defaultCharacterFor, defaultEpochs,
   defaultLoraName, estimatedMinutes, loraFilename, loraNameProblem, nameNeedsSanitising,
@@ -42,6 +42,7 @@ export default function TrainLoraDialog({
 }) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [character, setCharacter] = useState(defaultCharacterFor(defaultCharacter ?? ""));
   const [trigger, setTrigger] = useState("");
   const [triggerTouched, setTriggerTouched] = useState(false);
@@ -55,6 +56,14 @@ export default function TrainLoraDialog({
   // is the recipe's proven 1200 steps expressed for this set's size.
   const [epochs, setEpochs] = useState(defaultEpochs(imageKeys.length));
   const [publish, setPublish] = useState<"final" | "all">("final");
+  // ---- Dual character (wanly-api#102): a JOINT run, one LoRA trained on both characters'
+  // datasets at once. This is the structural fix for two-identity interference (R2: no
+  // strength setting recovers two-char identity) — NOT a way to stack two LoRAs, which is
+  // what recipes already do and which is exactly what loses both faces.
+  const [dual, setDual] = useState(false);
+  const [character2, setCharacter2] = useState("");
+  const [gender2, setGender2] = useState<"" | "woman" | "man" | "person">("");
+  const [dataset2Id, setDataset2Id] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -64,6 +73,7 @@ export default function TrainLoraDialog({
   useEffect(() => {
     listRecipes().then((b) => setCharacters(b.characters)).catch(() => {});
     listTrainingJobs().then(setJobs).catch(() => {});
+    listDatasets().then(setDatasets).catch(() => {});
   }, []);
 
   // The trigger and the filename follow the character until the user EDITS them -- tracked
@@ -80,13 +90,28 @@ export default function TrainLoraDialog({
     if (!versionTouched) setVersion(nextVersion(character, jobs, characters));
   }, [character, jobs, characters, versionTouched]);
 
+  // The second trigger follows the second character — an existing character lends its
+  // trigger, the same rule group 0 uses. Deliberately NOT editable here: the registry
+  // owns the token pair, and a hand-typed token that differs from the caption would bind
+  // the face to nothing.
+  const known2 = characters.find((c) => c.name.toLowerCase() === character2.trim().toLowerCase());
+  const trigger2 = known2?.trigger ?? character2;
+
   const eligible = canTrain(imageKeys);
   const nameProblem = characterProblem(character.trim());
   const fileProblem = loraNameProblem(loraName.trim());
   const known = characters.find((c) => c.name.toLowerCase() === character.trim().toLowerCase());
   const steps = stepsForEpochs(epochs, imageKeys.length);
-  const stepsProblem = steps > 6000
-    ? `${steps} steps is over the 6000 the trainer accepts — fewer epochs`
+  // A joint run's steps are the TOTAL across both datasets, so the same epochs value
+  // means fewer passes per image. Scaled here so the default stays the recipe's proven
+  // passes-per-image, and the caption states both sets.
+  const jointImages = imageKeys.length + (datasets.find((d) => d.id === dataset2Id)?.images.length ?? 0);
+  const jointEpochs = dual && jointImages > imageKeys.length
+    ? Math.max(1, Math.round(epochs * jointImages / Math.max(1, imageKeys.length)))
+    : epochs;
+  const jointSteps = stepsForEpochs(jointEpochs, jointImages);
+  const stepsProblem = (dual ? jointSteps : steps) > 6000
+    ? `${dual ? jointSteps : steps} steps is over the 6000 the trainer accepts — fewer epochs`
     : null;
 
   const submit = async () => {
@@ -97,13 +122,21 @@ export default function TrainLoraDialog({
         // The known row's exact spelling, so the finished LoRA lands on it rather than on a
         // new character that differs by case.
         character: known?.name ?? character.trim(),
-        trigger: trigger.trim(), version, steps,
+        trigger: trigger.trim(), version, steps: jointSteps,
         lora_name: loraName.trim() || defaultLoraName(character),
         gender: gender || undefined,
         publish,
         // A dataset reference when there is one, so the run records where its images came
         // from; a bare list otherwise, for an ad-hoc selection in the Image Repo.
         ...(datasetId ? { dataset_id: datasetId } : { dataset_images: imageKeys }),
+        // ALL FIELDS OR NONE: the API refuses a half-given second identity, because a
+        // trigger with no images builds a half-configured dataset silently.
+        ...(dual && known2 ? {
+          second_character: known2.name,
+          second_trigger: trigger2.trim(),
+          second_gender: (gender2 || undefined),
+          second_dataset_id: dataset2Id ?? undefined,
+        } : {}),
       });
       onQueued(job.id);
       onClose();
@@ -192,8 +225,11 @@ export default function TrainLoraDialog({
               error={stepsProblem !== null}
               helperText={
                 stepsProblem
-                  ?? `${steps} steps (${imageKeys.length} images × 10 repeats × ${epochs}) — ` +
-                     `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch`
+                  ?? (dual
+                    ? `${jointSteps} steps (${jointImages} images across both datasets × ${jointEpochs} epochs) — ` +
+                      `about ${estimatedMinutes(jointSteps)} min on the 3090, one checkpoint per epoch`
+                    : `${steps} steps (${imageKeys.length} images × 10 repeats × ${epochs}) — ` +
+                      `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch`)
               }
               slotProps={{ htmlInput: { min: 1 } }}
               sx={{ flex: 1 }}
@@ -237,6 +273,81 @@ export default function TrainLoraDialog({
               to. Nothing else goes in the caption.
             </Alert>
           </Box>
+
+          <Box>
+            <FormControlLabel
+              control={<Switch size="small" checked={dual}
+                onChange={(e) => setDual(e.target.checked)} />}
+              label={
+                <Typography variant="body2">
+                  Dual character — train ONE LoRA on a second identity's dataset too
+                </Typography>
+              }
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+              For shots where two recurring characters share the frame: the joint LoRA
+              learns both identities TOGETHER, which is the fix for the identity loss two
+              stacked LoRAs show (each works alone, both together lose both faces). Not a
+              way to stack two existing LoRAs — recipes already do that.
+            </Typography>
+          </Box>
+
+          {dual && (
+            <Stack spacing={2} sx={{ pl: 1, borderLeft: 2, borderColor: "divider" }}>
+              <Autocomplete
+                freeSolo
+                options={characters.map((c) => c.name)}
+                inputValue={character2}
+                onInputChange={(_e, v) => setCharacter2(v)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Second character"
+                    helperText={known2
+                      ? ` joint LoRA learns ${known2.name} too.`
+                      : "The second identity. Pick an existing character."}
+                    fullWidth
+                  />
+                )}
+              />
+              <TextField
+                select
+                label="Second dataset"
+                value={dataset2Id ?? ""}
+                onChange={(e) => {
+                  setDataset2Id(e.target.value || null);
+                }}
+                helperText={
+                  dataset2Id
+                    ? `${datasets.find((d) => d.id === dataset2Id)?.images.length ?? "?"} images`
+                    : "The second identity's images. NOT the same dataset as above — one file cannot caption two triggers."
+                }
+                fullWidth
+              >
+                {datasets.filter((d) => d.id !== datasetId).map((d) => (
+                  <MenuItem key={d.id} value={d.id}>{d.name} ({d.images.length})</MenuItem>
+                ))}
+              </TextField>
+              <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+                <TextField
+                  select
+                  label="Second gender"
+                  value={gender2}
+                  onChange={(e) => setGender2(e.target.value as typeof gender2)}
+                  sx={{ width: 160 }}
+                >
+                  <MenuItem value="woman">woman</MenuItem>
+                  <MenuItem value="man">man</MenuItem>
+                  <MenuItem value="person">person</MenuItem>
+                </TextField>
+                <Alert severity={gender2 ? "info" : "warning"} sx={{ flex: 1 }}>
+                  The second dataset's images are captioned exactly{" "}
+                  <strong>“{trigger2.trim() || "trigger2"}, {gender2 || "…"}”</strong> —
+                  its own pair, never group one's.
+                </Alert>
+              </Box>
+            </Stack>
+          )}
         </Stack>
       </DialogContent>
       <DialogActions>
