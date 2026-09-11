@@ -38,6 +38,7 @@ import {
   ContentCut,
   CreateNewFolder,
   Delete,
+  DeleteOutline,
   DriveFileMove,
   Favorite,
   LabelOff,
@@ -60,6 +61,7 @@ import {
   getImageJobs,
   deleteImage,
   createImageFolder,
+  deleteImageFolder,
   uploadImage,
   moveImages,
   getFavorites,
@@ -71,7 +73,7 @@ import {
   searchImages,
   getImageTagCounts,
 } from "../api/client";
-import type { ImageFolder, ImageFile, ImageJobInfo, TagCount } from "../api/types";
+import type { FolderInUse, ImageFolder, ImageFile, ImageJobInfo, TagCount } from "../api/types";
 import { shouldAutoDescribe } from "../lib/autoDescribe";
 import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
@@ -88,6 +90,7 @@ import {
   toggleTag,
 } from "../lib/tagFilter";
 import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
+import { parseFolderInUse } from "../lib/folderDeleteConflict";
 
 const FOLDER_ROWS_OPTIONS = [12, 24, 48];
 const DEFAULT_FOLDER_ROWS = 12;
@@ -115,6 +118,7 @@ export default function ImageRepo() {
   const [loading, setLoading] = useState(true);
   const [lightboxImage, setLightboxImage] = useState<ImageFile | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ImageFile | null>(null);
+  const [folderDelete, setFolderDelete] = useState<{ name: string; conflict: FolderInUse | null } | null>(null);
   const [inUse, setInUse] = useState<{ image: ImageFile; conflict: ImageInUse } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobDialogOpen, setJobDialogOpen] = useState(false);
@@ -423,6 +427,29 @@ export default function ImageRepo() {
       }
     }
     setDeleteConfirm(null);
+  };
+
+  const handleFolderDeleteConfirm = async (force = false) => {
+    if (!folderDelete) return;
+    try {
+      await deleteImageFolder(folderDelete.name, force);
+      // The folder and its images are gone: drop the folder card, and the in-folder view
+      // if this one was open.
+      setFolders((prev) => prev.filter((f) => f.name !== folderDelete.name));
+      if (currentFolder === folderDelete.name) {
+        setQuery({ folder: null });
+        setImages([]);
+      }
+      setFolderDelete(null);
+    } catch (e: unknown) {
+      const conflict = parseFolderInUse(e);
+      if (conflict) {
+        setFolderDelete({ ...folderDelete, conflict });
+      } else {
+        setError("Could not delete folder");
+        setFolderDelete(null);
+      }
+    }
   };
 
   const handleOpenLightbox = (image: ImageFile) => {
@@ -1018,6 +1045,59 @@ export default function ImageRepo() {
           <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
           <Button color="error" variant="contained" onClick={() => handleDeleteConfirm()}>
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Folder delete: everything in the directory is deleted and unrecoverable (wanly-api#311). */}
+      <Dialog
+        open={!!folderDelete}
+        onClose={() => setFolderDelete(null)}
+        fullScreen={isMobile}
+      >
+        <DialogTitle>Delete Folder?</DialogTitle>
+        <DialogContent>
+          {folderDelete?.conflict ? (
+            <>
+              <Typography variant="body2" gutterBottom>
+                <strong>{folderDelete.conflict.referencedCount}</strong> of{" "}
+                <strong>{folderDelete.conflict.imageCount}</strong> images in{" "}
+                <strong>{folderDelete.name}</strong> are still referenced. Deleting anyway
+                leaves those pointing at files that no longer exist.
+              </Typography>
+              {Object.entries(folderDelete.conflict.paths).slice(0, 5).map(([path, holders]) => (
+                <Typography key={path} variant="caption" sx={{ display: "block", wordBreak: "break-all" }}>
+                  {path.split("/").pop()} — {holders.jobIds.length} job(s), {holders.segmentIds.length} segment(s), {holders.datasetIds.length} dataset(s)
+                </Typography>
+              ))}
+              {Object.keys(folderDelete.conflict.paths).length > 5 && (
+                <Typography variant="caption" color="text.secondary">
+                  …and {Object.keys(folderDelete.conflict.paths).length - 5} more
+                </Typography>
+              )}
+              <Typography variant="body2" sx={{ mt: 2 }}>
+                Are you sure? This cannot be undone.
+              </Typography>
+            </>
+          ) : (
+            <>
+              <Typography variant="body2" gutterBottom>
+                All items in <strong>{folderDelete?.name}</strong> will be deleted. This
+                cannot be undone — anything still referencing these images will 404 when a
+                worker picks it up.
+              </Typography>
+              <Typography variant="body2">Are you sure?</Typography>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFolderDelete(null)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => handleFolderDeleteConfirm(!!folderDelete?.conflict)}
+          >
+            {folderDelete?.conflict ? "Delete Anyway" : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1703,10 +1783,21 @@ export default function ImageRepo() {
                       <Typography color="text.disabled">No images</Typography>
                     </Box>
                   )}
-                  <Box sx={{ p: 1.5 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                  <Box sx={{ p: 1.5, display: "flex", alignItems: "center" }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1 }}>
                       {folder.name}
                     </Typography>
+                    <IconButton
+                      size="small"
+                      aria-label={`Delete folder ${folder.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFolderDelete({ name: folder.name, conflict: null });
+                      }}
+                      sx={{ opacity: isMobile ? 1 : 0.5, "&:hover": { opacity: 1 } }}
+                    >
+                      <DeleteOutline fontSize="small" />
+                    </IconButton>
                   </Box>
                 </CardActionArea>
               </Card>

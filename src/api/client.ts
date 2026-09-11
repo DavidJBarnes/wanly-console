@@ -518,6 +518,16 @@ export async function createImageFolder(name: string): Promise<{ name: string }>
   return data;
 }
 
+/** Delete an image folder. Everything in it is deleted and is unrecoverable; refused
+ *  with 409 and the holding job/segment/dataset ids when any image is still referenced —
+ *  pass force to delete anyway and accept the dangling references. */
+export async function deleteImageFolder(name: string, force = false): Promise<{ deleted: number }> {
+  const { data } = await api.delete("/images/folder", {
+    params: force ? { name, force: true } : { name },
+  });
+  return data;
+}
+
 export async function moveImages(keys: string[], targetFolder: string): Promise<{ moved: number }> {
   const { data } = await api.post<{ moved: number }>("/images/move", {
     keys,

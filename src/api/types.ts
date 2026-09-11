@@ -585,6 +585,14 @@ export interface ImageFolder {
   created_at: string | null;
 }
 
+/** The 409 from DELETE /images/folder: every image still referenced, with its holders. */
+export interface FolderInUse {
+  folder: string;
+  imageCount: number;
+  referencedCount: number;
+  paths: Record<string, { jobIds: string[]; segmentIds: string[]; datasetIds: string[] }>;
+}
+
 export interface ImageFile {
   key: string;
   path: string;
