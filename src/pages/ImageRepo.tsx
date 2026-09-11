@@ -1433,7 +1433,7 @@ export default function ImageRepo() {
           <Box sx={{ flex: 1 }} />
           <TextField
             size="small"
-            placeholder="Search by filename…"
+            placeholder="Search by filename or description…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             slotProps={{
@@ -1824,7 +1824,7 @@ export default function ImageRepo() {
         <Box sx={{ flex: 1 }} />
         <TextField
           size="small"
-          placeholder="Search by filename…"
+          placeholder="Search by filename or description…"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           slotProps={{
