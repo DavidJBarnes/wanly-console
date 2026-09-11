@@ -11,7 +11,7 @@ import type { Dataset, TrainingJob } from "../api/types";
 import {
   apiErrorText, canTrain, characterProblem, defaultCharacterFor, defaultEpochs,
   defaultLoraName, estimatedMinutes, loraFilename, loraNameProblem, nameNeedsSanitising,
-  nextVersion, stepsForEpochs, stepsPerEpoch,
+  nextVersion, stepsForEpochs,
 } from "../lib/trainingJob";
 
 /**
@@ -102,16 +102,16 @@ export default function TrainLoraDialog({
   const fileProblem = loraNameProblem(loraName.trim());
   const known = characters.find((c) => c.name.toLowerCase() === character.trim().toLowerCase());
   const steps = stepsForEpochs(epochs, imageKeys.length);
-  // A joint run's steps are the TOTAL across both datasets: the Epochs field means whole
-  // passes over EVERY image in both sets — the same semantics as a single run, no scaling
-  // surprise. 5 epochs over 105 joint images is 5250 steps. The cap bites sooner than a
-  // single run does, so the helper states the max that fits.
+  // A joint run's steps are the TOTAL across both datasets, so the same epochs value
+  // means fewer passes per image. Scaled here so the default stays the recipe's proven
+  // passes-per-image, and the caption states both sets.
   const jointImages = imageKeys.length + (datasets.find((d) => d.id === dataset2Id)?.images.length ?? 0);
-  const jointSteps = stepsForEpochs(epochs, jointImages);
-  const maxJointEpochs = Math.max(1, Math.floor(6000 / stepsPerEpoch(jointImages)));
+  const jointEpochs = dual && jointImages > imageKeys.length
+    ? Math.max(1, Math.round(epochs * jointImages / Math.max(1, imageKeys.length)))
+    : epochs;
+  const jointSteps = stepsForEpochs(jointEpochs, jointImages);
   const stepsProblem = (dual ? jointSteps : steps) > 6000
-    ? `${dual ? jointSteps : steps} steps is over the 6000 the trainer accepts — at most ` +
-      `${maxJointEpochs} epoch${maxJointEpochs === 1 ? "" : "s"} over ${jointImages} joint images`
+    ? `${dual ? jointSteps : steps} steps is over the 6000 the trainer accepts — fewer epochs`
     : null;
 
   const submit = async () => {
@@ -226,7 +226,7 @@ export default function TrainLoraDialog({
               helperText={
                 stepsProblem
                   ?? (dual
-                    ? `${jointSteps} steps (${jointImages} images across both datasets × ${epochs} epochs) — ` +
+                    ? `${jointSteps} steps (${jointImages} images across both datasets × ${jointEpochs} epochs) — ` +
                       `about ${estimatedMinutes(jointSteps)} min on the 3090, one checkpoint per epoch`
                     : `${steps} steps (${imageKeys.length} images × 10 repeats × ${epochs}) — ` +
                       `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch`)
@@ -277,20 +277,7 @@ export default function TrainLoraDialog({
           <Box>
             <FormControlLabel
               control={<Switch size="small" checked={dual}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setDual(on);
-                  // Turning dual on shrinks how far the epoch count goes: the steps are
-                  // the TOTAL across both datasets, and the 6000-step cap bites sooner.
-                  // Clamp the default so the button survives the toggle (the proven ~5
-                  // passes over a 105-164 image joint set does not fit; fewer does).
-                  if (on) {
-                    const ji = imageKeys.length
-                      + (datasets.find((d) => d.id === dataset2Id)?.images.length ?? 0);
-                    const maxE = Math.max(1, Math.floor(6000 / stepsPerEpoch(ji)));
-                    setEpochs((prev) => Math.min(prev, maxE));
-                  }
-                }} />}
+                onChange={(e) => setDual(e.target.checked)} />}
               label={
                 <Typography variant="body2">
                   Dual character — train ONE LoRA on a second identity's dataset too
