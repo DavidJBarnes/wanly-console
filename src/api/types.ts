@@ -529,6 +529,16 @@ export interface TrainingCreate {
   /** Which checkpoints to upload as they are written. Final only by default: a checkpoint
    *  takes ~18 minutes to leave the 3090 and most epochs go unused. */
   publish?: "final" | "all";
+  /** A SECOND identity, making this a JOINT run (wanly-api#102): one LoRA trained on
+   *  both characters' datasets at once, the structural fix for two-identity interference
+   *  (R2: no strength setting recovers two-char identity). All fields or none. */
+  second_character?: string;
+  second_trigger?: string;
+  second_gender?: Gender;
+  second_dataset_id?: string;
+  second_dataset_images?: string[];
+  second_num_repeats?: number;
+  second_caption?: string | null;
 }
 
 export interface WildcardResponse {
