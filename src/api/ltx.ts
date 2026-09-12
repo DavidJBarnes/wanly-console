@@ -115,6 +115,31 @@ export const TRIGGER2_PLACEHOLDER = "<TRIGGER2>";
 export const TRIGGER_PLACEHOLDERS = [TRIGGER_PLACEHOLDER, TRIGGER2_PLACEHOLDER] as const;
 export const MAX_CHARACTERS = TRIGGER_PLACEHOLDERS.length;
 
+/** A JOINT character (wanly-api#102) carries BOTH identities in one trigger, joined by
+ *  this. The render splits it back apart so each pair fills its own placeholder.
+ *
+ *  " and ", not "&": the phrase reaches the text encoder as tokens, and the captions a
+ *  joint run trains on never contained "&" — out of distribution in the exact place the
+ *  binding happens. Mirrors `JOINT_SEPARATOR` in wanly-api's app/recipe_blob.py. */
+export const JOINT_SEPARATOR = " and ";
+
+/** One phrase per identity. A joint character's phrase carries two, joined by the
+ *  separator; a single phrase comes back as a one-element list.
+ *
+ *  A COMMA IS REQUIRED on top of the separator: the joint phrase is built from caption
+ *  pairs ("<trigger>, <gender>"), so it always carries one, and requiring it means a
+ *  plain trigger that happens to contain " and " is not mangled. Mirrors the API. */
+export function splitJointPhrase(phrase: string): string[] {
+  if (!phrase || !phrase.includes(",")) return [phrase];
+  for (const sep of [JOINT_SEPARATOR, " & "]) {
+    if (phrase.includes(sep)) {
+      const parts = phrase.split(sep).map((p) => p.trim()).filter(Boolean);
+      if (parts.length > 1) return parts;
+    }
+  }
+  return [phrase];
+}
+
 export function isTwoPersonPose(template: string | null | undefined): boolean {
   return (template ?? "").includes(TRIGGER2_PLACEHOLDER);
 }
@@ -124,13 +149,21 @@ export function isTwoPersonPose(template: string | null | undefined): boolean {
  *  The API does this too, before wildcard resolution — doing it here as well
  *  means the user SEES the prompt that will actually render rather than a
  *  template, which matters because the prompt is editable. A single string is the
- *  one-person shorthand. A slot that is not given is left as its placeholder. */
+ *  one-person shorthand. A slot that is not given is left as its placeholder.
+ *
+ *  A JOINT character (#102) carries two caption pairs in one trigger. When the pose has a
+ *  second placeholder its phrase is SPLIT, so each pair fills its own — the pose's
+ *  per-person sentences then put each trigger next to its person. A one-person pose keeps
+ *  the whole phrase in <TRIGGER>: splitting there would drop the second identity. */
 export function renderPrompt(template: string, triggers: string | string[]): string {
   const list = typeof triggers === "string" ? [triggers] : triggers;
+  const expanded = template.includes(TRIGGER2_PLACEHOLDER)
+    ? list.flatMap((t) => splitJointPhrase(t ?? ""))
+    : list;
   let out = template;
   let tidy = false;
   TRIGGER_PLACEHOLDERS.forEach((placeholder, i) => {
-    const trigger = list[i];
+    const trigger = expanded[i];
     if (trigger === undefined) return;
     out = out.split(placeholder).join(trigger);
     if (!trigger) tidy = true;
