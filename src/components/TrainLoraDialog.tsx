@@ -14,6 +14,9 @@ import {
   nextVersion, stepsForEpochs, stepsPerEpoch,
 } from "../lib/trainingJob";
 
+/** The trainer's total-step ceiling (mirrors wanly-api's TrainingCreate.steps). */
+const STEP_CAP = 30000;
+
 /** An extra training group (wanly-api#102, #106).
  *
  *  "identity" is another character's set — its caption is "<trigger>, <gender>", the same
@@ -140,12 +143,12 @@ export default function TrainLoraDialog({
   const steps = stepsForEpochs(epochs, imageKeys.length);
   // A joint run's steps are the TOTAL across every dataset: the Epochs field means whole
   // passes over EVERY image — the same semantics as a single run, no scaling surprise. The
-  // 6000-step cap bites sooner, so the helper states the max that fits.
+  // The step cap bites sooner with more groups, so the helper states the max that fits.
   const groupImages = groups.reduce(
     (n, g) => n + (datasets.find((d) => d.id === g.datasetId)?.images.length ?? 0), 0);
   const jointImages = imageKeys.length + groupImages;
   const jointSteps = stepsForEpochs(epochs, jointImages);
-  const maxJointEpochs = Math.max(1, Math.floor(6000 / stepsPerEpoch(jointImages)));
+  const maxJointEpochs = Math.max(1, Math.floor(STEP_CAP / stepsPerEpoch(jointImages)));
   const isJoint = groups.length > 0;
   // A group is unusable without a dataset, and an identity group also needs a character
   // and a gender; a composition group needs its caption. The API refuses all three, so the
@@ -154,8 +157,8 @@ export default function TrainLoraDialog({
     || (g.kind === "identity"
       ? (!g.character.trim() || g.gender === "")
       : !g.caption.trim()));
-  const stepsProblem = (isJoint ? jointSteps : steps) > 6000
-    ? `${isJoint ? jointSteps : steps} steps is over the 6000 the trainer accepts — at most ` +
+  const stepsProblem = (isJoint ? jointSteps : steps) > STEP_CAP
+    ? `${isJoint ? jointSteps : steps} steps is over the ${STEP_CAP} the trainer accepts — at most ` +
       `${maxJointEpochs} epoch${maxJointEpochs === 1 ? "" : "s"} over ${jointImages} images`
     : null;
 
