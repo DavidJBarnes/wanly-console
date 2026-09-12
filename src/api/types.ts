@@ -529,16 +529,19 @@ export interface TrainingCreate {
   /** Which checkpoints to upload as they are written. Final only by default: a checkpoint
    *  takes ~18 minutes to leave the 3090 and most epochs go unused. */
   publish?: "final" | "all";
-  /** A SECOND identity, making this a JOINT run (wanly-api#102): one LoRA trained on
-   *  both characters' datasets at once, the structural fix for two-identity interference
-   *  (R2: no strength setting recovers two-char identity). All fields or none. */
-  second_character?: string;
-  second_trigger?: string;
-  second_gender?: Gender;
-  second_dataset_id?: string;
-  second_dataset_images?: string[];
-  second_num_repeats?: number;
-  second_caption?: string | null;
+  /** ADDITIONAL training groups (wanly-api#102, #106). An identity group gives a
+   *  character/trigger/gender and is captioned "<trigger>, <gender>"; a composition group
+   *  has NO trigger and a free `caption` naming the people in its frames — the group that
+   *  teaches the model both characters appear together. */
+  identities?: {
+    character?: string;
+    trigger?: string;
+    gender?: Gender;
+    caption?: string;
+    dataset_id?: string;
+    dataset_images?: string[];
+    num_repeats?: number;
+  }[];
 }
 
 export interface WildcardResponse {
