@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, MenuItem, Radio, RadioGroup, Stack, Switch, TextField, Typography,
+  FormControlLabel, MenuItem, Radio, RadioGroup, Stack, TextField, Typography,
 } from "@mui/material";
 
 import { createTrainingJob, listDatasets, listTrainingJobs } from "../api/client";
@@ -13,6 +13,20 @@ import {
   defaultLoraName, estimatedMinutes, loraFilename, loraNameProblem, nameNeedsSanitising,
   nextVersion, stepsForEpochs, stepsPerEpoch,
 } from "../lib/trainingJob";
+
+/** An extra training group (wanly-api#102, #106).
+ *
+ *  "identity" is another character's set — its caption is "<trigger>, <gender>", the same
+ *  shape group 0 uses. "composition" is frames containing BOTH characters, captioned with
+ *  both triggers; that is the group that teaches the model the identities appear TOGETHER,
+ *  which solo sets alone cannot. */
+type ExtraGroup = {
+  kind: "identity" | "composition";
+  character: string;
+  datasetId: string | null;
+  gender: "" | "woman" | "man" | "person";
+  caption: string;
+};
 
 /**
  * Queue a character-LoRA training run from the images selected in the repo (#454).
@@ -56,14 +70,12 @@ export default function TrainLoraDialog({
   // is the recipe's proven 1200 steps expressed for this set's size.
   const [epochs, setEpochs] = useState(defaultEpochs(imageKeys.length));
   const [publish, setPublish] = useState<"final" | "all">("final");
-  // ---- Dual character (wanly-api#102): a JOINT run, one LoRA trained on both characters'
-  // datasets at once. This is the structural fix for two-identity interference (R2: no
-  // strength setting recovers two-char identity) — NOT a way to stack two LoRAs, which is
-  // what recipes already do and which is exactly what loses both faces.
-  const [dual, setDual] = useState(false);
-  const [character2, setCharacter2] = useState("");
-  const [gender2, setGender2] = useState<"" | "woman" | "man" | "person">("");
-  const [dataset2Id, setDataset2Id] = useState<string | null>(null);
+  // ---- Additional groups (wanly-api#102, #106): one LoRA trained on several datasets at
+  // once. An IDENTITY group is another character's set; a COMPOSITION group is frames
+  // containing BOTH characters, captioned with both triggers -- the group that teaches the
+  // model they appear together (#106), which solo sets alone cannot. NOT a way to stack
+  // LoRAs, which is what recipes already do and what loses both faces.
+  const [groups, setGroups] = useState<ExtraGroup[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -90,28 +102,61 @@ export default function TrainLoraDialog({
     if (!versionTouched) setVersion(nextVersion(character, jobs, characters));
   }, [character, jobs, characters, versionTouched]);
 
-  // The second trigger follows the second character — an existing character lends its
-  // trigger, the same rule group 0 uses. Deliberately NOT editable here: the registry
-  // owns the token pair, and a hand-typed token that differs from the caption would bind
-  // the face to nothing.
-  const known2 = characters.find((c) => c.name.toLowerCase() === character2.trim().toLowerCase());
-  const trigger2 = known2?.trigger ?? character2;
+  // A group's trigger follows its character — an existing character lends its trigger, the
+  // same rule group 0 uses. Deliberately NOT editable: the registry owns the token pair,
+  // and a hand-typed token that differs from the caption would bind the face to nothing.
+  const groupTrigger = (g: ExtraGroup): string => {
+    const known = characters.find(
+      (c) => c.name.toLowerCase() === g.character.trim().toLowerCase());
+    return known?.trigger ?? g.character.trim();
+  };
+  // What the composition caption defaults to: every identity pair in the run, joined the
+  // way the published trigger phrase is. The user can edit it.
+  const identityPairs = (): string[] => {
+    const pairs: string[] = [];
+    const add = (t: string, gen: string) => {
+      if (!t) return;
+      const p = gen ? `${t}, ${gen}` : t;
+      if (!pairs.includes(p)) pairs.push(p);
+    };
+    add(trigger.trim(), gender);
+    for (const g of groups) {
+      if (g.kind === "identity") add(groupTrigger(g), g.gender);
+    }
+    return pairs;
+  };
+  const setGroup = (i: number, patch: Partial<ExtraGroup>) =>
+    setGroups((prev) => prev.map((g, j) => (j === i ? { ...g, ...patch } : g)));
+  const addGroup = (kind: ExtraGroup["kind"]) =>
+    setGroups((prev) => [...prev, {
+      kind, character: "", datasetId: null, gender: "",
+      caption: kind === "composition" ? identityPairs().join(" and ") : "",
+    }]);
 
   const eligible = canTrain(imageKeys);
   const nameProblem = characterProblem(character.trim());
   const fileProblem = loraNameProblem(loraName.trim());
   const known = characters.find((c) => c.name.toLowerCase() === character.trim().toLowerCase());
   const steps = stepsForEpochs(epochs, imageKeys.length);
-  // A joint run's steps are the TOTAL across both datasets: the Epochs field means whole
-  // passes over EVERY image in both sets — the same semantics as a single run, no scaling
-  // surprise. 5 epochs over 105 joint images is 5250 steps. The cap bites sooner than a
-  // single run does, so the helper states the max that fits.
-  const jointImages = imageKeys.length + (datasets.find((d) => d.id === dataset2Id)?.images.length ?? 0);
+  // A joint run's steps are the TOTAL across every dataset: the Epochs field means whole
+  // passes over EVERY image — the same semantics as a single run, no scaling surprise. The
+  // 6000-step cap bites sooner, so the helper states the max that fits.
+  const groupImages = groups.reduce(
+    (n, g) => n + (datasets.find((d) => d.id === g.datasetId)?.images.length ?? 0), 0);
+  const jointImages = imageKeys.length + groupImages;
   const jointSteps = stepsForEpochs(epochs, jointImages);
   const maxJointEpochs = Math.max(1, Math.floor(6000 / stepsPerEpoch(jointImages)));
-  const stepsProblem = (dual ? jointSteps : steps) > 6000
-    ? `${dual ? jointSteps : steps} steps is over the 6000 the trainer accepts — at most ` +
-      `${maxJointEpochs} epoch${maxJointEpochs === 1 ? "" : "s"} over ${jointImages} joint images`
+  const isJoint = groups.length > 0;
+  // A group is unusable without a dataset, and an identity group also needs a character
+  // and a gender; a composition group needs its caption. The API refuses all three, so the
+  // button says so first rather than round-tripping to a 422.
+  const groupsProblem = groups.some((g) => !g.datasetId
+    || (g.kind === "identity"
+      ? (!g.character.trim() || g.gender === "")
+      : !g.caption.trim()));
+  const stepsProblem = (isJoint ? jointSteps : steps) > 6000
+    ? `${isJoint ? jointSteps : steps} steps is over the 6000 the trainer accepts — at most ` +
+      `${maxJointEpochs} epoch${maxJointEpochs === 1 ? "" : "s"} over ${jointImages} images`
     : null;
 
   const submit = async () => {
@@ -129,13 +174,21 @@ export default function TrainLoraDialog({
         // A dataset reference when there is one, so the run records where its images came
         // from; a bare list otherwise, for an ad-hoc selection in the Image Repo.
         ...(datasetId ? { dataset_id: datasetId } : { dataset_images: imageKeys }),
-        // ALL FIELDS OR NONE: the API refuses a half-given second identity, because a
-        // trigger with no images builds a half-configured dataset silently.
-        ...(dual && known2 ? {
-          second_character: known2.name,
-          second_trigger: trigger2.trim(),
-          second_gender: (gender2 || undefined),
-          second_dataset_id: dataset2Id ?? undefined,
+        // EVERY GROUP OR NONE: the API refuses a group with a trigger but no images, or a
+        // composition group with no caption — both build a half-configured dataset silently.
+        ...(groups.length ? {
+          identities: groups.map((g) => g.kind === "identity" ? {
+            character: characters.find(
+              (c) => c.name.toLowerCase() === g.character.trim().toLowerCase())?.name
+              ?? g.character.trim(),
+            trigger: groupTrigger(g),
+            gender: g.gender || undefined,
+            dataset_id: g.datasetId ?? undefined,
+          } : {
+            // No trigger: the caption names the people in the frames.
+            caption: g.caption.trim(),
+            dataset_id: g.datasetId ?? undefined,
+          }),
         } : {}),
       });
       onQueued(job.id);
@@ -225,8 +278,8 @@ export default function TrainLoraDialog({
               error={stepsProblem !== null}
               helperText={
                 stepsProblem
-                  ?? (dual
-                    ? `${jointSteps} steps (${jointImages} images across both datasets × ${epochs} epochs) — ` +
+                  ?? (isJoint
+                    ? `${jointSteps} steps (${jointImages} images across every group × ${epochs} epochs) — ` +
                       `about ${estimatedMinutes(jointSteps)} min on the 3090, one checkpoint per epoch`
                     : `${steps} steps (${imageKeys.length} images × 10 repeats × ${epochs}) — ` +
                       `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch`)
@@ -275,92 +328,120 @@ export default function TrainLoraDialog({
           </Box>
 
           <Box>
-            <FormControlLabel
-              control={<Switch size="small" checked={dual}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setDual(on);
-                  // Turning dual on shrinks how far the epoch count goes: the steps are
-                  // the TOTAL across both datasets, and the 6000-step cap bites sooner.
-                  // Clamp the default so the button survives the toggle (the proven ~5
-                  // passes over a 105-164 image joint set does not fit; fewer does).
-                  if (on) {
-                    const ji = imageKeys.length
-                      + (datasets.find((d) => d.id === dataset2Id)?.images.length ?? 0);
-                    const maxE = Math.max(1, Math.floor(6000 / stepsPerEpoch(ji)));
-                    setEpochs((prev) => Math.min(prev, maxE));
-                  }
-                }} />}
-              label={
-                <Typography variant="body2">
-                  Dual character — train ONE LoRA on a second identity's dataset too
-                </Typography>
-              }
-            />
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-              For shots where two recurring characters share the frame: the joint LoRA
-              learns both identities TOGETHER, which is the fix for the identity loss two
-              stacked LoRAs show (each works alone, both together lose both faces). Not a
-              way to stack two existing LoRAs — recipes already do that.
+            <Typography variant="body2" sx={{ mb: 0.5 }}>
+              Additional groups — train ONE LoRA on more datasets
             </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+              An <strong>identity</strong> group is another character's set. A{" "}
+              <strong>together</strong> group is frames containing BOTH characters, captioned
+              with both triggers — that is what teaches the model the two faces appear in
+              the same shot, which solo sets alone cannot. Not a way to stack two existing
+              LoRAs; recipes already do that.
+            </Typography>
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button size="small" variant="outlined" onClick={() => addGroup("identity")}>
+                Add identity
+              </Button>
+              <Button size="small" variant="outlined" onClick={() => addGroup("composition")}>
+                Add together (both in frame)
+              </Button>
+            </Box>
           </Box>
 
-          {dual && (
-            <Stack spacing={2} sx={{ pl: 1, borderLeft: 2, borderColor: "divider" }}>
-              <Autocomplete
-                freeSolo
-                options={characters.map((c) => c.name)}
-                inputValue={character2}
-                onInputChange={(_e, v) => setCharacter2(v)}
-                renderInput={(params) => (
+          {groups.map((g, i) => {
+            const gKnown = characters.find(
+              (c) => c.name.toLowerCase() === g.character.trim().toLowerCase());
+            const gImages = datasets.find((d) => d.id === g.datasetId)?.images.length;
+            const gTrigger = groupTrigger(g);
+            return (
+              <Stack key={i} spacing={2} sx={{ pl: 1, borderLeft: 2, borderColor: "divider" }}>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <Typography variant="subtitle2">
+                    {g.kind === "identity" ? `Identity ${i + 2}` : `Together ${i + 1}`}
+                  </Typography>
+                  <Button size="small" color="inherit"
+                    onClick={() => setGroups((prev) => prev.filter((_, j) => j !== i))}>
+                    Remove
+                  </Button>
+                </Box>
+
+                {g.kind === "identity" && (
+                  <Autocomplete
+                    freeSolo
+                    options={characters.map((c) => c.name)}
+                    inputValue={g.character}
+                    onInputChange={(_e, v) => setGroup(i, { character: v })}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Character"
+                        helperText={gKnown
+                          ? `Its trigger is “${gKnown.trigger}”.`
+                          : "An existing character; its registry trigger is used."}
+                        fullWidth
+                      />
+                    )}
+                  />
+                )}
+
+                <TextField
+                  select
+                  label="Dataset"
+                  value={g.datasetId ?? ""}
+                  onChange={(e) => setGroup(i, { datasetId: e.target.value || null })}
+                  helperText={
+                    g.datasetId
+                      ? `${gImages ?? "?"} images`
+                      : "This group's images. NOT the same dataset as another group — one file cannot carry two captions."
+                  }
+                  fullWidth
+                >
+                  {datasets.filter((d) => d.id !== datasetId
+                    && !groups.some((o, j) => j !== i && o.datasetId === d.id)).map((d) => (
+                    <MenuItem key={d.id} value={d.id}>{d.name} ({d.images.length})</MenuItem>
+                  ))}
+                </TextField>
+
+                {g.kind === "identity" ? (
+                  <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+                    <TextField
+                      select
+                      label="Gender"
+                      value={g.gender}
+                      onChange={(e) => setGroup(i, { gender: e.target.value as ExtraGroup["gender"] })}
+                      error={g.gender === ""}
+                      helperText={g.gender === "" ? "Required." : " "}
+                      sx={{ width: 160 }}
+                    >
+                      <MenuItem value="woman">woman</MenuItem>
+                      <MenuItem value="man">man</MenuItem>
+                      <MenuItem value="person">person</MenuItem>
+                    </TextField>
+                    <Alert severity={g.gender ? "info" : "warning"} sx={{ flex: 1 }}>
+                      Captioned exactly{" "}
+                      <strong>“{gTrigger || "trigger"}, {g.gender || "…"}”</strong> — its own
+                      pair, never another group's.
+                    </Alert>
+                  </Box>
+                ) : (
                   <TextField
-                    {...params}
-                    label="Second character"
-                    helperText={known2
-                      ? ` joint LoRA learns ${known2.name} too.`
-                      : "The second identity. Pick an existing character."}
+                    label="Caption"
+                    value={g.caption}
+                    onChange={(e) => setGroup(i, { caption: e.target.value })}
+                    error={!g.caption.trim()}
+                    helperText={
+                      g.caption.trim()
+                        ? "Every image in this group is captioned exactly this."
+                        : "Name both people, e.g. “p@yton, woman and d@vid, man” — with no trigger this caption is the only thing that names them."
+                    }
+                    multiline
+                    minRows={2}
                     fullWidth
                   />
                 )}
-              />
-              <TextField
-                select
-                label="Second dataset"
-                value={dataset2Id ?? ""}
-                onChange={(e) => {
-                  setDataset2Id(e.target.value || null);
-                }}
-                helperText={
-                  dataset2Id
-                    ? `${datasets.find((d) => d.id === dataset2Id)?.images.length ?? "?"} images`
-                    : "The second identity's images. NOT the same dataset as above — one file cannot caption two triggers."
-                }
-                fullWidth
-              >
-                {datasets.filter((d) => d.id !== datasetId).map((d) => (
-                  <MenuItem key={d.id} value={d.id}>{d.name} ({d.images.length})</MenuItem>
-                ))}
-              </TextField>
-              <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-                <TextField
-                  select
-                  label="Second gender"
-                  value={gender2}
-                  onChange={(e) => setGender2(e.target.value as typeof gender2)}
-                  sx={{ width: 160 }}
-                >
-                  <MenuItem value="woman">woman</MenuItem>
-                  <MenuItem value="man">man</MenuItem>
-                  <MenuItem value="person">person</MenuItem>
-                </TextField>
-                <Alert severity={gender2 ? "info" : "warning"} sx={{ flex: 1 }}>
-                  The second dataset's images are captioned exactly{" "}
-                  <strong>“{trigger2.trim() || "trigger2"}, {gender2 || "…"}”</strong> —
-                  its own pair, never group one's.
-                </Alert>
-              </Box>
-            </Stack>
-          )}
+              </Stack>
+            );
+          })}
         </Stack>
       </DialogContent>
       <DialogActions>
@@ -368,7 +449,7 @@ export default function TrainLoraDialog({
         <Button
           variant="contained"
           disabled={!eligible.ok || busy || nameProblem !== null || fileProblem !== null
-            || stepsProblem !== null || !trigger.trim() || gender === ""}
+            || stepsProblem !== null || groupsProblem || !trigger.trim() || gender === ""}
           onClick={submit}
         >
           {busy ? "Queueing…" : "Queue training"}
