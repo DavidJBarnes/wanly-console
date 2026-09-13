@@ -128,21 +128,13 @@ export default function RecipeForm({
 
   const [book, setBook] = useState<RecipeBook | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
-  // One entry per PERSON in the shot (console#473): the chosen character names in slot
-  // order, and the editable LoRA/strengths beside each. Slot 0 keeps its old accessors
-  // below so the one-person code reads as it always did; slot 1 exists only for a pose
-  // whose template names a second person.
+  // ONE character per render (console#473, post-#102): a joint LoRA carries every
+  // identity in its trigger phrase. The array shape stays (a list of one) so nothing
+  // downstream has to learn a second shape.
   const [characterNames, setCharacterNames] = useState<string[]>([""]);
   const characterName = characterNames[0] ?? "";
   const setCharacterName = (name: string) =>
     setCharacterNames((prev) => [name, ...prev.slice(1)]);
-  const setCharacterNameAt = (i: number, name: string) =>
-    setCharacterNames((prev) => {
-      const next = [...prev];
-      while (next.length <= i) next.push("");
-      next[i] = name;
-      return next;
-    });
   const [poseName, setPoseName] = useState("");
   const [start, setStart] = useState<StartFrame | null>(null);
   // <SCENE> preview (console#405). Only for a start frame already in S3: a freshly picked
@@ -211,16 +203,12 @@ export default function RecipeForm({
   // Poses are character-agnostic, so the list never changes with the character —
   // which is the point: a new LoRA gets every pose the moment it exists.
   const pose: Pose | null = poses.find((p) => p.name === poseName) ?? null;
-  // How many people this pose names: one, or two when its template uses <TRIGGER2>.
-  const nSlots = slotCount(pose);
-  const twoPerson = nSlots > 1;
+  // ONE slot, always (post-#102).
+  const nSlots = slotCount();
   const slotCharacters: (Character | null)[] = Array.from(
     { length: nSlots }, (_, i) => lookup(characterNames[i] ?? ""));
-  // Every slot is required to SUBMIT; an empty one must not blank the form in the
-  // meantime. Switching to a two-person pose used to leave the previous pose's prompt on
-  // screen and hide every LoRA row until the second character was picked, which read as
-  // the pose not having loaded. The filled slots render; an empty slot leaves its
-  // placeholder in the prompt where the missing person will go.
+  // The slot is required to SUBMIT; an empty one must not blank the form in the
+  // meantime.
   const slotsReady = slotCharacters.every((c) => c !== null);
   const filledSlots: (CharacterSlot | null)[] = slotCharacters.map((c, i) =>
     c ? { character: c, ...editAt(i) } : null);
@@ -595,22 +583,6 @@ export default function RecipeForm({
               Last, because it is the deliberate exception (console#412). */}
           <MenuItem value={NO_CHARACTER.name}><em>None — no character</em></MenuItem>
         </TextField>
-        {twoPerson && (
-          // Only for a pose whose template names a second person (<TRIGGER2>), and
-          // required then: the API refuses a two-person prompt with one character.
-          <TextField
-            select label="Second character" value={characterNames[1] ?? ""}
-            sx={{ flex: "1 1 180px", minWidth: 160 }} size={compact ? "small" : "medium"}
-            onChange={(e) => setCharacterNameAt(1, e.target.value)}
-            error={!characterNames[1]}
-            helperText={compact ? undefined : "This pose names two people."}
-          >
-            {(book?.characters ?? []).map((c) => (
-              <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>
-            ))}
-            <MenuItem value={NO_CHARACTER.name}><em>None — no character</em></MenuItem>
-          </TextField>
-        )}
         <TextField
           select label="Pose" value={poseName}
           sx={{ flex: "2 1 240px", minWidth: 200 }} size={compact ? "small" : "medium"}
