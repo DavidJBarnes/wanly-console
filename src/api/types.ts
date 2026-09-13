@@ -443,6 +443,18 @@ export interface TrainingJob {
   version: number;
   status: TrainingStatus;
   dataset_images: string[];
+  /** The extra groups (#102, #106), each with caption, repeats and provenance
+   *  ({character, trigger, gender, caption, images, num_repeats, dataset}). Absent for
+   *  single-identity runs. */
+  identities?: {
+    character?: string | null;
+    trigger?: string | null;
+    gender?: Gender | null;
+    caption?: string | null;
+    images?: string[];
+    num_repeats?: number | null;
+    dataset?: { id: string | null; name: string | null; count: number } | null;
+  }[] | null;
   config: Record<string, unknown>;
   worker_name: string | null;
   gpu_name: string | null;

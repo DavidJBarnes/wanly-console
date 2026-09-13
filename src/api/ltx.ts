@@ -95,6 +95,10 @@ export interface Character {
   strength_stage_2: number;
   /** A face for the LoRA: the anchor image of the dataset that trained it. */
   image_uri?: string | null;
+  /** Which datasets trained this LoRA (migration 099), group order. Snapshotted at
+   *  publish, so a later rename does not rewrite what trained. Null for characters that
+   *  predate it. */
+  trained_from?: { dataset_id: string | null; name: string | null; count: number }[] | null;
 }
 
 /** What fills a placeholder: the trigger AND the word its LoRA bound it to, exactly as
