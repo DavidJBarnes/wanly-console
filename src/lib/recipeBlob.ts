@@ -6,7 +6,7 @@
  * pure-logic only, so a blob with a right answer has to live outside a component to be
  * covered at all. A second person doubled the number of things that could drift.
  */
-import { NO_CHARACTER, TRIGGER_PLACEHOLDERS, triggerPhrase } from "../api/ltx";
+import { NO_CHARACTER, triggerPhrase } from "../api/ltx";
 import type { Character, Pose } from "../api/ltx";
 import type { LtxRecipeCharacter, LtxRecipeRef } from "../api/types";
 
@@ -110,8 +110,8 @@ export function jobName(pose: Pose, slots: CharacterSlot[]): string {
 
 /** How many character slots this pose has: one per placeholder its template uses, and at
  *  least one, so a pose with no placeholder still takes (and records) a character. */
-export function slotCount(pose: Pose | null): number {
-  if (!pose) return 1;
-  const used = TRIGGER_PLACEHOLDERS.filter((p) => pose.prompt_template.includes(p)).length;
-  return Math.max(1, used);
+export function slotCount(): number {
+  // ONE character per render, always (post-#102): a joint LoRA carries every identity.
+  // The two-person slot died with <TRIGGER2>. The pose argument is gone with it.
+  return 1;
 }
