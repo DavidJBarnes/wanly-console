@@ -22,6 +22,7 @@ import {
   Typography,
 } from "@mui/material";
 import { Add, ContentCopy, DeleteOutline, Edit } from "@mui/icons-material";
+import { Link } from "react-router";
 import {
   createCharacter,
   createPose,
@@ -630,6 +631,22 @@ function CharacterList({
                   {c.char_lora} · renders “{triggerPhrase(c)}” · stage 1 {c.strength_stage_1} ·
                   stage 2 {c.strength_stage_2}
                 </Typography>
+                {c.trained_from && c.trained_from.length > 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    Trained from:{" "}
+                    {c.trained_from.map((d, i) => (
+                      <span key={i}>
+                        {i > 0 && " · "}
+                        {d.dataset_id
+                          ? <Link to={`/datasets?dataset=${d.dataset_id}`}
+                              style={{ color: "inherit" }}>
+                              {d.name ?? "unnamed"} ({d.count})
+                            </Link>
+                          : `${d.name ?? "ad-hoc"} (${d.count})`}
+                      </span>
+                    ))}
+                  </Typography>
+                )}
               </Box>
               <Tooltip title="Edit">
                 <IconButton size="small" onClick={() => setEditing(c)}>

@@ -230,7 +230,19 @@ function TrainingRow({
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
           <Typography variant="h6">v{job.version}</Typography>
           <StatusChip status={job.status} />
-          <Chip size="small" variant="outlined" label={`${job.dataset_images.length} images`} />
+          <Tooltip
+            title={
+              // The joint total, per group: "Payton Synthetic (55) · Me Synthetic (50)".
+              [job.dataset_images.length && `${(job.config.dataset as {name?: string|null})?.name ?? "ad-hoc"} (${job.dataset_images.length})`,
+               ...(job.identities ?? []).map((g) =>
+                 `${g.dataset?.name ?? "ad-hoc"} (${g.images?.length ?? g.dataset?.count ?? 0})`)]
+                .filter(Boolean).join(" · ")
+            }
+          >
+            <Chip size="small" variant="outlined"
+              label={`${job.dataset_images.length + (job.identities ?? [])
+                .reduce((n, g) => n + (g.images?.length ?? g.dataset?.count ?? 0), 0)} images`} />
+          </Tooltip>
           {job.gpu_name && <Chip size="small" variant="outlined" label={job.gpu_name} />}
           <Box sx={{ flexGrow: 1 }} />
           {live ? (

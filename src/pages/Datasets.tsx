@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, LinearProgress,
@@ -38,6 +38,11 @@ export default function Datasets() {
   const [createOpen, setCreateOpen] = useState(false);
   const [trainFor, setTrainFor] = useState<Dataset | null>(null);
   const navigate = useNavigate();
+  // A character card links here as /datasets?dataset=<id> (migration 099): scroll to and
+  // accent that dataset. Unknown ids simply no-op.
+  const [searchParams] = useSearchParams();
+  const askedDataset = searchParams.get("dataset");
+  const matchedRef = useRef<HTMLDivElement>(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -51,6 +56,12 @@ export default function Datasets() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  useEffect(() => {
+    if (askedDataset && matchedRef.current) {
+      matchedRef.current.scrollIntoView({ block: "center" });
+    }
+  }, [askedDataset, loading]);
 
   return (
     <Box>
@@ -77,12 +88,18 @@ export default function Datasets() {
 
       <Stack spacing={2}>
         {datasets.map((ds) => (
-          <DatasetCard
+          <Box
             key={ds.id}
-            ds={ds}
-            onChanged={fetchAll}
-            onTrain={() => setTrainFor(ds)}
-          />
+            ref={ds.id === askedDataset ? matchedRef : undefined}
+            sx={{ scrollMarginTop: 80 }}
+          >
+            <DatasetCard
+              ds={ds}
+              onChanged={fetchAll}
+              onTrain={() => setTrainFor(ds)}
+              highlighted={ds.id === askedDataset}
+            />
+          </Box>
         ))}
       </Stack>
 
@@ -110,8 +127,8 @@ export default function Datasets() {
 const TILE = 128;
 
 function DatasetCard({
-  ds, onChanged, onTrain,
-}: { ds: Dataset; onChanged: () => void; onTrain: () => void }) {
+  ds, onChanged, onTrain, highlighted = false,
+}: { ds: Dataset; onChanged: () => void; onTrain: () => void; highlighted?: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [tags, setTags] = useState(ds.tags ?? "");
@@ -219,7 +236,8 @@ function DatasetCard({
   const shown = ordered.slice(0, showAll ? undefined : 12);
 
   return (
-    <Card>
+    <Card variant={highlighted ? "outlined" : "elevation"}
+      sx={highlighted ? { border: 2, borderColor: "primary.main" } : undefined}>
       <CardContent>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1, flexWrap: "wrap" }}>
           {renaming ? (
