@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
-  Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button,
   CircularProgress, ListSubheader, MenuItem, Stack, TextField, Typography,
 } from "@mui/material";
 import { ExpandMore, Casino } from "@mui/icons-material";
@@ -51,9 +51,6 @@ export interface RecipeFormActions {
   busy: boolean;
   disabled: boolean;
   label: string;
-  /** The chosen pose is not validated. Shown beside the button, where it is a warning about
-   *  what is ABOUT to be queued rather than a note about a dropdown. */
-  unvalidated: boolean;
 }
 
 export interface RecipeFormProps {
@@ -509,9 +506,8 @@ export default function RecipeForm({
       busy,
       disabled: submitDisabled,
       label: submitLabel,
-      unvalidated: Boolean(pose && !pose.validated),
     });
-  }, [onActions, stableSubmit, busy, submitDisabled, submitLabel, pose]);
+  }, [onActions, stableSubmit, busy, submitDisabled, submitLabel]);
 
   // The scene is put back to its placeholder first: filling <SCENE> is the recipe working
   // as designed, not somebody departing from it, and reading it as an edit would light this
@@ -599,7 +595,7 @@ export default function RecipeForm({
             <ListSubheader key={`h-${bookName}`} disableSticky>{bookName}</ListSubheader>,
             ...group.map((r) => (
               <MenuItem key={r.id} value={r.id}>
-                {r.name}{r.validated ? "" : "  (unvalidated)"}
+                {r.name}
               </MenuItem>
             )),
           ])}
@@ -792,9 +788,6 @@ export default function RecipeForm({
           <Button variant="contained" onClick={submit} disabled={submitDisabled}>
             {submitLabel}
           </Button>
-          {pose && !pose.validated && (
-            <Chip size="small" label="unvalidated pose" sx={{ ml: 1 }} />
-          )}
         </Box>
       )}
     </Stack>

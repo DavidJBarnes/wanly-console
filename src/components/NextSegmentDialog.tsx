@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Dialog, DialogTitle, DialogContent, DialogActions, Button, Chip, Typography, Stack,
+  Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Stack,
 } from "@mui/material";
 import { PlayArrow } from "@mui/icons-material";
 import RecipeForm, { type RecipeFormActions } from "./RecipeForm";
@@ -85,7 +85,6 @@ export default function NextSegmentDialog({ open, jobId, onClose, onAdded }: Pro
         />
       </DialogContent>
       <DialogActions>
-        {actions?.unvalidated && <Chip size="small" label="unvalidated pose" />}
         <Button
           variant="contained"
           onClick={actions?.submit}
