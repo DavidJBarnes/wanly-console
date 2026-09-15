@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
-  Alert, Avatar, Box, Button, Card, CardContent, Chip, IconButton, LinearProgress, Stack,
-  TextField, Tooltip, Typography,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Avatar, Box, Button, Card,
+  CardContent, Chip, IconButton, LinearProgress, Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
 
-import { CheckCircle, CloudUpload, Delete, Download, EditNote } from "@mui/icons-material";
+import {
+  CheckCircle, CloudUpload, Delete, Download, EditNote, ExpandMore,
+} from "@mui/icons-material";
 
 import {
   cancelTrainingJob, deleteTrainingJob, getFileUrl, listTrainingJobs, publishTrainingEpoch,
@@ -384,75 +386,83 @@ function TrainingRow({
         )}
 
         {rows.length > 0 && (
-          <Box sx={{ mt: 1.5 }}>
-            <Typography variant="subtitle2">
-              Checkpoints ({rows.length})
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-              Loss does not rank these — pick by eye at a fixed seed, same start image. “Use”
-              points {job.character} at one. An epoch that stayed on the trainer can be
-              uploaded from here.
-            </Typography>
-            <Stack spacing={0.5}>
-              {rows.map((row) => {
-                const current = row.uri !== null && row.uri === inUse;
-                return (
-                  <Box key={row.label} sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                    <Typography sx={{ width: 48, fontFamily: "monospace" }}>{row.label}</Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ width: 150 }}>
-                      {row.step !== null ? `step ${row.step}` : ""}
-                      {row.loss !== null ? ` · loss ${row.loss.toFixed(3)}` : ""}
-                    </Typography>
-                    {row.uri ? (
-                      <>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={<Download fontSize="small" />}
-                          // getFileUrl goes through the API's /files proxy, which 307s to a
-                          // presigned URL — so the browser never needs S3 credentials.
-                          href={getFileUrl(row.uri)}
-                          download
-                        >
-                          Download
-                        </Button>
-                        <Button
-                          size="small"
-                          variant={current ? "contained" : "outlined"}
-                          color={current ? "success" : "primary"}
-                          startIcon={current ? <CheckCircle fontSize="small" /> : undefined}
-                          disabled={busy || current}
-                          onClick={() => use(row.uri as string)}
-                        >
-                          {current ? "In use" : "Use"}
-                        </Button>
-                        <Typography variant="caption" color="text.secondary">
-                          {loraStem(row.uri)}
-                        </Typography>
-                      </>
-                    ) : row.requested ? (
-                      <Chip size="small" variant="outlined" label="uploading soon" />
-                    ) : (
-                      <Button
-                        size="small"
-                        variant="text"
-                        startIcon={<CloudUpload fontSize="small" />}
-                        disabled={busy || live}
-                        onClick={() => publish(row.label)}
-                      >
-                        Upload
-                      </Button>
-                    )}
-                  </Box>
-                );
-              })}
-            </Stack>
-            {msg && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                {msg}
+          <Accordion
+            disableGutters
+            elevation={0}
+            sx={{ mt: 1.5, border: 1, borderColor: "divider", "&:before": { display: "none" } }}
+          >
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <Typography variant="subtitle2">
+                Checkpoints ({rows.length})
               </Typography>
-            )}
-          </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                Loss does not rank these — pick by eye at a fixed seed, same start image. “Use”
+                points {job.character} at one. An epoch that stayed on the trainer can be
+                uploaded from here.
+              </Typography>
+              <Stack spacing={0.5}>
+                {rows.map((row) => {
+                  const current = row.uri !== null && row.uri === inUse;
+                  return (
+                    <Box key={row.label} sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                      <Typography sx={{ width: 48, fontFamily: "monospace" }}>{row.label}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ width: 150 }}>
+                        {row.step !== null ? `step ${row.step}` : ""}
+                        {row.loss !== null ? ` · loss ${row.loss.toFixed(3)}` : ""}
+                      </Typography>
+                      {row.uri ? (
+                        <>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<Download fontSize="small" />}
+                            // getFileUrl goes through the API's /files proxy, which 307s to a
+                            // presigned URL — so the browser never needs S3 credentials.
+                            href={getFileUrl(row.uri)}
+                            download
+                          >
+                            Download
+                          </Button>
+                          <Button
+                            size="small"
+                            variant={current ? "contained" : "outlined"}
+                            color={current ? "success" : "primary"}
+                            startIcon={current ? <CheckCircle fontSize="small" /> : undefined}
+                            disabled={busy || current}
+                            onClick={() => use(row.uri as string)}
+                          >
+                            {current ? "In use" : "Use"}
+                          </Button>
+                          <Typography variant="caption" color="text.secondary">
+                            {loraStem(row.uri)}
+                          </Typography>
+                        </>
+                      ) : row.requested ? (
+                        <Chip size="small" variant="outlined" label="uploading soon" />
+                      ) : (
+                        <Button
+                          size="small"
+                          variant="text"
+                          startIcon={<CloudUpload fontSize="small" />}
+                          disabled={busy || live}
+                          onClick={() => publish(row.label)}
+                        >
+                          Upload
+                        </Button>
+                      )}
+                    </Box>
+                  );
+                })}
+              </Stack>
+              {msg && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                  {msg}
+                </Typography>
+              )}
+            </AccordionDetails>
+          </Accordion>
         )}
       </CardContent>
     </Card>
