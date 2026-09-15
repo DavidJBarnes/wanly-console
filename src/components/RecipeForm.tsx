@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip,
-  CircularProgress, MenuItem, Stack, TextField, Typography,
+  CircularProgress, ListSubheader, MenuItem, Stack, TextField, Typography,
 } from "@mui/material";
 import { ExpandMore, Casino } from "@mui/icons-material";
 import {
   listRecipes, listLoras, ltxError, renderPrompt, triggerPhrase,
   NO_CHARACTER,
-  type RecipeBook, type Character, type Pose,
+  type RecipeCatalog, type Character, type Pose,
 } from "../api/ltx";
 import {
   addSegment, createJob, describeImageScene, getFileUrl, getImageScene,
@@ -22,6 +22,7 @@ import {
   buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor,
 } from "../lib/recipeBlob";
 import type { CharacterSlot } from "../lib/recipeBlob";
+import { groupPosesByBook } from "../lib/poseGroups";
 
 /**
  * Pick a validated (character, pose) configuration and a start frame. Everything
@@ -126,7 +127,7 @@ export default function RecipeForm({
   const continuing = Boolean(continueJobId);
   const compact = variant === "dialog";
 
-  const [book, setBook] = useState<RecipeBook | null>(null);
+  const [book, setBook] = useState<RecipeCatalog | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
   // ONE character per render (console#473, post-#102): a joint LoRA carries every
   // identity in its trigger phrase. The array shape stays (a list of one) so nothing
@@ -135,7 +136,10 @@ export default function RecipeForm({
   const characterName = characterNames[0] ?? "";
   const setCharacterName = (name: string) =>
     setCharacterNames((prev) => [name, ...prev.slice(1)]);
-  const [poseName, setPoseName] = useState("");
+  // The pose is tracked by ID, not name: names are unique only WITHIN a book (wanly-api#320),
+  // so two books can each hold "Missionary" and a name-keyed selection would silently pick
+  // whichever came first.
+  const [poseId, setPoseId] = useState("");
   const [start, setStart] = useState<StartFrame | null>(null);
   // <SCENE> preview (console#405). Only for a start frame already in S3: a freshly picked
   // file has not been uploaded yet, so there is nothing for the captioner to fetch. That
@@ -202,7 +206,7 @@ export default function RecipeForm({
   const character: Character | null = lookup(characterName);
   // Poses are character-agnostic, so the list never changes with the character —
   // which is the point: a new LoRA gets every pose the moment it exists.
-  const pose: Pose | null = poses.find((p) => p.name === poseName) ?? null;
+  const pose: Pose | null = poses.find((p) => p.id === poseId) ?? null;
   // ONE slot, always (post-#102).
   const nSlots = slotCount();
   const slotCharacters: (Character | null)[] = Array.from(
@@ -223,8 +227,8 @@ export default function RecipeForm({
     pose && character ? renderPrompt(pose.prompt_template, triggersOf(filledSlots)) : "";
 
   useEffect(() => {
-    if (book && !poseName) setPoseName(poses[0]?.name ?? "");
-  }, [book, poseName, poses]);
+    if (book && !poseId) setPoseId(poses[0]?.id ?? "");
+  }, [book, poseId, poses]);
 
   // The prompt shown is the RENDERED one, not the template. It is editable, so
   // showing "<TRIGGER>, a woman..." would mean editing around a placeholder and
@@ -269,8 +273,10 @@ export default function RecipeForm({
     if (!r) return;
     const people = recipeCharacters(r);
     setCharacterNames(people.length ? people.map((c) => c.name) : [r.character]);
-    setPoseName(r.recipe);
-  }, [book, initialFrom]);
+    // The recorded blob names the pose, not its id (it predates books). Best-effort resolve;
+    // the guard below waits for the id to match the name before prefilling defaults.
+    setPoseId(poses.find((p) => p.name === r.recipe)?.id ?? "");
+  }, [book, initialFrom, poses]);
 
   useEffect(() => {
     if (prefilled.current) return;
@@ -584,16 +590,19 @@ export default function RecipeForm({
           <MenuItem value={NO_CHARACTER.name}><em>None — no character</em></MenuItem>
         </TextField>
         <TextField
-          select label="Pose" value={poseName}
+          select label="Pose" value={poseId}
           sx={{ flex: "2 1 240px", minWidth: 200 }} size={compact ? "small" : "medium"}
-          onChange={(e) => setPoseName(e.target.value)}
+          onChange={(e) => setPoseId(e.target.value)}
           helperText={compact ? undefined : "Fields below are this recipe's defaults."}
         >
-          {poses.map((r) => (
-            <MenuItem key={r.id} value={r.name}>
-              {r.name}{r.validated ? "" : "  (unvalidated)"}
-            </MenuItem>
-          ))}
+          {groupPosesByBook(poses).map(([bookName, group]) => [
+            <ListSubheader key={`h-${bookName}`} disableSticky>{bookName}</ListSubheader>,
+            ...group.map((r) => (
+              <MenuItem key={r.id} value={r.id}>
+                {r.name}{r.validated ? "" : "  (unvalidated)"}
+              </MenuItem>
+            )),
+          ])}
         </TextField>
       </Stack>
 
