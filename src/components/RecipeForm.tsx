@@ -23,6 +23,7 @@ import {
 } from "../lib/recipeBlob";
 import type { CharacterSlot } from "../lib/recipeBlob";
 import { groupPosesByBook } from "../lib/poseGroups";
+import { seedRecipePrefill } from "../lib/recipePrefill";
 
 /**
  * Pick a validated (character, pose) configuration and a start frame. Everything
@@ -259,20 +260,27 @@ export default function RecipeForm({
   //
   // Two effects, because the pose/character defaults effect above fires in between. The first
   // selects the same pose and character; that triggers the defaults; then the second restores
-  // what actually RAN, including anything the user had overridden. The ref makes it once-only,
-  // so changing the pose afterwards still resets to that pose's own defaults rather than
+  // what actually RAN, including anything the user had overridden. Each is once-only, so
+  // changing the pose afterwards still resets to that pose's own defaults rather than
   // dragging the old values along.
+  //
+  // `seeded` latches the SELECTION, not its successful resolution (console#514). The parent
+  // poll rebuilds `initialFrom` every five seconds, so the effect below re-runs with equal
+  // content and a new identity; without this latch it re-applied the recorded character and
+  // pose over whatever the user had just chosen, about five seconds after they chose it.
+  // `prefilled` still latches the second, value-restoring phase.
+  const seeded = useRef(false);
   const prefilled = useRef(false);
 
   useEffect(() => {
-    if (!book || prefilled.current) return;
-    const r = initialFrom?.ltx_recipe;
-    if (!r) return;
-    const people = recipeCharacters(r);
-    setCharacterNames(people.length ? people.map((c) => c.name) : [r.character]);
-    // The recorded blob names the pose, not its id (it predates books). Best-effort resolve;
-    // the guard below waits for the id to match the name before prefilling defaults.
-    setPoseId(poses.find((p) => p.name === r.recipe)?.id ?? "");
+    if (!book) return;
+    const seed = seedRecipePrefill(seeded.current, initialFrom?.ltx_recipe, poses);
+    if (!seed) return;
+    seeded.current = true;
+    setCharacterNames(seed.characterNames);
+    // An unresolvable name is deliberately NOT re-seeded on the next poll; the pose-default
+    // effect drops to the first pose once. See seedRecipePrefill.
+    setPoseId(seed.poseId);
   }, [book, initialFrom, poses]);
 
   useEffect(() => {
