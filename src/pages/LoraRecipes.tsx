@@ -24,8 +24,10 @@ import {
 import { Add, ContentCopy, DeleteOutline, Edit } from "@mui/icons-material";
 import { Link } from "react-router";
 import {
+  createBook,
   createCharacter,
   createPose,
+  deleteBook,
   deleteCharacter,
   deletePose,
   listLoras,
@@ -34,11 +36,12 @@ import {
   ltxError,
   poseWarnings,
   TRIGGER_PLACEHOLDER,
+  updateBook,
   updateCharacter,
   updatePose,
   triggerPhrase,
 } from "../api/ltx";
-import type { Character, ContentLora, Pose, RecipeBook } from "../api/ltx";
+import type { Book, Character, ContentLora, Pose, RecipeCatalog } from "../api/ltx";
 import type { Gender } from "../api/types";
 import { getFileUrl } from "../api/client";
 import { parseContentLoraStrength } from "../lib/contentLoraStrength";
@@ -74,7 +77,11 @@ const MAX_CONTENT_LORAS = 4;
 type ContentLoraDraft = { name: string; s1: string; s2: string };
 
 export default function LoraRecipes() {
-  const [book, setBook] = useState<RecipeBook | null>(null);
+  const [catalog, setCatalog] = useState<RecipeCatalog | null>(null);
+  // "" is "All books". The picker is a filter over the pose LIST, not a re-fetch: the
+  // catalog already carries every pose with its book, and a pose must stay editable
+  // regardless of which shelf it sits on.
+  const [bookId, setBookId] = useState("");
   const [loras, setLoras] = useState<string[]>([]);
   // Content LoRAs are a different shelf in the bucket and a different axis entirely:
   // character is WHO, content is WHAT IS HAPPENING. Fetched separately so a pose can never
@@ -91,7 +98,7 @@ export default function LoraRecipes() {
     setLoading(true);
     try {
       const b = await listRecipes();
-      setBook(b);
+      setCatalog(b);
       const [chars, contents] = await Promise.all([
         listLoras(b, "character"),
         listLoras(b, "content"),
@@ -118,7 +125,7 @@ export default function LoraRecipes() {
     void load();
   }, [load]);
 
-  if (loading && !book) {
+  if (loading && !catalog) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", p: 6 }}>
         <CircularProgress />
@@ -133,7 +140,8 @@ export default function LoraRecipes() {
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Poses are character-agnostic — every pose is offered for every character, so adding
-        a newly trained LoRA costs one character row and nothing else.
+        a newly trained LoRA costs one character row and nothing else. Poses are filed in
+        Books, which is how poses trained on different base models are kept apart.
       </Typography>
 
       {error && (
@@ -142,10 +150,219 @@ export default function LoraRecipes() {
         </Alert>
       )}
 
-      <PoseList book={book} contentLoras={contentLoras} checkpoints={checkpoints} onChanged={load} />
+      <BookManager
+        books={catalog?.books ?? []}
+        onChanged={load}
+        selected={bookId}
+        onSelect={setBookId}
+      />
       <Divider sx={{ my: 4 }} />
-      <CharacterList book={book} loras={loras} onChanged={load} />
+      <PoseList
+        catalog={catalog}
+        bookId={bookId}
+        contentLoras={contentLoras}
+        checkpoints={checkpoints}
+        onChanged={load}
+      />
+      <Divider sx={{ my: 4 }} />
+      <CharacterList catalog={catalog} loras={loras} onChanged={load} />
     </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------------------
+// Books
+// ---------------------------------------------------------------------------------------
+
+/**
+ * The shelves poses are filed on.
+ *
+ * A Book is not a character — it is the base-model family a pose was trained for, which is
+ * why a pose belongs to exactly one. The dropdown is both the filter over the pose list and
+ * the default for a new pose; the same control, because "which book am I looking at" and
+ * "which book am I adding to" being different would be a trap.
+ */
+function BookManager({
+  books,
+  onChanged,
+  selected,
+  onSelect,
+}: {
+  books: Book[];
+  onChanged: () => void;
+  selected: string;
+  onSelect: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState<Book | "new" | null>(null);
+  const [confirm, setConfirm] = useState<Book | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+
+  const open = (b: Book | "new") => {
+    setErr(null);
+    if (b === "new") {
+      setName("");
+      setDescription("");
+    } else {
+      setName(b.name);
+      setDescription(b.description ?? "");
+    }
+    setEditing(b);
+  };
+
+  const save = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const draft = { name: name.trim(), description: description.trim() || undefined };
+      if (editing === "new") await createBook(draft);
+      else if (editing) await updateBook(editing.id, draft);
+      setEditing(null);
+      onChanged();
+    } catch (e) {
+      setErr(ltxError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!confirm) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await deleteBook(confirm.id);
+      if (selected === confirm.id) onSelect("");
+      setConfirm(null);
+      onChanged();
+    } catch (e) {
+      // A non-empty book is refused by the API (409). That is the right place for the
+      // check — the count here could be a version stale by one render.
+      setErr(ltxError(e));
+      setConfirm(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1.5 }}>
+        <Typography variant="h6" sx={{ flexGrow: 1 }}>
+          Books
+        </Typography>
+        <TextField
+          select
+          size="small"
+          label="Filter"
+          value={selected}
+          onChange={(e) => onSelect(e.target.value)}
+          sx={{ minWidth: 220 }}
+        >
+          <MenuItem value="">All books</MenuItem>
+          {books.map((b) => (
+            <MenuItem key={b.id} value={b.id}>
+              {b.name} ({b.recipe_count})
+            </MenuItem>
+          ))}
+        </TextField>
+        <Button startIcon={<Add />} variant="outlined" onClick={() => open("new")}>
+          Add book
+        </Button>
+      </Stack>
+
+      {err && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr(null)}>
+          {err}
+        </Alert>
+      )}
+
+      <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+        {books.map((b) => (
+          <Card key={b.id} sx={{ p: 1 }} variant="outlined">
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle2">{b.name}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {b.recipe_count} {b.recipe_count === 1 ? "pose" : "poses"}
+                  {b.description ? ` · ${b.description}` : ""}
+                </Typography>
+              </Box>
+              <Tooltip title="Edit">
+                <IconButton size="small" onClick={() => open(b)}>
+                  <Edit fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip
+                title={b.recipe_count > 0 ? "Move or delete its poses first" : "Delete"}
+              >
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={b.recipe_count > 0}
+                    onClick={() => setConfirm(b)}
+                  >
+                    <DeleteOutline fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+          </Card>
+        ))}
+        {books.length === 0 && (
+          <Typography variant="body2" color="text.secondary">
+            No books yet.
+          </Typography>
+        )}
+      </Stack>
+
+      <Dialog open={!!editing} onClose={() => setEditing(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{editing === "new" ? "New book" : `Edit ${name}`}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {err && <Alert severity="error">{err}</Alert>}
+            <TextField
+              label="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              fullWidth
+              autoFocus
+            />
+            <TextField
+              label="Description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              fullWidth
+              helperText="Optional — which base model or dataset this shelf is for."
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditing(null)}>Cancel</Button>
+          <Button variant="contained" disabled={busy || !name.trim()} onClick={save}>
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!confirm} onClose={() => setConfirm(null)}>
+        <DialogTitle>Delete {confirm?.name}?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Renders already produced keep working — a segment records what it ran, so history
+            does not depend on this book still existing.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirm(null)}>Cancel</Button>
+          <Button color="error" disabled={busy} onClick={remove}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 }
 
@@ -154,12 +371,14 @@ export default function LoraRecipes() {
 // ---------------------------------------------------------------------------------------
 
 function PoseList({
-  book,
+  catalog,
+  bookId,
   contentLoras,
   checkpoints,
   onChanged,
 }: {
-  book: RecipeBook | null;
+  catalog: RecipeCatalog | null;
+  bookId: string;
   contentLoras: string[];
   checkpoints: string[];
   onChanged: () => void;
@@ -168,7 +387,9 @@ function PoseList({
   const [confirm, setConfirm] = useState<Pose | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const poses = book?.poses ?? [];
+  const allPoses = catalog?.poses ?? [];
+  const poses = bookId ? allPoses.filter((p) => p.book_id === bookId) : allPoses;
+  const bookName = catalog?.books.find((b) => b.id === bookId)?.name;
 
   const remove = async () => {
     if (!confirm) return;
@@ -208,6 +429,9 @@ function PoseList({
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
                   <Typography variant="subtitle2">{p.name}</Typography>
+                  {!bookId && (
+                    <Chip size="small" variant="outlined" label={p.book_name} />
+                  )}
                   {p.validated && <Chip size="small" color="success" label="validated" />}
                   {!p.prompt_template.includes(TRIGGER_PLACEHOLDER) && (
                     <Tooltip title="This pose never names the subject">
@@ -246,7 +470,7 @@ function PoseList({
         ))}
         {poses.length === 0 && (
           <Typography variant="body2" color="text.secondary">
-            No poses yet.
+            {bookId ? `No poses in ${bookName ?? "this book"} yet.` : "No poses yet."}
           </Typography>
         )}
       </Stack>
@@ -254,8 +478,10 @@ function PoseList({
       {editing && (
         <PoseDialog
           pose={editing === "new" ? null : editing}
-          defaultNegative={book?.default_negative_prompt ?? ""}
-          characters={book?.characters ?? []}
+          defaultNegative={catalog?.default_negative_prompt ?? ""}
+          characters={catalog?.characters ?? []}
+          books={catalog?.books ?? []}
+          defaultBookId={bookId}
           contentLoras={contentLoras}
           checkpoints={checkpoints}
           onClose={() => setEditing(null)}
@@ -289,6 +515,8 @@ function PoseDialog({
   pose,
   defaultNegative,
   characters,
+  books,
+  defaultBookId,
   contentLoras: contentLorasAvailable,
   checkpoints,
   onClose,
@@ -299,6 +527,10 @@ function PoseDialog({
    *  the field's placeholder, never as its value. */
   defaultNegative: string;
   characters: Character[];
+  books: Book[];
+  /** Which book a NEW pose lands in. An existing pose keeps its own; the dialog's field is
+   *  only a default, so a pose edited from an "All books" view is never silently moved. */
+  defaultBookId: string;
   contentLoras: string[];
   checkpoints: string[];
   onClose: () => void;
@@ -307,6 +539,9 @@ function PoseDialog({
   // A duplicate arrives as a pose object with an empty id: same fields, but it must POST.
   const isNew = !pose?.id;
   const [name, setName] = useState(pose?.name ?? "");
+  // A duplicate carries the source pose's book_id, so it lands on the same shelf; a
+  // brand-new pose lands wherever the list is currently filtered to.
+  const [bookId, setBookId] = useState(pose?.book_id || defaultBookId);
   const [template, setTemplate] = useState(pose?.prompt_template ?? `${TRIGGER_PLACEHOLDER}, `);
   // The pose's OWN override, not the resolved value. Binding to the resolved one is what
   // pinned every pose in production to a copy of the default: the box came up pre-filled
@@ -359,6 +594,10 @@ function PoseDialog({
   );
 
   const save = async () => {
+    if (!bookId) {
+      setErr("Pick a book for this pose. Books are how poses trained on different base models are kept apart.");
+      return;
+    }
     // The typed strings become numbers here, once, and a bad one names its LoRA rather
     // than being sent on. parseContentLoraStrength holds the engine's 0-2 bound, which it
     // otherwise enforces with a 422 ten minutes into a claimed segment.
@@ -378,6 +617,7 @@ function PoseDialog({
     try {
       const draft = {
         name: name.trim(),
+        book_id: bookId,
         prompt_template: template,
         // "" is the user clearing an override, which means "use the Settings default".
         // Sending "" instead would store an empty negative prompt, which is a different
@@ -407,13 +647,29 @@ function PoseDialog({
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {err && <Alert severity="error">{err}</Alert>}
-          <TextField
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            fullWidth
-            autoFocus
-          />
+          <Stack direction="row" spacing={2}>
+            <TextField
+              label="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              fullWidth
+              autoFocus
+            />
+            <TextField
+              select
+              label="Book"
+              value={bookId}
+              onChange={(e) => setBookId(e.target.value)}
+              sx={{ minWidth: 220 }}
+              helperText="Names are unique within a book."
+            >
+              {books.map((b) => (
+                <MenuItem key={b.id} value={b.id}>
+                  {b.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
           <TextField
             label="Prompt template"
             value={template}
@@ -568,11 +824,11 @@ function PoseDialog({
 // ---------------------------------------------------------------------------------------
 
 function CharacterList({
-  book,
+  catalog,
   loras,
   onChanged,
 }: {
-  book: RecipeBook | null;
+  catalog: RecipeCatalog | null;
   loras: string[];
   onChanged: () => void;
 }) {
@@ -580,7 +836,7 @@ function CharacterList({
   const [confirm, setConfirm] = useState<Character | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const characters = book?.characters ?? [];
+  const characters = catalog?.characters ?? [];
 
   const remove = async () => {
     if (!confirm) return;

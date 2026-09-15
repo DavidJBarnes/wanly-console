@@ -74,6 +74,13 @@ export interface Pose {
    *  all, silently, and the render comes back without the character. The engine logs its
    *  fusion count per render, which is what makes that visible. */
   checkpoint: string;
+  /** The BOOK this pose is filed in (wanly-api#320). Poses stopped being one flat list:
+   *  a book is a shelf of poses that belong together, and names are unique per book rather
+   *  than globally. */
+  book_id: string;
+  /** The book's name, denormalised onto the pose so a grouped picker can render headings
+   *  from the pose list alone. */
+  book_name: string;
   /** The POSE is proven — this prompt produces what it claims. Whether a given
    *  character renders well is a property of its LoRA, which ratings record. */
   validated: boolean;
@@ -184,19 +191,44 @@ export interface LtxStack {
   negative: string;
 }
 
-export interface RecipeBook {
+/**
+ * A BOOK: a named shelf of poses (wanly-api#320).
+ *
+ * Not to be confused with RecipeCatalog, which is the whole `GET /recipes` payload and used
+ * to carry this name. `recipe_count` is assembled by the API rather than stored, so the
+ * console can grey out a delete before the API's 409 answers.
+ *
+ * `created_at` is present on `GET /ltx/books` but absent from the `books` list folded into
+ * `GET /recipes`, which is why it is optional.
+ */
+export interface Book {
+  id: string;
+  name: string;
+  description: string | null;
+  /** How many poses are filed here. */
+  recipe_count: number;
+  created_at?: string;
+}
+
+/** The whole `GET /recipes` payload: the stack, the settings default, and every pose and
+ *  character. Named "catalog" because it is not one book — books are shelves within it. */
+export interface RecipeCatalog {
   stack: LtxStack;
   /** What a pose with no override of its own renders with: the Settings negative prompt,
    *  or the stack's built-in when that is blank. Shown as the editor's placeholder, so
    *  "inherits" is visible without being typed into the field. */
   default_negative_prompt: string;
+  /** The shelves, so a picker can group without a second call. */
+  books: Book[];
   /** Every pose, available to every character. */
   poses: Pose[];
   characters: Character[];
 }
 
-export async function listRecipes(): Promise<RecipeBook> {
-  const { data } = await api.get<RecipeBook>("/recipes");
+export async function listRecipes(bookId?: string): Promise<RecipeCatalog> {
+  const { data } = await api.get<RecipeCatalog>("/recipes", {
+    params: bookId ? { book_id: bookId } : undefined,
+  });
   return data;
 }
 
@@ -245,13 +277,13 @@ export async function listLoraObjects(): Promise<LoraObject[]> {
  * LoRAs that were ALREADY characters, so you could only pick what you already had.
  */
 export async function listLoras(
-  book: RecipeBook | null,
+  catalog: RecipeCatalog | null,
   kind: "character" | "content" = "character",
 ): Promise<string[]> {
   const objs = await listLoraObjects();
-  // Only character LoRAs union with the book: a character's own char_lora must stay
+  // Only character LoRAs union with the catalog: a character's own char_lora must stay
   // pickable even once its file leaves the bucket, but that has no meaning for content.
-  const fromBook = kind === "character" ? (book?.characters ?? []).map((c) => c.char_lora) : [];
+  const fromBook = kind === "character" ? (catalog?.characters ?? []).map((c) => c.char_lora) : [];
   return mergeLoraOptions(
     fromBook,
     objs.filter((o) => o.kind === kind).map((o) => o.name),
@@ -308,6 +340,9 @@ export interface PoseDraft {
   content_loras?: ContentLora[] | null;
   /** Null clears the override and the pose falls back to the stack. */
   checkpoint?: string | null;
+  /** The book to file this pose in. Omitted on create, the API defaults it to the default
+   *  book ("10eros"); an unknown id is a 404. */
+  book_id?: string | null;
   validated?: boolean;
 }
 
@@ -323,6 +358,27 @@ export async function updatePose(id: string, patch: Partial<PoseDraft>): Promise
 
 export async function deletePose(id: string): Promise<void> {
   await api.delete(`/ltx/recipes/${id}`);
+}
+
+export interface BookDraft {
+  name: string;
+  /** Null clears it. */
+  description?: string | null;
+}
+
+export async function createBook(draft: BookDraft): Promise<Book> {
+  const { data } = await api.post<Book>("/ltx/books", draft);
+  return data;
+}
+
+export async function updateBook(id: string, patch: Partial<BookDraft>): Promise<Book> {
+  const { data } = await api.patch<Book>(`/ltx/books/${id}`, patch);
+  return data;
+}
+
+/** Refuses with a 409 while the book still holds poses; the API's message names how many. */
+export async function deleteBook(id: string): Promise<void> {
+  await api.delete(`/ltx/books/${id}`);
 }
 
 export interface CharacterDraft {
