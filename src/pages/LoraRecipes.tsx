@@ -5,7 +5,6 @@ import {
   Box,
   Button,
   Card,
-  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -13,7 +12,6 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
-  FormControlLabel,
   IconButton,
   MenuItem,
   Stack,
@@ -472,7 +470,6 @@ function PoseList({
               {!bookId && (
                 <Chip size="small" variant="outlined" label={p.book_name} />
               )}
-              {p.validated && <Chip size="small" color="success" label="validated" />}
               {!p.prompt_template.includes(TRIGGER_PLACEHOLDER) && (
                 <Tooltip title="This pose never names the subject">
                   <Chip size="small" color="warning" label={`no ${TRIGGER_PLACEHOLDER}`} />
@@ -610,7 +607,6 @@ function PoseDialog({
   // fields above. The stack resolves it before it arrives, so a pose with no override shows
   // the stack's value and clearing the field restores it.
   const [checkpoint, setCheckpoint] = useState(pose?.checkpoint ?? "");
-  const [validated, setValidated] = useState(pose?.validated ?? false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -655,7 +651,6 @@ function PoseDialog({
         // that from undefined, which means "leave them alone".
         content_loras: resolved,
         checkpoint: checkpoint.trim() || null,
-        validated,
       };
       if (isNew) await createPose(draft);
       else await updatePose(pose!.id, draft);
@@ -826,13 +821,6 @@ function PoseDialog({
               </MenuItem>
             ))}
           </TextField>
-
-          <FormControlLabel
-            control={
-              <Checkbox checked={validated} onChange={(e) => setValidated(e.target.checked)} />
-            }
-            label="Validated — this prompt produces what it claims"
-          />
         </Stack>
       </DialogContent>
       <DialogActions>

@@ -13,7 +13,7 @@ const pay: Character = {
 const pose = (template: string): Pose => ({
   id: "p", name: "Bedroom", prompt_template: template, negative_prompt: "bad",
   negative_prompt_override: null, frames: 241, img_compression: 18,
-  content_loras: [{ name: "motion", s1: 0.6, s2: 0.6 }], checkpoint: "10Eros", validated: true,
+  content_loras: [{ name: "motion", s1: 0.6, s2: 0.6 }], checkpoint: "10Eros",
 } as unknown as Pose);
 const one = pose("<TRIGGER>, a woman");
 

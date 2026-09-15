@@ -81,9 +81,6 @@ export interface Pose {
   /** The book's name, denormalised onto the pose so a grouped picker can render headings
    *  from the pose list alone. */
   book_name: string;
-  /** The POSE is proven — this prompt produces what it claims. Whether a given
-   *  character renders well is a property of its LoRA, which ratings record. */
-  validated: boolean;
 }
 
 export interface Character {
@@ -343,7 +340,6 @@ export interface PoseDraft {
   /** The book to file this pose in. Omitted on create, the API defaults it to the default
    *  book ("10eros"); an unknown id is a 404. */
   book_id?: string | null;
-  validated?: boolean;
 }
 
 export async function createPose(draft: PoseDraft): Promise<Pose> {
