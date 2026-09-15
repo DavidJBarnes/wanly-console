@@ -178,9 +178,10 @@ export default function LoraRecipes() {
  * The shelves poses are filed on.
  *
  * A Book is not a character — it is the base-model family a pose was trained for, which is
- * why a pose belongs to exactly one. The dropdown is both the filter over the pose list and
- * the default for a new pose; the same control, because "which book am I looking at" and
- * "which book am I adding to" being different would be a trap.
+ * why a pose belongs to exactly one. Selecting a book is both the filter over the pose list
+ * and the default for a new pose; the same control, because "which book am I looking at" and
+ * "which book am I adding to" being different would be a trap. The cards ARE the control, so
+ * the shelf you are reading is the shelf you add to without a separate dropdown saying so.
  */
 function BookManager({
   books,
@@ -253,21 +254,14 @@ function BookManager({
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
           Books
         </Typography>
-        <TextField
-          select
+        <Button
+          variant={selected === "" ? "contained" : "outlined"}
           size="small"
-          label="Filter"
-          value={selected}
-          onChange={(e) => onSelect(e.target.value)}
-          sx={{ minWidth: 220 }}
+          onClick={() => onSelect("")}
+          sx={{ textTransform: "none" }}
         >
-          <MenuItem value="">All books</MenuItem>
-          {books.map((b) => (
-            <MenuItem key={b.id} value={b.id}>
-              {b.name} ({b.recipe_count})
-            </MenuItem>
-          ))}
-        </TextField>
+          All books
+        </Button>
         <Button startIcon={<Add />} variant="outlined" onClick={() => open("new")}>
           Add book
         </Button>
@@ -280,37 +274,57 @@ function BookManager({
       )}
 
       <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
-        {books.map((b) => (
-          <Card key={b.id} sx={{ p: 1 }} variant="outlined">
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="subtitle2">{b.name}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {b.recipe_count} {b.recipe_count === 1 ? "pose" : "poses"}
-                  {b.description ? ` · ${b.description}` : ""}
-                </Typography>
-              </Box>
-              <Tooltip title="Edit">
-                <IconButton size="small" onClick={() => open(b)}>
-                  <Edit fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip
-                title={b.recipe_count > 0 ? "Move or delete its poses first" : "Delete"}
-              >
-                <span>
+        {books.map((b) => {
+          const isSelected = selected === b.id;
+          return (
+            <Card
+              key={b.id}
+              variant="outlined"
+              onClick={() => onSelect(isSelected ? "" : b.id)}
+              sx={{
+                p: 1,
+                cursor: "pointer",
+                borderColor: isSelected ? "primary.main" : "divider",
+                borderWidth: isSelected ? 2 : 1,
+                bgcolor: isSelected ? "action.selected" : "background.paper",
+              }}
+            >
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2">{b.name}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {b.recipe_count} {b.recipe_count === 1 ? "pose" : "poses"}
+                    {b.description ? ` · ${b.description}` : ""}
+                  </Typography>
+                </Box>
+                <Tooltip title="Edit">
                   <IconButton
                     size="small"
-                    disabled={b.recipe_count > 0}
-                    onClick={() => setConfirm(b)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      open(b);
+                    }}
                   >
-                    <DeleteOutline fontSize="small" />
+                    <Edit fontSize="small" />
                   </IconButton>
-                </span>
-              </Tooltip>
-            </Stack>
-          </Card>
-        ))}
+                </Tooltip>
+                <Tooltip
+                  title={b.recipe_count > 0 ? "Move or delete its poses first" : "Delete"}
+                >
+                  <span onClick={(e) => e.stopPropagation()}>
+                    <IconButton
+                      size="small"
+                      disabled={b.recipe_count > 0}
+                      onClick={() => setConfirm(b)}
+                    >
+                      <DeleteOutline fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+            </Card>
+          );
+        })}
         {books.length === 0 && (
           <Typography variant="body2" color="text.secondary">
             No books yet.
@@ -422,31 +436,19 @@ function PoseList({
         </Alert>
       )}
 
-      <Stack spacing={1}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+          gap: 1,
+        }}
+      >
         {poses.map((p) => (
-          <Card key={p.id} sx={{ p: 1.5 }} variant="outlined">
-            <Stack direction="row" alignItems="flex-start" spacing={1}>
-              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                  <Typography variant="subtitle2">{p.name}</Typography>
-                  {!bookId && (
-                    <Chip size="small" variant="outlined" label={p.book_name} />
-                  )}
-                  {p.validated && <Chip size="small" color="success" label="validated" />}
-                  {!p.prompt_template.includes(TRIGGER_PLACEHOLDER) && (
-                    <Tooltip title="This pose never names the subject">
-                      <Chip size="small" color="warning" label={`no ${TRIGGER_PLACEHOLDER}`} />
-                    </Tooltip>
-                  )}
-                </Stack>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                >
-                  {p.prompt_template}
-                </Typography>
-              </Box>
+          <Card key={p.id} sx={{ p: 1.5, display: "flex", flexDirection: "column" }} variant="outlined">
+            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
+              <Typography variant="subtitle2" sx={{ flexGrow: 1, minWidth: 0 }} noWrap>
+                {p.name}
+              </Typography>
               <Tooltip title="Edit">
                 <IconButton size="small" onClick={() => setEditing(p)}>
                   <Edit fontSize="small" />
@@ -466,6 +468,30 @@ function PoseList({
                 </IconButton>
               </Tooltip>
             </Stack>
+            <Stack direction="row" spacing={0.5} sx={{ mb: 0.5, flexWrap: "wrap", gap: 0.5 }}>
+              {!bookId && (
+                <Chip size="small" variant="outlined" label={p.book_name} />
+              )}
+              {p.validated && <Chip size="small" color="success" label="validated" />}
+              {!p.prompt_template.includes(TRIGGER_PLACEHOLDER) && (
+                <Tooltip title="This pose never names the subject">
+                  <Chip size="small" color="warning" label={`no ${TRIGGER_PLACEHOLDER}`} />
+                </Tooltip>
+              )}
+            </Stack>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              title={p.prompt_template}
+              sx={{
+                display: "-webkit-box",
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {p.prompt_template}
+            </Typography>
           </Card>
         ))}
         {poses.length === 0 && (
@@ -473,7 +499,7 @@ function PoseList({
             {bookId ? `No poses in ${bookName ?? "this book"} yet.` : "No poses yet."}
           </Typography>
         )}
-      </Stack>
+      </Box>
 
       {editing && (
         <PoseDialog
