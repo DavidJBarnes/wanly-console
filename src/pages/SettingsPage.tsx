@@ -15,7 +15,7 @@ import {
 } from "@mui/material";
 import { useTagStore } from "../stores/tagStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import type { CaptionStyle } from "../api/types";
+import type { CaptionStyle, MotionStyle } from "../api/types";
 
 export default function SettingsPage() {
   const theme = useTheme();
@@ -29,12 +29,17 @@ export default function SettingsPage() {
     captionStyle,
     captionInstruction,
     captionStylePrompts,
+    motionStyle,
+    motionInstruction,
+    motionStylePrompts,
     loaded,
     fetchSettings,
     saveSettings,
     setNegativePrompt,
     setCaptionStyle,
     setCaptionInstruction,
+    setMotionStyle,
+    setMotionInstruction,
   } = useSettingsStore();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -66,6 +71,8 @@ export default function SettingsPage() {
         // Sent even when empty: "" is how a custom instruction is CLEARED, and the API
         // distinguishes that from undefined, which means "leave it alone".
         caption_instruction: captionInstruction,
+        motion_style: motionStyle,
+        motion_instruction: motionInstruction,
       });
       setSaved(true);
     } catch (err) {
@@ -242,6 +249,68 @@ export default function SettingsPage() {
               "Overrides the detail level entirely. Leave empty to use the preset. " +
               "Note the presets also tell the captioner to ignore watermarks, on-image text " +
               "and picture frames — worth repeating here, or it will describe them."
+            }
+          />
+        </CardContent>
+      </Card>
+
+      {/* The motion half of a description (wanly-api#326): the frame read as the first
+          frame of a 10-second clip, for what the video model should generate. */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
+            Motion descriptions
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Describing an image also produces a second paragraph: the frame read as the
+            first frame of a ten-second clip &mdash; the action, its direction and rhythm,
+            expression changes, and a soundscape. It is written from the same call and kept
+            with the image. The capture style sets how the clip looks.
+          </Typography>
+          <TextField
+            select
+            size="small"
+            label="Capture style"
+            value={motionStyle}
+            onChange={(e) => setMotionStyle(e.target.value as MotionStyle)}
+            disabled={!!motionInstruction.trim()}
+            sx={{ minWidth: 260 }}
+            helperText={
+              motionInstruction.trim()
+                ? "Ignored while a custom instruction is set"
+                : "How the clip is shot. The action is always described first; the style is one sentence at the end."
+            }
+          >
+            <MenuItem value="handheld">Handheld — natural micro-shake (recommended)</MenuItem>
+            <MenuItem value="amateur">Amateur — consumer-camera, no polish</MenuItem>
+            <MenuItem value="cinematic">Cinematic — slow push-in, shallow depth</MenuItem>
+            <MenuItem value="static">Static — tripod, no camera movement</MenuItem>
+            <MenuItem value="none">None — say nothing about the camera</MenuItem>
+          </TextField>
+
+          {motionStylePrompts[motionStyle] && !motionInstruction.trim() && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mt: 1, maxWidth: 640, fontStyle: "italic" }}
+            >
+              Asks for: {motionStylePrompts[motionStyle]}
+            </Typography>
+          )}
+
+          <TextField
+            label="Custom instruction (optional)"
+            size="small"
+            multiline
+            minRows={2}
+            maxRows={6}
+            value={motionInstruction}
+            onChange={(e) => setMotionInstruction(e.target.value)}
+            sx={{ mt: 2, width: "100%", maxWidth: 640 }}
+            helperText={
+              "Overrides the capture style entirely, grounding and all. Leave empty to use " +
+              "the preset. The presets ban 'remains still' hedging and ask for explicit " +
+              "direction and amplitude — without those the model describes a still photo."
             }
           />
         </CardContent>
