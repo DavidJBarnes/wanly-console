@@ -632,6 +632,10 @@ export interface ImageFile {
    *  same as a description that came back empty (nothing stores one of those). */
   scene_description: string | null;
   scene_described_at: string | null;
+  /** The motion half (#326): the frame read as the first frame of a 10-second clip.
+   *  Null means no motion caption — described before #326, or the motion call failed. */
+  motion_description: string | null;
+  motion_described_at: string | null;
 }
 
 /** An image's scene description, as GET/POST /images/scene return it. */
@@ -644,6 +648,13 @@ export interface ImageScene {
   scene_described_at: string | null;
   /** Length is the thing being judged: the description sits beside a ~100-word arc. */
   words: number;
+  /** The motion half (#326), produced in the same call and grounded on the static half. */
+  motion_description: string | null;
+  motion_instruction: string | null;
+  motion_described_at: string | null;
+  motion_words: number;
+  /** Set when the static half succeeded and the motion half failed. */
+  motion_error: string | null;
 }
 
 /** One tag and how many items carry it under the current filter. Images and jobs both. */
@@ -673,6 +684,9 @@ export interface FramePreviewResponse {
 /** How verbose a <SCENE> description should be. See console#405. */
 export type CaptionStyle = "terse" | "standard" | "rich" | "raw";
 
+/** The capture style of the motion half (#326). See wanly-api#326. */
+export type MotionStyle = "handheld" | "amateur" | "cinematic" | "static" | "none";
+
 /**
  * Global app settings.
  *
@@ -689,6 +703,10 @@ export interface AppSettingsResponse {
   caption_instruction: string;
   /** Read-only: what each style asks for, so the UI need not restate it. */
   caption_style_prompts?: Record<string, string>;
+  /** The motion half (#326). Same style/custom pattern as the caption pair above. */
+  motion_style: MotionStyle;
+  motion_instruction: string;
+  motion_style_prompts?: Record<string, string>;
 }
 
 export interface FavoriteToggleRequest {
@@ -733,6 +751,8 @@ export interface AppSettingsUpdate {
   /** "" clears a custom instruction and falls back to the style; undefined leaves it alone.
    *  Those are different intents and the API distinguishes them. */
   caption_instruction?: string;
+  motion_style?: MotionStyle;
+  motion_instruction?: string;
 }
 
 /** Body for POST /jobs/{id}/reroll.

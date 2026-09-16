@@ -494,12 +494,26 @@ export default function ImageRepo() {
               ...img,
               scene_description: scene.scene_description,
               scene_described_at: scene.scene_described_at,
+              // Both halves come from the one call, so both are replaced together. A
+              // partial failure returns motion_description null, which clears the old
+              // motion text the same way the API clears the stored column.
+              motion_description: scene.motion_description,
+              motion_described_at: scene.motion_described_at,
             }
           : img;
       setImages((prev) => prev.map(patch));
       setFavImages((prev) => prev.map(patch));
       setUntaggedImages((prev) => prev.map(patch));
       setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
+      if (scene.motion_error) {
+        // The static half landed; the motion half did not. The image now has the static
+        // words and no motion words, and the paragraph's absence should say why rather
+        // than look intentional.
+        setSceneError({
+          path,
+          message: `Scene described, but the motion caption failed: ${scene.motion_error}`,
+        });
+      }
     } catch (err) {
       // A failed description is a thing to retry, not a broken image, so it is reported
       // and nothing else changes. THE API'S REASON, not axios's "Request failed with status
@@ -957,6 +971,26 @@ export default function ImageRepo() {
                       <Typography variant="body2" color="text.secondary">
                         Not described yet. Tagging this image describes it automatically.
                       </Typography>
+                    )}
+
+                    {/* The motion half (#326): the same frame read as a 10-second clip,
+                        produced in the same call. Shown under the static words because
+                        they are read together — the motion is written FROM the scene. */}
+                    {lightboxImage.scene_description && lightboxImage.motion_description && (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                          Motion
+                        </Typography>
+                        <Typography variant="body2" fontStyle="italic">
+                          {lightboxImage.motion_description}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {lightboxImage.motion_description.trim().split(/\s+/).length} words
+                          {lightboxImage.motion_described_at
+                            ? ` \u2014 ${new Date(lightboxImage.motion_described_at).toLocaleString()}`
+                            : ""}
+                        </Typography>
+                      </Box>
                     )}
                     {sceneError?.path === lightboxImage.path && (
                       <Alert
