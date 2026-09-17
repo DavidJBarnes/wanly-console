@@ -547,6 +547,29 @@ export async function updateImageTags(path: string, tags: string | null): Promis
   await api.patch("/images/tags", { tags: tags || null }, { params: { path } });
 }
 
+/** One bulk tag result: what the image's tags are now, and whether anything moved. */
+export interface BulkTagResult {
+  path: string;
+  tags: string | null;
+  changed: boolean;
+}
+
+/**
+ * Add or remove the same tags across many images (console#517).
+ *
+ * The merge and the normalised-tag dedupe happen server-side; a client loop over
+ * updateImageTags would race the lightbox's debounced whole-blob replace.
+ * A 400 with an object detail means the whole request was refused — nothing was written.
+ */
+export async function bulkUpdateImageTags(
+  paths: string[],
+  tags: string,
+  mode: "add" | "remove",
+): Promise<{ results: BulkTagResult[]; mode: string }> {
+  const { data } = await api.post("/images/tags", { paths, tags, mode });
+  return data;
+}
+
 export async function searchImages(params: {
   q?: string;
   tags?: string[];
