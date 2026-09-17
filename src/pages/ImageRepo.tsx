@@ -42,6 +42,7 @@ import {
   DriveFileMove,
   Favorite,
   LabelOff,
+  LocalOffer,
   NavigateNext,
   PhotoLibrary,
   PlayArrow,
@@ -74,6 +75,7 @@ import {
   getImageTagCounts,
 } from "../api/client";
 import type { FolderInUse, ImageFolder, ImageFile, ImageJobInfo, TagCount } from "../api/types";
+import type { BulkTagResult } from "../api/client";
 import { shouldAutoDescribe } from "../lib/autoDescribe";
 import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
@@ -81,6 +83,7 @@ import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
 import AddToDatasetDialog from "../components/AddToDatasetDialog";
+import BulkTagDialog from "../components/BulkTagDialog";
 import TagFilterBar from "../components/TagFilterBar";
 import {
   describeFilter,
@@ -139,6 +142,8 @@ export default function ImageRepo() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteKeys, setBulkDeleteKeys] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [bulkTagUris, setBulkTagUris] = useState<string[]>([]);
   const [sortDesc, setSortDesc] = useState(true);
   const pendingImagePathRef = useRef<string | null>(null);
   const [cropResizeImage, setCropResizeImage] = useState<ImageFile | null>(null);
@@ -674,6 +679,60 @@ export default function ImageRepo() {
     setBulkDeleteOpen(true);
   };
 
+  const handleOpenBulkTag = () => {
+    // Flush first (never cancel — console#435): a lightbox tag edit still debounced would
+    // otherwise land AFTER the bulk write and overwrite this image's whole tag blob.
+    tagSaveRef.current?.flush();
+    const uris = selectedUris();
+    if (uris.length === 0) return;
+    setBulkTagUris(uris);
+    setBulkTagOpen(true);
+  };
+
+  /** One bulk call, one pass over the caches. The result list carries every selected path
+   *  with its new tag string, so an in-place patch beats refetching four views. */
+  const handleBulkTagDone = (mode: "add" | "remove", results: BulkTagResult[]) => {
+    const byPath = new Map(results.map((r) => [r.path, r.tags]));
+    const patch = (img: ImageFile) =>
+      byPath.has(img.path) ? { ...img, tags: byPath.get(img.path) ?? null } : img;
+    setImages((prev) => prev.map(patch));
+    setFavImages((prev) => prev.map(patch));
+    setSearchResults((prev) => prev.map(patch));
+    if (mode === "add") {
+      // The untagged view lists images with no row; anything the add touched has one now.
+      setUntaggedImages((prev) => prev.filter((img) => !byPath.has(img.path)));
+    } else {
+      setUntaggedImages((prev) => prev.map(patch));
+      // A remove that emptied the tags also dropped the row (is_empty), UNLESS a scene
+      // description kept it. Those emptied-and-descriptionless images belong in the
+      // untagged view now; they came from a folder/search/favorites list, not from it.
+      const emptied = new Set(results.filter((r) => r.tags === null).map((r) => r.path));
+      if (emptied.size > 0) {
+        const pool = [...images, ...favImages, ...searchResults];
+        const seen = new Set<string>();
+        const added: ImageFile[] = [];
+        for (const img of pool) {
+          if (!emptied.has(img.path) || img.scene_description || seen.has(img.path)) continue;
+          if (untaggedImages.some((u) => u.path === img.path)) continue;
+          seen.add(img.path);
+          added.push({ ...img, tags: null });
+        }
+        if (added.length > 0) setUntaggedImages((prev) => prev.concat(added));
+      }
+    }
+    setLightboxImage((prev) => (prev && byPath.has(prev.path)
+      ? { ...prev, tags: byPath.get(prev.path) ?? null }
+      : prev));
+    // The census counts images per tag; a bulk add/remove moves those counts now.
+    void fetchTagCounts();
+    setSelectedKeys(new Set());
+    setSelectMode(false);
+    setBulkTagOpen(false);
+    setBulkTagUris([]);
+    const touched = results.filter((r) => r.changed).length;
+    setError(`${mode === "add" ? "Added" : "Removed"} tags on ${touched} image${touched === 1 ? "" : "s"}`);
+  };
+
   const handleBulkDeleteConfirm = async () => {
     if (bulkDeleteKeys.length === 0) return;
     setBulkDeleting(true);
@@ -760,6 +819,14 @@ export default function ImageRepo() {
 
   const dialogs = (
     <>
+      {bulkTagOpen && (
+        <BulkTagDialog
+          imageUris={bulkTagUris}
+          tagCounts={tagCounts}
+          onClose={() => setBulkTagOpen(false)}
+          onDone={handleBulkTagDone}
+        />
+      )}
       {/* Lightbox Modal */}
       <Dialog
         open={!!lightboxImage}
@@ -1998,6 +2065,14 @@ export default function ImageRepo() {
             {isMobile
               ? `Del (${selectedKeys.size})`
               : `Delete ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={isMobile ? undefined : <LocalOffer />}
+            size={isMobile ? "small" : "medium"}
+            onClick={handleOpenBulkTag}
+          >
+            {isMobile ? `Tag (${selectedKeys.size})` : `Tag ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
           </Button>
           </>
         )}
