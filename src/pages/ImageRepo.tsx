@@ -1607,10 +1607,53 @@ export default function ImageRepo() {
                 const pool = filterActive ? searchResults : favImages;
                 handleOpenScreensaver(pool);
               }}
-            >
-              {isMobile ? "Play" : "Play"}
-            </Button>
-          ) : null}
+          >
+            {isMobile ? "Play" : "Play"}
+          </Button>
+        ) : null}
+          {/* Selection on the untagged queue (#519): the cards already render checkboxes in
+              selectMode; this is the affordance that turns them on, plus the two actions that
+              resolve a selection. Tag covers both directions — #518's dialog has Remove. */}
+          {untaggedView && untaggedImages.length > 0 && (
+            <>
+              {selectMode && selectedKeys.size > 0 && (
+                <>
+                  <Button
+                    variant="contained"
+                    color="error"
+                    startIcon={isMobile ? undefined : <Delete />}
+                    size={isMobile ? "small" : "medium"}
+                    onClick={() => handleOpenBulkDelete(Array.from(selectedKeys))}
+                  >
+                    {isMobile
+                      ? `Del (${selectedKeys.size})`
+                      : `Delete ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    startIcon={isMobile ? undefined : <LocalOffer />}
+                    size={isMobile ? "small" : "medium"}
+                    onClick={handleOpenBulkTag}
+                  >
+                    {isMobile
+                      ? `Tag (${selectedKeys.size})`
+                      : `Tag ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
+                  </Button>
+                </>
+              )}
+              <Button
+                variant={selectMode ? "contained" : "outlined"}
+                startIcon={isMobile ? undefined : <CheckBoxIcon />}
+                size={isMobile ? "small" : "medium"}
+                onClick={() => {
+                  setSelectMode((prev) => !prev);
+                  setSelectedKeys(new Set());
+                }}
+              >
+                {selectMode ? "Cancel" : "Select"}
+              </Button>
+            </>
+          )}
           <Box sx={{ flex: 1 }} />
           <TextField
             size="small"
