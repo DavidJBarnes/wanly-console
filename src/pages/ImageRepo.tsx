@@ -761,7 +761,8 @@ export default function ImageRepo() {
 
   /** One bulk call, one pass over the caches. The result list carries every selected path
    *  with its new tag string, so an in-place patch beats refetching four views. */
-  const handleBulkTagDone = (mode: "add" | "remove", results: BulkTagResult[]) => {
+  const handleBulkTagDone = (mode: "add" | "remove", results: BulkTagResult[],
+                             describing: number) => {
     const byPath = new Map(results.map((r) => [r.path, r.tags]));
     const patch = (img: ImageFile) =>
       byPath.has(img.path) ? { ...img, tags: byPath.get(img.path) ?? null } : img;
@@ -800,7 +801,12 @@ export default function ImageRepo() {
     setBulkTagOpen(false);
     setBulkTagUris([]);
     const touched = results.filter((r) => r.changed).length;
-    setError(`${mode === "add" ? "Added" : "Removed"} tags on ${touched} image${touched === 1 ? "" : "s"}`);
+    const described = describing > 0
+      // The server captions serially on a shared GPU, so these land over the next few
+      // minutes, not now; the lightbox shows "Asking the captioner..." once they arrive.
+      ? ` · describing ${describing} in the background`
+      : "";
+    setError(`${mode === "add" ? "Added" : "Removed"} tags on ${touched} image${touched === 1 ? "" : "s"}${described}`);
   };
 
   const handleBulkDeleteConfirm = async () => {
