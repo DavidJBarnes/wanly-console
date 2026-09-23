@@ -413,6 +413,18 @@ export async function cancelTrainingJob(id: string): Promise<TrainingJob> {
   return data;
 }
 
+/**
+ * Queue a failed run again, same row and version (wanly-api#342).
+ *
+ * The server re-reads each group's images from its dataset before re-queuing, so a run that
+ * died on images since fixed trains on the fixed set — the whole reason retry lives on the API
+ * rather than resubmitting the create payload the console no longer has.
+ */
+export async function retryTrainingJob(id: string): Promise<TrainingJob> {
+  const { data } = await api.post<TrainingJob>(`/training/${id}/retry`);
+  return data;
+}
+
 /** Ask for a checkpoint that stayed on the trainer to be uploaded after all. */
 export async function publishTrainingEpoch(id: string, label: string): Promise<TrainingJob> {
   const { data } = await api.post<TrainingJob>(`/training/${id}/publish`, null, { params: { label } });

@@ -6,12 +6,12 @@ import {
 } from "@mui/material";
 
 import {
-  CheckCircle, CloudUpload, Delete, Download, EditNote, ExpandMore,
+  CheckCircle, CloudUpload, Delete, Download, EditNote, ExpandMore, Refresh,
 } from "@mui/icons-material";
 
 import {
   cancelTrainingJob, deleteTrainingJob, getFileUrl, listTrainingJobs, publishTrainingEpoch,
-  updateTrainingNotes,
+  retryTrainingJob, updateTrainingNotes,
 } from "../api/client";
 import { createCharacter, listRecipes, updateCharacter } from "../api/ltx";
 import type { Character } from "../api/ltx";
@@ -153,6 +153,9 @@ function TrainingRow({
   const [msg, setMsg] = useState("");
   /** The API's reason for refusing to delete this run with its files, while it stands. */
   const [refusal, setRefusal] = useState("");
+  /** Likewise for a refused retry (a live twin of the same version, a dataset that fell
+   *  below the minimum since the run died). */
+  const [retryErr, setRetryErr] = useState("");
   /** null = the note is not being edited. Held HERE rather than read off `job` because the
    *  page polls and a poll replaces the job object -- a textarea reading props would be
    *  clobbered mid-typing by the next refresh of the same run. */
@@ -183,6 +186,20 @@ function TrainingRow({
     } catch (e: unknown) {
       const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setRefusal(typeof d === "string" ? d : "could not delete it");
+    }
+  };
+
+  /** Re-queue a failed run. The API re-reads the datasets first (api#342), so a run that
+   *  died on images fixed since trains on the fixed set — which is why this is one call
+   *  rather than a resubmit of the create payload. */
+  const retry = async () => {
+    setRetryErr("");
+    try {
+      await retryTrainingJob(job.id);
+      onChanged();
+    } catch (e: unknown) {
+      const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setRetryErr(typeof d === "string" ? d : "could not retry it");
     }
   };
 
@@ -256,22 +273,43 @@ function TrainingRow({
               Cancel
             </Button>
           ) : (
-            <Tooltip title="Delete this version and its LoRA files">
-              <IconButton
-                size="small"
-                color="error"
-                onClick={() => {
-                  const n = job.checkpoints?.length ?? 0;
-                  if (!confirm(`Delete ${job.character} v${job.version}`
-                               + (n ? ` and its ${n} LoRA file${n === 1 ? "" : "s"}?` : "?"))) return;
-                  remove(true);
-                }}
-              >
-                <Delete fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <>
+              {job.status === "failed" && (
+                <Tooltip title="Retry — re-queues this run with its images re-read from the datasets, so images fixed since the failure are trained on">
+                  <IconButton
+                    size="small"
+                    color="primary"
+                    onClick={() => { void retry(); }}
+                  >
+                    <Refresh fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title="Delete this version and its LoRA files">
+                <IconButton
+                  size="small"
+                  color="error"
+                  onClick={() => {
+                    const n = job.checkpoints?.length ?? 0;
+                    if (!confirm(`Delete ${job.character} v${job.version}`
+                                 + (n ? ` and its ${n} LoRA file${n === 1 ? "" : "s"}?` : "?"))) return;
+                    remove(true);
+                  }}
+                >
+                  <Delete fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </>
           )}
         </Box>
+
+        {/* WHERE IT CAN BE SEEN, same rule as the delete refusal below: a refused retry that
+            only flipped the chip back to pending for a second is not a retry. */}
+        {retryErr && (
+          <Alert severity="warning" sx={{ mb: 1 }} onClose={() => setRetryErr("")}>
+            {retryErr}
+          </Alert>
+        )}
 
         {/* WHERE IT CAN BE SEEN. The API's refusal used to land in the small caption under
             the checkpoint list, and "delete did not work" was the report. */}
