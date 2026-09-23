@@ -23,7 +23,7 @@ export default function BulkTagDialog({
   imageUris: string[];
   tagCounts: TagCount[];
   onClose: () => void;
-  onDone: (mode: "add" | "remove", results: BulkTagResult[]) => void;
+  onDone: (mode: "add" | "remove", results: BulkTagResult[], describing: number) => void;
 }) {
   const [mode, setMode] = useState<"add" | "remove">("add");
   const [tags, setTags] = useState("");
@@ -38,7 +38,9 @@ export default function BulkTagDialog({
     setError("");
     try {
       const res = await bulkUpdateImageTags(imageUris, words.join(", "), mode);
-      onDone(mode, res.results);
+      // `describing ?? 0`: a console built after the API, talking to an API that predates
+      // api#340, must not print "describing undefined images".
+      onDone(mode, res.results, res.describing ?? 0);
       onClose();
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;

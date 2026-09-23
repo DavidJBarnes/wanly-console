@@ -560,12 +560,15 @@ export interface BulkTagResult {
  * The merge and the normalised-tag dedupe happen server-side; a client loop over
  * updateImageTags would race the lightbox's debounced whole-blob replace.
  * A 400 with an object detail means the whole request was refused — nothing was written.
+ * `describing` is how many newly-tagged images the server queued for the captioner
+ * (api#340); the loop runs serially in the background, so the descriptions land on the
+ * next fetch of whatever view is showing them.
  */
 export async function bulkUpdateImageTags(
   paths: string[],
   tags: string,
   mode: "add" | "remove",
-): Promise<{ results: BulkTagResult[]; mode: string }> {
+): Promise<{ results: BulkTagResult[]; mode: string; describing: number }> {
   const { data } = await api.post("/images/tags", { paths, tags, mode });
   return data;
 }
