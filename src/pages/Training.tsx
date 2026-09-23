@@ -18,8 +18,8 @@ import type { Character } from "../api/ltx";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import {
-  checkpointInUse, epochRows, groupByCharacter, loraStem, lossPath, trainingPct,
-  trainingSummary,
+  checkpointInUse, epochRows, groupByCharacter, loraStem, lossPath, runTimeDetail, runTimeLabel,
+  trainingPct, trainingSummary,
 } from "../lib/trainingJob";
 import LossChart from "../components/LossChart";
 import type { TrainingJob } from "../api/types";
@@ -148,6 +148,7 @@ function TrainingRow({
 }: { job: TrainingJob; characters: Character[]; onChanged: () => void }) {
   const pct = trainingPct(job);
   const live = job.status === "running" || job.status === "claimed" || job.status === "pending";
+  const when = runTimeLabel(job);
   const inUse = checkpointInUse(job, characters);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -263,6 +264,11 @@ function TrainingRow({
                 .reduce((n, g) => n + (g.images?.length ?? g.dataset?.count ?? 0), 0)} images`} />
           </Tooltip>
           {job.gpu_name && <Chip size="small" variant="outlined" label={job.gpu_name} />}
+          {when && (
+            <Tooltip title={runTimeDetail(job) ?? when}>
+              <Chip size="small" variant="outlined" label={when} />
+            </Tooltip>
+          )}
           <Box sx={{ flexGrow: 1 }} />
           {live ? (
             <Button

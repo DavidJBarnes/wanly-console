@@ -141,14 +141,61 @@ export function trainingSummary(job: TrainingJob): string {
   }
 }
 
-/** Sort for the list: live work first, then most recent. */
+/** Sort for the list: live work first, then most recent.
+ *
+ *  PENDING is the exception (console#526): the trainer claims `created_at ASC`, so pending
+ *  rows ARE a queue, and a queue that displays newest-first puts the job training NEXT at
+ *  the bottom — every added job visibly "cutting in line" that it is not. The queue reads
+ *  top-down in the order it drains; finished work keeps newest-first, where "most recent"
+ *  is the interesting one.
+ */
 export function byTrainingInterest(a: TrainingJob, b: TrainingJob): number {
   const order: Record<string, number> = {
     running: 0, claimed: 1, pending: 2, failed: 3, completed: 4, cancelled: 5,
   };
   const d = (order[a.status] ?? 9) - (order[b.status] ?? 9);
   if (d !== 0) return d;
-  return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+  const cmp = (b.created_at ?? "").localeCompare(a.created_at ?? "");
+  return a.status === "pending" ? -cmp : cmp;
+}
+
+/** Human duration, minute-precise: "42m", "1h 12m". */
+export function formatRunDuration(ms: number): string {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "<1m";
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/**
+ * What the row says about WHEN this run ran (console#527): the claim is the start, the
+ * completion the end. Null before a claim — a pending run has no times to tell, and the
+ * queue's job is to say it is queued. A run's clock starts at the claim, not creation:
+ * an hour waiting in the queue is not an hour of training, and quoting creation would
+ * quietly charge the queue's time to every short run that waited behind a long one.
+ */
+export function runTimeLabel(
+  job: Pick<TrainingJob, "claimed_at" | "completed_at">,
+): string | null {
+  if (!job.claimed_at) return null;
+  const t = (iso: string) =>
+    new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (!job.completed_at) return `started ${t(job.claimed_at)}`;
+  return `${t(job.claimed_at)}–${t(job.completed_at)}`
+    + ` · ${formatRunDuration(Date.parse(job.completed_at) - Date.parse(job.claimed_at))}`;
+}
+
+/** The chip's tooltip: the same times as full timestamps, queue wait included. */
+export function runTimeDetail(
+  job: Pick<TrainingJob, "created_at" | "claimed_at" | "completed_at">,
+): string | null {
+  const stamp = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleString() : null;
+  const parts = [
+    job.created_at && `Queued ${stamp(job.created_at)}`,
+    job.claimed_at && `Started ${stamp(job.claimed_at)}`,
+    job.completed_at && `Finished ${stamp(job.completed_at)}`,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 /**
@@ -245,11 +292,23 @@ export function groupByCharacter(jobs: TrainingJob[]): CharacterGroup[] {
     runs.sort((a, b) => b.version - a.version || byTrainingInterest(a, b));
     out.push({ character, runs });
   }
-  // Characters with something live first, then by most recent activity.
+  // Characters with something live first, then history by most recent activity. Among the
+  // queued ones the page owes the reader the queue's real shape (console#526): the trainer
+  // claims oldest-pending first, so the pending groups sort that way too — the character
+  // training NEXT sits just under the one training now, and adding a job lands it where it
+  // belongs, at the bottom. Newest-first here read as every new job cutting to the front.
+  const rank = (g: CharacterGroup) =>
+    g.runs.some((r) => r.status === "running" || r.status === "claimed") ? 0
+      : g.runs.some((r) => r.status === "pending") ? 1
+        : 2;
   const activity = (g: CharacterGroup) =>
     Math.max(...g.runs.map((r) => Date.parse(r.claimed_at ?? r.created_at ?? "") || 0));
-  const live = (g: CharacterGroup) => g.runs.some((r) => byTrainingInterest(r, { status: "failed" } as TrainingJob) < 0);
-  out.sort((a, b) => Number(live(b)) - Number(live(a)) || activity(b) - activity(a));
+  const oldestPending = (g: CharacterGroup) =>
+    Math.min(...g.runs.filter((r) => r.status === "pending")
+      .map((r) => Date.parse(r.created_at ?? "") || 0));
+  out.sort((a, b) =>
+    rank(a) - rank(b)
+    || (rank(a) === 1 ? oldestPending(a) - oldestPending(b) : activity(b) - activity(a)));
   return out;
 }
 

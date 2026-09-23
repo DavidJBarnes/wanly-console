@@ -17,6 +17,8 @@ import {
   MAX_IMAGES,
   MIN_IMAGES,
   byTrainingInterest,
+  runTimeLabel,
+  formatRunDuration,
   canTrain,
   defaultLoraName,
   loraFilename,
@@ -145,6 +147,42 @@ describe("byTrainingInterest", () => {
     const newer = job({ status: "completed", created_at: "2026-09-07T00:00:00Z" });
     expect([older, newer].sort(byTrainingInterest)[0]).toBe(newer);
   });
+
+  it("reads a pending queue oldest-first, in claim order", () => {
+    // The trainer claims created_at ASC; displayed newest-first, the job that trains NEXT
+    // sits at the bottom and every add looks like it cut in line (console#526).
+    const first = job({ status: "pending", created_at: "2026-09-23T03:40:00Z" });
+    const later = job({ status: "pending", created_at: "2026-09-23T04:15:00Z" });
+    expect([later, first].sort(byTrainingInterest).map((j) => j.created_at))
+      .toEqual(["2026-09-23T03:40:00Z", "2026-09-23T04:15:00Z"]);
+  });
+});
+
+describe("runTimeLabel", () => {
+  it("says nothing about a run that has not started", () => {
+    // A queued run has no times to tell. Inventing a "start" out of the queue time would
+    // charge every short run's wait in line to its own duration (console#527).
+    expect(runTimeLabel({ claimed_at: null, completed_at: null })).toBeNull();
+  });
+
+  it("says started for a live run", () => {
+    expect(runTimeLabel({ claimed_at: "2026-09-23T04:07:28Z", completed_at: null }))
+      .toMatch(/^started \d/);
+  });
+
+  it("gives a finished run its window and its length", () => {
+    const label = runTimeLabel({
+      claimed_at: "2026-09-23T04:07:28Z",
+      completed_at: "2026-09-23T04:49:28Z",
+    });
+    expect(label).toMatch(/–/);
+    expect(label).toContain("42m");
+  });
+
+  it("spans an hour honestly", () => {
+    expect(formatRunDuration((72 * 60 + 1) * 1000)).toBe("1h 12m");
+    expect(formatRunDuration(10 * 1000)).toBe("<1m");
+  });
 });
 
 describe("what the dialog needs to get right", () => {
@@ -256,6 +294,21 @@ describe("groupByCharacter", () => {
       run("p@y", 3, "running", "2026-09-01"),
     ]);
     expect(groups[0].character).toBe("p@y");
+  });
+
+  it("drains a pending queue top-down", () => {
+    // The page this feeds: one character training now, three queued behind it. The queue
+    // must read in the order the trainer drains it — next first, newest add last — or it
+    // looks like every new job cut in line (console#526).
+    const groups = groupByCharacter([
+      run("newest", 1, "pending", "2026-09-23T04:15:00Z"),
+      run("queuedA", 1, "pending", "2026-09-23T03:40:00Z"),
+      run("training", 1, "running", "2026-09-23T03:39:00Z"),
+      run("queuedB", 1, "pending", "2026-09-23T03:41:00Z"),
+      run("done", 1, "completed", "2026-09-23T04:20:00Z"),
+    ]);
+    expect(groups.map((g) => g.character))
+      .toEqual(["training", "queuedA", "queuedB", "newest", "done"]);
   });
 });
 
