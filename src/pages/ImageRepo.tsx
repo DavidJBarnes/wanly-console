@@ -33,6 +33,8 @@ import {
   ArrowDownward,
   ArrowUpward,
   CheckBox as CheckBoxIcon,
+  ChevronLeft,
+  ChevronRight,
   Close,
   CloudUpload,
   ContentCut,
@@ -77,6 +79,13 @@ import {
 import type { FolderInUse, ImageFolder, ImageFile, ImageJobInfo, TagCount } from "../api/types";
 import type { BulkTagResult } from "../api/client";
 import { shouldAutoDescribe } from "../lib/autoDescribe";
+import {
+  isTypingTarget,
+  lightboxNav,
+  orderForBrowse,
+  poolForView,
+  stepIndex,
+} from "../lib/lightboxNav";
 import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
@@ -233,6 +242,67 @@ export default function ImageRepo() {
     tagSaveRef.current?.flush();
     setLightboxTags(lightboxImage?.tags ?? "");
   }, [lightboxImage]);
+
+  // Lightbox prev/next (console#522). The pool is DERIVED from whichever grid is on
+  // screen rather than captured at click time: a tag save or describe replaces the
+  // image object inside its source array, and a captured copy would navigate inside
+  // stale data. The folder pool is the full sorted array, not the current page slice,
+  // so stepping walks past the page edge into the images the pagination is hiding.
+  const lightboxPool = useMemo(
+    () =>
+      poolForView({
+        filterActive,
+        favoritesView,
+        untaggedView,
+        search: searchResults,
+        favorites: favImages,
+        untagged: untaggedImages,
+        folder: orderForBrowse(
+          favoritesOnly ? images.filter((img) => favoritesSet.has(img.path)) : images,
+          sortDesc,
+        ),
+      }),
+    [
+      filterActive,
+      favoritesView,
+      untaggedView,
+      searchResults,
+      favImages,
+      untaggedImages,
+      images,
+      favoritesOnly,
+      favoritesSet,
+      sortDesc,
+    ],
+  );
+  const lightboxPosition = lightboxNav(lightboxImage, lightboxPool);
+
+  // Stepping re-enters through handleOpenLightbox, not a bare setImage: each image must
+  // refetch its job list, and the tag field resets via the flush effect above.
+  const stepLightbox = (dir: -1 | 1) => {
+    if (!lightboxImage) return;
+    const nav = lightboxNav(lightboxImage, lightboxPool);
+    if (!nav) return;
+    const next = stepIndex(nav.index, nav.total, dir);
+    if (next !== nav.index) handleOpenLightbox(lightboxPool[next]);
+  };
+
+  useEffect(() => {
+    // The lightbox must be the topmost dialog for arrows to belong to it; Delete and
+    // Move-to keep the lightbox mounted underneath, so gate on those too.
+    if (!lightboxImage || deleteConfirm || inUse || moveDialogOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      // The tag editor lives inside this modal: Left/Right must move the caret.
+      if (isTypingTarget(e.target)) return;
+      if (lightboxNav(lightboxImage, lightboxPool) === null) return;
+      e.preventDefault();
+      stepLightbox(e.key === "ArrowLeft" ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightboxImage, lightboxPool, deleteConfirm, inUse, moveDialogOpen]);
 
   // Commit the search box to the URL after a pause. The equality guard means a
   // remount (restored ?q=…) does not re-commit the same term — which would wipe
@@ -841,6 +911,9 @@ export default function ImageRepo() {
               {lightboxImage.filename}
               <Typography variant="body2" color="text.secondary">
                 {formatBytes(lightboxImage.size)}
+                {lightboxPosition && lightboxPosition.total > 1
+                  ? ` — ${lightboxPosition.index + 1} of ${lightboxPosition.total}`
+                  : ""}
               </Typography>
             </DialogTitle>
             <DialogContent sx={{ pt: 2 }}>
@@ -857,8 +930,48 @@ export default function ImageRepo() {
                     flex: isMobile ? "none" : "2 1 0",
                     minWidth: 0,
                     textAlign: "center",
+                    position: "relative",
                   }}
                 >
+                  {/* Edge arrows (console#522) flank the photo itself — inside the
+                      image pane, never over the tag/jobs panel — and only appear
+                      while there is an image to step to in that direction. */}
+                  {lightboxPosition && lightboxPosition.total > 1 && (
+                    <>
+                      {lightboxPosition.index > 0 && (
+                        <IconButton
+                          aria-label="Previous image"
+                          onClick={() => stepLightbox(-1)}
+                          sx={{
+                            position: "absolute",
+                            top: "50%",
+                            left: 4,
+                            color: "white",
+                            bgcolor: "rgba(0,0,0,0.45)",
+                            "&:hover": { bgcolor: "rgba(0,0,0,0.65)" },
+                          }}
+                        >
+                          <ChevronLeft />
+                        </IconButton>
+                      )}
+                      {lightboxPosition.index < lightboxPosition.total - 1 && (
+                        <IconButton
+                          aria-label="Next image"
+                          onClick={() => stepLightbox(1)}
+                          sx={{
+                            position: "absolute",
+                            top: "50%",
+                            right: 4,
+                            color: "white",
+                            bgcolor: "rgba(0,0,0,0.45)",
+                            "&:hover": { bgcolor: "rgba(0,0,0,0.65)" },
+                          }}
+                        >
+                          <ChevronRight />
+                        </IconButton>
+                      )}
+                    </>
+                  )}
                   <Box
                     component="img"
                     src={getFileUrl(lightboxImage.path)}
