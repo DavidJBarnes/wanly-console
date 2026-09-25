@@ -592,18 +592,22 @@ function WorkerCard({
         </Box>
 
 
+        {/* WHAT IT IS DOING, and it is a CONTROL -- so it gets its own line, above the
+            chips that say what the box merely CAN do. Inline with them it read as one more
+            label: "Rendering" beside "trainer" was taken to mean the box was in trainer
+            mode. Only where both halves exist to switch between (canSwitchMode). */}
+        {canSwitchMode(worker) && (
+          <Box onClick={(e) => e.stopPropagation()}>
+            <WorkerModeToggle worker={worker} onChanged={onModeChanged} />
+          </Box>
+        )}
+
         {/* WHAT IT IS AND WHAT IT RUNS, on their own line. In the header these chips pushed
             the name and the drain button off the edge of the card once a box ran four
             services (wanly-gpu-docker#83) -- the name was unreadable and the rename pencil sat
             beside a truncated string, which is how 3090.zero became 3090.zero3090. */}
         {(isService || kindsOf(worker).length > 1 || worker.provides?.length || hasPendingDrain) ? (
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1.5 }} onClick={(e) => e.stopPropagation()}>
-            {/* Render or caption (gpu-docker#131). Only on a box that has both halves to
-                switch between -- see canSwitchMode. It asks the container, so it is one
-                request per card and only on the cards where the answer means something. */}
-            {canSwitchMode(worker) && (
-              <WorkerModeToggle worker={worker} onChanged={onModeChanged} />
-            )}
             {/* Only on services. A chip on every row would be noise on a page that is almost
                 all render workers, and the useful signal here is "this one is different". */}
             {isService && (

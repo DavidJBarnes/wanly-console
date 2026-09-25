@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Chip, CircularProgress, Tooltip } from "@mui/material";
+import {
+  Box, CircularProgress, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
+} from "@mui/material";
 import { Movie, PhotoCamera } from "@mui/icons-material";
 
 import { getWorkerMode, setWorkerMode } from "../api/client";
@@ -93,11 +95,9 @@ export default function WorkerModeToggle({
 
   if (mode === null) return null;
 
-  const captioning = mode === "caption";
   const busy = pending !== null;
-  const next = captioning ? "ltx-engine" : "caption";
 
-  const flip = async () => {
+  const flip = async (next: string) => {
     setError(null);
     // Optimistic only about the REQUEST, never about the mode: the chip goes to "switching"
     // and the box decides when it is done.
@@ -115,33 +115,55 @@ export default function WorkerModeToggle({
     }
   };
 
+  const set = async (target: string) => {
+    if (busy || target === mode) return;
+    await flip(target);
+  };
+
   return (
-    <Tooltip
-      title={
-        error
-          ? error
-          : pending === "caption"
-            ? "Switching to captions when the segment in flight finishes — nothing is lost."
-            : pending
-              ? "Starting the render stack…"
-              : captioning
-                ? "Captioning. Queued jobs are waiting — click to start rendering them."
-                : "Rendering. Click to switch to captions; queued jobs will wait, nothing is lost."
-      }
-    >
-      <Chip
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 34 }}>
+        Mode
+      </Typography>
+      <ToggleButtonGroup
         size="small"
-        icon={busy ? undefined : captioning ? <PhotoCamera /> : <Movie />}
-        label={pending === "caption" ? "Switching after current job…"
-          : pending ? "Starting render…"
-          : captioning ? "Captioning" : "Rendering"}
-        color={error ? "error" : captioning ? "secondary" : "default"}
-        variant={captioning ? "filled" : "outlined"}
-        onClick={busy ? undefined : flip}
-        onDelete={busy ? () => {} : undefined}
-        deleteIcon={busy ? <CircularProgress size={14} /> : undefined}
-        sx={{ cursor: busy ? "default" : "pointer" }}
-      />
-    </Tooltip>
+        exclusive
+        value={pending ?? mode}
+        sx={{ "& .MuiToggleButton-root": { py: 0.15, px: 1, textTransform: "none" } }}
+      >
+        {/* BOTH options are always shown, selected or not. A single chip showing only the
+            current state reads as a label among the capability chips beside it -- which is
+            exactly how "Rendering" next to "trainer" got read as "this box is in trainer
+            mode". Two buttons say, without a tooltip, that this is a choice and what the
+            other choice is. */}
+        <ToggleButton value="ltx-engine" disabled={busy} onClick={() => set("ltx-engine")}>
+          <Movie sx={{ fontSize: 15, mr: 0.5 }} />
+          Render
+        </ToggleButton>
+        <ToggleButton value="caption" disabled={busy} onClick={() => set("caption")}>
+          <PhotoCamera sx={{ fontSize: 15, mr: 0.5 }} />
+          Caption
+        </ToggleButton>
+      </ToggleButtonGroup>
+      {busy && (
+        <Tooltip title={
+          pending === "caption"
+            ? "Switching when the segment in flight finishes — nothing is lost."
+            : "Starting the render stack…"
+        }>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <CircularProgress size={12} />
+            <Typography variant="caption" color="text.secondary">
+              {pending === "caption" ? "after current job" : "starting"}
+            </Typography>
+          </Box>
+        </Tooltip>
+      )}
+      {error && !busy && (
+        <Tooltip title={error}>
+          <Typography variant="caption" color="error">failed</Typography>
+        </Tooltip>
+      )}
+    </Box>
   );
 }
