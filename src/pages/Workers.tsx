@@ -51,7 +51,7 @@ import { findBootingPods, costForWorker } from "../lib/bootingPods";
 import { describeWindow, describePolicy, describeAttempts, describeGpu } from "../lib/reservationDisplay";
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import { buildLabel, driftingWorkers } from "../lib/workerBuild";
-import { byStatus, canDrain as canDrainWorker, fleetCounts, isService as isServiceWorker, kindsOf } from "../lib/workerKind";
+import { byStatus, canDrain as canDrainWorker, fleetCounts, isService as isServiceWorker } from "../lib/workerKind";
 import WorkerModeToggle, { canSwitchMode } from "../components/WorkerModeToggle";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
@@ -606,7 +606,7 @@ function WorkerCard({
             the name and the drain button off the edge of the card once a box ran four
             services (wanly-gpu-docker#83) -- the name was unreadable and the rename pencil sat
             beside a truncated string, which is how 3090.zero became 3090.zero3090. */}
-        {(isService || kindsOf(worker).length > 1 || worker.provides?.length || hasPendingDrain) ? (
+        {(isService || worker.provides?.length || hasPendingDrain) ? (
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1.5 }} onClick={(e) => e.stopPropagation()}>
             {/* Only on services. A chip on every row would be noise on a page that is almost
                 all render workers, and the useful signal here is "this one is different". */}
@@ -618,18 +618,13 @@ function WorkerCard({
                 sx={{ bgcolor: "#e8eaf6", color: "#3949ab", fontWeight: 600, fontSize: "0.7rem" }}
               />
             )}
-            {/* A render worker that is ALSO a trainer (wanly-gpu-docker#83): one container per
-                GPU claims from both queues, and a training run parks its renders. Worth a chip
-                because it explains a "draining" status that nobody asked for. */}
-            {!isService && kindsOf(worker).filter((k) => k !== "render").map((k) => (
-              <Chip
-                key={k}
-                label={k}
-                size="small"
-                title={`Also a ${k}. Claims from that queue as well as rendering.`}
-                sx={{ bgcolor: "#e8eaf6", color: "#3949ab", fontWeight: 600, fontSize: "0.7rem" }}
-              />
-            ))}
+            {/* NO KIND CHIPS. A kind is DERIVED from the services -- wanly-gpu-docker's
+                registry maps {ltx-engine: render, lora-trainer: trainer} and nothing else
+                sets them -- so a `trainer` chip says exactly what the `lora-trainer` chip
+                beside it already says, in different words and a different style. `render`
+                was already filtered out as noise for that reason; this is the same reason
+                applied to the other one. It read as a mode the box was in. */
+            }
             {/* null means never reported, which is every render daemon today — so an absent
                 list must render as nothing, not as an empty one. */}
             {(worker.provides ?? []).map((name) => (
