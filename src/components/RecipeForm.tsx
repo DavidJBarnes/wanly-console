@@ -14,9 +14,9 @@ import {
   addSegment, createJob, describeImageScene, getFileUrl, getImageScene,
 } from "../api/client";
 import {
-  fillScene, hasScenePlaceholder, hasSceneRegion, restoreScenePlaceholder,
-  stripSceneMarkers,
-} from "../lib/sceneRegion";
+  fill, hasPlaceholder, hasRegion, restorePlaceholders, stripMarkers, wants,
+  type CaptionHalf,
+} from "../lib/captionRegion";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
 import {
   buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor,
@@ -150,9 +150,21 @@ export default function RecipeForm({
   // moment it renders a template, and it must read the CURRENT value without listing it as
   // a dependency — that would re-render the template, discarding the user's edits, every
   // time a description arrived.
+  //
+  // BOTH halves (console#529): the static description and the motion paragraph are saved
+  // and filled the same way, from the same record, in the same call.
   const [savedScene, setSavedScene] = useState<string | null>(null);
-  const savedSceneRef = useRef<string | null>(null);
-  savedSceneRef.current = savedScene;
+  const [savedMotion, setSavedMotion] = useState<string | null>(null);
+  const savedHalvesRef = useRef<Record<CaptionHalf, string | null>>(
+    { scene: null, motion: null });
+  savedHalvesRef.current = { scene: savedScene, motion: savedMotion };
+
+  /** Fill whichever halves we have words for, leaving the rest as placeholders. */
+  const fillSaved = useCallback(
+    (text: string, saved: Record<CaptionHalf, string | null>) =>
+      (["scene", "motion"] as CaptionHalf[]).reduce(
+        (out, half) => (saved[half] ? fill(out, half, saved[half]!) : out), text),
+    []);
 
   // Pre-filled from the recipe, editable. Editing means this is no longer the
   // validated configuration — which is recorded, not prevented.
@@ -239,7 +251,7 @@ export default function RecipeForm({
     // Auto-filled the moment there is something to fill it with (console#427). The words
     // land in the editable box, so they are still read before they are used — what changes
     // is that a description already paid for is not paid for again.
-    setPrompt(savedSceneRef.current ? fillScene(rendered, savedSceneRef.current) : rendered);
+    setPrompt(fillSaved(rendered, savedHalvesRef.current));
     setNegative(pose.negative_prompt);
     // Every filled slot starts as its character's own LoRA and strengths.
     setSlotEdits(slotCharacters.map((c) => {
@@ -343,6 +355,7 @@ export default function RecipeForm({
 
   useEffect(() => {
     setSavedScene(null);
+    setSavedMotion(null);
     setSceneLookedUpFor(null);
     if (!describePath) return;
     let live = true;
@@ -350,12 +363,16 @@ export default function RecipeForm({
       .then((s) => {
         if (!live) return;
         setSavedScene(s.scene_description);
+        setSavedMotion(s.motion_description);
         setSceneLookedUpFor(describePath);
       })
       // A failure here costs the auto-fill, not the form. The button still works and the API
       // still resolves the placeholder at claim time.
       .catch(() => {
-        if (live) setSavedScene(null);
+        if (live) {
+          setSavedScene(null);
+          setSavedMotion(null);
+        }
       });
     return () => {
       live = false;
@@ -372,28 +389,38 @@ export default function RecipeForm({
    *
    * Fires once per frame and only when there is a slot to fill, so a pose with no <SCENE>
    * costs nothing and reopening the dialog costs nothing — the API kept the words.
+   *
+   * EITHER needed half being missing is enough to describe (console#529). One POST
+   * regenerates and returns both halves, so a frame described before the motion half
+   * existed — or one whose motion call failed — is topped up by the same call that would
+   * have been made for a missing scene. A GET that already has both costs nothing, so the
+   * common case is still no request at all.
    */
   const autoDescribed = useRef<Set<string>>(new Set());
-  const needsScene = hasScenePlaceholder(prompt);
+  const needsScene = wants(prompt, "scene") && !savedScene;
+  const needsMotion = wants(prompt, "motion") && !savedMotion;
   useEffect(() => {
-    if (!describePath || !needsScene) return;
+    if (!describePath || !(needsScene || needsMotion)) return;
     if (sceneLookedUpFor !== describePath) return;
-    if (savedScene) return;
     if (autoDescribed.current.has(describePath)) return;
     autoDescribed.current.add(describePath);
     void handleDescribe();
     // handleDescribe is stable in behaviour but not in identity; the guard set is what makes
     // this once-only, not the dependency list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [describePath, needsScene, sceneLookedUpFor, savedScene]);
+  }, [describePath, needsScene, needsMotion, sceneLookedUpFor]);
 
   // The description can arrive after the prompt was rendered — the fetch is async and the
-  // pose effect does not wait for it. Fills only a prompt that is still UNFILLED, so a
-  // description landing late can never overwrite one the user re-rolled or edited.
+  // pose effect does not wait for it. Fills only a half that is still UNFILLED, so a
+  // description landing late can never overwrite one the user re-rolled or edited, and a
+  // motion paragraph arriving beside an already-filled scene touches only its own half.
   useEffect(() => {
-    if (!savedScene) return;
-    setPrompt((p) => (hasScenePlaceholder(p) ? fillScene(p, savedScene) : p));
-  }, [savedScene]);
+    if (!savedScene && !savedMotion) return;
+    setPrompt((p) => (["scene", "motion"] as CaptionHalf[]).reduce((out, half) => {
+      const saved = half === "scene" ? savedScene : savedMotion;
+      return saved && hasPlaceholder(out, half) ? fill(out, half, saved) : out;
+    }, p));
+  }, [savedScene, savedMotion]);
 
   // An image passed in from the Image Repo. Referenced, never re-uploaded.
   useEffect(() => {
@@ -427,7 +454,7 @@ export default function RecipeForm({
       // The markers are an editing affordance and stop here. A literal <scene> or <SCENE>
       // reaching the text encoder is garbage tokens -- the same reason the API drops an
       // unresolved placeholder rather than shipping it.
-      const submittedPrompt = stripSceneMarkers(prompt).trim();
+      const submittedPrompt = stripMarkers(prompt).trim();
 
       const segment = {
         prompt: submittedPrompt,
@@ -442,7 +469,7 @@ export default function RecipeForm({
         // input.
         ltx_recipe: buildLtxRecipe({
           pose, slots, negative, frames: nFrames,
-          prompt: restoreScenePlaceholder(prompt),
+          prompt: restorePlaceholders(prompt),
           renderedPrompt,
         }),
       };
@@ -517,16 +544,25 @@ export default function RecipeForm({
     });
   }, [onActions, stableSubmit, busy, submitDisabled, submitLabel]);
 
-  // The scene is put back to its placeholder first: filling <SCENE> is the recipe working
-  // as designed, not somebody departing from it, and reading it as an edit would light this
-  // up on every auto-filled render.
+  // Both halves are put back to their placeholders first: filling <SCENE> or <MOTION> is
+  // the recipe working as designed, not somebody departing from it, and reading it as an
+  // edit would light this up on every auto-filled render.
   const edited = pose
-    ? restoreScenePlaceholder(prompt).trim() !== renderedPrompt.trim()
+    ? restorePlaceholders(prompt).trim() !== renderedPrompt.trim()
       || negative.trim() !== pose.negative_prompt.trim()
     : false;
 
+  // Is there anything filled to re-roll, and what do we call it? A pose may use one half
+  // or both, and offering to "re-roll the description and motion" on a prompt with no
+  // <MOTION> in it would be describing a control that does not exist.
+  const described = hasRegion(prompt, "scene") || hasRegion(prompt, "motion");
+  const halvesInPlay =
+    wants(prompt, "scene") && wants(prompt, "motion")
+      ? "description and motion"
+      : wants(prompt, "motion") ? "motion" : "scene";
+
   /**
-   * Describe the start frame and put the words into the prompt's scene region.
+   * Describe the start frame and put the words into the prompt's marked regions.
    *
    * Called automatically when the dialog has a frame and a slot to fill, and by the button
    * as a re-roll. The same act either way, so the same code.
@@ -535,18 +571,27 @@ export default function RecipeForm({
    * the next job starting from it is free, and for a generated continuation frame it means
    * reopening this dialog is free and the CLAIM renders with the same words that were shown
    * rather than describing the frame a second time and getting different ones.
+   *
+   * One call, both halves (console#529). The motion paragraph is grounded on the static one
+   * and produced beside it, so there is no such thing as re-rolling half a description —
+   * and a prompt that uses only one half simply has nowhere to put the other.
    */
   const handleDescribe = async () => {
     if (!describePath) return;
     setDescribing(true);
     setDescribeError(null);
     try {
-      const { scene_description: caption } = await describeImageScene(describePath);
+      const {
+        scene_description: caption, motion_description: motion,
+      } = await describeImageScene(describePath);
       if (!caption) throw new Error("the captioner returned nothing for this frame");
       setSavedScene(caption);
-      // fillScene rewrites an existing region, so re-rolling replaces the words rather than
-      // pasting a second description beside the first.
-      setPrompt((p) => fillScene(p, caption));
+      setSavedMotion(motion);
+      // fill rewrites an existing region, so re-rolling replaces the words rather than
+      // pasting a second description beside the first. A half the captioner did not return
+      // -- motion_error, or a frame described before the motion half existed -- keeps its
+      // placeholder and is resolved at claim time, which is the pre-#529 behaviour.
+      setPrompt((p) => fillSaved(p, { scene: caption, motion }));
     } catch (e) {
       // A MISSING FRAME IS NOT A CAPTION PROBLEM (console#440). 404 means the object the
       // previous segment points at is not in storage — the claim resolves this segment's
@@ -648,10 +693,10 @@ export default function RecipeForm({
             size={compact ? "small" : "medium"}
             onChange={(e) => setPrompt(e.target.value)}
           />
-          {/* Offered while there is a scene at all -- unfilled OR filled. A filled region is
-              still a thing to re-roll, which the old one-way paste could not express: once
-              <SCENE> was gone there was nothing left to aim at. */}
-          {(hasScenePlaceholder(prompt) || hasSceneRegion(prompt)) && (
+          {/* Offered while the prompt wants EITHER half -- unfilled OR filled. A filled
+              region is still a thing to re-roll, which the old one-way paste could not
+              express: once <SCENE> was gone there was nothing left to aim at. */}
+          {(wants(prompt, "scene") || wants(prompt, "motion")) && (
             <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
               <Button
                 size="small"
@@ -661,7 +706,7 @@ export default function RecipeForm({
               >
                 {describing
                   ? "Describing..."
-                  : hasSceneRegion(prompt)
+                  : described
                     ? "Re-describe frame"
                     : "Describe start frame"}
               </Button>
@@ -676,8 +721,8 @@ export default function RecipeForm({
                     ? continuing
                       ? "Describing the frame this segment continues from..."
                       : "Describing this frame..."
-                    : hasSceneRegion(prompt)
-                      ? "Re-rolls the scene and saves the new words on the frame."
+                    : described
+                      ? `Re-rolls the ${halvesInPlay}, saving the new words on the frame.`
                       : "Describes the frame and saves the words, so this is free next time."}
               </Typography>
             </Stack>
