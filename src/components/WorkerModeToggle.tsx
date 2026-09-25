@@ -25,6 +25,13 @@ import type { WorkerResponse } from "../api/types";
  * A BOX THAT DOES NOT ANSWER RENDERS NOTHING. The row still shows, with its status and its
  * services; it just cannot be flipped. An error chip on every offline worker would be noise
  * on exactly the rows where the operator already knows something is wrong.
+ *
+ * A SWITCH IS NOT INSTANT, and that is the design working rather than a delay to hide.
+ * Stopping the render daemon lets the segment in flight FINISH -- up to ~27 minutes -- so a
+ * flip made mid-render costs nothing. The box accepts and reports `pending_mode` until it
+ * lands, and this polls for that: the chip says what is happening rather than snapping to a
+ * mode the box is not in yet. It also means the flip survives a page reload, because the
+ * state lives on the box and not in this component.
  */
 
 /** Can this box be flipped at all?
@@ -48,17 +55,22 @@ export default function WorkerModeToggle({
   onChanged?: () => void;
 }) {
   const [mode, setMode] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const m = await getWorkerMode(worker.id);
       setMode(m.mode);
-      setError(null);
+      setPending(m.pending_mode);
+      // The box reports why the last switch failed; it failed long after the click, so this
+      // is the only way to hear about it at all.
+      setError(m.mode_error);
+      return m.pending_mode;
     } catch {
       // Unreachable box. Stays null, renders nothing -- see the note above.
       setMode(null);
+      return null;
     }
   }, [worker.id]);
 
@@ -67,24 +79,39 @@ export default function WorkerModeToggle({
     void load();
   }, [load, worker.status]);
 
+  // While a switch is running, ask again until it lands. 5s: the wait is dominated by a
+  // render finishing, so polling faster only adds requests.
+  useEffect(() => {
+    if (!pending) return;
+    const t = setInterval(() => {
+      void load().then((still) => {
+        if (!still) onChanged?.();
+      });
+    }, 5000);
+    return () => clearInterval(t);
+  }, [pending, load, onChanged]);
+
   if (mode === null) return null;
 
   const captioning = mode === "caption";
+  const busy = pending !== null;
   const next = captioning ? "ltx-engine" : "caption";
 
   const flip = async () => {
-    setBusy(true);
     setError(null);
+    // Optimistic only about the REQUEST, never about the mode: the chip goes to "switching"
+    // and the box decides when it is done.
+    setPending(next);
     try {
       const m = await setWorkerMode(worker.id, next);
       setMode(m.mode);
-      onChanged?.();
+      setPending(m.pending_mode);
+      if (!m.pending_mode) onChanged?.();
     } catch (e) {
       // The box's own refusal, passed through by the API verbatim -- "MODE=caption leaves
       // nothing to run" is text that says what to do about it.
       setError(ltxError(e));
-    } finally {
-      setBusy(false);
+      setPending(null);
     }
   };
 
@@ -93,15 +120,21 @@ export default function WorkerModeToggle({
       title={
         error
           ? error
-          : captioning
-            ? "Captioning. Queued jobs are waiting — click to start rendering them."
-            : "Rendering. Click to switch to captions; queued jobs will wait, nothing is lost."
+          : pending === "caption"
+            ? "Switching to captions when the segment in flight finishes — nothing is lost."
+            : pending
+              ? "Starting the render stack…"
+              : captioning
+                ? "Captioning. Queued jobs are waiting — click to start rendering them."
+                : "Rendering. Click to switch to captions; queued jobs will wait, nothing is lost."
       }
     >
       <Chip
         size="small"
         icon={busy ? undefined : captioning ? <PhotoCamera /> : <Movie />}
-        label={busy ? "Switching…" : captioning ? "Captioning" : "Rendering"}
+        label={pending === "caption" ? "Switching after current job…"
+          : pending ? "Starting render…"
+          : captioning ? "Captioning" : "Rendering"}
         color={error ? "error" : captioning ? "secondary" : "default"}
         variant={captioning ? "filled" : "outlined"}
         onClick={busy ? undefined : flip}

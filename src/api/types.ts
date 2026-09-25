@@ -651,6 +651,13 @@ export interface WorkerModeResponse {
   /** The service groups live right now. */
   services: string[];
   changed: boolean;
+  /** The mode being switched TO, while the switch is still running. A switch is not
+   *  instant: stopping the render daemon lets the segment in flight finish first, which is
+   *  up to ~27 minutes. Non-null means in progress. */
+  pending_mode: string | null;
+  /** Why the last switch failed. It fails long after the click, so this is the only way to
+   *  hear about it. */
+  mode_error: string | null;
 }
 
 /** An image's scene description, as GET/POST /images/scene return it. */
