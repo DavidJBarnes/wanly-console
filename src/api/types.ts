@@ -677,6 +677,15 @@ export interface ImageScene {
   motion_words: number;
   /** Set when the static half succeeded and the motion half failed. */
   motion_error: string | null;
+  /** WHERE THIS IMAGE SITS IN THE CAPTION QUEUE (wanly-api caption_queue).
+   *
+   *  ollama is one slot, so describes run strictly one at a time. `position` is 0 while
+   *  this image is the one being captioned and 1 for next up; `depth` counts everything
+   *  unfinished including the one in progress. All null/0 when nothing is queued, which is
+   *  the normal idle case. */
+  queue_status: "queued" | "running" | null;
+  queue_position: number | null;
+  queue_depth: number;
 }
 
 /** One tag and how many items carry it under the current filter. Images and jobs both. */
