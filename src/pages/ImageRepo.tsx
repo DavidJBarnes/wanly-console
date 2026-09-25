@@ -87,6 +87,7 @@ import {
   stepIndex,
 } from "../lib/lightboxNav";
 import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
+import { describeQueuePlace, useCaptionQueue } from "../hooks/useCaptionQueue";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
@@ -162,11 +163,26 @@ export default function ImageRepo() {
   // guards a debounced callback: the tag save closes over whatever it captured, and a
   // re-render is not what decides whether a second caption may be launched.
   const describingPaths = useRef<Set<string>>(new Set());
-  const [describingPath, setDescribingPath] = useState<string | null>(null);
+  // EVERY path in flight, not just the last one. `describingPath` was a single value, so
+  // describing A, moving to B and coming back to A showed A as idle -- with a Describe
+  // button offering to start a caption that was already running. A ref alone cannot drive
+  // that: it does not re-render, so the indicator would never appear or clear.
+  const [describing, setDescribing] = useState<Set<string>>(new Set());
   // Carries its own path: descriptions run in the background, so by the time one fails the
   // modal may be showing a different image, and an error pinned to the wrong picture reads
   // as that picture having failed.
   const [sceneError, setSceneError] = useState<{ path: string; message: string } | null>(null);
+  // Polled, because the POST does not return until that image's caption is DONE -- its
+  // queue fields describe a queue the image has already left, which is no use while you are
+  // waiting in one.
+  //
+  // ONLY THE IMAGE ON SCREEN. Position is per-image but DEPTH is a property of the
+  // captioner, so one read answers both, and asking about all ten images in a batch would
+  // put ten requests on a busy API every tick to learn one shared number.
+  const watchedPath = lightboxImage && describing.has(lightboxImage.path)
+    ? lightboxImage.path : null;
+  const queueInfo = useCaptionQueue(useMemo(
+    () => (watchedPath ? [watchedPath] : []), [watchedPath]));
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [favoritesView, setFavoritesView] = useState(false);
@@ -559,7 +575,7 @@ export default function ImageRepo() {
   const runDescribe = async (path: string) => {
     if (describingPaths.current.has(path)) return;
     describingPaths.current.add(path);
-    setDescribingPath(path);
+    setDescribing((prev) => new Set(prev).add(path));
     setSceneError(null);
     try {
       const scene = await describeImageScene(path);
@@ -599,7 +615,11 @@ export default function ImageRepo() {
       setSceneError({ path, message: ltxError(err) });
     } finally {
       describingPaths.current.delete(path);
-      setDescribingPath((prev) => (prev === path ? null : prev));
+      setDescribing((prev) => {
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
     }
   };
 
@@ -1125,20 +1145,26 @@ export default function ImageRepo() {
                       <Button
                         size="small"
                         onClick={() => runDescribe(lightboxImage.path)}
-                        disabled={describingPath === lightboxImage.path}
+                        disabled={describing.has(lightboxImage.path)}
                       >
-                        {describingPath === lightboxImage.path
+                        {describing.has(lightboxImage.path)
                           ? "Describing..."
                           : lightboxImage.scene_description
                             ? "Re-roll"
                             : "Describe"}
                       </Button>
                     </Stack>
-                    {describingPath === lightboxImage.path ? (
+                    {describing.has(lightboxImage.path) ? (
                       <Stack direction="row" spacing={1} alignItems="center">
                         <CircularProgress size={16} />
                         <Typography variant="body2" color="text.secondary">
-                          Asking the captioner...
+                          {/* WHERE IN THE LINE, not just "working". ollama captions one at
+                              a time, so the seventh image of a batch is five minutes out,
+                              and a spinner says the same thing at ten seconds and at five
+                              minutes -- which is how a batch that is working fine gets
+                              abandoned. */}
+                          {describeQueuePlace(queueInfo.get(lightboxImage.path))
+                            ?? "Asking the captioner..."}
                         </Typography>
                       </Stack>
                     ) : lightboxImage.scene_description ? (
