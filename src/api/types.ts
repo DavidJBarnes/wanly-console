@@ -660,6 +660,19 @@ export interface WorkerModeResponse {
   mode_error: string | null;
 }
 
+/** The captioner's queue, for a view that is not about one image (GET /images/caption-queue).
+ *
+ *  ollama captions one at a time, so a batch is a line. This is the answer to "how is the
+ *  queue looking?" without having to open an image that happens to be in it. */
+export interface CaptionQueueStatus {
+  /** Everything unfinished, including the one in progress. */
+  depth: number;
+  /** How many are still waiting to start. */
+  waiting: number;
+  /** The image being captioned right now, so the view can name it rather than only count. */
+  running: string | null;
+}
+
 /** An image's scene description, as GET/POST /images/scene return it. */
 export interface ImageScene {
   path: string;

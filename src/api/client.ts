@@ -35,6 +35,7 @@ import type {
   TrainingCreate,
   TrainingJob,
   WorkerModeResponse,
+  CaptionQueueStatus,
 } from "./types";
 import { REPEAT_ARRAY_PARAMS } from "../lib/repeatArrayParams";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
@@ -827,6 +828,12 @@ export async function drainWorker(id: string, afterJobs?: number): Promise<void>
 
 export async function cancelDrain(id: string): Promise<void> {
   await api.delete(`/workers/${id}/drain`);
+}
+
+/** The captioner's queue. No path: it is the whole-queue view, cheap enough to poll. */
+export async function getCaptionQueue(): Promise<CaptionQueueStatus> {
+  const { data } = await api.get<CaptionQueueStatus>("/images/caption-queue");
+  return data;
 }
 
 /** What this box is running. 502 when the box itself is unreachable -- the row still

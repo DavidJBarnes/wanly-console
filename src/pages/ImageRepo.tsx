@@ -88,6 +88,7 @@ import {
 } from "../lib/lightboxNav";
 import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
 import { describeQueuePlace, useCaptionQueue } from "../hooks/useCaptionQueue";
+import CaptionQueueChip from "../components/CaptionQueueChip";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
@@ -2345,6 +2346,10 @@ export default function ImageRepo() {
         >
           {refreshing ? (isMobile ? "..." : "Refreshing...") : "Refresh"}
         </Button>
+        {/* The captioner's queue, in the toolbar rather than inside one image's modal: the
+            per-image position only existed for an image you had already opened, which is no
+            answer to "how is the queue looking?". Renders nothing when idle. */}
+        <CaptionQueueChip />
         <Button
           variant="outlined"
           startIcon={
