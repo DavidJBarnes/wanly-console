@@ -52,6 +52,7 @@ import { describeWindow, describePolicy, describeAttempts, describeGpu } from ".
 import LaunchRunPodDialog from "../components/LaunchRunPodDialog";
 import { buildLabel, driftingWorkers } from "../lib/workerBuild";
 import { byStatus, canDrain as canDrainWorker, fleetCounts, isService as isServiceWorker, kindsOf } from "../lib/workerKind";
+import WorkerModeToggle, { canSwitchMode } from "../components/WorkerModeToggle";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
 import StalledQueueBanner from "../components/StalledQueueBanner";
@@ -342,6 +343,7 @@ export default function Workers() {
               costPerHr={costForWorker(worker, pods)}
               onDelete={setDeleteConfirm}
               onDrain={setDrainConfirm}
+              onModeChanged={fetchWorkers}
               onCancelDrain={handleCancelDrain}
               onRenamed={fetchWorkers}
               drifting={drifting.has(worker.id)}
@@ -453,6 +455,7 @@ function WorkerCard({
   costPerHr,
   onDelete,
   onDrain,
+  onModeChanged,
   onCancelDrain,
   onRenamed,
   onClick,
@@ -467,6 +470,7 @@ function WorkerCard({
   costPerHr: number | null;
   onDelete: (w: WorkerResponse) => void;
   onDrain: (w: WorkerResponse) => void;
+  onModeChanged?: () => void;
   onCancelDrain: (w: WorkerResponse) => void;
   onRenamed: () => void;
   onClick: () => void;
@@ -594,6 +598,12 @@ function WorkerCard({
             beside a truncated string, which is how 3090.zero became 3090.zero3090. */}
         {(isService || kindsOf(worker).length > 1 || worker.provides?.length || hasPendingDrain) ? (
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1.5 }} onClick={(e) => e.stopPropagation()}>
+            {/* Render or caption (gpu-docker#131). Only on a box that has both halves to
+                switch between -- see canSwitchMode. It asks the container, so it is one
+                request per card and only on the cards where the answer means something. */}
+            {canSwitchMode(worker) && (
+              <WorkerModeToggle worker={worker} onChanged={onModeChanged} />
+            )}
             {/* Only on services. A chip on every row would be noise on a page that is almost
                 all render workers, and the useful signal here is "this one is different". */}
             {isService && (

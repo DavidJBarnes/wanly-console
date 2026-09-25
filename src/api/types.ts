@@ -638,6 +638,21 @@ export interface ImageFile {
   motion_described_at: string | null;
 }
 
+/** What a worker box is running right now, read from the box itself (gpu-docker#131).
+ *
+ *  NOT a column on the worker row: the container is the only thing that knows what is
+ *  actually running, and a stored copy would be free to disagree with it. */
+export interface WorkerModeResponse {
+  /** "ltx-engine" (rendering, the default) or "caption". */
+  mode: string;
+  /** Everything SERVICES says the box CAN run. A box with no captioner has no caption
+   *  mode, and the toggle must not offer one. */
+  equipped: string[];
+  /** The service groups live right now. */
+  services: string[];
+  changed: boolean;
+}
+
 /** An image's scene description, as GET/POST /images/scene return it. */
 export interface ImageScene {
   path: string;
