@@ -34,6 +34,7 @@ import type {
   DatasetScores,
   TrainingCreate,
   TrainingJob,
+  WorkerModeResponse,
 } from "./types";
 import { REPEAT_ARRAY_PARAMS } from "../lib/repeatArrayParams";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
@@ -826,6 +827,20 @@ export async function drainWorker(id: string, afterJobs?: number): Promise<void>
 
 export async function cancelDrain(id: string): Promise<void> {
   await api.delete(`/workers/${id}/drain`);
+}
+
+/** What this box is running. 502 when the box itself is unreachable -- the row still
+ *  renders, it just cannot offer the toggle. */
+export async function getWorkerMode(id: string): Promise<WorkerModeResponse> {
+  const { data } = await api.get<WorkerModeResponse>(`/workers/${id}/mode`);
+  return data;
+}
+
+/** Flip a box between rendering and captioning, in place -- no container recreate, so it
+ *  takes seconds rather than a boot and a model re-stage. */
+export async function setWorkerMode(id: string, mode: string): Promise<WorkerModeResponse> {
+  const { data } = await api.post<WorkerModeResponse>(`/workers/${id}/mode`, { mode });
+  return data;
 }
 
 export async function renameWorker(id: string, friendlyName: string): Promise<WorkerResponse> {

@@ -638,6 +638,28 @@ export interface ImageFile {
   motion_described_at: string | null;
 }
 
+/** What a worker box is running right now, read from the box itself (gpu-docker#131).
+ *
+ *  NOT a column on the worker row: the container is the only thing that knows what is
+ *  actually running, and a stored copy would be free to disagree with it. */
+export interface WorkerModeResponse {
+  /** "ltx-engine" (rendering, the default) or "caption". */
+  mode: string;
+  /** Everything SERVICES says the box CAN run. A box with no captioner has no caption
+   *  mode, and the toggle must not offer one. */
+  equipped: string[];
+  /** The service groups live right now. */
+  services: string[];
+  changed: boolean;
+  /** The mode being switched TO, while the switch is still running. A switch is not
+   *  instant: stopping the render daemon lets the segment in flight finish first, which is
+   *  up to ~27 minutes. Non-null means in progress. */
+  pending_mode: string | null;
+  /** Why the last switch failed. It fails long after the click, so this is the only way to
+   *  hear about it. */
+  mode_error: string | null;
+}
+
 /** An image's scene description, as GET/POST /images/scene return it. */
 export interface ImageScene {
   path: string;
