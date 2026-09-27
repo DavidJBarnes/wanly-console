@@ -368,6 +368,9 @@ describe("characters", () => {
   it("counts a character as trained once it has a LoRA or a provenance", () => {
     // The trigger locks at this point: the LoRA learned it, and another would name nothing.
     expect(characterHasTrained({ char_lora: "" })).toBe(false);
+    // The API registers an untrained character with char_lora "none".
+    expect(characterHasTrained({ char_lora: "none" })).toBe(false);
+    expect(characterHasTrained({ char_lora: "None" })).toBe(false);
     expect(characterHasTrained({ char_lora: "david_v1" })).toBe(true);
     expect(characterHasTrained({
       char_lora: "", trained_from: [{ dataset_id: "d", name: "David", count: 30 }],

@@ -364,9 +364,15 @@ export function estimatedMinutes(steps: number): number {
 // What stays client-side is only what needs no data: is the field filled in.
 
 /** A character that has trained has a trigger the LoRA learned; changing it after that binds
- *  the face to nothing, so the API refuses and the UI shows it read-only. */
+ *  the face to nothing, so the API refuses and the UI shows it read-only.
+ *
+ *  `char_lora` "none" is UNTRAINED, in any casing: the API stores a registered-but-untrained
+ *  character that way (the same "off" spelling the daemon filters), and its own trained test is
+ *  `trained_from` set or `char_lora != "none"`. Reading "none" as a LoRA name would lock the
+ *  trigger of every character the moment it was registered. */
 export function characterHasTrained(c: Pick<Character, "char_lora" | "trained_from">): boolean {
-  return Boolean(c.char_lora) || Boolean(c.trained_from?.length);
+  const lora = (c.char_lora ?? "").trim();
+  return (Boolean(lora) && lora.toLowerCase() !== "none") || Boolean(c.trained_from?.length);
 }
 
 /** Rows without a kind predate pairs, and every one of them is one person. */
