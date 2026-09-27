@@ -6,7 +6,7 @@ import {
 } from "@mui/material";
 
 import {
-  CheckCircle, CloudUpload, Delete, Download, EditNote, ExpandMore, Refresh,
+  CheckCircle, CloudUpload, Delete, Download, EditNote, ExpandMore, ModelTraining, Refresh,
 } from "@mui/icons-material";
 
 import {
@@ -22,6 +22,7 @@ import {
   trainingPct, trainingSummary,
 } from "../lib/trainingJob";
 import LossChart from "../components/LossChart";
+import TrainLoraDialog from "../components/TrainLoraDialog";
 import type { TrainingJob } from "../api/types";
 
 /**
@@ -40,6 +41,8 @@ export default function Training() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [error, setError] = useState("");
+  // The Train dialog without a dataset: pick who to train and it finds their sets (#537).
+  const [trainOpen, setTrainOpen] = useState(false);
   // A segment's recipe popover links here as /training?character=<name> (#452). Convenient,
   // not load-bearing: an unknown or renamed character simply no-ops, because the blob holds
   // a name, not an id.
@@ -88,14 +91,24 @@ export default function Training() {
         <Typography variant="body2" color="text.secondary">
           {groups.length} character{groups.length === 1 ? "" : "s"}
         </Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        <Button variant="contained" startIcon={<ModelTraining />} onClick={() => setTrainOpen(true)}>
+          Train
+        </Button>
       </Box>
+      {trainOpen && (
+        <TrainLoraDialog
+          onClose={() => setTrainOpen(false)}
+          onQueued={() => { setTrainOpen(false); fetchJobs(); }}
+        />
+      )}
 
       {error && <Alert severity="warning" sx={{ mb: 2 }}>{error}</Alert>}
 
       {jobs.length === 0 && !error && (
         <Typography variant="body2" color="text.secondary">
-          No training runs yet. Open a dataset and choose “Train”, or select images in the
-          Image Repo and choose “Train LoRA”.
+          No training runs yet. Choose “Train” above, or open a dataset and choose “Train”
+          there.
         </Typography>
       )}
 

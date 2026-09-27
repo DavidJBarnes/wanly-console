@@ -8,11 +8,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  defaultEpochs, estimatedMinutes, stepsForEpochs,
-  apiErrorText, loraNameProblem,
+  estimatedMinutes, stepsPerEpoch,
+  apiErrorText, defaultEpochsForSamples, stepsForSamples,
   epochRows, lossPath,
   groupByCharacter,
-  characterProblem, checkpointInUse, checkpointLabel, defaultCharacterFor, loraStem,
+  characterProblem, checkpointInUse, checkpointLabel, loraStem,
   nextVersion, versionOfLora,
   MAX_IMAGES,
   MIN_IMAGES,
@@ -20,13 +20,13 @@ import {
   runTimeLabel,
   formatRunDuration,
   canTrain,
-  defaultLoraName,
-  loraFilename,
-  nameNeedsSanitising,
+  characterHasTrained, datasetsOwnedBy, defaultPairName, formIncomplete, initialFromDataset,
+  isPairCharacter, problemsFromError, runCharacter, trainingBody,
   trainingPct,
   trainingSummary,
 } from "./trainingJob";
-import type { TrainingJob } from "../api/types";
+import type { Dataset, TrainingJob } from "../api/types";
+import type { TrainForm } from "./trainingJob";
 
 const keys = (n: number) => Array.from({ length: n }, (_, i) => `s3://b/img${i}.jpg`);
 
@@ -66,32 +66,6 @@ describe("canTrain", () => {
 
   it("says nothing extra about a sensible set", () => {
     expect(canTrain(keys(50))).toEqual({ ok: true });
-  });
-});
-
-describe("the LoRA filename", () => {
-  it("defaults by stripping, and never invents a letter", () => {
-    // p@y strips to py. The file actually in use is pay_v2_e05.safetensors, because a human
-    // read @ as a — which is why this is a field the user corrects, not a derivation.
-    expect(defaultLoraName("p@y")).toBe("py");
-    expect(defaultLoraName("k3lly2026")).toBe("k3lly2026");
-  });
-
-  it("always yields something usable", () => {
-    expect(defaultLoraName("@@@")).toBe("lora");
-  });
-
-  it("builds the filename from the stem the user settled on", () => {
-    expect(loraFilename("pay", 2, 5)).toBe("pay_v2_e05.safetensors");
-  });
-
-  it("omits the epoch when there is not one yet", () => {
-    expect(loraFilename("k3lly2026", 1)).toBe("k3lly2026_v1.safetensors");
-  });
-
-  it("flags only the names the default would change", () => {
-    expect(nameNeedsSanitising("p@y")).toBe(true);
-    expect(nameNeedsSanitising("k3lly2026")).toBe(false);
   });
 });
 
@@ -210,10 +184,6 @@ const character = (name: string, char_lora: string) => ({
 describe("characterProblem mirrors the API rule", () => {
   it("refuses the dataset-name default that used to 422 at submit", () => {
     expect(characterProblem("Test faces")).toMatch(/spaces/);
-  });
-  it("suggests a name the rule accepts", () => {
-    expect(defaultCharacterFor("Test faces")).toBe("Test-faces");
-    expect(characterProblem(defaultCharacterFor("Test faces"))).toBeNull();
   });
   it("keeps p@y, which is a real character", () => {
     expect(characterProblem("p@y")).toBeNull();
@@ -344,16 +314,6 @@ describe("lossPath", () => {
   });
 });
 
-describe("loraNameProblem mirrors the API's filename rule", () => {
-  it("refuses d@vid before the button is pressed", () => {
-    expect(loraNameProblem("d@vid")).toMatch(/@/);
-  });
-  it("accepts what the API accepts", () => {
-    expect(loraNameProblem("david")).toBeNull();
-    expect(loraNameProblem("k3lly_2026.v2-x")).toBeNull();
-  });
-});
-
 describe("apiErrorText", () => {
   it("turns pydantic's list of errors into a sentence", () => {
     const e = { response: { data: { detail: [
@@ -369,16 +329,173 @@ describe("apiErrorText", () => {
 
 describe("epochs", () => {
   it("defaults to the recipe's 1200 steps in whole epochs", () => {
-    expect(defaultEpochs(8)).toBe(15);
-    expect(defaultEpochs(27)).toBe(4);
-    expect(defaultEpochs(50)).toBe(2);
-    expect(defaultEpochs(400)).toBe(1);
+    expect(defaultEpochsForSamples(stepsPerEpoch(8))).toBe(15);
+    expect(defaultEpochsForSamples(stepsPerEpoch(27))).toBe(4);
+    expect(defaultEpochsForSamples(stepsPerEpoch(50))).toBe(2);
+    expect(defaultEpochsForSamples(stepsPerEpoch(400))).toBe(1);
   });
   it("derives steps so the last epoch lands on the final step", () => {
-    expect(stepsForEpochs(4, 27)).toBe(1080);
-    expect(stepsForEpochs(15, 8)).toBe(1200);
+    expect(stepsForSamples(4, stepsPerEpoch(27))).toBe(1080);
+    expect(stepsForSamples(15, stepsPerEpoch(8))).toBe(1200);
+  });
+  it("uses the server's epoch length once there is one", () => {
+    // 30 character images at 10 repeats plus a regularization pool sized to match is 600
+    // samples an epoch, not 300: counting only the character images would double the run.
+    expect(stepsForSamples(2, 600)).toBe(1200);
+    expect(defaultEpochsForSamples(600)).toBe(2);
+  });
+  it("never produces a zero-step run", () => {
+    expect(stepsForSamples(0, 0)).toBe(1);
+    expect(defaultEpochsForSamples(0)).toBeGreaterThanOrEqual(1);
   });
   it("estimates minutes from the measured rate", () => {
     expect(estimatedMinutes(100)).toBe(6);
+  });
+});
+
+const ds = (id: string, kind: Dataset["kind"], owner: string | null): Dataset => ({
+  id, name: id, tags: null, notes: null, images: [], prefix: null, anchor_uri: null,
+  kind, character: owner, created_at: null, updated_at: null,
+});
+
+const form = (over: Partial<TrainForm> = {}): TrainForm => ({
+  mode: "solo", character: "", memberA: "", memberB: "", pairName: "", datasets: {},
+  compositionId: null, allowNoComposition: false, version: 1, steps: 1200, publish: "final",
+  ...over,
+});
+
+describe("characters", () => {
+  it("counts a character as trained once it has a LoRA or a provenance", () => {
+    // The trigger locks at this point: the LoRA learned it, and another would name nothing.
+    expect(characterHasTrained({ char_lora: "" })).toBe(false);
+    expect(characterHasTrained({ char_lora: "david_v1" })).toBe(true);
+    expect(characterHasTrained({
+      char_lora: "", trained_from: [{ dataset_id: "d", name: "David", count: 30 }],
+    })).toBe(true);
+  });
+  it("treats a row with no kind as solo", () => {
+    expect(isPairCharacter({ kind: null })).toBe(false);
+    expect(isPairCharacter({})).toBe(false);
+    expect(isPairCharacter({ kind: "pair" })).toBe(true);
+  });
+  it("names a pair by joining its members", () => {
+    expect(defaultPairName("David", "Kelly-2026")).toBe("DavidKelly-2026");
+    expect(defaultPairName(" David ", "Kelly-2000")).toBe("DavidKelly-2000");
+  });
+});
+
+describe("datasetsOwnedBy", () => {
+  const all = [
+    ds("a", "character", "David"), ds("b", "character", "Kelly-2026"),
+    ds("c", "composition", "DavidKelly-2026"), ds("d", null, null),
+    ds("e", "character", "david"),
+  ];
+  it("lists only the sets of that kind owned by that name", () => {
+    // Kelly's set must not be offered for David — the mistake that put another person's
+    // images inside a LoRA.
+    expect(datasetsOwnedBy(all, "character", "David").map((d) => d.id)).toEqual(["a", "e"]);
+    expect(datasetsOwnedBy(all, "composition", "DavidKelly-2026").map((d) => d.id)).toEqual(["c"]);
+  });
+  it("never offers an unassigned set", () => {
+    expect(datasetsOwnedBy(all, "character", "").map((d) => d.id)).toEqual([]);
+  });
+});
+
+describe("trainingBody", () => {
+  it("sends a solo run with no trigger, gender or filename in it", () => {
+    // Those come from the registry now; the request cannot carry a wrong one.
+    const body = trainingBody(form({ character: "David", datasets: { David: "a" } }));
+    expect(body).toEqual({
+      mode: "solo", character: "David", datasets: { David: "a" },
+      version: 1, steps: 1200, publish: "final",
+    });
+  });
+  it("omits the dataset map when nothing is chosen, so the API picks the only one", () => {
+    expect(trainingBody(form({ character: "David" }))).not.toHaveProperty("datasets");
+  });
+  it("sends a pair under the pair's own name, never a member's", () => {
+    const body = trainingBody(form({
+      mode: "pair", memberA: "David", memberB: "Kelly-2026", pairName: "DavidKelly-2026",
+      datasets: { David: "a", "Kelly-2026": "b", Stale: "z" }, compositionId: "c",
+    }));
+    expect(body.character).toBe("DavidKelly-2026");
+    expect(body.members).toEqual(["David", "Kelly-2026"]);
+    expect(body.datasets).toEqual({ David: "a", "Kelly-2026": "b" });
+    expect(body.composition_dataset_id).toBe("c");
+    expect(body.allow_no_composition).toBe(false);
+  });
+  it("drops a stale no-composition acknowledgement once a composition set is chosen", () => {
+    const base = { mode: "pair" as const, memberA: "A", memberB: "B", pairName: "AB" };
+    expect(trainingBody(form({ ...base, allowNoComposition: true })).allow_no_composition)
+      .toBe(true);
+    expect(trainingBody(form({ ...base, allowNoComposition: true, compositionId: "c" }))
+      .allow_no_composition).toBe(false);
+  });
+  it("knows which row a run publishes to", () => {
+    expect(runCharacter(form({ character: "David" }))).toBe("David");
+    expect(runCharacter(form({ mode: "pair", character: "David", pairName: "DavidKelly" })))
+      .toBe("DavidKelly");
+  });
+});
+
+describe("formIncomplete", () => {
+  it("asks for a character before asking the server anything", () => {
+    expect(formIncomplete(form())).toMatch(/character/);
+    expect(formIncomplete(form({ character: "David" }))).toBeNull();
+  });
+  it("needs two different members and a usable pair name", () => {
+    const pair = { mode: "pair" as const };
+    expect(formIncomplete(form({ ...pair, memberA: "David" }))).toMatch(/both/);
+    expect(formIncomplete(form({ ...pair, memberA: "David", memberB: "david", pairName: "x" })))
+      .toMatch(/different/);
+    expect(formIncomplete(form({ ...pair, memberA: "A", memberB: "B", pairName: "" })))
+      .toMatch(/name/);
+    expect(formIncomplete(form({ ...pair, memberA: "A", memberB: "B", pairName: "A B" })))
+      .toMatch(/spaces/);
+    expect(formIncomplete(form({ ...pair, memberA: "A", memberB: "B", pairName: "AB" })))
+      .toBeNull();
+  });
+});
+
+describe("initialFromDataset", () => {
+  const pair = {
+    ...character("DavidKelly-2026", "davidkelly2026_v1"), kind: "pair" as const,
+    members: ["David", "Kelly-2026"],
+  };
+  it("opens a character set as Solo on its owner, with that set chosen", () => {
+    expect(initialFromDataset(ds("a", "character", "David"), [])).toEqual({
+      mode: "solo", character: "David", datasets: { David: "a" },
+    });
+  });
+  it("opens a composition set as Pair, members filled in from the registry", () => {
+    expect(initialFromDataset(ds("c", "composition", "DavidKelly-2026"), [pair])).toEqual({
+      mode: "pair", pairName: "DavidKelly-2026", memberA: "David", memberB: "Kelly-2026",
+      compositionId: "c",
+    });
+  });
+  it("opens a pair nobody has trained yet with the members left to pick", () => {
+    expect(initialFromDataset(ds("c", "composition", "NewPair"), [pair])).toMatchObject({
+      mode: "pair", pairName: "NewPair", memberA: "", memberB: "",
+    });
+  });
+  it("opens empty for an unassigned or regularization set", () => {
+    expect(initialFromDataset(ds("d", null, null), [])).toEqual({});
+    expect(initialFromDataset(ds("r", "regularization", null), [])).toEqual({});
+    expect(initialFromDataset(undefined, [])).toEqual({});
+  });
+});
+
+describe("problemsFromError", () => {
+  it("reads the blocking list out of POST /training's 422", () => {
+    const e = { response: { data: { detail: { problems: [
+      { code: "uncaptioned", message: "3 images in David have no caption" },
+    ] } } } };
+    expect(problemsFromError(e)).toEqual([
+      { code: "uncaptioned", message: "3 images in David have no caption" },
+    ]);
+  });
+  it("is null for any other error, so the caller falls back to apiErrorText", () => {
+    expect(problemsFromError({ response: { data: { detail: "nope" } } })).toBeNull();
+    expect(problemsFromError(new Error("boom"))).toBeNull();
   });
 });

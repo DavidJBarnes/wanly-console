@@ -1,27 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
-  Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog,
-  DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, LinearProgress,
-  Stack, TextField, Tooltip, Typography,
+  Alert, Autocomplete, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog,
+  DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton,
+  LinearProgress, MenuItem, Radio, RadioGroup, Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
 import {
-  Add, Check, Close, ContentCut, Delete, Edit, ModelTraining, PhotoLibrary, Star, StarBorder,
-  Upload,
+  Add, AutoAwesome, Check, Close, ContentCut, Delete, Edit, ModelTraining, Movie, PhotoLibrary,
+  Star, StarBorder, Upload, WarningAmber,
 } from "@mui/icons-material";
 
 import {
-  addDatasetImages, createDataset, cropDatasetFaces, deleteDataset, getFileUrl, listDatasets,
-  removeDatasetImage, scoreDataset, setDatasetAnchor, updateDataset,
+  addDatasetImages, captionDataset, createDataset, cropDatasetFaces, deleteDataset,
+  getCaptionStatus, getFileUrl, getRegularizeStatus, listDatasets, regularizeDataset,
+  removeDatasetImage, scoreDataset, setDatasetAnchor, updateDataset, updateDatasetCaption,
 } from "../api/client";
+import { listRecipes } from "../api/ltx";
+import type { Character } from "../api/ltx";
 import TrainLoraDialog from "../components/TrainLoraDialog";
 import AddFromRepoDialog from "../components/AddFromRepoDialog";
+import NewCharacterDialog from "../components/NewCharacterDialog";
+import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
 import {
-  byLikeness, byRecent, cropSelectionProblem, datasetNameProblem, formatCos, parseTags,
-  removalWarning, verdictFor,
+  byLikeness, byRecent, captionCoverage, captionProgressLabel, cropSelectionProblem,
+  datasetNameProblem, formatCos, isAssigned, ownerLabel, parseTags, progressPct,
+  regularizeProgressLabel, removalWarning, scoreFor, verdictFor,
 } from "../lib/datasets";
-import { canTrain } from "../lib/trainingJob";
-import type { Dataset, DatasetScore } from "../api/types";
+import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
+import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
 
 /**
  * Named, taggable training datasets (wanly-api#277).
@@ -37,6 +43,8 @@ export default function Datasets() {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [trainFor, setTrainFor] = useState<Dataset | null>(null);
+  // The registry, for the owner picker: a set is owned by a registered character (#537).
+  const [characters, setCharacters] = useState<Character[]>([]);
   const navigate = useNavigate();
   // A character card links here as /datasets?dataset=<id> (migration 099): scroll to and
   // accent that dataset. Unknown ids simply no-op.
@@ -55,7 +63,11 @@ export default function Datasets() {
     }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  const fetchCharacters = useCallback(() => {
+    listRecipes().then((b) => setCharacters(b.characters)).catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchAll(); fetchCharacters(); }, [fetchAll, fetchCharacters]);
 
   useEffect(() => {
     if (askedDataset && matchedRef.current) {
@@ -81,8 +93,8 @@ export default function Datasets() {
       {!loading && datasets.length === 0 && (
         <Typography variant="body2" color="text.secondary">
           No datasets yet. A dataset is a named set of images to train a character LoRA from:
-          add photos, crop the faces out, star one as the anchor to check the rest against it,
-          then train.
+          add photos, say whose they are, crop the faces out, star one as the anchor to check
+          the rest against it, caption them, then train.
         </Typography>
       )}
 
@@ -95,7 +107,9 @@ export default function Datasets() {
           >
             <DatasetCard
               ds={ds}
+              characters={characters}
               onChanged={fetchAll}
+              onCharactersChanged={fetchCharacters}
               onTrain={() => setTrainFor(ds)}
               highlighted={ds.id === askedDataset}
             />
@@ -110,9 +124,7 @@ export default function Datasets() {
       />
       {trainFor && (
         <TrainLoraDialog
-          imageKeys={trainFor.images}
-          datasetId={trainFor.id}
-          defaultCharacter={trainFor.name}
+          dataset={trainFor}
           onClose={() => setTrainFor(null)}
           onQueued={() => { setTrainFor(null); navigate("/training"); }}
         />
@@ -127,8 +139,15 @@ export default function Datasets() {
 const TILE = 128;
 
 function DatasetCard({
-  ds, onChanged, onTrain, highlighted = false,
-}: { ds: Dataset; onChanged: () => void; onTrain: () => void; highlighted?: boolean }) {
+  ds, characters, onChanged, onCharactersChanged, onTrain, highlighted = false,
+}: {
+  ds: Dataset;
+  characters: Character[];
+  onChanged: () => void;
+  onCharactersChanged: () => void;
+  onTrain: () => void;
+  highlighted?: boolean;
+}) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [tags, setTags] = useState(ds.tags ?? "");
@@ -140,7 +159,44 @@ function DatasetCard({
   const [worstFirst, setWorstFirst] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(ds.name);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [generateCount, setGenerateCount] = useState(150);
   const eligible = canTrain(ds.images);
+  const isReg = ds.kind === "regularization";
+  const assigned = isAssigned(ds);
+  const owner = ownerLabel(ds);
+  const coverage = captionCoverage(ds);
+
+  // Background runs on the server (#537). Both re-read the set when they finish, so the
+  // captions or frames they wrote show up without a reload.
+  const captioning = useBackgroundStatus(() => getCaptionStatus(ds.id), onChanged);
+  const rendering = useBackgroundStatus(
+    () => getRegularizeStatus(ds.id), onChanged, isReg);
+  const captionRunning = Boolean(captioning.status?.running);
+  const renderRunning = isReg && Boolean(rendering.status?.running);
+
+  const caption = async (overwrite: boolean) => {
+    if (overwrite && !confirm(
+      `Recaption every image in "${ds.name}"? This replaces all ${coverage.captioned} `
+      + "existing captions, including any you edited by hand.")) return;
+    setMsg("");
+    try {
+      await captionDataset(ds.id, overwrite);
+      captioning.kick();
+    } catch (e: unknown) {
+      setMsg(apiErrorText(e, "could not start captioning"));
+    }
+  };
+
+  const generate = async () => {
+    setMsg("");
+    try {
+      await regularizeDataset(ds.id, generateCount);
+      rendering.kick();
+    } catch (e: unknown) {
+      setMsg(apiErrorText(e, "could not start rendering"));
+    }
+  };
 
   const score = async (anchor?: string) => {
     setBusy(true);
@@ -195,10 +251,12 @@ function DatasetCard({
 
   // Worst first once a score exists, so a cull starts where the answer is obvious. Before
   // that, the set's own order, which is the order the trainer will stage them in.
-  const ordered = worstFirst && Object.keys(scores).length
+  // Scores come from this page's last scoring, else the ones the API saved with the set.
+  const scoreOf = (uri: string) => scoreFor(ds, uri, scores);
+  const ordered = worstFirst
     ? [...ds.images].sort((a, b) =>
-        byLikeness(scores[a] ?? { cos: null, is_anchor: false },
-                   scores[b] ?? { cos: null, is_anchor: false }))
+        byLikeness(scoreOf(a) ?? { cos: null, is_anchor: false },
+                   scoreOf(b) ?? { cos: null, is_anchor: false }))
     : ds.images;
 
   const remove = async (uri: string) => {
@@ -272,33 +330,116 @@ function DatasetCard({
             </Box>
           )}
           <Chip size="small" variant="outlined" label={`${ds.images.length} images`} />
+          {/* What the set is for and whose it is. Unassigned is loud on purpose: training
+              refuses it, and it is how another person's images got into a LoRA. */}
+          {assigned ? (
+            <Chip
+              size="small"
+              color={isReg ? "info" : "primary"}
+              label={owner}
+              icon={<Edit />}
+              onClick={() => setAssignOpen(true)}
+            />
+          ) : (
+            <Chip
+              size="small"
+              color="warning"
+              icon={<WarningAmber />}
+              label={owner ? `${owner} — incomplete` : "Unassigned — say whose this is"}
+              onClick={() => setAssignOpen(true)}
+            />
+          )}
+          {ds.images.length > 0 && (
+            <Chip
+              size="small"
+              variant="outlined"
+              color={coverage.missing ? "warning" : "success"}
+              label={coverage.missing
+                ? `${coverage.missing} uncaptioned`
+                : "all captioned"}
+            />
+          )}
           {parseTags(ds.tags).map((t) => (
             <Chip key={t} size="small" label={t} />
           ))}
           <Box sx={{ flexGrow: 1 }} />
-          <Tooltip title={eligible.ok ? "" : eligible.reason ?? ""}>
+          {/* A regularization pool is never trained on its own: the API adds it to runs. */}
+          {!isReg && (
+            <Tooltip title={!assigned ? "Say whose this set is first" : eligible.ok ? "" : eligible.reason ?? ""}>
+              <span>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<ModelTraining />}
+                  disabled={!eligible.ok || !assigned}
+                  onClick={onTrain}
+                >
+                  Train
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          {isReg ? (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <TextField
+                size="small"
+                type="number"
+                value={generateCount}
+                onChange={(e) => setGenerateCount(Math.max(1, parseInt(e.target.value) || 1))}
+                slotProps={{ htmlInput: { min: 1, "aria-label": "How many to generate" } }}
+                sx={{ width: 84 }}
+              />
+              <Tooltip title={ds.reg_class
+                ? `Render ${generateCount} generic ${ds.reg_class} clips with no character LoRA; `
+                  + "each one's last frame lands in this set. GPU-hours for a full pool."
+                : "Pick the class (woman or man) first"}>
+                <span>
+                  <Button
+                    size="small"
+                    startIcon={<Movie />}
+                    disabled={busy || renderRunning || !ds.reg_class}
+                    onClick={generate}
+                  >
+                    Generate {generateCount}
+                  </Button>
+                </span>
+              </Tooltip>
+            </Box>
+          ) : (
+            <Button
+              size="small"
+              startIcon={<ContentCut />}
+              disabled={busy || ds.images.length === 0}
+              onClick={() => setCropOpen(true)}
+            >
+              Crop faces
+            </Button>
+          )}
+          <Tooltip title={"Describe framing, pose, clothing, light and background for every image "
+            + "without a caption. Never the face: the trigger carries identity."}>
             <span>
               <Button
                 size="small"
-                variant="contained"
-                color="secondary"
-                startIcon={<ModelTraining />}
-                disabled={!eligible.ok}
-                onClick={onTrain}
+                startIcon={<AutoAwesome />}
+                disabled={busy || captionRunning || ds.images.length === 0}
+                onClick={() => caption(false)}
               >
-                Train
+                Caption all
               </Button>
             </span>
           </Tooltip>
-          <Button
-            size="small"
-            startIcon={<ContentCut />}
-            disabled={busy || ds.images.length === 0}
-            onClick={() => setCropOpen(true)}
-          >
-            Crop faces
-          </Button>
-          {ds.anchor_uri && (
+          {coverage.captioned > 0 && (
+            <Button
+              size="small"
+              color="inherit"
+              disabled={busy || captionRunning}
+              onClick={() => caption(true)}
+            >
+              Recaption…
+            </Button>
+          )}
+          {!isReg && ds.anchor_uri && (
             <Button size="small" startIcon={<Star />} disabled={busy} onClick={() => score()}>
               Re-score
             </Button>
@@ -342,6 +483,25 @@ function DatasetCard({
         </Box>
 
         {busy && <LinearProgress sx={{ mb: 1 }} />}
+        {[
+          { label: captionProgressLabel(captioning.status), s: captioning.status,
+            done: captioning.status?.captioned ?? 0, total: captioning.status?.total ?? 0 },
+          { label: isReg ? regularizeProgressLabel(rendering.status) : null,
+            s: rendering.status,
+            done: (rendering.status?.done ?? 0) + (rendering.status?.failed ?? 0),
+            total: rendering.status?.requested ?? 0 },
+        ].filter((p) => p.label).map((p) => {
+          const pct = p.s?.running ? progressPct(p.done, p.total) : null;
+          return (
+            <Box key={p.label} sx={{ mb: 1 }}>
+              {pct !== null && <LinearProgress variant="determinate" value={pct} />}
+              <Typography variant="caption"
+                color={p.s?.running ? "text.secondary" : "error.main"}>
+                {p.label}
+              </Typography>
+            </Box>
+          );
+        })}
         {msg && <Typography variant="caption" color="text.secondary">{msg}</Typography>}
         {!eligible.ok && ds.images.length > 0 && (
           <Typography variant="caption" color="warning.main" sx={{ display: "block" }}>
@@ -359,9 +519,8 @@ function DatasetCard({
             bottom-left, both INSIDE the tile, with a gap between tiles wider than a button. */}
         <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mt: 2 }}>
           {shown.map((uri) => {
-            const sc = scores[uri];
-            const verdict = verdictFor(sc ?? (uri === ds.anchor_uri
-              ? { cos: 1, is_anchor: true } : undefined));
+            const sc = scoreOf(uri);
+            const verdict = verdictFor(sc);
             const ring = {
               anchor: "primary.main", match: "success.main", below: "error.main",
               "no-face": "warning.main", unscored: "divider",
@@ -392,7 +551,7 @@ function DatasetCard({
                       <Close sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
+                  {!isReg && <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
                     <IconButton
                       size="small"
                       aria-label={`Use ${uri.split("/").pop()} as the anchor`}
@@ -408,7 +567,7 @@ function DatasetCard({
                         ? <Star sx={{ fontSize: 18 }} />
                         : <StarBorder sx={{ fontSize: 18 }} />}
                     </IconButton>
-                  </Tooltip>
+                  </Tooltip>}
                 </Box>
                 {(sc || verdict === "anchor") && (
                   <Typography
@@ -419,6 +578,13 @@ function DatasetCard({
                     {verdict === "anchor" ? "anchor" : formatCos(sc?.cos ?? null)}
                   </Typography>
                 )}
+                <CaptionField
+                  datasetId={ds.id}
+                  uri={uri}
+                  caption={ds.captions?.[uri] ?? ""}
+                  disabled={captionRunning}
+                  onSaved={onChanged}
+                />
               </Box>
             );
           })}
@@ -428,7 +594,7 @@ function DatasetCard({
             </Button>
           )}
         </Box>
-        {!ds.anchor_uri && ds.images.length > 1 && (
+        {!isReg && !ds.anchor_uri && ds.images.length > 1 && (
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
             Star one image to make it the anchor — every other image is then scored for likeness
             against it, worst first.
@@ -438,6 +604,16 @@ function DatasetCard({
           <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 0.5 }}>
             {removalWarning(ds.images.length)}
           </Typography>
+        )}
+
+        {assignOpen && (
+          <AssignDialog
+            ds={ds}
+            characters={characters}
+            onClose={() => setAssignOpen(false)}
+            onSaved={() => { setAssignOpen(false); onChanged(); }}
+            onCharactersChanged={onCharactersChanged}
+          />
         )}
 
         {repoOpen && (
@@ -670,6 +846,223 @@ function NewDatasetDialog({
           Create
         </Button>
       </DialogActions>
+    </Dialog>
+  );
+}
+
+/**
+ * One image's caption BODY, under its tile, edited in place (#537). Saved on blur.
+ *
+ * No trigger in it, ever: the run adds "<trigger>, <gender>, " itself, so the caption says
+ * only what is in the frame — framing, pose, clothing, light — and the face is left to the
+ * trigger. That is the difference between a LoRA that learns the person and one that learns
+ * the person in that jacket against that wall.
+ */
+function CaptionField({
+  datasetId, uri, caption, disabled, onSaved,
+}: {
+  datasetId: string;
+  uri: string;
+  caption: string;
+  disabled: boolean;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(caption);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async () => {
+    setEditing(false);
+    if (text.trim() === caption.trim()) return;
+    setSaving(true);
+    setError("");
+    try {
+      await updateDatasetCaption(datasetId, uri, text.trim());
+      onSaved();
+    } catch (e: unknown) {
+      setError(apiErrorText(e, "not saved"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <TextField
+        size="small"
+        multiline
+        minRows={3}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { setText(caption); setEditing(false); }
+        }}
+        autoFocus
+        fullWidth
+        slotProps={{ htmlInput: { style: { fontSize: 11, lineHeight: 1.35 } } }}
+        sx={{ mt: 0.5 }}
+      />
+    );
+  }
+  return (
+    <Tooltip title={caption || ""} placement="bottom-start">
+      <Typography
+        variant="caption"
+        component="div"
+        onClick={() => { if (!disabled) { setText(caption); setEditing(true); } }}
+        sx={{
+          mt: 0.5, fontSize: 11, lineHeight: 1.35, cursor: disabled ? "default" : "text",
+          color: error ? "error.main" : caption ? "text.secondary" : "warning.main",
+          display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
+          overflow: "hidden", opacity: saving ? 0.5 : 1,
+        }}
+      >
+        {error || caption || "no caption — click to write one"}
+      </Typography>
+    </Tooltip>
+  );
+}
+
+/**
+ * Say what a set is for and whose it is (#537).
+ *
+ * A character set is owned by one registered character — picked from the registry, not typed,
+ * so it cannot be owned by a misspelling. A composition set is owned by a PAIR, which may not
+ * be a row yet (a pair's row is created by its first run), so that name is typed, with the
+ * pairs that exist offered. A regularization pool has a class instead of an owner.
+ *
+ * The API refuses a change while a running job uses the set; its message is shown as is.
+ */
+function AssignDialog({
+  ds, characters, onClose, onSaved, onCharactersChanged,
+}: {
+  ds: Dataset;
+  characters: Character[];
+  onClose: () => void;
+  onSaved: () => void;
+  onCharactersChanged: () => void;
+}) {
+  const [kind, setKind] = useState<DatasetKind | "">(ds.kind ?? "");
+  const [owner, setOwner] = useState(ds.character ?? "");
+  const [regClass, setRegClass] = useState<RegClass | "">(ds.reg_class ?? "");
+  const [newCharOpen, setNewCharOpen] = useState(false);
+  // One made from here, until the page's own re-read of the registry includes it.
+  const [created, setCreated] = useState<Character | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const solos = [...characters.filter((c) => !isPairCharacter(c)),
+    ...(created && !characters.some((c) => c.id === created.id) ? [created] : [])]
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const pairs = characters.filter(isPairCharacter).map((c) => c.name).sort();
+  const soloMatch = solos.find((c) => c.name.toLowerCase() === owner.trim().toLowerCase());
+
+  const ready = kind === "" ? true
+    : kind === "regularization" ? regClass !== ""
+      : kind === "character" ? Boolean(soloMatch)
+        : Boolean(owner.trim());
+
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await updateDataset(ds.id, {
+        kind: kind || null,
+        character: kind === "character" ? soloMatch!.name
+          : kind === "composition" ? owner.trim() : null,
+        reg_class: kind === "regularization" ? (regClass as RegClass) : null,
+      });
+      onSaved();
+    } catch (e: unknown) {
+      setError(apiErrorText(e, "could not save it"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={busy ? undefined : onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>What is “{ds.name}”?</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <RadioGroup value={kind} onChange={(e) => setKind(e.target.value as DatasetKind | "")}>
+            <FormControlLabel value="character" control={<Radio size="small" />}
+              label="Character — one person, and only that person" />
+            <FormControlLabel value="composition" control={<Radio size="small" />}
+              label="Composition — both people of a pair in the same frame" />
+            <FormControlLabel value="regularization" control={<Radio size="small" />}
+              label="Regularization — generic people, no character" />
+            <FormControlLabel value="" control={<Radio size="small" />}
+              label="Unassigned" />
+          </RadioGroup>
+
+          {kind === "character" && (
+            <TextField
+              select
+              label="Whose images"
+              value={soloMatch?.name ?? ""}
+              onChange={(e) => {
+                if (e.target.value === "__new__") setNewCharOpen(true);
+                else setOwner(e.target.value);
+              }}
+              helperText={owner && !soloMatch
+                ? `“${owner}” is not a registered character — pick one, or create it.`
+                : "Only this person's images train under this character's trigger."}
+              error={Boolean(owner) && !soloMatch}
+              fullWidth
+            >
+              {solos.map((c) => <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>)}
+              <Divider />
+              <MenuItem value="__new__"><em>New character…</em></MenuItem>
+            </TextField>
+          )}
+          {kind === "composition" && (
+            <Autocomplete
+              freeSolo
+              options={pairs}
+              inputValue={owner}
+              onInputChange={(_e, v) => setOwner(v)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Pair name"
+                  helperText="Exactly the pair name the Train dialog uses, e.g. DavidKelly-2026."
+                  fullWidth
+                />
+              )}
+            />
+          )}
+          {kind === "regularization" && (
+            <TextField
+              select
+              label="Class"
+              value={regClass}
+              onChange={(e) => setRegClass(e.target.value as RegClass)}
+              helperText="Every run of a character of this gender trains against this pool, so the class word stops drifting toward that character."
+              fullWidth
+            >
+              <MenuItem value="woman">woman</MenuItem>
+              <MenuItem value="man">man</MenuItem>
+            </TextField>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button variant="contained" disabled={busy || !ready} onClick={save}>
+          {busy ? "Saving…" : "Save"}
+        </Button>
+      </DialogActions>
+      {newCharOpen && (
+        <NewCharacterDialog
+          initialName={ds.name.trim().replace(/\s+/g, "-")}
+          onClose={() => setNewCharOpen(false)}
+          onCreated={(c) => { setCreated(c); setOwner(c.name); onCharactersChanged(); }}
+        />
+      )}
     </Dialog>
   );
 }

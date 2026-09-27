@@ -1,265 +1,352 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
-  Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, MenuItem, Radio, RadioGroup, Stack, TextField, Typography,
+  Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
+  DialogTitle, Divider, FormControlLabel, MenuItem, Radio, RadioGroup, Stack, TextField,
+  ToggleButton, ToggleButtonGroup, Typography,
 } from "@mui/material";
+import { CheckCircle, ErrorOutline, WarningAmber } from "@mui/icons-material";
 
-import { createTrainingJob, listDatasets, listTrainingJobs } from "../api/client";
-import { listRecipes } from "../api/ltx";
-import type { Character } from "../api/ltx";
-import type { Dataset, TrainingJob } from "../api/types";
 import {
-  apiErrorText, canTrain, characterProblem, defaultCharacterFor, defaultEpochs,
-  defaultLoraName, estimatedMinutes, loraFilename, loraNameProblem, nameNeedsSanitising,
-  nextVersion, stepsForEpochs, stepsPerEpoch,
+  createTrainingJob, listDatasets, listTrainingJobs, preflightTraining,
+} from "../api/client";
+import { listRecipes, triggerPhrase } from "../api/ltx";
+import type { Character } from "../api/ltx";
+import type {
+  Dataset, PreflightItem, TrainingJob, TrainingPreflight,
+} from "../api/types";
+import NewCharacterDialog from "./NewCharacterDialog";
+import {
+  apiErrorText, characterHasTrained, datasetsOwnedBy, defaultEpochsForSamples, defaultPairName,
+  estimatedMinutes, formIncomplete, initialFromDataset, isPairCharacter, nextVersion,
+  problemsFromError, runCharacter, stepsForSamples, stepsPerEpoch, trainingBody,
 } from "../lib/trainingJob";
+import type { TrainForm } from "../lib/trainingJob";
 
-/** The trainer's total-step ceiling (mirrors wanly-api's TrainingCreate.steps). */
-const STEP_CAP = 30000;
+/** How long the form must sit still before it is re-checked. Long enough that typing a pair
+ *  name is one request, short enough that the checklist feels attached to the form. */
+const PREFLIGHT_DEBOUNCE_MS = 400;
 
-/** An extra training group (wanly-api#102, #106).
- *
- *  "identity" is another character's set — its caption is "<trigger>, <gender>", the same
- *  shape group 0 uses. "composition" is frames containing BOTH characters, captioned with
- *  both triggers; that is the group that teaches the model the identities appear TOGETHER,
- *  which solo sets alone cannot. */
-type ExtraGroup = {
-  kind: "identity" | "composition";
-  character: string;
-  datasetId: string | null;
-  gender: "" | "woman" | "man" | "person";
-  caption: string;
+/** The select value that opens the create form instead of choosing a character. */
+const NEW_CHARACTER = "__new__";
+
+/** Which field a character created from the dialog lands in. */
+type NewCharacterSlot = "character" | "memberA" | "memberB";
+
+const EMPTY: TrainForm = {
+  mode: "solo", character: "", memberA: "", memberB: "", pairName: "", datasets: {},
+  compositionId: null, allowNoComposition: false, version: 1, steps: 0, publish: "final",
 };
 
 /**
- * Queue a character-LoRA training run from the images selected in the repo (#454).
+ * Queue a character-LoRA training run (#454), made hard to get wrong (#537).
  *
- * The rules it enforces are in src/lib/trainingJob.ts, because vite's test config is node-env
- * and pure-logic only — anything with a right answer has to live outside a component to be
- * covered at all.
+ * WHAT CHANGED, AND WHY. This dialog used to take a free-text trigger, a per-run gender and
+ * an open list of extra groups, and every one of those has been filled in wrong: David's face
+ * trained under a different trigger in each pair, another person's images inside his solo
+ * LoRA, pairs with no image of the two together, a pair run publishing over a solo row. So
+ * the person now picks only what nobody else can — who, which set, how long — and the rest
+ * comes from the registry and the datasets' owners.
+ *
+ * THE RULES ARE THE API'S. Every change is sent to POST /training/preflight, and the
+ * checklist below is its answer verbatim; Train is enabled only while that answer is `ok` for
+ * the form as it stands now. Nothing here re-implements a rule: a checklist that drifted from
+ * the server would say green over a request that 422s, which is worse than no checklist.
  *
  * MOUNT IT ONLY WHILE OPEN. Its state is initialised once, from the props it first saw, so a
  * dialog left mounted with open=false carried the previous dataset's character and version
  * into the next one. The parents render it conditionally rather than passing `open`.
  */
 export default function TrainLoraDialog({
-  imageKeys, datasetId, defaultCharacter, onClose, onQueued,
+  dataset, onClose, onQueued,
 }: {
-  /** s3:// URIs, in order. Used for the eligibility check and, when there is no dataset, as
-   *  the payload. */
-  imageKeys: string[];
-  /** When set, the job references the dataset instead of an inline list — so the run records
-   *  which dataset it came from rather than an anonymous snapshot of URIs. */
-  datasetId?: string;
-  /** Usually the dataset's name. Made rule-safe here, because "Test faces" is a fine dataset
-   *  name and an impossible character name. */
-  defaultCharacter?: string;
+  /** The dataset it was opened from, if any: a character set opens Solo on its owner, a
+   *  composition set opens Pair on its pair. */
+  dataset?: Dataset;
   onClose: () => void;
   onQueued: (id: string) => void;
 }) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [character, setCharacter] = useState(defaultCharacterFor(defaultCharacter ?? ""));
-  const [trigger, setTrigger] = useState("");
-  const [triggerTouched, setTriggerTouched] = useState(false);
-  const [loraName, setLoraName] = useState("");
-  const [loraNameTouched, setLoraNameTouched] = useState(false);
-  const [version, setVersion] = useState(1);
+  const [form, setForm] = useState<TrainForm>(EMPTY);
+  // Defaults follow the form until the user EDITS them — tracked as a touch, because "still
+  // equal to the default" stops being true the moment the default moves.
+  const [pairNameTouched, setPairNameTouched] = useState(false);
   const [versionTouched, setVersionTouched] = useState(false);
-  const [gender, setGender] = useState<"" | "woman" | "man" | "person">("");
-  // Epochs, not steps: "how many passes over each image" is the question a person asks,
-  // and a whole number of them puts the last epoch checkpoint on the final step. The default
-  // is the recipe's proven 1200 steps expressed for this set's size.
-  const [epochs, setEpochs] = useState(defaultEpochs(imageKeys.length));
-  const [publish, setPublish] = useState<"final" | "all">("final");
-  // ---- Additional groups (wanly-api#102, #106): one LoRA trained on several datasets at
-  // once. An IDENTITY group is another character's set; a COMPOSITION group is frames
-  // containing BOTH characters, captioned with both triggers -- the group that teaches the
-  // model they appear together (#106), which solo sets alone cannot. NOT a way to stack
-  // LoRAs, which is what recipes already do and what loses both faces.
-  const [groups, setGroups] = useState<ExtraGroup[]>([]);
+  const [epochs, setEpochs] = useState<number | null>(null);
+  const [newCharFor, setNewCharFor] = useState<NewCharacterSlot | null>(null);
+
+  const [preflight, setPreflight] = useState<TrainingPreflight | null>(null);
+  // The body the preflight above answered. Train needs it to equal the body as it is NOW —
+  // an `ok` for the form of half a second ago is not an `ok`.
+  const [checkedKey, setCheckedKey] = useState("");
+  // Both keyed by the body they are about, for the same reason as checkedKey: an error or a
+  // refusal for a form that has since changed says nothing about this one.
+  const [preflightError, setPreflightError] = useState({ key: "", message: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [submitProblems, setSubmitProblems] =
+    useState<{ key: string; items: PreflightItem[] }>({ key: "", items: [] });
 
-  // What exists already, so the dialog can offer the real character names — `p@y`, not a
-  // retyped `pay` that would create a second character row — and default the version to the
-  // next one rather than to 1.
+  const patch = (p: Partial<TrainForm>) => setForm((f) => ({ ...f, ...p }));
+
+  const loadCharacters = () =>
+    listRecipes().then((b) => { setCharacters(b.characters); return b.characters; });
+
   useEffect(() => {
-    listRecipes().then((b) => setCharacters(b.characters)).catch(() => {});
     listTrainingJobs().then(setJobs).catch(() => {});
     listDatasets().then(setDatasets).catch(() => {});
-  }, []);
+    // Seeded once the registry is in: a composition set's members come from its pair row,
+    // and names take the registry's spelling so the chosen set is keyed the way the select
+    // reads it.
+    listRecipes().then((b) => {
+      setCharacters(b.characters);
+      const seed = initialFromDataset(dataset, b.characters);
+      const canon = (n: string | undefined) =>
+        n ? (b.characters.find((c) => c.name.toLowerCase() === n.toLowerCase())?.name ?? n) : n;
+      const character = canon(seed.character);
+      setForm((f) => ({
+        ...f, ...seed,
+        ...(character !== undefined ? { character } : {}),
+        ...(seed.memberA !== undefined ? { memberA: canon(seed.memberA) ?? "" } : {}),
+        ...(seed.memberB !== undefined ? { memberB: canon(seed.memberB) ?? "" } : {}),
+        ...(seed.datasets && character ? { datasets: { [character]: dataset!.id } } : {}),
+      }));
+      // A composition set names its pair; that name is the owner, not a default to replace.
+      if (seed.pairName) setPairNameTouched(true);
+    }).catch(() => {});
+  }, [dataset]);
 
-  // The trigger and the filename follow the character until the user EDITS them -- tracked
-  // as a touch, not as "still empty": the dataset name pre-fills both, so "still empty" was
-  // never true, and retyping the character left the filename as the dataset's name. An
-  // existing character also lends its trigger, which may differ from its name.
-  useEffect(() => {
-    const known = characters.find((c) => c.name.toLowerCase() === character.trim().toLowerCase());
-    if (!triggerTouched) setTrigger(known?.trigger ?? character);
-    if (!loraNameTouched) setLoraName(defaultLoraName(character));
-  }, [character, characters, triggerTouched, loraNameTouched]);
+  const solos = characters.filter((c) => !isPairCharacter(c))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const byName = (n: string) =>
+    characters.find((c) => c.name.toLowerCase() === n.trim().toLowerCase());
 
-  useEffect(() => {
-    if (!versionTouched) setVersion(nextVersion(character, jobs, characters));
-  }, [character, jobs, characters, versionTouched]);
+  // ---- Derived: everything below follows the form, so nothing here can go stale. ----
+  const pairName = pairNameTouched
+    ? form.pairName
+    : form.memberA && form.memberB ? defaultPairName(form.memberA, form.memberB) : "";
+  const members = form.mode === "solo" ? [form.character] : [form.memberA, form.memberB];
+  const ownedBy = (name: string) => datasetsOwnedBy(datasets, "character", name);
+  // A member with exactly one set gets it without asking; with several, the choice is made
+  // explicitly. With none, the select says so and preflight refuses.
+  const chosenDatasets: Record<string, string> = {};
+  for (const m of members.filter(Boolean)) {
+    const owned = ownedBy(m);
+    const picked = form.datasets[m];
+    const id = picked && owned.some((d) => d.id === picked) ? picked
+      : owned.length === 1 ? owned[0].id : undefined;
+    if (id) chosenDatasets[m] = id;
+  }
+  const compositions = form.mode === "pair" && pairName
+    ? datasetsOwnedBy(datasets, "composition", pairName) : [];
+  const compositionId = form.compositionId && compositions.some((d) => d.id === form.compositionId)
+    ? form.compositionId
+    : compositions.length === 1 ? compositions[0].id : null;
 
-  // A group's trigger follows its character — an existing character lends its trigger, the
-  // same rule group 0 uses. Deliberately NOT editable: the registry owns the token pair,
-  // and a hand-typed token that differs from the caption would bind the face to nothing.
-  const groupTrigger = (g: ExtraGroup): string => {
-    const known = characters.find(
-      (c) => c.name.toLowerCase() === g.character.trim().toLowerCase());
-    return known?.trigger ?? g.character.trim();
+  const who = runCharacter({ ...form, pairName });
+  const version = versionTouched ? form.version : nextVersion(who, jobs, characters);
+  // The epoch length is the server's once it has answered — regularization and pair groups
+  // make it more than images x 10. Before that, the character images at the recipe's repeats.
+  const estimateImages = Object.values(chosenDatasets)
+    .reduce((n, id) => n + (datasets.find((d) => d.id === id)?.images.length ?? 0), 0);
+  const samplesPerEpoch = preflight?.samples_per_epoch || stepsPerEpoch(estimateImages);
+  const epochsShown = epochs ?? defaultEpochsForSamples(samplesPerEpoch);
+  const steps = stepsForSamples(epochsShown, samplesPerEpoch);
+
+  const effective: TrainForm = {
+    ...form, pairName, datasets: chosenDatasets, compositionId, version, steps,
   };
-  // What the composition caption defaults to: every identity pair in the run, joined the
-  // way the published trigger phrase is. The user can edit it.
-  const identityPairs = (): string[] => {
-    const pairs: string[] = [];
-    const add = (t: string, gen: string) => {
-      if (!t) return;
-      const p = gen ? `${t}, ${gen}` : t;
-      if (!pairs.includes(p)) pairs.push(p);
-    };
-    add(trigger.trim(), gender);
-    for (const g of groups) {
-      if (g.kind === "identity") add(groupTrigger(g), g.gender);
-    }
-    return pairs;
-  };
-  const setGroup = (i: number, patch: Partial<ExtraGroup>) =>
-    setGroups((prev) => prev.map((g, j) => (j === i ? { ...g, ...patch } : g)));
-  const addGroup = (kind: ExtraGroup["kind"]) =>
-    setGroups((prev) => [...prev, {
-      kind, character: "", datasetId: null, gender: "",
-      caption: kind === "composition" ? identityPairs().join(" and ") : "",
-    }]);
+  const incomplete = formIncomplete(effective);
+  const body = trainingBody(effective);
+  const bodyKey = JSON.stringify(body);
+  const current = !incomplete && checkedKey === bodyKey ? preflight : null;
+  const failed = !incomplete && preflightError.key === bodyKey ? preflightError.message : "";
+  const checking = !incomplete && checkedKey !== bodyKey && !failed;
+  const refused = submitProblems.key === bodyKey ? submitProblems.items : [];
 
-  const eligible = canTrain(imageKeys);
-  const nameProblem = characterProblem(character.trim());
-  const fileProblem = loraNameProblem(loraName.trim());
-  const known = characters.find((c) => c.name.toLowerCase() === character.trim().toLowerCase());
-  const steps = stepsForEpochs(epochs, imageKeys.length);
-  // A joint run's steps are the TOTAL across every dataset: the Epochs field means whole
-  // passes over EVERY image — the same semantics as a single run, no scaling surprise. The
-  // The step cap bites sooner with more groups, so the helper states the max that fits.
-  const groupImages = groups.reduce(
-    (n, g) => n + (datasets.find((d) => d.id === g.datasetId)?.images.length ?? 0), 0);
-  const jointImages = imageKeys.length + groupImages;
-  const jointSteps = stepsForEpochs(epochs, jointImages);
-  const maxJointEpochs = Math.max(1, Math.floor(STEP_CAP / stepsPerEpoch(jointImages)));
-  const isJoint = groups.length > 0;
-  // A group is unusable without a dataset, and an identity group also needs a character
-  // and a gender; a composition group needs its caption. The API refuses all three, so the
-  // button says so first rather than round-tripping to a 422.
-  const groupsProblem = groups.some((g) => !g.datasetId
-    || (g.kind === "identity"
-      ? (!g.character.trim() || g.gender === "")
-      : !g.caption.trim()));
-  const stepsProblem = (isJoint ? jointSteps : steps) > STEP_CAP
-    ? `${isJoint ? jointSteps : steps} steps is over the ${STEP_CAP} the trainer accepts — at most ` +
-      `${maxJointEpochs} epoch${maxJointEpochs === 1 ? "" : "s"} over ${jointImages} images`
-    : null;
+  // Debounced preflight. A counter rather than an abort: an answer that arrives after a newer
+  // request was sent is simply dropped, whatever order the network returns them in.
+  const seq = useRef(0);
+  // Bumped to ask again about an unchanged form — after a refusal, when the fix was made
+  // somewhere else (captions finished on the Datasets page).
+  const [recheck, setRecheck] = useState(0);
+  useEffect(() => {
+    if (incomplete) return;
+    const mine = ++seq.current;
+    const t = setTimeout(() => {
+      preflightTraining(JSON.parse(bodyKey))
+        .then((r) => {
+          if (seq.current !== mine) return;
+          setPreflight(r);
+          setCheckedKey(bodyKey);
+          setPreflightError({ key: "", message: "" });
+        })
+        .catch((e: unknown) => {
+          if (seq.current !== mine) return;
+          setPreflightError({ key: bodyKey, message: apiErrorText(e, "the pre-flight check failed") });
+        });
+    }, PREFLIGHT_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [bodyKey, incomplete, recheck]);
 
   const submit = async () => {
     setBusy(true);
     setError("");
+    setSubmitProblems({ key: "", items: [] });
     try {
-      const job = await createTrainingJob({
-        // The known row's exact spelling, so the finished LoRA lands on it rather than on a
-        // new character that differs by case.
-        character: known?.name ?? character.trim(),
-        trigger: trigger.trim(), version, steps: jointSteps,
-        lora_name: loraName.trim() || defaultLoraName(character),
-        gender: gender || undefined,
-        publish,
-        // A dataset reference when there is one, so the run records where its images came
-        // from; a bare list otherwise, for an ad-hoc selection in the Image Repo.
-        ...(datasetId ? { dataset_id: datasetId } : { dataset_images: imageKeys }),
-        // EVERY GROUP OR NONE: the API refuses a group with a trigger but no images, or a
-        // composition group with no caption — both build a half-configured dataset silently.
-        ...(groups.length ? {
-          identities: groups.map((g) => g.kind === "identity" ? {
-            character: characters.find(
-              (c) => c.name.toLowerCase() === g.character.trim().toLowerCase())?.name
-              ?? g.character.trim(),
-            trigger: groupTrigger(g),
-            gender: g.gender || undefined,
-            dataset_id: g.datasetId ?? undefined,
-          } : {
-            // No trigger: the caption names the people in the frames.
-            caption: g.caption.trim(),
-            dataset_id: g.datasetId ?? undefined,
-          }),
-        } : {}),
-      });
+      const job = await createTrainingJob(body);
       onQueued(job.id);
       onClose();
     } catch (e: unknown) {
-      setError(apiErrorText(e, "could not queue the job"));
+      // The world changed between the check and the click (a caption deleted, a job took
+      // the set): show the server's list, the same shape as the checklist.
+      const problems = problemsFromError(e);
+      if (problems) setSubmitProblems({ key: bodyKey, items: problems });
+      else setError(apiErrorText(e, "could not queue the job"));
     } finally {
       setBusy(false);
     }
   };
+
+  /** A character select over the solo registry, with "New character…" at the bottom. */
+  const characterSelect = (
+    slot: NewCharacterSlot, label: string, value: string, onPick: (name: string) => void,
+    exclude?: string,
+  ) => {
+    const c = value ? byName(value) : undefined;
+    return (
+      <TextField
+        select
+        label={label}
+        value={c ? c.name : ""}
+        onChange={(e) => {
+          if (e.target.value === NEW_CHARACTER) setNewCharFor(slot);
+          else onPick(e.target.value);
+        }}
+        helperText={c
+          ? `Captions start “${triggerPhrase(c)}, …”` + (characterHasTrained(c) ? "" : " — not trained yet")
+          : value ? `“${value}” is not a registered character` : " "}
+        error={Boolean(value) && !c}
+        fullWidth
+      >
+        {solos.filter((s) => s.name !== exclude).map((s) => (
+          <MenuItem key={s.id} value={s.name}>{s.name}</MenuItem>
+        ))}
+        <Divider />
+        <MenuItem value={NEW_CHARACTER}><em>New character…</em></MenuItem>
+      </TextField>
+    );
+  };
+
+  /** The character-dataset select for one member. */
+  const datasetSelect = (member: string) => {
+    const owned = ownedBy(member);
+    const id = chosenDatasets[member] ?? "";
+    const images = datasets.find((d) => d.id === id)?.images.length;
+    return (
+      <TextField
+        select
+        label={form.mode === "pair" ? `${member}'s dataset` : "Dataset"}
+        value={id}
+        onChange={(e) => patch({ datasets: { ...form.datasets, [member]: e.target.value } })}
+        error={owned.length === 0}
+        helperText={owned.length === 0
+          ? `No dataset is owned by ${member}. On the Datasets page, set one's kind to `
+            + `Character and its owner to ${member}.`
+          : images !== undefined ? `${images} images` : "Pick one — more than one set is owned by "
+            + member}
+        disabled={owned.length === 0}
+        fullWidth
+      >
+        {owned.map((d) => (
+          <MenuItem key={d.id} value={d.id}>{d.name} ({d.images.length})</MenuItem>
+        ))}
+      </TextField>
+    );
+  };
+
+  const pairRow = byName(pairName);
 
   return (
     <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Train a character LoRA</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2.5} sx={{ mt: 1 }}>
-          {!eligible.ok && <Alert severity="error">{eligible.reason}</Alert>}
-          {eligible.warning && <Alert severity="warning">{eligible.warning}</Alert>}
           {error && <Alert severity="error">{error}</Alert>}
 
-          <Typography variant="body2" color="text.secondary">
-            {imageKeys.length} selected image{imageKeys.length === 1 ? "" : "s"}.
-          </Typography>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={form.mode}
+            onChange={(_e, v) => { if (v) patch({ mode: v }); }}
+          >
+            <ToggleButton value="solo">Solo — one person</ToggleButton>
+            <ToggleButton value="pair">Pair — two people together</ToggleButton>
+          </ToggleButtonGroup>
 
-          <Autocomplete
-            freeSolo
-            options={characters.map((c) => c.name)}
-            inputValue={character}
-            onInputChange={(_e, v) => setCharacter(v)}
-            renderInput={(params) => (
+          {form.mode === "solo" ? (
+            <>
+              {characterSelect("character", "Character", form.character,
+                (name) => patch({ character: name }))}
+              {form.character && byName(form.character) && datasetSelect(byName(form.character)!.name)}
+            </>
+          ) : (
+            <>
+              <Box sx={{ display: "flex", gap: 2 }}>
+                {characterSelect("memberA", "First person", form.memberA,
+                  (name) => patch({ memberA: name }), form.memberB)}
+                {characterSelect("memberB", "Second person", form.memberB,
+                  (name) => patch({ memberB: name }), form.memberA)}
+              </Box>
               <TextField
-                {...params}
-                label="Character"
-                error={character !== "" && nameProblem !== null}
-                helperText={
-                  nameProblem && character !== ""
-                    ? nameProblem
-                    : known
-                      ? `Retrains ${known.name}: when this run finishes, its LoRA replaces `
-                        + `${known.char_lora}.`
-                      : "A new character. Pick an existing one from the list to retrain it."
-                }
-                autoFocus
+                label="Pair name"
+                value={pairName}
+                onChange={(e) => { setPairNameTouched(true); patch({ pairName: e.target.value }); }}
+                helperText={pairRow && isPairCharacter(pairRow)
+                  ? `Retrains the pair ${pairRow.name}. It publishes to the pair's own row — never `
+                    + "to either person's."
+                  : "The pair's own character row. Its composition dataset must be owned by "
+                    + "exactly this name."}
                 fullWidth
               />
-            )}
-          />
-          <TextField
-            label="Trigger"
-            value={trigger}
-            onChange={(e) => { setTriggerTouched(true); setTrigger(e.target.value); }}
-            helperText="The word a prompt types to get this face. It goes into every training caption."
-            fullWidth
-          />
-          <TextField
-            label="LoRA filename"
-            value={loraName}
-            onChange={(e) => { setLoraNameTouched(true); setLoraName(e.target.value); }}
-            error={fileProblem !== null}
-            helperText={
-              fileProblem
-                ?? (nameNeedsSanitising(character)
-                  ? `A LoRA is served over HTTP, so the filename cannot hold every character ` +
-                    `the name can. Installs as ${loraFilename(loraName || "lora", version)}`
-                  : `Installs as ${loraFilename(loraName || "lora", version)}`)
-            }
-            fullWidth
-          />
+              {form.memberA && byName(form.memberA) && datasetSelect(byName(form.memberA)!.name)}
+              {form.memberB && byName(form.memberB) && datasetSelect(byName(form.memberB)!.name)}
+              {pairName && (compositions.length > 0 ? (
+                <TextField
+                  select
+                  label="Both in frame (composition)"
+                  value={compositionId ?? ""}
+                  onChange={(e) => patch({ compositionId: e.target.value || null })}
+                  helperText="Frames with both people in them — what teaches the model they are two faces."
+                  fullWidth
+                >
+                  {compositions.map((d) => (
+                    <MenuItem key={d.id} value={d.id}>{d.name} ({d.images.length})</MenuItem>
+                  ))}
+                </TextField>
+              ) : (
+                <Alert severity="error">
+                  No composition dataset is owned by <strong>{pairName}</strong>. Without
+                  images of both people in one frame the model learns two faces that never
+                  meet, and they blend when prompted together. Make one on the Datasets page:
+                  kind Composition, owner {pairName}.
+                  <FormControlLabel
+                    sx={{ display: "flex", mt: 1 }}
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={form.allowNoComposition}
+                        onChange={(e) => patch({ allowNoComposition: e.target.checked })}
+                      />
+                    }
+                    label="Train without both-in-frame images (faces may blend)"
+                  />
+                </Alert>
+              ))}
+            </>
+          )}
 
           <Box sx={{ display: "flex", gap: 2 }}>
             <TextField
@@ -268,36 +355,33 @@ export default function TrainLoraDialog({
               value={version}
               onChange={(e) => {
                 setVersionTouched(true);
-                setVersion(Math.max(1, parseInt(e.target.value) || 1));
+                patch({ version: Math.max(1, parseInt(e.target.value) || 1) });
               }}
-              helperText={versionTouched ? " " : known || version > 1 ? "next after what exists" : "first"}
+              helperText={versionTouched ? " " : version > 1 ? "next after what exists" : "first"}
               sx={{ width: 140 }}
             />
             <TextField
               label="Epochs"
               type="number"
-              value={epochs}
+              value={epochsShown}
               onChange={(e) => setEpochs(Math.max(1, parseInt(e.target.value) || 1))}
-              error={stepsProblem !== null}
-              helperText={
-                stepsProblem
-                  ?? (isJoint
-                    ? `${jointSteps} steps (${jointImages} images across every group × ${epochs} epochs) — ` +
-                      `about ${estimatedMinutes(jointSteps)} min on the 3090, one checkpoint per epoch`
-                    : `${steps} steps (${imageKeys.length} images × 10 repeats × ${epochs}) — ` +
-                      `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch`)
-              }
+              helperText={`${steps} steps (${samplesPerEpoch} samples an epoch × ${epochsShown}) — `
+                + `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch`}
               slotProps={{ htmlInput: { min: 1 } }}
               sx={{ flex: 1 }}
             />
           </Box>
 
+          <Typography variant="body2" color="text.secondary">
+            Base model: <strong>{current?.base_checkpoint ?? "—"}</strong>
+          </Typography>
+
           <Box>
             <Typography variant="body2" sx={{ mb: 0.5 }}>Upload</Typography>
             <RadioGroup
               row
-              value={publish}
-              onChange={(e) => setPublish(e.target.value as "final" | "all")}
+              value={form.publish}
+              onChange={(e) => patch({ publish: e.target.value as "final" | "all" })}
             >
               <FormControlLabel value="final" control={<Radio size="small" />} label="Final checkpoint only" />
               <FormControlLabel value="all" control={<Radio size="small" />} label="Every epoch" />
@@ -308,156 +392,124 @@ export default function TrainLoraDialog({
             </Typography>
           </Box>
 
-          <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-            <TextField
-              select
-              label="Gender"
-              value={gender}
-              onChange={(e) => setGender(e.target.value as typeof gender)}
-              error={gender === ""}
-              helperText={gender === "" ? "Required." : " "}
-              sx={{ width: 160 }}
-            >
-              <MenuItem value="woman">woman</MenuItem>
-              <MenuItem value="man">man</MenuItem>
-              <MenuItem value="person">person</MenuItem>
-            </TextField>
-            <Alert severity={gender ? "info" : "warning"} sx={{ flex: 1 }}>
-              Every image will be captioned exactly{" "}
-              <strong>“{trigger.trim() || "trigger"}, {gender || "…"}”</strong>. The trigger
-              is what a prompt types to get this face; the gender is what the model binds it
-              to. Nothing else goes in the caption.
-            </Alert>
-          </Box>
-
-          <Box>
-            <Typography variant="body2" sx={{ mb: 0.5 }}>
-              Additional groups — train ONE LoRA on more datasets
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-              An <strong>identity</strong> group is another character's set. A{" "}
-              <strong>together</strong> group is frames containing BOTH characters, captioned
-              with both triggers — that is what teaches the model the two faces appear in
-              the same shot, which solo sets alone cannot. Not a way to stack two existing
-              LoRAs; recipes already do that.
-            </Typography>
-            <Box sx={{ display: "flex", gap: 1 }}>
-              <Button size="small" variant="outlined" onClick={() => addGroup("identity")}>
-                Add identity
-              </Button>
-              <Button size="small" variant="outlined" onClick={() => addGroup("composition")}>
-                Add together (both in frame)
-              </Button>
-            </Box>
-          </Box>
-
-          {groups.map((g, i) => {
-            const gKnown = characters.find(
-              (c) => c.name.toLowerCase() === g.character.trim().toLowerCase());
-            const gImages = datasets.find((d) => d.id === g.datasetId)?.images.length;
-            const gTrigger = groupTrigger(g);
-            return (
-              <Stack key={i} spacing={2} sx={{ pl: 1, borderLeft: 2, borderColor: "divider" }}>
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <Typography variant="subtitle2">
-                    {g.kind === "identity" ? `Identity ${i + 2}` : `Together ${i + 1}`}
-                  </Typography>
-                  <Button size="small" color="inherit"
-                    onClick={() => setGroups((prev) => prev.filter((_, j) => j !== i))}>
-                    Remove
-                  </Button>
-                </Box>
-
-                {g.kind === "identity" && (
-                  <Autocomplete
-                    freeSolo
-                    options={characters.map((c) => c.name)}
-                    inputValue={g.character}
-                    onInputChange={(_e, v) => setGroup(i, { character: v })}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        label="Character"
-                        helperText={gKnown
-                          ? `Its trigger is “${gKnown.trigger}”.`
-                          : "An existing character; its registry trigger is used."}
-                        fullWidth
-                      />
-                    )}
-                  />
-                )}
-
-                <TextField
-                  select
-                  label="Dataset"
-                  value={g.datasetId ?? ""}
-                  onChange={(e) => setGroup(i, { datasetId: e.target.value || null })}
-                  helperText={
-                    g.datasetId
-                      ? `${gImages ?? "?"} images`
-                      : "This group's images. NOT the same dataset as another group — one file cannot carry two captions."
-                  }
-                  fullWidth
-                >
-                  {datasets.filter((d) => d.id !== datasetId
-                    && !groups.some((o, j) => j !== i && o.datasetId === d.id)).map((d) => (
-                    <MenuItem key={d.id} value={d.id}>{d.name} ({d.images.length})</MenuItem>
-                  ))}
-                </TextField>
-
-                {g.kind === "identity" ? (
-                  <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-                    <TextField
-                      select
-                      label="Gender"
-                      value={g.gender}
-                      onChange={(e) => setGroup(i, { gender: e.target.value as ExtraGroup["gender"] })}
-                      error={g.gender === ""}
-                      helperText={g.gender === "" ? "Required." : " "}
-                      sx={{ width: 160 }}
-                    >
-                      <MenuItem value="woman">woman</MenuItem>
-                      <MenuItem value="man">man</MenuItem>
-                      <MenuItem value="person">person</MenuItem>
-                    </TextField>
-                    <Alert severity={g.gender ? "info" : "warning"} sx={{ flex: 1 }}>
-                      Captioned exactly{" "}
-                      <strong>“{gTrigger || "trigger"}, {g.gender || "…"}”</strong> — its own
-                      pair, never another group's.
-                    </Alert>
-                  </Box>
-                ) : (
-                  <TextField
-                    label="Caption"
-                    value={g.caption}
-                    onChange={(e) => setGroup(i, { caption: e.target.value })}
-                    error={!g.caption.trim()}
-                    helperText={
-                      g.caption.trim()
-                        ? "Every image in this group is captioned exactly this."
-                        : "Name both people, e.g. “p@yton, woman and d@vid, man” — with no trigger this caption is the only thing that names them."
-                    }
-                    multiline
-                    minRows={2}
-                    fullWidth
-                  />
-                )}
-              </Stack>
-            );
-          })}
+          <Divider />
+          <PreflightPanel
+            incomplete={incomplete}
+            checking={checking}
+            error={failed}
+            preflight={current}
+            submitProblems={refused}
+            onRecheck={() => {
+              setSubmitProblems({ key: "", items: [] });
+              setCheckedKey("");
+              setRecheck((n) => n + 1);
+            }}
+          />
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={!eligible.ok || busy || nameProblem !== null || fileProblem !== null
-            || stepsProblem !== null || groupsProblem || !trigger.trim() || gender === ""}
+          disabled={busy || !current?.ok || refused.length > 0}
           onClick={submit}
         >
           {busy ? "Queueing…" : "Queue training"}
         </Button>
       </DialogActions>
+
+      {newCharFor && (
+        <NewCharacterDialog
+          onClose={() => setNewCharFor(null)}
+          onCreated={(c) => {
+            // In the list at once, so the select can show it before the re-read lands.
+            setCharacters((prev) => [...prev, c]);
+            patch({ [newCharFor]: c.name } as Partial<TrainForm>);
+            loadCharacters().catch(() => {});
+          }}
+        />
+      )}
     </Dialog>
+  );
+}
+
+/**
+ * The server's answer, rendered: problems (blocking) in red, warnings in amber, then every
+ * group the run will train — regularization pools included, which the API adds on its own
+ * and which cannot be removed — each with a few of its final captions.
+ */
+function PreflightPanel({
+  incomplete, checking, error, preflight, submitProblems, onRecheck,
+}: {
+  incomplete: string | null;
+  checking: boolean;
+  error: string;
+  preflight: TrainingPreflight | null;
+  submitProblems: PreflightItem[];
+  onRecheck: () => void;
+}) {
+  const row = (icon: ReactNode, text: string, key: string) => (
+    <Box key={key} sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+      {icon}
+      <Typography variant="body2">{text}</Typography>
+    </Box>
+  );
+  const problems = [...submitProblems, ...(preflight?.problems ?? [])];
+
+  return (
+    <Stack spacing={1.5}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Typography variant="subtitle2">Pre-flight</Typography>
+        {checking && <CircularProgress size={14} />}
+        <Box sx={{ flexGrow: 1 }} />
+        {(submitProblems.length > 0 || error) && (
+          <Button size="small" onClick={onRecheck}>Check again</Button>
+        )}
+      </Box>
+      {incomplete && (
+        <Typography variant="body2" color="text.secondary">To check: {incomplete}.</Typography>
+      )}
+      {error && <Alert severity="error">{error}</Alert>}
+      {problems.map((p, i) =>
+        row(<ErrorOutline color="error" fontSize="small" />, p.message, `p${i}-${p.code}`))}
+      {preflight?.warnings.map((w, i) =>
+        row(<WarningAmber color="warning" fontSize="small" />, w.message, `w${i}-${w.code}`))}
+      {preflight?.ok && problems.length === 0 && row(
+        <CheckCircle color="success" fontSize="small" />,
+        `Ready: ${preflight.steps} steps, ${preflight.samples_per_epoch} samples an epoch, `
+          + `each image seen ${preflight.passes_per_image}×.`,
+        "ok",
+      )}
+
+      {preflight && preflight.groups.length > 0 && (
+        <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+          {preflight.groups.map((g, i) => (
+            <Box key={`${g.kind}-${g.dataset_id ?? i}`}
+              sx={{ pl: 1, borderLeft: 2, borderColor: "divider" }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {g.kind === "regularization"
+                    ? `Regularization · ${g.dataset_name ?? "pool"}`
+                    : `${g.character ?? "?"} · ${g.dataset_name ?? "?"}`}
+                </Typography>
+                <Chip size="small" variant="outlined" label={g.kind} />
+                {g.kind === "regularization" && (
+                  <Chip size="small" color="info" variant="outlined" label="added automatically" />
+                )}
+                <Typography variant="caption" color="text.secondary">
+                  {g.images} images × {g.num_repeats} repeats
+                </Typography>
+              </Box>
+              {g.sample_captions.map((c, j) => (
+                <Typography key={j} variant="caption" component="div"
+                  sx={{ fontFamily: "monospace", color: "text.secondary", mt: 0.25 }}>
+                  {c}
+                </Typography>
+              ))}
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </Stack>
   );
 }

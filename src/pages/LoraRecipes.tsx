@@ -44,6 +44,7 @@ import type { Gender } from "../api/types";
 import { getFileUrl } from "../api/client";
 import { parseContentLoraStrength } from "../lib/contentLoraStrength";
 import { overrideNumber } from "../lib/overrideValue";
+import { characterHasTrained } from "../lib/trainingJob";
 import {
   initialNegativeOverride,
   negativeOverrideToSend,
@@ -981,6 +982,9 @@ function CharacterDialog({
   onSaved: () => void;
 }) {
   const isNew = !character;
+  // Once a character has trained, its trigger and gender are what the LoRA learned: another
+  // trigger would name nothing, and the API refuses the change (#537).
+  const locked = !isNew && characterHasTrained(character!);
   const [name, setName] = useState(character?.name ?? "");
   const [lora, setLora] = useState(character?.char_lora ?? "");
   const [trigger, setTrigger] = useState(character?.trigger ?? "");
@@ -1019,12 +1023,17 @@ function CharacterDialog({
       } else {
         await updateCharacter(character!.id, {
           name: name.trim(),
-          char_lora: lora.trim(),
-          // Only sent when non-empty: on update an absent trigger means "leave it alone",
-          // and clearing it here must not silently rewrite it to the (possibly new) name.
-          ...(trigger.trim() ? { trigger: trigger.trim() } : {}),
-          // Always sent: unlike the trigger, "" here is a real answer (clear it).
-          gender: gender || null,
+          // Absent for a character registered before its first run: it has no LoRA yet.
+          ...(lora.trim() ? { char_lora: lora.trim() } : {}),
+          // Neither is sent once locked: the API refuses a change, and "unchanged" is best
+          // said by not saying.
+          ...(locked ? {} : {
+            // Only sent when non-empty: on update an absent trigger means "leave it alone",
+            // and clearing it here must not silently rewrite it to the (possibly new) name.
+            ...(trigger.trim() ? { trigger: trigger.trim() } : {}),
+            // Always sent: unlike the trigger, "" here is a real answer (clear it).
+            gender: gender || null,
+          }),
           strength_stage_1: n1,
           strength_stage_2: n2,
         });
@@ -1068,9 +1077,12 @@ function CharacterDialog({
             label="Trigger"
             value={trigger}
             onChange={(e) => setTrigger(e.target.value)}
+            disabled={locked}
             fullWidth
             helperText={
-              isNew
+              locked
+                ? "Fixed: this character has trained, and its LoRA learned this trigger."
+                : isNew
                 ? `Fills every pose's ${TRIGGER_PLACEHOLDER}. Empty defaults to the name.`
                 : `Fills every pose's ${TRIGGER_PLACEHOLDER}. Left empty, it is kept as it is.`
             }
@@ -1080,8 +1092,9 @@ function CharacterDialog({
             label="Gender"
             value={gender}
             onChange={(e) => setGender(e.target.value as "" | Gender)}
+            disabled={locked}
             fullWidth
-            helperText={
+            helperText={locked ? "Fixed: this character has trained as this gender." :
               `The word the LoRA's caption bound the trigger to. Every pose renders ` +
               `“${(trigger.trim() || name.trim() || "trigger")}${gender ? `, ${gender}` : ""}” ` +
               `— match what trained, or the identity is only half named.`
@@ -1116,7 +1129,7 @@ function CharacterDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={saving || !name.trim() || !lora.trim()}
+          disabled={saving || !name.trim() || (!lora.trim() && (isNew || Boolean(character?.char_lora)))}
           onClick={save}
         >
           {saving ? "Saving…" : "Save"}

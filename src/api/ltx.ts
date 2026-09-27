@@ -103,6 +103,13 @@ export interface Character {
    *  publish, so a later rename does not rewrite what trained. Null for characters that
    *  predate it. */
   trained_from?: { dataset_id: string | null; name: string | null; count: number }[] | null;
+  /** A solo character is one person; a pair is its own row trained on both members, with the
+   *  joined trigger phrase (#537). Null on rows that predate it — they are solo. */
+  kind?: "solo" | "pair" | null;
+  /** A pair's member character names. Null for a solo character. */
+  members?: string[] | null;
+  /** The base model its current LoRA trained on. */
+  base_checkpoint?: string | null;
 }
 
 /** What fills a placeholder: the trigger AND the word its LoRA bound it to, exactly as
@@ -379,7 +386,10 @@ export async function deleteBook(id: string): Promise<void> {
 
 export interface CharacterDraft {
   name: string;
-  char_lora: string;
+  /** Absent for a character registered before it has trained (#537): the trigger and gender
+   *  come first, and the LoRA arrives when the run publishes. */
+  char_lora?: string;
+  kind?: "solo" | "pair";
   /** Optional on create only — the API defaults it to the name. */
   trigger?: string | null;
   /** Null clears it: a LoRA that trained on a bare caption should not render one. */

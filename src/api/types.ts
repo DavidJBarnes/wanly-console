@@ -505,8 +505,43 @@ export interface Dataset {
   prefix: string | null;
   /** The one image every other one is scored against. Null until somebody picks one. */
   anchor_uri: string | null;
+  /** What the set is FOR (wanly-console#537). Null is unassigned, which the console flags and
+   *  which training refuses: a set that belongs to nobody is how 14 images of another person
+   *  ended up inside one character's LoRA. */
+  kind?: DatasetKind | null;
+  /** The owner. A character's name for kind=character; the PAIR's name (e.g.
+   *  "DavidKelly-2026") for kind=composition; null for regularization. */
+  character?: string | null;
+  /** The class word a regularization pool is of. Only set when kind=regularization. */
+  reg_class?: RegClass | null;
+  /** Caption BODY per image URI — framing, pose, clothing, light — WITHOUT the trigger. The
+   *  API prefixes "<trigger>, <gender>, " when a run is created, so the same set cannot be
+   *  trained under the wrong trigger. Missing keys are uncaptioned images. */
+  captions?: Record<string, string> | null;
+  /** Likeness to the anchor per URI, saved when the set is scored, so the ring survives a
+   *  reload. Null is "no face detected", an absent score rather than a low one. */
+  scores?: Record<string, number | null> | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export type DatasetKind = "character" | "composition" | "regularization";
+export type RegClass = "woman" | "man";
+
+/** GET /datasets/{id}/captions/status. */
+export interface CaptionStatus {
+  total: number;
+  captioned: number;
+  running: boolean;
+  error: string | null;
+}
+
+/** GET /datasets/{id}/regularize/status: text-to-video renders whose frames land in the set. */
+export interface RegularizeStatus {
+  requested: number;
+  done: number;
+  failed: number;
+  running: boolean;
 }
 
 export interface DatasetScore {
@@ -523,37 +558,65 @@ export interface DatasetScores {
   scores: DatasetScore[];
 }
 
+/**
+ * The body of POST /training AND POST /training/preflight (wanly-console#537).
+ *
+ * Deliberately thin. Triggers and genders come from the character registry, each member's
+ * images from the character dataset it owns, regularization pools from the gender present,
+ * the base model from the stack: every one of those used to be typed into this request, and
+ * every one of them has been typed wrong. What is left is what only a person can decide.
+ */
 export interface TrainingCreate {
+  mode: "solo" | "pair";
+  /** Solo: the character. Pair: the PAIR's name — its own row, never a member's. */
   character: string;
-  trigger: string;
+  /** Pair only: the two solo characters. */
+  members?: [string, string];
+  /** Which character dataset each member trains from, keyed by member name. Optional: the
+   *  API picks the only one when there is only one. */
+  datasets?: Record<string, string>;
+  /** Pair only: frames with both people in them, owned by the pair. */
+  composition_dataset_id?: string | null;
+  /** Pair only: an explicit "yes, without both-in-frame images", which the API otherwise
+   *  refuses — faces blend without them. */
+  allow_no_composition?: boolean;
   version: number;
-  /** Give the images, or name a dataset and let the API resolve them. A dataset is the normal
-   *  path — a set worth training is a set worth being able to re-open. */
-  dataset_id?: string;
-  dataset_images?: string[];
-  caption?: string | null;
-  /** Every image is captioned "<trigger>, <gender>". Explicit, because a free caption
-   *  field was once filled with "man" alone and the trigger was never learned. */
-  gender?: Gender;
   steps: number;
-  /** The filename stem. Asked rather than derived — see src/lib/trainingJob.ts. */
-  lora_name?: string;
   /** Which checkpoints to upload as they are written. Final only by default: a checkpoint
    *  takes ~18 minutes to leave the 3090 and most epochs go unused. */
-  publish?: "final" | "all";
-  /** ADDITIONAL training groups (wanly-api#102, #106). An identity group gives a
-   *  character/trigger/gender and is captioned "<trigger>, <gender>"; a composition group
-   *  has NO trigger and a free `caption` naming the people in its frames — the group that
-   *  teaches the model both characters appear together. */
-  identities?: {
-    character?: string;
-    trigger?: string;
-    gender?: Gender;
-    caption?: string;
-    dataset_id?: string;
-    dataset_images?: string[];
-    num_repeats?: number;
-  }[];
+  publish: "final" | "all";
+}
+
+export interface PreflightItem {
+  code: string;
+  message: string;
+}
+
+/** One training group as the API will build it — including the regularization pools it adds
+ *  on its own, which is why the dialog renders these rather than its own idea of the run. */
+export interface PreflightGroup {
+  kind: DatasetKind;
+  character: string | null;
+  trigger: string | null;
+  dataset_id: string | null;
+  dataset_name: string | null;
+  images: number;
+  num_repeats: number;
+  /** A few FINAL captions, trigger prefix included — what the trainer will actually read. */
+  sample_captions: string[];
+}
+
+/** POST /training/preflight. `problems` block; `warnings` advise. The same rules POST
+ *  /training enforces, so a green checklist is a request that will be accepted. */
+export interface TrainingPreflight {
+  ok: boolean;
+  problems: PreflightItem[];
+  warnings: PreflightItem[];
+  groups: PreflightGroup[];
+  steps: number;
+  samples_per_epoch: number;
+  passes_per_image: number;
+  base_checkpoint: string | null;
 }
 
 export interface WildcardResponse {
