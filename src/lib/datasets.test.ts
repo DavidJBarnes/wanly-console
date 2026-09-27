@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { byRecent, datasetNameProblem, parseTags } from "./datasets";
+import {
+  byRecent, captionCoverage, captionProgressLabel, datasetNameProblem, isAssigned, ownerLabel,
+  parseTags, progressPct, regularizeProgressLabel, scoreFor,
+} from "./datasets";
 import type { Dataset } from "../api/types";
 
 const ds = (over: Partial<Dataset> = {}): Dataset => ({
@@ -38,5 +41,71 @@ describe("byRecent", () => {
     const older = ds({ id: "a", updated_at: "2026-09-01T00:00:00Z" });
     const newer = ds({ id: "b", updated_at: "2026-09-07T00:00:00Z" });
     expect([older, newer].sort(byRecent)[0].id).toBe("b");
+  });
+});
+
+describe("scoreFor", () => {
+  const set = ds({ anchor_uri: "s3://a", scores: { "s3://b": 0.61, "s3://c": null } });
+  it("reads the score the API saved, so the ring survives a reload", () => {
+    expect(scoreFor(set, "s3://b", {})).toEqual({ cos: 0.61, is_anchor: false });
+  });
+  it("keeps a saved no-face as no-face, not as unscored", () => {
+    expect(scoreFor(set, "s3://c", {})).toEqual({ cos: null, is_anchor: false });
+  });
+  it("prefers a score from this page over the saved one", () => {
+    expect(scoreFor(set, "s3://b", { "s3://b": { cos: 0.3, is_anchor: false } }))
+      .toEqual({ cos: 0.3, is_anchor: false });
+  });
+  it("calls the anchor the anchor, and an unknown image unscored", () => {
+    expect(scoreFor(set, "s3://a", {})?.is_anchor).toBe(true);
+    expect(scoreFor(set, "s3://z", {})).toBeUndefined();
+  });
+});
+
+describe("captionCoverage", () => {
+  it("counts blank captions as missing", () => {
+    const set = ds({ images: ["a", "b", "c"], captions: { a: "close-up, smiling", b: "  " } });
+    expect(captionCoverage(set)).toEqual({ captioned: 1, missing: 2 });
+  });
+  it("treats a set from before captions as all missing", () => {
+    expect(captionCoverage(ds({ images: ["a"] }))).toEqual({ captioned: 0, missing: 1 });
+  });
+});
+
+describe("progress labels", () => {
+  it("says how far captioning has got, and why it stopped", () => {
+    expect(captionProgressLabel({ total: 40, captioned: 12, running: true, error: null }))
+      .toBe("captioning 12 of 40");
+    expect(captionProgressLabel({ total: 40, captioned: 12, running: false, error: "ollama down" }))
+      .toMatch(/ollama down/);
+    expect(captionProgressLabel({ total: 40, captioned: 40, running: false, error: null }))
+      .toBeNull();
+  });
+  it("says failures while a pool renders", () => {
+    expect(regularizeProgressLabel({ requested: 150, done: 12, failed: 1, running: true }))
+      .toBe("rendering 12 of 150 (1 failed)");
+    expect(regularizeProgressLabel({ requested: 150, done: 150, failed: 0, running: false }))
+      .toBeNull();
+  });
+  it("has no percentage before there is a total", () => {
+    expect(progressPct(3, 0)).toBeNull();
+    expect(progressPct(12, 40)).toBe(30);
+  });
+});
+
+describe("ownership", () => {
+  it("flags a set with no kind, or a kind with no owner, as unassigned", () => {
+    expect(isAssigned(ds())).toBe(false);
+    expect(isAssigned(ds({ kind: "character", character: " " }))).toBe(false);
+    expect(isAssigned(ds({ kind: "regularization", reg_class: null }))).toBe(false);
+    expect(isAssigned(ds({ kind: "character", character: "David" }))).toBe(true);
+    expect(isAssigned(ds({ kind: "regularization", reg_class: "woman" }))).toBe(true);
+  });
+  it("labels the owner by kind", () => {
+    expect(ownerLabel(ds({ kind: "composition", character: "DavidKelly-2026" })))
+      .toBe("Pair · DavidKelly-2026");
+    expect(ownerLabel(ds({ kind: "regularization", reg_class: "man" })))
+      .toBe("Regularization · man");
+    expect(ownerLabel(ds())).toBeNull();
   });
 });

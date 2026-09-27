@@ -7,7 +7,7 @@
  * a component to be covered at all. These have right answers — an eligibility rule that lets a
  * doomed job through costs a GPU hour to discover.
  */
-import type { TrainingJob } from "../api/types";
+import type { Dataset, DatasetKind, PreflightItem, TrainingCreate, TrainingJob } from "../api/types";
 import type { Character } from "../api/ltx";
 
 /** Below this a run is not worth the GPU hour. p@y worked on 13, which is the floor anyone has
@@ -49,38 +49,6 @@ export function canTrain(keys: string[]): Eligibility {
   return { ok: true };
 }
 
-/**
- * A safe filename stem, as a STARTING POINT the user can correct.
- *
- * Deliberately a strip and not something cleverer. `p@y` becomes `py`, while the file this
- * project actually renders with is `pay_v2_e05.safetensors` — a human read `@` as `a`, and no
- * rule produces that. `@`→`a` is a transliteration, and a table for it generalises badly:
- * `k3lly2026` keeps its digits, so `3`→`e` would be wrong in the same breath.
- *
- * So the dialog shows this, and the user fixes it. Visibly a little wrong in a text field beats
- * invisibly wrong in the bucket.
- */
-export function defaultLoraName(character: string): string {
-  return character.replace(/[^A-Za-z0-9._-]/g, "") || "lora";
-}
-
-/** What the file will be called, given the stem the user settled on. */
-export function loraFilename(stem: string, version: number, epoch?: number): string {
-  const e = epoch === undefined ? "" : `_e${String(epoch).padStart(2, "0")}`;
-  return `${stem}_v${version}${e}.safetensors`;
-}
-
-/** The same rule the API enforces on the filename stem, so the dialog can say so before the
- *  button is pressed. `d@vid` was refused at submit with a message that did not say why. */
-export function loraNameProblem(stem: string): string | null {
-  if (!stem) return "a filename is required";
-  if (stem.length > 64) return "keep it under 64 characters";
-  if (!/^[A-Za-z0-9._-]+$/.test(stem)) {
-    return "letters, digits, . _ - only — a LoRA is served over HTTP, so @ and spaces cannot be in the filename";
-  }
-  return null;
-}
-
 /** A readable sentence out of an API error, including pydantic's list-of-errors shape. */
 export function apiErrorText(e: unknown, fallback: string): string {
   const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
@@ -96,12 +64,6 @@ export function apiErrorText(e: unknown, fallback: string): string {
     if (parts.length) return parts.join("; ");
   }
   return fallback;
-}
-
-/** True when the default drops something the character name has, so the dialog can say why the
- *  filename field is not simply the name. */
-export function nameNeedsSanitising(character: string): boolean {
-  return defaultLoraName(character) !== character;
 }
 
 /** Percent complete, or null when there is nothing determinate to show yet. */
@@ -210,11 +172,6 @@ export function characterProblem(name: string): string | null {
   if (/\s/.test(name)) return "no spaces — it becomes a directory and a filename on the trainer";
   if (name.includes("/") || name.startsWith(".")) return "no slashes, and it cannot start with a dot";
   return null;
-}
-
-/** A character name a dataset name can suggest without breaking the rule above. */
-export function defaultCharacterFor(datasetName: string): string {
-  return datasetName.trim().replace(/\s+/g, "-").replace(/\//g, "-").replace(/^\.+/, "");
 }
 
 /** `2` out of `pay_v2_e05` or `pay_v2`. */
@@ -370,24 +327,168 @@ export const RECIPE_STEPS = 1200;
 /** Measured on the 3090 for this recipe (100 steps in ~6 min). */
 export const SECONDS_PER_STEP = 3.7;
 
-/** Steps in one epoch over this many images. */
+/** Steps in one epoch over this many images at the recipe's repeats: the estimate the dialog
+ *  uses until preflight returns the real `samples_per_epoch`. */
 export function stepsPerEpoch(images: number): number {
   return Math.max(1, images) * NUM_REPEATS;
 }
 
 /**
- * A reasonable epoch count for this set: the recipe's 1200 steps, expressed in whole epochs.
- * 8 images -> 15, 27 -> 4, 50 -> 2. Never below 1.
+ * Steps for a whole number of epochs, so the last epoch checkpoint is also the final.
+ *
+ * From a samples-per-epoch rather than an image count (#537). A run is no longer one set at
+ * 10 repeats: regularization pools are sized to match the character images, and pairs mix
+ * several groups at their own repeats, so only the server's `samples_per_epoch` is the real
+ * epoch length. Batch size is 1, so a sample is a step.
  */
-export function defaultEpochs(images: number): number {
-  return Math.max(1, Math.round(RECIPE_STEPS / stepsPerEpoch(images)));
+export function stepsForSamples(epochs: number, samplesPerEpoch: number): number {
+  return Math.max(1, Math.floor(epochs)) * Math.max(1, samplesPerEpoch);
 }
 
-/** Steps for a whole number of epochs, so the last epoch checkpoint is also the final. */
-export function stepsForEpochs(epochs: number, images: number): number {
-  return Math.max(1, Math.floor(epochs)) * stepsPerEpoch(images);
+/** The recipe's 1200 steps as whole epochs of this length. Never below 1. */
+export function defaultEpochsForSamples(samplesPerEpoch: number): number {
+  return Math.max(1, Math.round(RECIPE_STEPS / Math.max(1, samplesPerEpoch)));
 }
 
 export function estimatedMinutes(steps: number): number {
   return Math.round((steps * SECONDS_PER_STEP) / 60);
+}
+
+// ---- The Train dialog (#537) ---------------------------------------------------------------
+//
+// What is NOT here, on purpose: the rules. Whether captions are complete, scores clear the
+// floor, datasets are owned by the right character, a pair has its composition set, a
+// regularization pool exists — all of that is POST /training/preflight's answer, rendered as
+// it comes back. A copy of those rules in TypeScript is a second implementation that drifts,
+// and a checklist that drifts is worse than none: it says green over a request that 422s.
+// What stays client-side is only what needs no data: is the field filled in.
+
+/** A character that has trained has a trigger the LoRA learned; changing it after that binds
+ *  the face to nothing, so the API refuses and the UI shows it read-only.
+ *
+ *  `char_lora` "none" is UNTRAINED, in any casing: the API stores a registered-but-untrained
+ *  character that way (the same "off" spelling the daemon filters), and its own trained test is
+ *  `trained_from` set or `char_lora != "none"`. Reading "none" as a LoRA name would lock the
+ *  trigger of every character the moment it was registered. */
+export function characterHasTrained(c: Pick<Character, "char_lora" | "trained_from">): boolean {
+  const lora = (c.char_lora ?? "").trim();
+  return (Boolean(lora) && lora.toLowerCase() !== "none") || Boolean(c.trained_from?.length);
+}
+
+/** Rows without a kind predate pairs, and every one of them is one person. */
+export function isPairCharacter(c: Pick<Character, "kind">): boolean {
+  return c.kind === "pair";
+}
+
+/** "David" + "Kelly-2026" -> "DavidKelly-2026". A default the user can edit — it is what the
+ *  existing pair rows are called, and a composition dataset is owned by exactly this name. */
+export function defaultPairName(a: string, b: string): string {
+  return `${a.trim()}${b.trim()}`;
+}
+
+function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase() && Boolean(a?.trim());
+}
+
+/** The datasets of this kind owned by this character (or pair). Case-insensitive, because
+ *  the owner was typed by a person and "david" owning a set of David is not a mistake worth
+ *  hiding the set over — the API makes the same call. */
+export function datasetsOwnedBy(
+  datasets: Dataset[], kind: DatasetKind, owner: string,
+): Dataset[] {
+  return datasets.filter((d) => d.kind === kind && sameName(d.character, owner));
+}
+
+/** Everything the dialog holds that the request is built from. */
+export interface TrainForm {
+  mode: "solo" | "pair";
+  /** Solo: the character. */
+  character: string;
+  /** Pair: the two members, and the pair's own name. */
+  memberA: string;
+  memberB: string;
+  pairName: string;
+  /** Chosen character dataset per member (solo: keyed by the character). */
+  datasets: Record<string, string>;
+  compositionId: string | null;
+  allowNoComposition: boolean;
+  version: number;
+  steps: number;
+  publish: "final" | "all";
+}
+
+/** Who this run trains as — the row it publishes to. */
+export function runCharacter(f: Pick<TrainForm, "mode" | "character" | "pairName">): string {
+  return (f.mode === "solo" ? f.character : f.pairName).trim();
+}
+
+/**
+ * The request body for both /training/preflight and /training. One builder for both, so what
+ * was checked is exactly what is sent.
+ */
+export function trainingBody(f: TrainForm): TrainingCreate {
+  const pick = (names: string[]) => Object.fromEntries(
+    names.filter((n) => f.datasets[n]).map((n) => [n, f.datasets[n]]));
+  if (f.mode === "solo") {
+    const ds = pick([f.character]);
+    return {
+      mode: "solo", character: f.character.trim(),
+      ...(Object.keys(ds).length ? { datasets: ds } : {}),
+      version: f.version, steps: f.steps, publish: f.publish,
+    };
+  }
+  const ds = pick([f.memberA, f.memberB]);
+  return {
+    mode: "pair", character: f.pairName.trim(),
+    members: [f.memberA.trim(), f.memberB.trim()],
+    ...(Object.keys(ds).length ? { datasets: ds } : {}),
+    composition_dataset_id: f.compositionId,
+    // Only with no composition set: acknowledging a risk that is not being taken means
+    // nothing, and a stale tick must not ride along into a later run that has one.
+    allow_no_composition: !f.compositionId && f.allowNoComposition,
+    version: f.version, steps: f.steps, publish: f.publish,
+  };
+}
+
+/**
+ * What is too obviously missing to be worth asking the server about. NOT a validator: a null
+ * here means "ask preflight", not "valid".
+ */
+export function formIncomplete(f: TrainForm): string | null {
+  if (f.mode === "solo") return f.character.trim() ? null : "pick a character";
+  if (!f.memberA.trim() || !f.memberB.trim()) return "pick both characters";
+  if (sameName(f.memberA, f.memberB)) return "a pair is two different characters";
+  const name = f.pairName.trim();
+  if (!name) return "name the pair";
+  return characterProblem(name);
+}
+
+/**
+ * Where the dialog starts when it is opened from a dataset: a character set opens Solo on its
+ * owner, a composition set opens Pair on its pair — with the members filled in when the pair
+ * is already a registered row. Anything else opens empty.
+ */
+export function initialFromDataset(
+  ds: Pick<Dataset, "id" | "kind" | "character"> | undefined, characters: Character[],
+): Partial<TrainForm> {
+  if (!ds?.character) return {};
+  if (ds.kind === "character") {
+    return { mode: "solo", character: ds.character, datasets: { [ds.character]: ds.id } };
+  }
+  if (ds.kind === "composition") {
+    const pair = characters.find((c) => isPairCharacter(c) && sameName(c.name, ds.character));
+    const [a = "", b = ""] = pair?.members ?? [];
+    return { mode: "pair", pairName: ds.character, memberA: a, memberB: b, compositionId: ds.id };
+  }
+  return {};
+}
+
+/** The blocking list out of POST /training's 422 `{detail: {problems}}` — the case where the
+ *  world changed between the last preflight and the click. Null when it is some other error. */
+export function problemsFromError(e: unknown): PreflightItem[] | null {
+  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  const problems = (detail as { problems?: unknown } | null | undefined)?.problems;
+  if (!Array.isArray(problems)) return null;
+  return problems.filter(
+    (p): p is PreflightItem => typeof p?.code === "string" && typeof p?.message === "string");
 }

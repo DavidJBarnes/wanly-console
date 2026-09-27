@@ -30,9 +30,14 @@ import type {
   FavoriteListResponse,
   AppSettingsResponse,
   AppSettingsUpdate,
+  CaptionStatus,
   Dataset,
+  DatasetKind,
   DatasetScores,
+  RegClass,
+  RegularizeStatus,
   TrainingCreate,
+  TrainingPreflight,
   TrainingJob,
   WorkerModeResponse,
   CaptionQueueStatus,
@@ -330,6 +335,9 @@ export async function updateDataset(
   body: {
     name?: string; tags?: string | null; notes?: string | null; images?: string[];
     anchor_uri?: string;
+    /** What the set is for and who owns it (#537). The API refuses a change while a running
+     *  job uses the set. */
+    kind?: DatasetKind | null; character?: string | null; reg_class?: RegClass | null;
   },
 ): Promise<Dataset> {
   const { data } = await api.patch<Dataset>(`/datasets/${id}`, body);
@@ -392,11 +400,48 @@ export async function deleteDataset(id: string, purge = false): Promise<void> {
   await api.delete(`/datasets/${id}`, { params: { purge } });
 }
 
+/** Caption every image in the set in the background (#537). Only the missing ones unless
+ *  `overwrite`. Returns at once; progress is GET .../captions/status. */
+export async function captionDataset(id: string, overwrite = false): Promise<CaptionStatus> {
+  const { data } = await api.post<CaptionStatus>(`/datasets/${id}/captions`, { overwrite });
+  return data;
+}
+
+export async function getCaptionStatus(id: string): Promise<CaptionStatus> {
+  const { data } = await api.get<CaptionStatus>(`/datasets/${id}/captions/status`);
+  return data;
+}
+
+/** Replace one image's caption BODY — no trigger; the run adds it. */
+export async function updateDatasetCaption(id: string, uri: string, caption: string): Promise<Dataset> {
+  const { data } = await api.patch<Dataset>(`/datasets/${id}/captions`, { uri, caption });
+  return data;
+}
+
+/** Render `count` generic people into a regularization pool (kind=regularization only). */
+export async function regularizeDataset(id: string, count: number): Promise<RegularizeStatus> {
+  const { data } = await api.post<RegularizeStatus>(`/datasets/${id}/regularize`, { count });
+  return data;
+}
+
+export async function getRegularizeStatus(id: string): Promise<RegularizeStatus> {
+  const { data } = await api.get<RegularizeStatus>(`/datasets/${id}/regularize/status`);
+  return data;
+}
+
 // --- LoRAs ---
 
 /** Queue a character-LoRA training run from a set of image keys (wanly-console#454). */
 export async function createTrainingJob(body: TrainingCreate): Promise<TrainingJob> {
   const { data } = await api.post<TrainingJob>("/training", body);
+  return data;
+}
+
+/** What POST /training would do with this body, and everything wrong with it, without
+ *  queueing anything. The dialog's checklist IS this response: the rules live in the API
+ *  only, so the console cannot drift from them. */
+export async function preflightTraining(body: TrainingCreate): Promise<TrainingPreflight> {
+  const { data } = await api.post<TrainingPreflight>("/training/preflight", body);
   return data;
 }
 

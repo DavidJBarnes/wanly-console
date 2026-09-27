@@ -4,7 +4,7 @@
  * Extracted for the reason vite.config.ts gives — tests here are node-env and pure-logic only,
  * so a rule with a right answer has to live outside a component to be covered.
  */
-import type { Dataset } from "../api/types";
+import type { CaptionStatus, Dataset, RegularizeStatus } from "../api/types";
 
 /** Tags are a comma-separated string, matching ImageFile.tags rather than a second convention. */
 export function parseTags(tags: string | null | undefined): string[] {
@@ -130,4 +130,69 @@ export function byLikeness<T extends { cos: number | null; is_anchor: boolean }>
   const av = a.cos ?? -1;
   const bv = b.cos ?? -1;
   return av - bv;
+}
+
+/**
+ * One image's score for the ring (#537): a score from the scoring just done on this page wins,
+ * then the one the API saved with the set, then nothing. Before the API kept scores the ring
+ * was grey after every reload, so "was this set ever checked" had no answer on the page.
+ */
+export function scoreFor(
+  ds: Pick<Dataset, "anchor_uri" | "scores">,
+  uri: string,
+  fresh: Record<string, { cos: number | null; is_anchor: boolean }>,
+): { cos: number | null; is_anchor: boolean } | undefined {
+  if (fresh[uri]) return fresh[uri];
+  if (uri === ds.anchor_uri) return { cos: 1, is_anchor: true };
+  const saved = ds.scores ?? {};
+  if (uri in saved) return { cos: saved[uri] ?? null, is_anchor: false };
+  return undefined;
+}
+
+/** How many of the set's images have a caption body. An empty string is not a caption. */
+export function captionCoverage(ds: Pick<Dataset, "images" | "captions">): {
+  captioned: number; missing: number;
+} {
+  const caps = ds.captions ?? {};
+  const captioned = ds.images.filter((u) => (caps[u] ?? "").trim() !== "").length;
+  return { captioned, missing: ds.images.length - captioned };
+}
+
+/** "Captioning 12 of 40", or the failure, or null when there is nothing to report. */
+export function captionProgressLabel(s: CaptionStatus | null): string | null {
+  if (!s) return null;
+  if (s.error) return `captioning stopped: ${s.error}`;
+  if (s.running) return `captioning ${s.captioned} of ${s.total}`;
+  return null;
+}
+
+/** "Rendering 12 of 150 (1 failed)", or null when nothing is running. Failures are said
+ *  even so: a pool that stops at 140 should not look like it stopped at 150. */
+export function regularizeProgressLabel(s: RegularizeStatus | null): string | null {
+  if (!s || !s.running) return null;
+  return `rendering ${s.done} of ${s.requested}` + (s.failed ? ` (${s.failed} failed)` : "");
+}
+
+/** 0-100 for a determinate bar, or null when the total is not known yet. */
+export function progressPct(done: number, total: number): number | null {
+  if (!total) return null;
+  return Math.min(100, Math.round((100 * done) / total));
+}
+
+/** The owner line a card shows, or null for an unassigned set. */
+export function ownerLabel(ds: Pick<Dataset, "kind" | "character" | "reg_class">): string | null {
+  switch (ds.kind) {
+    case "character": return ds.character ? `Character · ${ds.character}` : "Character · no owner";
+    case "composition": return ds.character ? `Pair · ${ds.character}` : "Pair · no owner";
+    case "regularization": return `Regularization · ${ds.reg_class ?? "no class"}`;
+    default: return null;
+  }
+}
+
+/** Whether the kind has everything it needs to be trainable at all. The API is the judge of
+ *  the rest; this only decides whether the card calls it unassigned. */
+export function isAssigned(ds: Pick<Dataset, "kind" | "character" | "reg_class">): boolean {
+  if (ds.kind === "regularization") return Boolean(ds.reg_class);
+  if (ds.kind === "character" || ds.kind === "composition") return Boolean(ds.character?.trim());
+  return false;
 }
