@@ -4,7 +4,7 @@
  * Extracted for the reason vite.config.ts gives — tests here are node-env and pure-logic only,
  * so a rule with a right answer has to live outside a component to be covered.
  */
-import type { CaptionStatus, Dataset, RegularizeStatus } from "../api/types";
+import type { CaptionStatus, Dataset, DatasetTrainedBy, RegularizeStatus } from "../api/types";
 
 /** Tags are a comma-separated string, matching ImageFile.tags rather than a second convention. */
 export function parseTags(tags: string | null | undefined): string[] {
@@ -195,4 +195,40 @@ export function isAssigned(ds: Pick<Dataset, "kind" | "character" | "reg_class">
   if (ds.kind === "regularization") return Boolean(ds.reg_class);
   if (ds.kind === "character" || ds.kind === "composition") return Boolean(ds.character?.trim());
   return false;
+}
+
+/**
+ * What a locked set trained (wanly-api#356): "Kelly-2000 v5 (completed)", one per run.
+ *
+ * Every run is listed, not just the latest — a set that trained v5 and v6 is the record of
+ * both, and hiding one would make the lock look like it belongs to a single LoRA.
+ */
+export function trainedByLabel(t: Pick<DatasetTrainedBy, "character" | "version" | "status">): string {
+  return `${t.character} v${t.version} (${t.status})`;
+}
+
+/** The lock chip's text. A set the API calls locked with no runs listed still says so — the
+ *  API is the judge of the lock, and a chip that vanished would re-enable nothing anyway. */
+export function lockLabel(trainedBy: DatasetTrainedBy[] | null | undefined): string {
+  const runs = (trainedBy ?? []).map(trainedByLabel);
+  return runs.length ? `Trained ${runs.join(", ")}` : "Trained a LoRA";
+}
+
+/**
+ * Why an edit control is off, or null when the set is editable.
+ *
+ * One sentence for every refused control, so the tooltip on each says the same thing the
+ * API's 409 would: what locked it, and that Clone is the way to change it.
+ */
+export function lockedReason(ds: Pick<Dataset, "locked" | "trained_by">): string | null {
+  if (!ds.locked) return null;
+  return `Locked: this set ${lockLabel(ds.trained_by).replace(/^Trained/, "trained")}, and `
+    + "changing it would make that LoRA's record untrue. Clone it to change it.";
+}
+
+/** The name the Clone prompt starts with — "<name> copy", cut to the API's 100-character
+ *  limit so the default is never one the API rejects. */
+export function defaultCloneName(name: string): string {
+  const suffix = " copy";
+  return name.trim().slice(0, 100 - suffix.length).trimEnd() + suffix;
 }
