@@ -528,14 +528,25 @@ function DatasetCard({
             return (
               <Box key={uri} sx={{ width: TILE }}>
                 <Box sx={{ position: "relative", width: TILE, height: TILE }}>
+                  {/* A link, not an onClick: middle-click and "open in new tab" work too, and the
+                      tile's own buttons (remove, anchor) sit above it and keep their clicks. */}
                   <Box
-                    component="img"
-                    src={getFileUrl(uri)}
-                    sx={{
-                      width: TILE, height: TILE, objectFit: "cover", borderRadius: 1,
-                      display: "block", border: "3px solid", borderColor: ring,
-                    }}
-                  />
+                    component="a"
+                    href={getFileUrl(uri)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open full size in a new tab"
+                    sx={{ display: "block", cursor: "zoom-in" }}
+                  >
+                    <Box
+                      component="img"
+                      src={getFileUrl(uri)}
+                      sx={{
+                        width: TILE, height: TILE, objectFit: "cover", borderRadius: 1,
+                        display: "block", border: "3px solid", borderColor: ring,
+                      }}
+                    />
+                  </Box>
                   <Tooltip title="Remove from the dataset">
                     <IconButton
                       size="small"
