@@ -12,7 +12,7 @@ import {
 
 import {
   addDatasetImages, captionDataset, cloneDataset, createDataset, cropDatasetFaces, deleteDataset,
-  getCaptionStatus, getFileUrl, getRegularizeStatus, listDatasets, regularizeDataset,
+  getCaptionStatus, getFileUrl, getRegularizeStatus, listDatasets, lockDataset, regularizeDataset,
   removeDatasetImage, scoreDataset, setDatasetAnchor, updateDataset, updateDatasetCaption,
 } from "../api/client";
 import { listRecipes } from "../api/ltx";
@@ -22,9 +22,9 @@ import AddFromRepoDialog from "../components/AddFromRepoDialog";
 import NewCharacterDialog from "../components/NewCharacterDialog";
 import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
 import {
-  byLikeness, byRecent, captionCoverage, captionProgressLabel, cropSelectionProblem,
-  datasetNameProblem, defaultCloneName, formatCos, isAssigned, lockedReason, lockLabel,
-  ownerLabel, parseTags, progressPct, regularizeProgressLabel, removalWarning, scoreFor,
+  byLikeness, byRecent, canLockByHand, captionCoverage, captionProgressLabel,
+  cropSelectionProblem, datasetNameProblem, defaultCloneName, formatCos, isAssigned,
+  lockedReason, lockLabel, lockReasonBody, ownerLabel, parseTags, progressPct, regularizeProgressLabel, removalWarning, scoreFor,
   verdictFor,
 } from "../lib/datasets";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
@@ -167,14 +167,15 @@ function DatasetCard({
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(ds.name);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [lockOpen, setLockOpen] = useState(false);
   const [generateCount, setGenerateCount] = useState(150);
   const eligible = canTrain(ds.images);
   const isReg = ds.kind === "regularization";
   const assigned = isAssigned(ds);
   const owner = ownerLabel(ds);
   const coverage = captionCoverage(ds);
-  // Set once it has trained a LoRA (wanly-api#356): everything that changes what it trains on
-  // is off, with this as the reason. Rename, tags, anchor, scoring and Train stay on.
+  // Set once it has trained a LoRA (wanly-api#356) or was locked by hand (wanly-api#358):
+  // everything that changes what it trains on is off, with this as the reason. Rename, tags, anchor, scoring and Train stay on.
   const locked = lockedReason(ds);
 
   // Background runs on the server (#537). Both re-read the set when they finish, so the
@@ -373,7 +374,7 @@ function DatasetCard({
           <Chip size="small" variant="outlined" label={`${ds.images.length} images`} />
           {locked && (
             <Tooltip title={locked}>
-              <Chip size="small" color="default" icon={<Lock />} label={lockLabel(ds.trained_by)} />
+              <Chip size="small" color="default" icon={<Lock />} label={lockLabel(ds)} />
             </Tooltip>
           )}
           {/* What the set is for and whose it is. Unassigned is loud on purpose: training
@@ -437,6 +438,17 @@ function DatasetCard({
               </Button>
             </span>
           </Tooltip>
+          {/* Hand lock (wanly-api#358): for a set that should stop changing without having
+              trained. One-way, so gone once locked — Clone is the way back to an editable set. */}
+          {canLockByHand(ds) && (
+            <Tooltip title="Freeze this set as it is. Permanent — clone it to change it later">
+              <span>
+                <Button size="small" startIcon={<Lock />} disabled={busy} onClick={() => setLockOpen(true)}>
+                  Lock
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           {isReg ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
               <TextField
@@ -702,6 +714,14 @@ function DatasetCard({
             onClose={() => setAssignOpen(false)}
             onSaved={() => { setAssignOpen(false); onChanged(); }}
             onCharactersChanged={onCharactersChanged}
+          />
+        )}
+
+        {lockOpen && (
+          <LockDialog
+            ds={ds}
+            onClose={() => setLockOpen(false)}
+            onLocked={() => { setLockOpen(false); setMsg("locked"); onChanged(); }}
           />
         )}
 
@@ -1033,6 +1053,65 @@ function CaptionField({
  *
  * The API refuses a change while a running job uses the set; its message is shown as is.
  */
+/** Confirm a hand lock (wanly-api#358). Says it is permanent before asking, because there is
+ *  no unlock: the only way to change the set afterwards is to clone it. */
+function LockDialog({
+  ds, onClose, onLocked,
+}: {
+  ds: Dataset;
+  onClose: () => void;
+  onLocked: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const lock = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await lockDataset(ds.id, lockReasonBody(reason));
+      onLocked();
+    } catch (e: unknown) {
+      setError(apiErrorText(e, "could not lock it"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={busy ? undefined : onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Lock “{ds.name}”?</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Typography variant="body2">
+            Its images, crops, captions and owner can no longer be changed, and it cannot be
+            deleted. <strong>This is permanent</strong> — there is no unlock. To change it later,
+            clone it and edit the copy.
+          </Typography>
+          <TextField
+            size="small"
+            label="Reason (optional)"
+            placeholder="final v5 set"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !busy) lock(); }}
+            autoFocus
+            fullWidth
+          />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button variant="contained" startIcon={<Lock />} onClick={lock} disabled={busy}>
+          Lock permanently
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function AssignDialog({
   ds, characters, onClose, onSaved, onCharactersChanged,
 }: {

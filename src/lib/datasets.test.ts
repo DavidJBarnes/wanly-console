@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  byRecent, captionCoverage, captionProgressLabel, datasetNameProblem, defaultCloneName,
-  isAssigned, lockedReason, lockLabel, ownerLabel, parseTags, progressPct,
-  regularizeProgressLabel, scoreFor, trainedByLabel,
+  byRecent, canLockByHand, captionCoverage, captionProgressLabel, datasetNameProblem,
+  defaultCloneName, isAssigned, lockedReason, lockLabel, lockReasonBody, manualLockLabel,
+  ownerLabel, parseTags, progressPct, regularizeProgressLabel, scoreFor, trainedByLabel,
 } from "./datasets";
 import type { Dataset } from "../api/types";
 
@@ -120,13 +120,13 @@ describe("lock labels (wanly-api#356)", () => {
   });
 
   it("lists every run that locks the set, not just the latest", () => {
-    expect(lockLabel([v5, v6]))
+    expect(lockLabel({ trained_by: [v5, v6] }))
       .toBe("Trained Kelly-2000 v5 (completed), Kelly-2000 v6 (running)");
   });
 
   it("still says it is locked when the API lists no runs", () => {
-    expect(lockLabel(undefined)).toBe("Trained a LoRA");
-    expect(lockLabel([])).toBe("Trained a LoRA");
+    expect(lockLabel({})).toBe("Trained a LoRA");
+    expect(lockLabel({ trained_by: [] })).toBe("Trained a LoRA");
   });
 
   it("gives no reason for an unlocked set, so its controls stay on", () => {
@@ -138,6 +138,65 @@ describe("lock labels (wanly-api#356)", () => {
     const r = lockedReason(ds({ locked: true, trained_by: [v5] }));
     expect(r).toContain("trained Kelly-2000 v5 (completed)");
     expect(r).toContain("Clone");
+  });
+});
+
+describe("hand locks (wanly-api#358)", () => {
+  const v5 = { job_id: "j5", character: "Kelly-2000", version: 5, status: "completed" };
+  const at = "2026-09-28T12:00:00Z";
+
+  it("says it was locked by hand, with the reason when there is one", () => {
+    expect(manualLockLabel({ locked_at: at, locked_reason: "final v5 set" }))
+      .toBe("Locked by hand: final v5 set");
+    expect(manualLockLabel({ locked_at: at, locked_reason: null })).toBe("Locked by hand");
+    // A blank reason is no reason: the chip must not end in an empty "Locked by hand: ".
+    expect(manualLockLabel({ locked_at: at, locked_reason: "  " })).toBe("Locked by hand");
+    expect(manualLockLabel({ locked_at: null, locked_reason: "stale" })).toBeNull();
+  });
+
+  it("tells a hand lock from a training lock on the chip", () => {
+    expect(lockLabel({ trained_by: [], locked_at: at, locked_reason: "final v5 set" }))
+      .toBe("Locked by hand: final v5 set");
+    expect(lockLabel({ trained_by: [v5], locked_at: null }))
+      .toBe("Trained Kelly-2000 v5 (completed)");
+  });
+
+  it("shows both reasons when both apply", () => {
+    expect(lockLabel({ trained_by: [v5], locked_at: at, locked_reason: "final" }))
+      .toBe("Trained Kelly-2000 v5 (completed) · Locked by hand: final");
+  });
+
+  it("turns controls off for a hand lock exactly as for a training lock", () => {
+    const r = lockedReason(ds({ locked: true, trained_by: [], locked_at: at,
+                                locked_reason: "final v5 set" }));
+    expect(r).toContain("locked by hand");
+    expect(r).toContain("final v5 set");
+    expect(r).toContain("Clone");
+    // No LoRA to be untrue to.
+    expect(r).not.toContain("LoRA's record");
+  });
+
+  it("names both reasons in the tooltip when both apply", () => {
+    const r = lockedReason(ds({ locked: true, trained_by: [v5], locked_at: at }));
+    expect(r).toContain("trained Kelly-2000 v5 (completed) and was locked by hand");
+    expect(r).toContain("LoRA's record");
+  });
+
+  it("is driven by locked alone: a stray locked_at does not lock an unlocked set", () => {
+    expect(lockedReason(ds({ locked: false, locked_at: at }))).toBeNull();
+  });
+
+  it("offers Lock only on a set that is not locked for any reason", () => {
+    expect(canLockByHand(ds())).toBe(true);
+    expect(canLockByHand(ds({ locked: false }))).toBe(true);
+    expect(canLockByHand(ds({ locked: true, trained_by: [v5] }))).toBe(false);
+    expect(canLockByHand(ds({ locked: true, locked_at: at }))).toBe(false);
+  });
+
+  it("sends the reason trimmed, and none when blank", () => {
+    expect(lockReasonBody("  final v5 set ")).toBe("final v5 set");
+    expect(lockReasonBody("   ")).toBeUndefined();
+    expect(lockReasonBody("")).toBeUndefined();
   });
 });
 
