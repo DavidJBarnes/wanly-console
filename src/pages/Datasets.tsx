@@ -6,12 +6,12 @@ import {
   LinearProgress, MenuItem, Radio, RadioGroup, Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
 import {
-  Add, AutoAwesome, Check, Close, ContentCut, Delete, Edit, ModelTraining, Movie, PhotoLibrary,
-  Star, StarBorder, Upload, WarningAmber,
+  Add, AutoAwesome, Check, Close, ContentCopy, ContentCut, Delete, Edit, Lock, ModelTraining,
+  Movie, PhotoLibrary, Star, StarBorder, Upload, WarningAmber,
 } from "@mui/icons-material";
 
 import {
-  addDatasetImages, captionDataset, createDataset, cropDatasetFaces, deleteDataset,
+  addDatasetImages, captionDataset, cloneDataset, createDataset, cropDatasetFaces, deleteDataset,
   getCaptionStatus, getFileUrl, getRegularizeStatus, listDatasets, regularizeDataset,
   removeDatasetImage, scoreDataset, setDatasetAnchor, updateDataset, updateDatasetCaption,
 } from "../api/client";
@@ -23,8 +23,9 @@ import NewCharacterDialog from "../components/NewCharacterDialog";
 import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
 import {
   byLikeness, byRecent, captionCoverage, captionProgressLabel, cropSelectionProblem,
-  datasetNameProblem, formatCos, isAssigned, ownerLabel, parseTags, progressPct,
-  regularizeProgressLabel, removalWarning, scoreFor, verdictFor,
+  datasetNameProblem, defaultCloneName, formatCos, isAssigned, lockedReason, lockLabel,
+  ownerLabel, parseTags, progressPct, regularizeProgressLabel, removalWarning, scoreFor,
+  verdictFor,
 } from "../lib/datasets";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
 import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
@@ -48,7 +49,7 @@ export default function Datasets() {
   const navigate = useNavigate();
   // A character card links here as /datasets?dataset=<id> (migration 099): scroll to and
   // accent that dataset. Unknown ids simply no-op.
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const askedDataset = searchParams.get("dataset");
   const matchedRef = useRef<HTMLDivElement>(null);
 
@@ -111,6 +112,11 @@ export default function Datasets() {
               onChanged={fetchAll}
               onCharactersChanged={fetchCharacters}
               onTrain={() => setTrainFor(ds)}
+              onCloned={async (copy) => {
+                // Re-read first, so the copy's card exists when the accent lands on it.
+                await fetchAll();
+                setSearchParams({ dataset: copy.id });
+              }}
               highlighted={ds.id === askedDataset}
             />
           </Box>
@@ -139,13 +145,14 @@ export default function Datasets() {
 const TILE = 128;
 
 function DatasetCard({
-  ds, characters, onChanged, onCharactersChanged, onTrain, highlighted = false,
+  ds, characters, onChanged, onCharactersChanged, onTrain, onCloned, highlighted = false,
 }: {
   ds: Dataset;
   characters: Character[];
   onChanged: () => void;
   onCharactersChanged: () => void;
   onTrain: () => void;
+  onCloned: (copy: Dataset) => void;
   highlighted?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -166,6 +173,9 @@ function DatasetCard({
   const assigned = isAssigned(ds);
   const owner = ownerLabel(ds);
   const coverage = captionCoverage(ds);
+  // Set once it has trained a LoRA (wanly-api#356): everything that changes what it trains on
+  // is off, with this as the reason. Rename, tags, anchor, scoring and Train stay on.
+  const locked = lockedReason(ds);
 
   // Background runs on the server (#537). Both re-read the set when they finish, so the
   // captions or frames they wrote show up without a reload.
@@ -268,8 +278,11 @@ function DatasetCard({
       const updated = await removeDatasetImage(ds, uri);
       setMsg(`${updated.images.length} images in the set`);
       onChanged();
-    } catch {
-      setMsg("could not remove that image");
+    } catch (e: unknown) {
+      // A 409 means another tab's run locked it since this page loaded: say so, and re-read
+      // so the lock shows.
+      setMsg(apiErrorText(e, "could not remove that image"));
+      onChanged();
     } finally {
       setBusy(false);
     }
@@ -283,12 +296,40 @@ function DatasetCard({
       const updated = await addDatasetImages(ds.id, Array.from(files));
       setMsg(`${updated.images.length} images in the set`);
       onChanged();
-    } catch {
-      setMsg("upload failed");
+    } catch (e: unknown) {
+      setMsg(apiErrorText(e, "upload failed"));
+      onChanged();
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
     }
+  };
+
+  const clone = async () => {
+    const asked = prompt(`Name for the copy of "${ds.name}"`, defaultCloneName(ds.name));
+    if (asked === null) return;
+    const problem = datasetNameProblem(asked);
+    if (problem) { setMsg(`not cloned: ${problem}`); return; }
+    setBusy(true);
+    setMsg("");
+    try {
+      onCloned(await cloneDataset(ds.id, asked.trim()));
+    } catch (e: unknown) {
+      setMsg(apiErrorText(e, "could not clone it"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeSet = async () => {
+    if (!confirm(`Delete dataset "${ds.name}" and its images?`)) return;
+    setMsg("");
+    try {
+      await deleteDataset(ds.id, true);
+    } catch (e: unknown) {
+      setMsg(apiErrorText(e, "could not delete it"));
+    }
+    onChanged();
   };
 
   const shown = ordered.slice(0, showAll ? undefined : 12);
@@ -330,25 +371,32 @@ function DatasetCard({
             </Box>
           )}
           <Chip size="small" variant="outlined" label={`${ds.images.length} images`} />
+          {locked && (
+            <Tooltip title={locked}>
+              <Chip size="small" color="default" icon={<Lock />} label={lockLabel(ds.trained_by)} />
+            </Tooltip>
+          )}
           {/* What the set is for and whose it is. Unassigned is loud on purpose: training
               refuses it, and it is how another person's images got into a LoRA. */}
-          {assigned ? (
-            <Chip
-              size="small"
-              color={isReg ? "info" : "primary"}
-              label={owner}
-              icon={<Edit />}
-              onClick={() => setAssignOpen(true)}
-            />
-          ) : (
-            <Chip
-              size="small"
-              color="warning"
-              icon={<WarningAmber />}
-              label={owner ? `${owner} — incomplete` : "Unassigned — say whose this is"}
-              onClick={() => setAssignOpen(true)}
-            />
-          )}
+          <Tooltip title={locked ?? ""}>
+            {assigned ? (
+              <Chip
+                size="small"
+                color={isReg ? "info" : "primary"}
+                label={owner}
+                icon={locked ? undefined : <Edit />}
+                onClick={locked ? undefined : () => setAssignOpen(true)}
+              />
+            ) : (
+              <Chip
+                size="small"
+                color="warning"
+                icon={<WarningAmber />}
+                label={owner ? `${owner} — incomplete` : "Unassigned — say whose this is"}
+                onClick={locked ? undefined : () => setAssignOpen(true)}
+              />
+            )}
+          </Tooltip>
           {ds.images.length > 0 && (
             <Chip
               size="small"
@@ -380,6 +428,15 @@ function DatasetCard({
               </span>
             </Tooltip>
           )}
+          <Tooltip title={locked
+            ? "Make an unlocked copy — same images, captions, scores and owner — to build the next version from"
+            : "Make a copy of this set, with the same images, captions, scores and owner"}>
+            <span>
+              <Button size="small" startIcon={<ContentCopy />} disabled={busy} onClick={clone}>
+                Clone
+              </Button>
+            </span>
+          </Tooltip>
           {isReg ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
               <TextField
@@ -390,15 +447,15 @@ function DatasetCard({
                 slotProps={{ htmlInput: { min: 1, "aria-label": "How many to generate" } }}
                 sx={{ width: 84 }}
               />
-              <Tooltip title={ds.reg_class
+              <Tooltip title={locked ?? (ds.reg_class
                 ? `Render ${generateCount} generic ${ds.reg_class} clips with no character LoRA; `
                   + "each one's last frame lands in this set. GPU-hours for a full pool."
-                : "Pick the class (woman or man) first"}>
+                : "Pick the class (woman or man) first")}>
                 <span>
                   <Button
                     size="small"
                     startIcon={<Movie />}
-                    disabled={busy || renderRunning || !ds.reg_class}
+                    disabled={busy || renderRunning || !ds.reg_class || Boolean(locked)}
                     onClick={generate}
                   >
                     Generate {generateCount}
@@ -407,22 +464,26 @@ function DatasetCard({
               </Tooltip>
             </Box>
           ) : (
-            <Button
-              size="small"
-              startIcon={<ContentCut />}
-              disabled={busy || ds.images.length === 0}
-              onClick={() => setCropOpen(true)}
-            >
-              Crop faces
-            </Button>
+            <Tooltip title={locked ?? ""}>
+              <span>
+                <Button
+                  size="small"
+                  startIcon={<ContentCut />}
+                  disabled={busy || ds.images.length === 0 || Boolean(locked)}
+                  onClick={() => setCropOpen(true)}
+                >
+                  Crop faces
+                </Button>
+              </span>
+            </Tooltip>
           )}
-          <Tooltip title={"Describe framing, pose, clothing, light and background for every image "
-            + "without a caption. Never the face: the trigger carries identity."}>
+          <Tooltip title={locked ?? ("Describe framing, pose, clothing, light and background for every image "
+            + "without a caption. Never the face: the trigger carries identity.")}>
             <span>
               <Button
                 size="small"
                 startIcon={<AutoAwesome />}
-                disabled={busy || captionRunning || ds.images.length === 0}
+                disabled={busy || captionRunning || ds.images.length === 0 || Boolean(locked)}
                 onClick={() => caption(false)}
               >
                 Caption all
@@ -430,48 +491,61 @@ function DatasetCard({
             </span>
           </Tooltip>
           {coverage.captioned > 0 && (
-            <Button
-              size="small"
-              color="inherit"
-              disabled={busy || captionRunning}
-              onClick={() => caption(true)}
-            >
-              Recaption…
-            </Button>
+            <Tooltip title={locked ?? ""}>
+              <span>
+                <Button
+                  size="small"
+                  color="inherit"
+                  disabled={busy || captionRunning || Boolean(locked)}
+                  onClick={() => caption(true)}
+                >
+                  Recaption…
+                </Button>
+              </span>
+            </Tooltip>
           )}
           {!isReg && ds.anchor_uri && (
             <Button size="small" startIcon={<Star />} disabled={busy} onClick={() => score()}>
               Re-score
             </Button>
           )}
-          <Button
-            size="small"
-            startIcon={<Upload />}
-            disabled={busy}
-            onClick={() => fileRef.current?.click()}
-          >
-            Add images
-          </Button>
-          <Button
-            size="small"
-            startIcon={<PhotoLibrary />}
-            disabled={busy}
-            onClick={() => setRepoOpen(true)}
-          >
-            From repo
-          </Button>
-          <IconButton
-            size="small"
-            color="error"
-            aria-label="Delete dataset"
-            onClick={async () => {
-              if (!confirm(`Delete dataset "${ds.name}" and its images?`)) return;
-              await deleteDataset(ds.id, true);
-              onChanged();
-            }}
-          >
-            <Delete fontSize="small" />
-          </IconButton>
+          <Tooltip title={locked ?? ""}>
+            <span>
+              <Button
+                size="small"
+                startIcon={<Upload />}
+                disabled={busy || Boolean(locked)}
+                onClick={() => fileRef.current?.click()}
+              >
+                Add images
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title={locked ?? ""}>
+            <span>
+              <Button
+                size="small"
+                startIcon={<PhotoLibrary />}
+                disabled={busy || Boolean(locked)}
+                onClick={() => setRepoOpen(true)}
+              >
+                From repo
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title={locked ?? "Delete dataset"}>
+            <span>
+              <IconButton
+                size="small"
+                color="error"
+                aria-label="Delete dataset"
+                disabled={Boolean(locked)}
+                onClick={removeSet}
+              >
+                <Delete fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
           <input
             ref={fileRef}
             type="file"
@@ -547,20 +621,23 @@ function DatasetCard({
                       }}
                     />
                   </Box>
-                  <Tooltip title="Remove from the dataset">
-                    <IconButton
-                      size="small"
-                      aria-label={`Remove ${uri.split("/").pop()}`}
-                      disabled={busy}
-                      onClick={() => remove(uri)}
-                      sx={{
-                        position: "absolute", top: 4, right: 4,
-                        bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1,
-                        "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
-                      }}
-                    >
-                      <Close sx={{ fontSize: 18 }} />
-                    </IconButton>
+                  {/* The span carries the position so a disabled button still shows its reason. */}
+                  <Tooltip title={locked ?? "Remove from the dataset"}>
+                    <Box component="span" sx={{ position: "absolute", top: 4, right: 4 }}>
+                      <IconButton
+                        size="small"
+                        aria-label={`Remove ${uri.split("/").pop()}`}
+                        disabled={busy || Boolean(locked)}
+                        onClick={() => remove(uri)}
+                        sx={{
+                          bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1,
+                          "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
+                          "&.Mui-disabled": { bgcolor: "rgba(255,255,255,0.6)" },
+                        }}
+                      >
+                        <Close sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    </Box>
                   </Tooltip>
                   {!isReg && <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
                     <IconButton
@@ -594,6 +671,7 @@ function DatasetCard({
                   uri={uri}
                   caption={ds.captions?.[uri] ?? ""}
                   disabled={captionRunning}
+                  locked={locked}
                   onSaved={onChanged}
                 />
               </Box>
@@ -657,7 +735,11 @@ function DatasetCard({
           onChange={(e) => setTags(e.target.value)}
           onBlur={async () => {
             if (tags !== (ds.tags ?? "")) {
-              await updateDataset(ds.id, { tags });
+              try {
+                await updateDataset(ds.id, { tags });
+              } catch (e: unknown) {
+                setMsg(apiErrorText(e, "tags not saved"));
+              }
               onChanged();
             }
           }}
@@ -870,14 +952,18 @@ function NewDatasetDialog({
  * the person in that jacket against that wall.
  */
 function CaptionField({
-  datasetId, uri, caption, disabled, onSaved,
+  datasetId, uri, caption, disabled, locked = null, onSaved,
 }: {
   datasetId: string;
   uri: string;
   caption: string;
   disabled: boolean;
+  /** Why the set cannot be edited (wanly-api#356), or null. Shown instead of the caption on
+   *  hover, since hovering is how you would find out why a click did nothing. */
+  locked?: string | null;
   onSaved: () => void;
 }) {
+  const readOnly = disabled || Boolean(locked);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(caption);
   const [saving, setSaving] = useState(false);
@@ -918,19 +1004,20 @@ function CaptionField({
     );
   }
   return (
-    <Tooltip title={caption || ""} placement="bottom-start">
+    <Tooltip title={locked ? `${caption ? caption + " — " : ""}${locked}` : caption || ""}
+      placement="bottom-start">
       <Typography
         variant="caption"
         component="div"
-        onClick={() => { if (!disabled) { setText(caption); setEditing(true); } }}
+        onClick={() => { if (!readOnly) { setText(caption); setEditing(true); } }}
         sx={{
-          mt: 0.5, fontSize: 11, lineHeight: 1.35, cursor: disabled ? "default" : "text",
+          mt: 0.5, fontSize: 11, lineHeight: 1.35, cursor: readOnly ? "default" : "text",
           color: error ? "error.main" : caption ? "text.secondary" : "warning.main",
           display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
           overflow: "hidden", opacity: saving ? 0.5 : 1,
         }}
       >
-        {error || caption || "no caption — click to write one"}
+        {error || caption || (locked ? "no caption" : "no caption — click to write one")}
       </Typography>
     </Tooltip>
   );

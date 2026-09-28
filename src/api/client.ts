@@ -396,6 +396,15 @@ export async function setDatasetAnchor(id: string, uri: string): Promise<Dataset
   return updateDataset(id, { anchor_uri: uri });
 }
 
+/** An unlocked copy of a set — same image URIs, captions, scores, anchor, kind/owner/class
+ *  and notes (wanly-api#356). The way to build the next version from a set that has trained
+ *  a LoRA and so cannot be edited. The copy shares the objects; neither side's purge-delete
+ *  touches the other's. */
+export async function cloneDataset(id: string, name: string): Promise<Dataset> {
+  const { data } = await api.post<Dataset>(`/datasets/${id}/clone`, { name });
+  return data;
+}
+
 export async function deleteDataset(id: string, purge = false): Promise<void> {
   await api.delete(`/datasets/${id}`, { params: { purge } });
 }

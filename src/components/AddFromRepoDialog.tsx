@@ -15,6 +15,7 @@ import {
 import { mergeIntoSet } from "../lib/datasets";
 import { clampPage, repoBrowseMode } from "../lib/repoBrowse";
 import { hasFilter, toggleTag } from "../lib/tagFilter";
+import { apiErrorText } from "../lib/trainingJob";
 import type { Dataset, ImageFile, ImageFolder, TagCount } from "../api/types";
 import TagFilterBar from "./TagFilterBar";
 
@@ -161,8 +162,9 @@ export default function AddFromRepoDialog({
       const updated = await updateDataset(ds.id, { images: merged });
       onAdded(updated);
       onClose();
-    } catch {
-      setError("could not add them");
+    } catch (e: unknown) {
+      // A 409 names the run that locked the set since the dialog opened (wanly-api#356).
+      setError(apiErrorText(e, "could not add them"));
     } finally {
       setBusy(false);
     }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  byRecent, captionCoverage, captionProgressLabel, datasetNameProblem, isAssigned, ownerLabel,
-  parseTags, progressPct, regularizeProgressLabel, scoreFor,
+  byRecent, captionCoverage, captionProgressLabel, datasetNameProblem, defaultCloneName,
+  isAssigned, lockedReason, lockLabel, ownerLabel, parseTags, progressPct,
+  regularizeProgressLabel, scoreFor, trainedByLabel,
 } from "./datasets";
 import type { Dataset } from "../api/types";
 
@@ -107,5 +108,47 @@ describe("ownership", () => {
     expect(ownerLabel(ds({ kind: "regularization", reg_class: "man" })))
       .toBe("Regularization · man");
     expect(ownerLabel(ds())).toBeNull();
+  });
+});
+
+describe("lock labels (wanly-api#356)", () => {
+  const v5 = { job_id: "j5", character: "Kelly-2000", version: 5, status: "completed" };
+  const v6 = { job_id: "j6", character: "Kelly-2000", version: 6, status: "running" };
+
+  it("names the run, its version and where it is", () => {
+    expect(trainedByLabel(v5)).toBe("Kelly-2000 v5 (completed)");
+  });
+
+  it("lists every run that locks the set, not just the latest", () => {
+    expect(lockLabel([v5, v6]))
+      .toBe("Trained Kelly-2000 v5 (completed), Kelly-2000 v6 (running)");
+  });
+
+  it("still says it is locked when the API lists no runs", () => {
+    expect(lockLabel(undefined)).toBe("Trained a LoRA");
+    expect(lockLabel([])).toBe("Trained a LoRA");
+  });
+
+  it("gives no reason for an unlocked set, so its controls stay on", () => {
+    expect(lockedReason(ds())).toBeNull();
+    expect(lockedReason(ds({ locked: false, trained_by: [] }))).toBeNull();
+  });
+
+  it("says what locked it and that Clone is the way out", () => {
+    const r = lockedReason(ds({ locked: true, trained_by: [v5] }));
+    expect(r).toContain("trained Kelly-2000 v5 (completed)");
+    expect(r).toContain("Clone");
+  });
+});
+
+describe("defaultCloneName", () => {
+  it("appends copy", () => {
+    expect(defaultCloneName("Kelly-2000 faces")).toBe("Kelly-2000 faces copy");
+  });
+
+  it("is always a name the API accepts, even from a name at the length limit", () => {
+    const long = defaultCloneName("a".repeat(100));
+    expect(long.length).toBeLessThanOrEqual(100);
+    expect(datasetNameProblem(long)).toBeNull();
   });
 });
