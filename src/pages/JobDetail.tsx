@@ -78,6 +78,7 @@ import StatusChip from "../components/StatusChip";
 import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { rerollableSegment } from "../lib/rerollEligibility";
+import { dimensionsLabel } from "../lib/renderSize";
 import { rerollNegativeToSend } from "../lib/rerollNegative";
 import { allArchivedTakes, groupTakes, takeSeed } from "../lib/segmentTakes";
 import { useGoBack } from "../hooks/useGoBack";
@@ -893,7 +894,7 @@ export default function JobDetail() {
                 gap: 2,
               }}
             >
-              <MetaItem label="Dimensions" value={`${job.width}x${job.height}`} />
+              <MetaItem label="Dimensions" value={dimensionsLabel(job)} />
               <MetaItem label="FPS" value={`${job.fps}`} />
               {/* The job seed IS the live take's seed — a re-roll moves it here rather than
                   putting a second, different number on segment 0. One live take, one answer, in
