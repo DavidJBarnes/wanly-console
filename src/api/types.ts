@@ -934,6 +934,9 @@ export interface ImageEditBody {
   mode: ImageEditMode;
   preset?: string | null;
   expression?: Record<string, number>;
+  /** "Describe the change" (#550): read against the service's keyword lexicon. With numbers
+   *  too, the numbers win. */
+  prompt?: string | null;
   dataset_id?: string | null;
 }
 
@@ -941,6 +944,12 @@ export interface ImageEditPreview {
   /** data: URI of a capped-size JPEG. Never stored anywhere. */
   image: string;
   params: Record<string, number>;
+  /** All twelve axes as applied — for a described change, where the sliders go (#550). */
+  expression?: Record<string, number>;
+  /** "explicit", or "prompt:<lexicon hits>". */
+  source?: string | null;
+  /** The described change's understood terms, as words: ["big smile", "look left"]. */
+  matched_terms?: string[];
   width: number;
   height: number;
   device?: string | null;
@@ -954,7 +963,11 @@ export interface ImageEditResult {
   source_uri: string;
   mode: ImageEditMode;
   preset?: string | null;
+  prompt?: string | null;
   params: Record<string, number>;
+  expression?: Record<string, number>;
+  source?: string | null;
+  matched_terms?: string[];
   dataset_id?: string | null;
   device?: string | null;
   elapsed_ms?: number | null;
