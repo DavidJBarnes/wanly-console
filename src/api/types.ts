@@ -841,8 +841,38 @@ export interface AppSettingsResponse {
   caption_style_prompts?: Record<string, string>;
   /** The motion half (#326). Same style/custom pattern as the caption pair above. */
   motion_style: MotionStyle;
+  /** The saved motion TEMPLATE (console#555); "" means `motion_template_default`. */
   motion_instruction: string;
   motion_style_prompts?: Record<string, string>;
+  /** Read-only (console#555): the template "" stands for. Pre-fills the editor, and Reset
+   *  goes back to it. */
+  motion_template_default: string;
+  /** Read-only: placeholder -> what it means, for the editor's legend. */
+  motion_placeholders: Record<string, string>;
+  /** The API's cap on either prompt, in characters. */
+  prompt_max_length: number;
+}
+
+/** POST /images/scene/try (console#555). Each field: omitted = the SAVED value, "" = the
+ *  built-in default, text = exactly this unsaved text. Stores nothing. */
+export interface CaptionTryBody {
+  caption_style?: string;
+  caption_instruction?: string;
+  motion_style?: string;
+  motion_template?: string;
+}
+
+export interface CaptionTryResult {
+  caption: string;
+  words: number;
+  /** Null when the motion half failed (`motion_error`) or is switched off (`motion_enabled`). */
+  motion: string | null;
+  motion_words: number;
+  motion_error: string | null;
+  motion_enabled: boolean;
+  /** The exact text sent to the captioner, placeholders filled in. */
+  caption_instruction_used: string;
+  motion_instruction_used: string | null;
 }
 
 export interface FavoriteToggleRequest {

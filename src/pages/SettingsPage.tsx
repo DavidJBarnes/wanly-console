@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -16,6 +16,11 @@ import {
 import { useTagStore } from "../stores/tagStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { CaptionStyle, MotionStyle } from "../api/types";
+import PromptTryPanel from "../components/PromptTryPanel";
+import {
+  hasUnsavedChange, isModified, keepsGrounding, lengthProblem, motionTemplateProblem,
+  overrideToSave,
+} from "../lib/captionPrompts";
 
 export default function SettingsPage() {
   const theme = useTheme();
@@ -28,19 +33,38 @@ export default function SettingsPage() {
     negativePrompt,
     captionStyle,
     captionInstruction,
+    captionDraft,
     captionStylePrompts,
     motionStyle,
     motionInstruction,
+    motionDraft,
     motionStylePrompts,
+    motionTemplateDefault,
+    motionPlaceholders,
+    promptMaxLength,
     loaded,
     fetchSettings,
     saveSettings,
     setNegativePrompt,
     setCaptionStyle,
-    setCaptionInstruction,
+    setCaptionDraft,
     setMotionStyle,
-    setMotionInstruction,
+    setMotionDraft,
   } = useSettingsStore();
+
+  // The prompt editors (console#555). Defaults come from the API; see lib/captionPrompts.
+  const captionDefault = captionStylePrompts[captionStyle] ?? "";
+  const captionModified = isModified(captionDraft, captionDefault);
+  const captionUnsaved = hasUnsavedChange(captionDraft, captionDefault, captionInstruction);
+  const captionProblem = lengthProblem(captionDraft, promptMaxLength);
+  const motionModified = isModified(motionDraft, motionTemplateDefault);
+  const motionUnsaved = hasUnsavedChange(motionDraft, motionTemplateDefault, motionInstruction);
+  const motionProblem =
+    lengthProblem(motionDraft, promptMaxLength) ?? motionTemplateProblem(motionDraft);
+  // An empty editor means the default template, which has {style}.
+  const motionUsesStyle = !motionModified || motionDraft.includes("{style}");
+  const promptsProblem = captionProblem || motionProblem
+    ? "Fix the prompt errors above first." : null;
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -69,10 +93,11 @@ export default function SettingsPage() {
         negative_prompt: negativePrompt,
         caption_style: captionStyle,
         // Sent even when empty: "" is how a custom instruction is CLEARED, and the API
-        // distinguishes that from undefined, which means "leave it alone".
-        caption_instruction: captionInstruction,
+        // distinguishes that from undefined, which means "leave it alone". An editor still
+        // holding the default sends "" too, so the default keeps tracking the API's.
+        caption_instruction: overrideToSave(captionDraft, captionDefault),
         motion_style: motionStyle,
-        motion_instruction: motionInstruction,
+        motion_instruction: overrideToSave(motionDraft, motionTemplateDefault),
       });
       setSaved(true);
     } catch (err) {
@@ -210,11 +235,11 @@ export default function SettingsPage() {
             label="Detail level"
             value={captionStyle}
             onChange={(e) => setCaptionStyle(e.target.value as CaptionStyle)}
-            disabled={!!captionInstruction.trim()}
+            disabled={captionModified}
             sx={{ minWidth: 260 }}
             helperText={
-              captionInstruction.trim()
-                ? "Ignored while a custom instruction is set"
+              captionModified
+                ? "Ignored while the prompt below is modified. Reset it to use a preset."
                 : "Longer is not automatically better — the description sits beside the recipe's own arc, and a long one can outweigh it."
             }
           >
@@ -224,31 +249,31 @@ export default function SettingsPage() {
             <MenuItem value="raw">Raw — the captioner&rsquo;s own voice, longest</MenuItem>
           </TextField>
 
-          {/* Shown rather than described: "rich" means nothing until you can see that it
-              asks for hair, hands and lighting. */}
-          {captionStylePrompts[captionStyle] && !captionInstruction.trim() && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: "block", mt: 1, maxWidth: 640, fontStyle: "italic" }}
-            >
-              Asks for: {captionStylePrompts[captionStyle]}
-            </Typography>
-          )}
-
+          {/* Pre-filled with the text that is actually sent (console#555), so an edit starts
+              from the real prompt rather than a blank box. */}
+          <PromptEditorHeader
+            title="Image caption prompt"
+            modified={captionModified}
+            unsaved={captionUnsaved}
+            canReset={captionDraft !== captionDefault}
+            onReset={() => setCaptionDraft(captionDefault)}
+          />
           <TextField
-            label="Custom instruction (optional)"
-            size="small"
             multiline
-            minRows={2}
-            maxRows={6}
-            value={captionInstruction}
-            onChange={(e) => setCaptionInstruction(e.target.value)}
-            sx={{ mt: 2, width: "100%", maxWidth: 640 }}
+            size="small"
+            minRows={3}
+            maxRows={12}
+            value={captionDraft}
+            onChange={(e) => setCaptionDraft(e.target.value)}
+            error={!!captionProblem}
+            sx={{ width: "100%", maxWidth: 900 }}
+            slotProps={{ htmlInput: { "aria-label": "Image caption prompt" } }}
             helperText={
-              "Overrides the detail level entirely. Leave empty to use the preset. " +
-              "Note the presets also tell the captioner to ignore watermarks, on-image text " +
-              "and picture frames — worth repeating here, or it will describe them."
+              captionProblem ??
+              `${captionDraft.length}/${promptMaxLength}. ` +
+                (captionModified
+                  ? "Your prompt is used for every detail level. The presets also tell the captioner to ignore watermarks, on-image text and picture frames; keep that, or it will describe them."
+                  : "The preset for this detail level. Edit it to write your own; empty means the preset.")
             }
           />
         </CardContent>
@@ -273,12 +298,11 @@ export default function SettingsPage() {
             label="Capture style"
             value={motionStyle}
             onChange={(e) => setMotionStyle(e.target.value as MotionStyle)}
-            disabled={!!motionInstruction.trim()}
             sx={{ minWidth: 260 }}
             helperText={
-              motionInstruction.trim()
-                ? "Ignored while a custom instruction is set"
-                : "How the clip is shot. The action is always described first; the style is one sentence at the end."
+              !motionUsesStyle
+                ? "Has no effect: the prompt below has no {style} placeholder."
+                : "How the clip is shot. Fills {style} in the prompt below; the action is described first, the style is one sentence after it."
             }
           >
             <MenuItem value="handheld">Handheld — natural micro-shake (recommended)</MenuItem>
@@ -288,33 +312,70 @@ export default function SettingsPage() {
             <MenuItem value="none">None — say nothing about the camera</MenuItem>
           </TextField>
 
-          {motionStylePrompts[motionStyle] && !motionInstruction.trim() && (
+          {motionStylePrompts[motionStyle] && motionUsesStyle && (
             <Typography
               variant="caption"
               color="text.secondary"
               sx={{ display: "block", mt: 1, maxWidth: 640, fontStyle: "italic" }}
             >
-              Asks for: {motionStylePrompts[motionStyle]}
+              {"{style}"} = {motionStylePrompts[motionStyle]}
             </Typography>
           )}
 
+          <PromptEditorHeader
+            title="Motion prompt"
+            modified={motionModified}
+            unsaved={motionUnsaved}
+            canReset={motionDraft !== motionTemplateDefault}
+            onReset={() => setMotionDraft(motionTemplateDefault)}
+          />
           <TextField
-            label="Custom instruction (optional)"
-            size="small"
             multiline
-            minRows={2}
-            maxRows={6}
-            value={motionInstruction}
-            onChange={(e) => setMotionInstruction(e.target.value)}
-            sx={{ mt: 2, width: "100%", maxWidth: 640 }}
+            size="small"
+            minRows={6}
+            maxRows={20}
+            value={motionDraft}
+            onChange={(e) => setMotionDraft(e.target.value)}
+            error={!!motionProblem}
+            sx={{ width: "100%", maxWidth: 900 }}
+            slotProps={{ htmlInput: { "aria-label": "Motion prompt", spellCheck: false } }}
             helperText={
-              "Overrides the capture style entirely, grounding and all. Leave empty to use " +
-              "the preset. The presets ban 'remains still' hedging and ask for explicit " +
-              "direction and amplitude — without those the model describes a still photo."
+              motionProblem ??
+              `${motionDraft.length}/${promptMaxLength}. ` +
+                "The default bans 'remains still' hedging and asks for explicit direction and amplitude — without those the model describes a still photo."
             }
           />
+          {!motionProblem && !keepsGrounding(motionDraft) && motionDraft.trim() && (
+            <Alert severity="warning" sx={{ mt: 1, maxWidth: 900 }}>
+              This prompt no longer includes the image caption, so the motion is not grounded
+              on it: faces, wardrobe and pose can drift from what the caption says. Keep a{" "}
+              <code>{"{#scene}…{/scene}"}</code> section to prevent that.
+            </Alert>
+          )}
+
+          {/* The legend. From the API, so it cannot drift from what the renderer accepts. */}
+          {Object.keys(motionPlaceholders).length > 0 && (
+            <Box component="dl" sx={{ mt: 1.5, mb: 0, maxWidth: 900, display: "grid",
+              gridTemplateColumns: "max-content 1fr", columnGap: 2, rowGap: 0.5 }}>
+              {Object.entries(motionPlaceholders).map(([token, meaning]) => (
+                <Fragment key={token}>
+                  <Typography component="dt" variant="caption" sx={{ fontFamily: "monospace" }}>
+                    {token}
+                  </Typography>
+                  <Typography component="dd" variant="caption" color="text.secondary" sx={{ m: 0 }}>
+                    {meaning}
+                  </Typography>
+                </Fragment>
+              ))}
+            </Box>
+          )}
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+            Both prompts are saved with Save at the bottom of the page.
+          </Typography>
         </CardContent>
       </Card>
+
+      <PromptTryPanel disabledReason={promptsProblem} />
 
       {/* Was "Job Defaults", which described a WAN 2.2-era card holding seven generation
           parameters — cfg high/low, lightx2v strengths, steps, flow shift. Those settings
@@ -353,7 +414,7 @@ export default function SettingsPage() {
                   variant="contained"
                   size="small"
                   onClick={handleSaveSettings}
-                  disabled={saving}
+                  disabled={saving || !!promptsProblem}
                 >
                   {saving ? "Saving..." : "Save"}
                 </Button>
@@ -373,6 +434,25 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+    </Box>
+  );
+}
+
+/** Title row of a prompt editor: the name, whether it differs from the default and from what
+ *  is saved, and the way back to the default. */
+function PromptEditorHeader({
+  title, modified, unsaved, canReset, onReset,
+}: {
+  title: string; modified: boolean; unsaved: boolean; canReset: boolean; onReset: () => void;
+}) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2.5, mb: 1, flexWrap: "wrap", maxWidth: 900 }}>
+      <Typography variant="subtitle2">{title}</Typography>
+      {modified && <Chip label="Modified" size="small" color="warning" variant="outlined" />}
+      {unsaved && <Chip label="Unsaved" size="small" color="info" variant="outlined" />}
+      <Button size="small" onClick={onReset} disabled={!canReset} sx={{ ml: "auto" }}>
+        Reset to default
+      </Button>
     </Box>
   );
 }

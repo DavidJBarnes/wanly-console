@@ -31,6 +31,8 @@ import type {
   AppSettingsResponse,
   AppSettingsUpdate,
   CaptionStatus,
+  CaptionTryBody,
+  CaptionTryResult,
   Dataset,
   DatasetKind,
   DatasetScores,
@@ -781,6 +783,16 @@ export async function getEditJob(id: string): Promise<ImageEditJob> {
 export async function saveEditJob(id: string, datasetId: string | null): Promise<ImageEditResult> {
   const { data } = await api.post<ImageEditResult>(
     `/images/edit/jobs/${encodeURIComponent(id)}/save`, { dataset_id: datasetId });
+  return data;
+}
+
+/**
+ * Run the caption and motion prompts on one image and return what the captioner said, storing
+ * NOTHING (console#555). The Settings page's "Try on an image": once with the editors' unsaved
+ * text, once with `{}` (the saved prompts). Takes a turn in the caption queue like any describe.
+ */
+export async function tryCaptionPrompts(path: string, body: CaptionTryBody): Promise<CaptionTryResult> {
+  const { data } = await api.post<CaptionTryResult>("/images/scene/try", body, { params: { path } });
   return data;
 }
 
