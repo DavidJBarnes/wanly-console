@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert, Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent,
+  Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent,
   DialogTitle, MenuItem, Slider, Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
-import { ExpandLess, ExpandMore, Face, RestartAlt } from "@mui/icons-material";
+import { ExpandLess, ExpandMore, Face, RestartAlt, Send } from "@mui/icons-material";
 
 import {
   getEditPresets, getFileUrl, listDatasets, previewImageEdit, saveImageEdit,
@@ -13,8 +13,9 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { apiError } from "../lib/apiError";
 import {
   applyPreset, changedParams, clampToAxis, datasetChoices, datasetSaveProblem, describeRun,
-  groupAxes, hasEdit, isEditedImage, matchesPreset, neutralValues, savedName,
-  type EditValues,
+  groupAxes, hasEdit, isEditedImage, matchesPreset, MAX_PROMPT, neutralValues, previewBody,
+  promptProblem, savedName, unknownTermsMessage, valuesFromExpression,
+  type EditValues, type PreviewRequest,
 } from "../lib/imageEdit";
 
 /**
@@ -29,6 +30,11 @@ import {
  * coalesced: while one is running, further changes wait and only the latest is sent. On the
  * CPU fallback a preview takes several seconds, and a queue of stale ones would be worse than
  * useless. Nothing is stored until Save, and Save always writes a NEW image.
+ *
+ * "Describe the change" (#550) sends text instead of numbers; the preview answers with what
+ * the service understood (chips) and the numbers it resolved to, which move the sliders so the
+ * description is a starting point to fine-tune, like a preset. It shares the coalescing above:
+ * whichever input came last -- a description, a preset, a slider -- is what gets previewed.
  */
 export default function ImageEditDialog({
   open, sourceUri, dataset = null, onClose, onSaved,
@@ -53,9 +59,16 @@ export default function ImageEditDialog({
   const [showMore, setShowMore] = useState(false);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [targetId, setTargetId] = useState("");
+  const [promptText, setPromptText] = useState("");
+  const [promptNote, setPromptNote] = useState("");
+  // The last description the service understood, and the sliders it produced. Kept so a save
+  // that has not been fine-tuned since is recorded as that description, not as bare numbers.
+  const [described, setDescribed] = useState<{ text: string; terms: string[]; values: EditValues } | null>(null);
 
-  // Coalescing: the values the NEXT preview should use, and whether one is running.
-  const latest = useRef<EditValues>({});
+  // The slider values as of the last change, readable from callbacks without a re-render.
+  const current = useRef<EditValues>({});
+  // Coalescing: what the NEXT preview should send, and whether one is running.
+  const latest = useRef<PreviewRequest>({ kind: "values", values: {} });
   const inFlight = useRef(false);
   const dirty = useRef(false);
   const openFor = useRef<string | null>(null);
@@ -70,13 +83,17 @@ export default function ImageEditDialog({
     setPreset(null);
     setError("");
     setSaved([]);
+    setPromptText("");
+    setPromptNote("");
+    setDescribed(null);
     getEditPresets()
       .then((p) => {
         setAxes(p.axes);
         setPresets(p.presets);
         const v = neutralValues(p.axes);
         setValues(v);
-        latest.current = v;
+        current.current = v;
+        latest.current = { kind: "values", values: v };
       })
       .catch((e) => setError(apiError(e, "Could not load the edit presets")));
     if (!fixedDatasetId) {
@@ -90,8 +107,9 @@ export default function ImageEditDialog({
       dirty.current = true;
       return;
     }
-    const params = changedParams(latest.current);
-    if (!Object.keys(params).length) {
+    const req = latest.current;
+    const body = previewBody(sourceUri, req);
+    if (!body) {
       setPreview(null);
       return;
     }
@@ -99,45 +117,81 @@ export default function ImageEditDialog({
     dirty.current = false;
     setPreviewing(true);
     setError("");
+    setPromptNote("");
     const uri = sourceUri;
     try {
-      const p = await previewImageEdit({ source_uri: uri, mode: "face", expression: params });
-      // Dropped if the dialog moved on to another image meanwhile, or if the values changed
-      // again: the follow-up preview below will replace it anyway.
-      if (openFor.current === uri && !dirty.current) setPreview(p);
+      const p = await previewImageEdit(body);
+      // Dropped if the dialog moved on to another image meanwhile, or if the input changed
+      // again: the follow-up preview below will replace it anyway. A description is dropped
+      // on ANY newer input, even a drag not yet released: it would move sliders the user has
+      // touched since.
+      const superseded = dirty.current || (req.kind === "prompt" && latest.current !== req);
+      if (openFor.current === uri && !superseded) {
+        setPreview(p);
+        if (req.kind === "prompt") {
+          const v = valuesFromExpression(axes, p.expression ?? p.params);
+          setValues(v);
+          current.current = v;
+          setPreset(null);
+          setDescribed({ text: req.text.trim(), terms: p.matched_terms ?? [], values: v });
+        }
+      }
     } catch (e) {
-      if (openFor.current === uri) setError(apiError(e, "Preview failed"));
+      if (openFor.current === uri && !dirty.current) {
+        const msg = apiError(e, "Preview failed");
+        const unknown = req.kind === "prompt" ? unknownTermsMessage(msg) : null;
+        if (unknown) setPromptNote(unknown);
+        else setError(msg);
+      }
     } finally {
       inFlight.current = false;
       setPreviewing(false);
       if (dirty.current && openFor.current === uri) void runPreview();
     }
-  }, [sourceUri]);
+  }, [sourceUri, axes]);
 
   const choosePreset = (p: EditPreset) => {
     const v = applyPreset(axes, p);
     setPreset(p);
     setValues(v);
-    latest.current = v;
+    setDescribed(null);
+    setPromptNote("");
+    current.current = v;
+    latest.current = { kind: "values", values: v };
     void runPreview();
   };
 
   const moveSlider = (key: string, v: number) => {
     setValues((prev) => ({ ...prev, [key]: v }));
-    latest.current = { ...latest.current, [key]: v };
+    current.current = { ...current.current, [key]: v };
+    latest.current = { kind: "values", values: current.current };
+  };
+
+  const describe = () => {
+    const problem = promptProblem(promptText);
+    if (problem) {
+      setPromptNote(problem);
+      return;
+    }
+    latest.current = { kind: "prompt", text: promptText };
+    void runPreview();
   };
 
   const reset = () => {
     const v = neutralValues(axes);
     setPreset(null);
     setValues(v);
-    latest.current = v;
+    setDescribed(null);
+    setPromptNote("");
+    current.current = v;
+    latest.current = { kind: "values", values: v };
     setPreview(null);
   };
 
   const target = dataset ?? datasets.find((d) => d.id === targetId) ?? null;
   const targetProblem = datasetSaveProblem(target);
   const edited = hasEdit(values);
+  const stillDescribed = Boolean(described) && matchesPreset(values, { expression: described!.values });
 
   const save = async (toDataset: boolean) => {
     if (!sourceUri || !edited) return;
@@ -150,7 +204,12 @@ export default function ImageEditDialog({
         // Named only while the sliders still say exactly what the preset said; a tweaked
         // preset is a custom edit, and the file name should not claim otherwise.
         preset: matchesPreset(values, preset) ? preset!.name : null,
-        expression: changedParams(values),
+        // Likewise a description: sent as text only while the sliders still hold exactly what
+        // it resolved to (the service resolves it the same way again), so the record says
+        // what was asked for. Fine-tuned, it is numbers.
+        ...(stillDescribed
+          ? { prompt: described!.text }
+          : { expression: changedParams(values) }),
         dataset_id: toDataset && target ? target.id : null,
       });
       setSaved((prev) => [result, ...prev]);
@@ -179,7 +238,7 @@ export default function ImageEditDialog({
         // A mark at zero: the face as it is. The slider's middle is not zero on every axis.
         marks={[{ value: 0 }]}
         onChange={(_, v) => moveSlider(a.key, clampToAxis(a, v as number))}
-        onChangeCommitted={() => { setPreset((p) => (matchesPreset(latest.current, p) ? p : null)); void runPreview(); }}
+        onChangeCommitted={() => { setPreset((p) => (matchesPreset(current.current, p) ? p : null)); void runPreview(); }}
         aria-label={a.label}
       />
     </Box>
@@ -239,12 +298,49 @@ export default function ImageEditDialog({
               "After",
               preview?.image ?? null,
               previewing,
-              previewing ? "Editing…" : "Pick a preset or move a slider",
+              previewing ? "Editing…" : "Describe the change, pick a preset or move a slider",
             )}
           </Stack>
 
           <Box sx={{ flex: 2, minWidth: 0 }}>
-            <Typography variant="overline">Presets</Typography>
+            <Typography variant="overline">Describe the change</Typography>
+            <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
+              <TextField
+                size="small"
+                fullWidth
+                placeholder="big smile, eyes closed, look left"
+                value={promptText}
+                disabled={saving}
+                onChange={(e) => { setPromptText(e.target.value); setPromptNote(""); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    describe();
+                  }
+                }}
+                slotProps={{ htmlInput: { maxLength: MAX_PROMPT, "aria-label": "Describe the change" } }}
+              />
+              <Button
+                variant="outlined"
+                onClick={describe}
+                disabled={saving || !promptText.trim()}
+                startIcon={<Send />}
+                sx={{ flexShrink: 0 }}
+              >
+                Preview
+              </Button>
+            </Stack>
+            {promptNote && <Alert severity="info" sx={{ mt: 1 }}>{promptNote}</Alert>}
+            {described && described.terms.length > 0 && (
+              <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, mt: 1 }}>
+                <Typography variant="caption" color="text.secondary">Understood:</Typography>
+                {described.terms.map((t) => <Chip key={t} size="small" label={t} color="primary" variant="outlined" />)}
+                {!stillDescribed && (
+                  <Typography variant="caption" color="text.secondary">(fine-tuned since)</Typography>
+                )}
+              </Box>
+            )}
+            <Typography variant="overline" sx={{ display: "block", mt: 1 }}>Presets</Typography>
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
               {presets.map((p) => (
                 <Button

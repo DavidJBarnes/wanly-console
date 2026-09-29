@@ -4,6 +4,11 @@
  * The dialog edits by NUMBERS: a preset is a starting point that moves the sliders, and a
  * drag afterwards changes one axis without losing the others. What is sent is only the axes
  * that are not zero, so the API's record of an edit reads as the edit.
+ *
+ * A DESCRIBED change (#550) is the other way in: the text goes to the API, the face-edit
+ * service reads it against its keyword lexicon, and the preview comes back with the numbers it
+ * resolved to. Those become the sliders, so a description is a starting point exactly like a
+ * preset, and the understood terms become chips.
  */
 import type { Dataset, EditAxis, EditPreset, ImageEditPreview } from "../api/types";
 import { lockedReason } from "./datasets";
@@ -93,4 +98,55 @@ export function describeRun(p: Pick<ImageEditPreview, "device" | "device_reason"
 /** The file name of a saved edit, for the confirmation line. */
 export function savedName(uri: string): string {
   return uri.split("/").pop() ?? uri;
+}
+
+/** The API's limit on a description (MAX_PROMPT in wanly-api app/face_edit.py). */
+export const MAX_PROMPT = 500;
+
+/** Why this description cannot be sent, or null when it can. */
+export function promptProblem(text: string): string | null {
+  const t = text.trim();
+  if (!t) return "Describe the change first — e.g. “big smile, eyes closed, look left”";
+  if (t.length > MAX_PROMPT) return `Keep the description under ${MAX_PROMPT} characters`;
+  return null;
+}
+
+/** The sliders after a described change: the service's resolved numbers over a neutral face,
+ *  kept on each axis. Axes the dialog does not draw are ignored rather than added. */
+export function valuesFromExpression(
+  axes: Pick<EditAxis, "key" | "min" | "max">[],
+  expression: Record<string, number> | null | undefined,
+): EditValues {
+  const out = neutralValues(axes);
+  for (const a of axes) {
+    const v = expression?.[a.key];
+    if (typeof v === "number" && Number.isFinite(v)) out[a.key] = clampToAxis(a, v);
+  }
+  return out;
+}
+
+/** What the next preview sends. Only ever one of the two: the LATEST input wins — a slider
+ *  released after a description previews the sliders, a description sent after a drag
+ *  previews the description. */
+export type PreviewRequest = { kind: "values"; values: EditValues } | { kind: "prompt"; text: string };
+
+export function previewBody(
+  sourceUri: string, req: PreviewRequest,
+): { source_uri: string; mode: "face"; expression?: EditValues; prompt?: string } | null {
+  if (req.kind === "prompt") {
+    const text = req.text.trim();
+    return text ? { source_uri: sourceUri, mode: "face", prompt: text } : null;
+  }
+  const params = changedParams(req.values);
+  return Object.keys(params).length ? { source_uri: sourceUri, mode: "face", expression: params } : null;
+}
+
+/** The API's 422 for a description with no word the lexicon knows ("nothing to apply: no
+ *  known terms in '…'. Recognised terms: smile, grin, …"), reworded for the dialog; null for
+ *  any other error, which is shown as it came. */
+export function unknownTermsMessage(detail: string): string | null {
+  if (!/no known terms/i.test(detail)) return null;
+  const m = /Recognised terms:\s*(.+?)\.?\s*$/i.exec(detail);
+  return "None of those words are ones the editor understands"
+    + (m ? `. It knows: ${m[1]}.` : ". Try words like smile, frown, wink, look left, turn head right.");
 }

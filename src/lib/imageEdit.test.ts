@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   applyPreset, changedParams, clampToAxis, datasetChoices, datasetSaveProblem, describeRun,
-  groupAxes, hasEdit, isEditedImage, matchesPreset, neutralValues, savedName,
+  groupAxes, hasEdit, isEditedImage, matchesPreset, MAX_PROMPT, neutralValues, previewBody,
+  promptProblem, savedName, unknownTermsMessage, valuesFromExpression,
 } from "./imageEdit";
 import type { Dataset } from "../api/types";
 
@@ -106,5 +107,50 @@ describe("describing a run", () => {
 
   it("names a saved file", () => {
     expect(savedName("s3://b/f/a_edit-smile_123abc.png")).toBe("a_edit-smile_123abc.png");
+  });
+});
+
+describe("describe the change (#550)", () => {
+  it("refuses a blank or oversized description before sending it", () => {
+    expect(promptProblem("  ")).toMatch(/Describe the change/);
+    expect(promptProblem("x".repeat(MAX_PROMPT + 1))).toMatch(/500/);
+    expect(promptProblem("big smile, eyes closed, look left")).toBeNull();
+  });
+
+  it("moves the sliders to what the service resolved, over a neutral face", () => {
+    const v = valuesFromExpression(AXES, { smile: 1.3, pupil_x: -12, rotate_yaw: 0, blink: -20 });
+    expect(v).toEqual({ ...neutralValues(AXES), smile: 1.3, pupil_x: -12 });
+  });
+
+  it("keeps resolved values on their axis and ignores junk", () => {
+    const v = valuesFromExpression(AXES, { smile: 2, pupil_x: Number.NaN });
+    expect(v.smile).toBe(1.3);
+    expect(v.pupil_x).toBe(0);
+    expect(valuesFromExpression(AXES, undefined)).toEqual(neutralValues(AXES));
+  });
+
+  it("sends only the latest input: the text, or the moved axes", () => {
+    expect(previewBody("s3://b/a.png", { kind: "prompt", text: " wink " }))
+      .toEqual({ source_uri: "s3://b/a.png", mode: "face", prompt: "wink" });
+    expect(previewBody("s3://b/a.png", { kind: "values", values: { smile: 0.5, pupil_x: 0 } }))
+      .toEqual({ source_uri: "s3://b/a.png", mode: "face", expression: { smile: 0.5 } });
+  });
+
+  it("sends nothing when there is nothing to preview", () => {
+    expect(previewBody("s3://b/a.png", { kind: "prompt", text: "  " })).toBeNull();
+    expect(previewBody("s3://b/a.png", { kind: "values", values: neutralValues(AXES) })).toBeNull();
+  });
+
+  it("rewords the API's no-known-terms 422 and lists what it knows", () => {
+    const msg = unknownTermsMessage(
+      "nothing to apply: no known terms in 'dance a jig'. Recognised terms: smile, grin, look left/right.");
+    expect(msg).toBe("None of those words are ones the editor understands. It knows: smile, grin, look left/right.");
+    expect(unknownTermsMessage("nothing to apply: no known terms in 'x'."))
+      .toMatch(/understands\. Try words like/);
+  });
+
+  it("leaves every other error alone", () => {
+    expect(unknownTermsMessage("face-edit refused this image: no face detected in the image")).toBeNull();
+    expect(unknownTermsMessage("face-edit is busy or not ready: busy")).toBeNull();
   });
 });
