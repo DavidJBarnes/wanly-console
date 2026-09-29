@@ -121,6 +121,11 @@ export interface JobResponse {
   segment_count: number;
   completed_segment_count: number;
   estimated_run_time: number | null;
+  /** What the clips actually render at (wanly-api#359). width/height are the start frame's;
+   *  a recipe render is capped below that. Absent/null means the same as width/height —
+   *  read it through lib/renderSize. */
+  render_width?: number | null;
+  render_height?: number | null;
   tags: string | null;
   created_at: string;
   updated_at: string;
