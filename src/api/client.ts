@@ -406,10 +406,19 @@ export async function cloneDataset(id: string, name: string): Promise<Dataset> {
 }
 
 /** Lock a set by hand (wanly-api#358), for one that should stop changing without having
- *  trained. ONE-WAY: there is no unlock — Clone is the way to change it afterwards, as with the
- *  training lock. Locking a set that is already locked returns it unchanged. */
+ *  trained. Clone is the way to change it afterwards, as with the training lock; only the
+ *  deliberate one-time unlock lifts it. Locking a set that is already locked returns it
+ *  unchanged. */
 export async function lockDataset(id: string, reason?: string): Promise<Dataset> {
   const { data } = await api.post<Dataset>(`/datasets/${id}/lock`, reason ? { reason } : {});
+  return data;
+}
+
+/** One-time unlock (wanly-api#363): clears the hand lock and lets go of every run trained so
+ *  far, so the set can change once more. Those LoRAs keep their own snapshot of its images
+ *  and captions; the next training run that uses the set locks it again. */
+export async function unlockDataset(id: string): Promise<Dataset> {
+  const { data } = await api.post<Dataset>(`/datasets/${id}/unlock`);
   return data;
 }
 

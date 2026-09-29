@@ -533,11 +533,14 @@ export interface Dataset {
   locked?: boolean;
   /** The runs that lock it. A failed or cancelled run is not here: no LoRA came of it. */
   trained_by?: DatasetTrainedBy[];
-  /** When it was locked by hand (POST /datasets/{id}/lock), or null if it never was. One-way:
-   *  there is no unlock, and a clone starts unlocked (wanly-api#358). */
+  /** When it was locked by hand (POST /datasets/{id}/lock), or null if it never was. Only
+   *  the one-time unlock clears it, and a clone starts unlocked (wanly-api#358, #363). */
   locked_at?: string | null;
   /** The optional note given when it was locked by hand. */
   locked_reason?: string | null;
+  /** When it was last unlocked (POST /datasets/{id}/unlock, wanly-api#363), or null. From
+   *  then on only runs created after it lock the set, so `trained_by` lists only those. */
+  unlocked_at?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -547,6 +550,8 @@ export interface DatasetTrainedBy {
   character: string;
   version: number;
   status: string;
+  /** When the run was created — what the set's `unlocked_at` is compared against. */
+  created_at?: string | null;
 }
 
 export type DatasetKind = "character" | "composition" | "regularization";
