@@ -408,14 +408,17 @@ function DatasetCard({
             )}
           </Tooltip>
           {ds.images.length > 0 && (
-            <Chip
-              size="small"
-              variant="outlined"
-              color={coverage.missing ? "warning" : "success"}
-              label={coverage.missing
-                ? `${coverage.missing} uncaptioned`
-                : "all captioned"}
-            />
+            // A blank caption is the standard, not a gap (wanly-api#365): it trains as the bare
+            // "<trigger>, <gender>". Typed captions are for props only, so "bare" is neutral.
+            <Tooltip title="Blank captions train as the bare trigger + class — the standard. Type a caption only for props (wearing glasses, holding a phone); never describe the person.">
+              <Chip
+                size="small"
+                variant="outlined"
+                label={coverage.missing === ds.images.length
+                  ? "bare captions"
+                  : `${ds.images.length - coverage.missing} with props · ${coverage.missing} bare`}
+              />
+            </Tooltip>
           )}
           {parseTags(ds.tags).map((t) => (
             <Chip key={t} size="small" label={t} />
@@ -1059,12 +1062,12 @@ function CaptionField({
         onClick={() => { if (!readOnly) { setText(caption); setEditing(true); } }}
         sx={{
           mt: 0.5, fontSize: 11, lineHeight: 1.35, cursor: readOnly ? "default" : "text",
-          color: error ? "error.main" : caption ? "text.secondary" : "warning.main",
+          color: error ? "error.main" : caption ? "text.secondary" : "text.disabled",
           display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
           overflow: "hidden", opacity: saving ? 0.5 : 1,
         }}
       >
-        {error || caption || (locked ? "no caption" : "no caption — click to write one")}
+        {error || caption || (locked ? "bare (trigger + class)" : "bare — click to add a prop")}
       </Typography>
     </Tooltip>
   );
