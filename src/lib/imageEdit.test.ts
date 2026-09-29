@@ -186,7 +186,7 @@ describe("which face (#553)", () => {
     expect(faceChoice(TWO, 0)).toEqual({ face_box: [101.5, 400, 351.5, 700] });
     expect(faceChoice(TWO, 5)).toEqual({});
     expect(faceChoice(TWO, null)).toEqual({});
-    expect(faceChoice(ONE, 0)).toEqual({}, "one face: the request is exactly today's");
+    expect(faceChoice(ONE, 0)).toEqual({}); // one face: the request is exactly today's
     expect(faceChoice(null, 0)).toEqual({});
   });
 
