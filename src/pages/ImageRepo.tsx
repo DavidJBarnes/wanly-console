@@ -42,6 +42,7 @@ import {
   Delete,
   DeleteOutline,
   DriveFileMove,
+  Face,
   Favorite,
   LabelOff,
   LocalOffer,
@@ -91,6 +92,7 @@ import { describeQueuePlace, useCaptionQueue } from "../hooks/useCaptionQueue";
 import CaptionQueueChip from "../components/CaptionQueueChip";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
+import ImageEditDialog from "../components/ImageEditDialog";
 import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
 import AddToDatasetDialog from "../components/AddToDatasetDialog";
@@ -158,6 +160,9 @@ export default function ImageRepo() {
   const [sortDesc, setSortDesc] = useState(true);
   const pendingImagePathRef = useRef<string | null>(null);
   const [cropResizeImage, setCropResizeImage] = useState<ImageFile | null>(null);
+  // The Image Edit tool (#547). Opened from the lightbox, which closes -- as Crop does -- so
+  // the lightbox's arrow keys cannot step the image out from under the editor.
+  const [editImage, setEditImage] = useState<ImageFile | null>(null);
   const [lightboxJobs, setLightboxJobs] = useState<ImageJobInfo[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   // Scene description (console#414). `describingPaths` is a ref, not state, because it
@@ -1263,6 +1268,16 @@ export default function ImageRepo() {
                 Crop & Resize
               </Button>
               <Button
+                startIcon={isMobile ? undefined : <Face />}
+                size={btnSize}
+                onClick={() => {
+                  setEditImage(lightboxImage);
+                  setLightboxImage(null);
+                }}
+              >
+                Edit
+              </Button>
+              <Button
                 variant="contained"
                 size={btnSize}
                 onClick={() => handleUseAsStartingImage(lightboxImage)}
@@ -1514,6 +1529,14 @@ export default function ImageRepo() {
         image={cropResizeImage}
         onClose={() => setCropResizeImage(null)}
         onSaved={() => { if (currentFolder) fetchImages(currentFolder); }}
+      />
+
+      <ImageEditDialog
+        open={!!editImage}
+        sourceUri={editImage?.path ?? null}
+        onClose={() => setEditImage(null)}
+        // A repo edit lands beside its original, so the open folder is the one to re-read.
+        onSaved={(r) => { if (!r.dataset_id && currentFolder) fetchImages(currentFolder); }}
       />
 
       {/* Create Job Dialog */}

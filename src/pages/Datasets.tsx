@@ -6,7 +6,7 @@ import {
   LinearProgress, MenuItem, Radio, RadioGroup, Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
 import {
-  Add, AutoAwesome, Check, Close, ContentCopy, ContentCut, Delete, Edit, Lock, LockOpen,
+  Add, AutoAwesome, Check, Close, ContentCopy, ContentCut, Delete, Edit, Face, Lock, LockOpen,
   ModelTraining, Movie, PhotoLibrary, Star, StarBorder, Upload, WarningAmber,
 } from "@mui/icons-material";
 
@@ -21,6 +21,7 @@ import type { Character } from "../api/ltx";
 import TrainLoraDialog from "../components/TrainLoraDialog";
 import AddFromRepoDialog from "../components/AddFromRepoDialog";
 import NewCharacterDialog from "../components/NewCharacterDialog";
+import ImageEditDialog from "../components/ImageEditDialog";
 import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
 import {
   byLikeness, byRecent, canLockByHand, canUnlock, captionCoverage, captionProgressLabel,
@@ -170,6 +171,9 @@ function DatasetCard({
   const [assignOpen, setAssignOpen] = useState(false);
   const [lockOpen, setLockOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
+  // The Image Edit tool (#547) on one of this set's images. Offered on a locked set too:
+  // "Save as new image" writes to the repo and never touches the set; only "Save to" is off.
+  const [editUri, setEditUri] = useState<string | null>(null);
   const [generateCount, setGenerateCount] = useState(150);
   const eligible = canTrain(ds.images);
   const isReg = ds.kind === "regularization";
@@ -673,6 +677,21 @@ function DatasetCard({
                       </IconButton>
                     </Box>
                   </Tooltip>
+                  <Tooltip title="Edit: expression, gaze, small head turns — saves a new image">
+                    <IconButton
+                      size="small"
+                      aria-label={`Edit ${uri.split("/").pop()}`}
+                      disabled={busy}
+                      onClick={() => setEditUri(uri)}
+                      sx={{
+                        position: "absolute", top: 4, left: 4,
+                        bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1, color: "text.secondary",
+                        "&:hover": { bgcolor: "primary.main", color: "primary.contrastText" },
+                      }}
+                    >
+                      <Face sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
                   {!isReg && <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
                     <IconButton
                       size="small"
@@ -738,6 +757,16 @@ function DatasetCard({
             onCharactersChanged={onCharactersChanged}
           />
         )}
+
+        <ImageEditDialog
+          open={editUri !== null}
+          sourceUri={editUri}
+          dataset={ds}
+          onClose={() => setEditUri(null)}
+          // Saved into this set: re-read it so the new tile shows. Saved to the repo: nothing
+          // here changed.
+          onSaved={(r) => { if (r.dataset_id) onChanged(); }}
+        />
 
         {lockOpen && (
           <LockDialog

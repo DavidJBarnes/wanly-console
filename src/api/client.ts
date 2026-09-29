@@ -41,6 +41,10 @@ import type {
   TrainingJob,
   WorkerModeResponse,
   CaptionQueueStatus,
+  EditPresets,
+  ImageEditBody,
+  ImageEditPreview,
+  ImageEditResult,
 } from "./types";
 import { REPEAT_ARRAY_PARAMS } from "../lib/repeatArrayParams";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
@@ -726,6 +730,29 @@ export async function describeImageScene(
   body: { style?: string; instruction?: string } = {},
 ): Promise<ImageScene> {
   const { data } = await api.post<ImageScene>("/images/scene", body, { params: { path } });
+  return data;
+}
+
+// --- Image Edit tool (wanly-console#547) ---
+
+/** The preset buttons and slider ranges. Server-side, so a button means what the model does. */
+export async function getEditPresets(): Promise<EditPresets> {
+  const { data } = await api.get<EditPresets>("/images/edit/presets");
+  return data;
+}
+
+/** Run an edit for the dialog's "after" pane. Stores nothing. */
+export async function previewImageEdit(
+  body: Omit<ImageEditBody, "dataset_id">,
+): Promise<ImageEditPreview> {
+  const { data } = await api.post<ImageEditPreview>("/images/edit/preview", body);
+  return data;
+}
+
+/** Run the edit again and save it as a NEW image — in the repo, or appended to a dataset
+ *  (409 when that dataset is locked). The original is never touched. */
+export async function saveImageEdit(body: ImageEditBody): Promise<ImageEditResult> {
+  const { data } = await api.post<ImageEditResult>("/images/edit", body);
   return data;
 }
 

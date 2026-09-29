@@ -900,3 +900,62 @@ export type RerollRequest = Record<string, never>;
 
 export interface SegmentReprocessRequest {
 }
+
+// --- Image Edit tool (wanly-console#547) ---
+
+/** Phase 1 has one mode. Phase 2 (#548) adds "full" (Qwen-Image-Edit on the 3090). */
+export type ImageEditMode = "face";
+
+/** One LivePortrait parameter, as the API describes it (GET /images/edit/presets). */
+export interface EditAxis {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  /** "main" is always shown, "gaze" and "more" sit below it. */
+  group: "main" | "gaze" | "more" | string;
+}
+
+export interface EditPreset {
+  name: string;
+  label: string;
+  expression: Record<string, number>;
+}
+
+export interface EditPresets {
+  mode: ImageEditMode;
+  presets: EditPreset[];
+  axes: EditAxis[];
+}
+
+export interface ImageEditBody {
+  source_uri: string;
+  mode: ImageEditMode;
+  preset?: string | null;
+  expression?: Record<string, number>;
+  dataset_id?: string | null;
+}
+
+export interface ImageEditPreview {
+  /** data: URI of a capped-size JPEG. Never stored anywhere. */
+  image: string;
+  params: Record<string, number>;
+  width: number;
+  height: number;
+  device?: string | null;
+  device_reason?: string | null;
+  elapsed_ms?: number | null;
+}
+
+export interface ImageEditResult {
+  /** A NEW object — the source is never overwritten. */
+  uri: string;
+  source_uri: string;
+  mode: ImageEditMode;
+  preset?: string | null;
+  params: Record<string, number>;
+  dataset_id?: string | null;
+  device?: string | null;
+  elapsed_ms?: number | null;
+}
