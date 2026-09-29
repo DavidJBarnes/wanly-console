@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   applyPreset, changedParams, clampToAxis, datasetChoices, datasetSaveProblem, describeRun,
-  groupAxes, hasEdit, isEditedImage, matchesPreset, MAX_PROMPT, neutralValues, previewBody,
-  promptProblem, savedName, unknownTermsMessage, valuesFromExpression,
+  faceChoice, faceHint, groupAxes, hasEdit, initialFace, isEditedImage, matchesPreset,
+  MAX_PROMPT, neutralValues, pickerFaces, previewBody, promptProblem, savedName, scaleBox,
+  unknownTermsMessage, valuesFromExpression,
 } from "./imageEdit";
-import type { Dataset } from "../api/types";
+import type { Dataset, ImageEditFaces } from "../api/types";
 
 const AXES = [
   { key: "rotate_yaw", label: "Turn", min: -20, max: 20, step: 0.5, group: "main" },
@@ -152,5 +153,84 @@ describe("describe the change (#550)", () => {
   it("leaves every other error alone", () => {
     expect(unknownTermsMessage("face-edit refused this image: no face detected in the image")).toBeNull();
     expect(unknownTermsMessage("face-edit is busy or not ready: busy")).toBeNull();
+  });
+});
+
+describe("which face (#553)", () => {
+  // What the API says about a 1248x1824 two-person frame.
+  const TWO: ImageEditFaces = {
+    width: 1248, height: 1824, default_index: 1, faces: [
+      { index: 0, box: [101.5, 400, 351.5, 700], width: 250 },
+      { index: 1, box: [700, 380, 940, 670], width: 240 },
+    ],
+  };
+  const ONE: ImageEditFaces = { ...TWO, default_index: 0, faces: [TWO.faces[0]] };
+
+  it("draws a picker only for two or more faces", () => {
+    expect(pickerFaces(TWO)).toHaveLength(2);
+    expect(pickerFaces(ONE)).toEqual([]);
+    expect(pickerFaces(null)).toEqual([]);
+    expect(pickerFaces({ ...TWO, faces: [] })).toEqual([]);
+    expect(pickerFaces({ ...TWO, width: 0 })).toEqual([]);
+  });
+
+  it("starts on the face the service would edit anyway", () => {
+    expect(initialFace(TWO)).toBe(1);
+    expect(initialFace({ ...TWO, default_index: null })).toBe(0);
+    expect(initialFace({ ...TWO, default_index: 7 })).toBe(0);
+    expect(initialFace(ONE)).toBeNull();
+    expect(initialFace(null)).toBeNull();
+  });
+
+  it("names the face by its box, and sends nothing without a picker", () => {
+    expect(faceChoice(TWO, 0)).toEqual({ face_box: [101.5, 400, 351.5, 700] });
+    expect(faceChoice(TWO, 5)).toEqual({});
+    expect(faceChoice(TWO, null)).toEqual({});
+    expect(faceChoice(ONE, 0)).toEqual({}); // one face: the request is exactly today's
+    expect(faceChoice(null, 0)).toEqual({});
+  });
+
+  it("puts the chosen face on every kind of preview body", () => {
+    const choice = faceChoice(TWO, 0);
+    expect(previewBody("s3://b/a.png", { kind: "values", values: { smile: 0.5 } }, choice)).toEqual({
+      source_uri: "s3://b/a.png", mode: "face", expression: { smile: 0.5 }, face_box: [101.5, 400, 351.5, 700],
+    });
+    expect(previewBody("s3://b/a.png", { kind: "prompt", text: " wink " }, choice)).toEqual({
+      source_uri: "s3://b/a.png", mode: "face", prompt: "wink", face_box: [101.5, 400, 351.5, 700],
+    });
+    expect(previewBody("s3://b/a.png", { kind: "values", values: { smile: 0 } }, choice)).toBeNull();
+  });
+
+  it("without a choice the body is unchanged", () => {
+    expect(previewBody("s3://b/a.png", { kind: "values", values: { smile: 0.5 } })).toEqual({
+      source_uri: "s3://b/a.png", mode: "face", expression: { smile: 0.5 },
+    });
+  });
+
+  it("scales a box from source pixels to the drawn image, plus its offset in the pane", () => {
+    // 1248x1824 drawn at 301x440 (height-bound), centred in a 600-wide pane.
+    const drawn = { width: 1248 * (440 / 1824), height: 440 };
+    const left = (600 - drawn.width) / 2;
+    const b = scaleBox([700, 380, 940, 670], TWO, drawn, { left, top: 0 });
+    const s = 440 / 1824;
+    expect(b.left).toBeCloseTo(left + 700 * s);
+    expect(b.top).toBeCloseTo(380 * s);
+    expect(b.width).toBeCloseTo(240 * s);
+    expect(b.height).toBeCloseTo(290 * s);
+  });
+
+  it("the whole frame maps to the whole drawn image", () => {
+    const b = scaleBox([0, 0, 1248, 1824], TWO, { width: 312, height: 456 });
+    expect(b).toEqual({ left: 0, top: 0, width: 312, height: 456 });
+  });
+
+  it("scales x and y independently", () => {
+    const b = scaleBox([10, 10, 20, 20], { width: 100, height: 100 }, { width: 200, height: 50 });
+    expect(b).toEqual({ left: 20, top: 5, width: 20, height: 5 });
+  });
+
+  it("the hint says how to reach the next face", () => {
+    expect(faceHint(3)).toMatch(/^3 faces/);
+    expect(faceHint(2)).toMatch(/save, then edit the saved image/);
   });
 });

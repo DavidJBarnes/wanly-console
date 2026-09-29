@@ -43,6 +43,7 @@ import type {
   CaptionQueueStatus,
   EditPresets,
   ImageEditBody,
+  ImageEditFaces,
   ImageEditPreview,
   ImageEditResult,
 } from "./types";
@@ -738,6 +739,12 @@ export async function describeImageScene(
 /** The preset buttons and slider ranges. Server-side, so a button means what the model does. */
 export async function getEditPresets(): Promise<EditPresets> {
   const { data } = await api.get<EditPresets>("/images/edit/presets");
+  return data;
+}
+
+/** The faces an edit can be pointed at (#553). Stores nothing. */
+export async function getEditFaces(sourceUri: string): Promise<ImageEditFaces> {
+  const { data } = await api.post<ImageEditFaces>("/images/edit/faces", { source_uri: sourceUri });
   return data;
 }
 
