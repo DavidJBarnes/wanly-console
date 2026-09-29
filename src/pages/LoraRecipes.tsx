@@ -19,7 +19,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { Add, ContentCopy, DeleteOutline, Edit } from "@mui/icons-material";
+import { Add, ContentCopy, DeleteOutline, Edit, Star, StarBorder } from "@mui/icons-material";
 import { Link } from "react-router";
 import {
   createBook,
@@ -33,6 +33,8 @@ import {
   listRecipes,
   ltxError,
   poseWarnings,
+  setDefaultCharacter,
+  setDefaultPose,
   TRIGGER_PLACEHOLDER,
   updateBook,
   updateCharacter,
@@ -383,6 +385,54 @@ function BookManager({
 // Poses
 // ---------------------------------------------------------------------------------------
 
+/**
+ * The "default" star on a pose or character (console#543).
+ *
+ * Filled means this is THE one the New render and Next segment modals preselect when nothing
+ * else is chosen. Starring another moves it (the API clears the old one in the same
+ * transaction); unstarring leaves no default, and the modals fall back to the first in the
+ * list as they always did.
+ */
+function DefaultStar({
+  isDefault,
+  what,
+  onToggle,
+}: {
+  isDefault: boolean;
+  what: "pose" | "character";
+  onToggle: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Tooltip
+      title={isDefault
+        ? `Default ${what} — preselected in New render and Next segment. Click to clear.`
+        : `Make this the default ${what}`}
+    >
+      <span>
+        <IconButton
+          size="small"
+          disabled={busy}
+          aria-label={isDefault ? `clear default ${what}` : `make default ${what}`}
+          aria-pressed={isDefault}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await onToggle();
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {isDefault
+            ? <Star fontSize="small" color="warning" />
+            : <StarBorder fontSize="small" />}
+        </IconButton>
+      </span>
+    </Tooltip>
+  );
+}
+
 function PoseList({
   catalog,
   bookId,
@@ -403,6 +453,15 @@ function PoseList({
   const allPoses = catalog?.poses ?? [];
   const poses = bookId ? allPoses.filter((p) => p.book_id === bookId) : allPoses;
   const bookName = catalog?.books.find((b) => b.id === bookId)?.name;
+
+  const toggleDefault = async (p: Pose) => {
+    try {
+      await setDefaultPose(p.id, !p.is_default);
+      onChanged();
+    } catch (e) {
+      setErr(ltxError(e));
+    }
+  };
 
   const remove = async () => {
     if (!confirm) return;
@@ -448,6 +507,8 @@ function PoseList({
               <Typography variant="subtitle2" sx={{ flexGrow: 1, minWidth: 0 }} noWrap>
                 {p.name}
               </Typography>
+              <DefaultStar isDefault={!!p.is_default} what="pose"
+                           onToggle={() => toggleDefault(p)} />
               <Tooltip title="Edit">
                 <IconButton size="small" onClick={() => setEditing(p)}>
                   <Edit fontSize="small" />
@@ -853,6 +914,15 @@ function CharacterList({
   const [err, setErr] = useState<string | null>(null);
   const characters = catalog?.characters ?? [];
 
+  const toggleDefault = async (c: Character) => {
+    try {
+      await setDefaultCharacter(c.id, !c.is_default);
+      onChanged();
+    } catch (e) {
+      setErr(ltxError(e));
+    }
+  };
+
   const remove = async () => {
     if (!confirm) return;
     setBusy(true);
@@ -919,6 +989,8 @@ function CharacterList({
                   </Typography>
                 )}
               </Box>
+              <DefaultStar isDefault={!!c.is_default} what="character"
+                           onToggle={() => toggleDefault(c)} />
               <Tooltip title="Edit">
                 <IconButton size="small" onClick={() => setEditing(c)}>
                   <Edit fontSize="small" />

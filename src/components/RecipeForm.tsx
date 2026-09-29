@@ -24,6 +24,7 @@ import {
 import type { CharacterSlot } from "../lib/recipeBlob";
 import { groupPosesByBook } from "../lib/poseGroups";
 import { seedRecipePrefill } from "../lib/recipePrefill";
+import { preselectCharacter, preselectPose } from "../lib/defaultSelection";
 
 /**
  * Pick a validated (character, pose) configuration and a start frame. Everything
@@ -195,7 +196,10 @@ export default function RecipeForm({
     listRecipes()
       .then((b) => {
         setBook(b);
-        setCharacterName(b.characters[0]?.name ?? "");
+        // The starred default, or the first (console#543). A clone's or continuation's
+        // character is seeded over this by the prefill below, so it still wins.
+        setCharacterNames((prev) =>
+          [preselectCharacter(prev[0] ?? "", b.characters), ...prev.slice(1)]);
         listLoras(b).then(setLoras).catch(() => {});
       })
       .catch((e) => setError(ltxError(e)));
@@ -237,7 +241,8 @@ export default function RecipeForm({
     pose && character ? renderPrompt(pose.prompt_template, triggersOf(filledSlots)) : "";
 
   useEffect(() => {
-    if (book && !poseId) setPoseId(poses[0]?.id ?? "");
+    // Also where an unresolvable carried-over pose lands (see seedRecipePrefill).
+    if (book && !poseId) setPoseId(preselectPose(poseId, poses));
   }, [book, poseId, poses]);
 
   // The prompt shown is the RENDERED one, not the template. It is editable, so

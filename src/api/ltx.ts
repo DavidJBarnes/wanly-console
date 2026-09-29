@@ -81,6 +81,9 @@ export interface Pose {
   /** The book's name, denormalised onto the pose so a grouped picker can render headings
    *  from the pose list alone. */
   book_name: string;
+  /** THE default pose, preselected by the New Job and Next Segment modals (console#543).
+   *  At most one is true. Absent from an API that predates it. */
+  is_default?: boolean;
 }
 
 export interface Character {
@@ -110,6 +113,8 @@ export interface Character {
   members?: string[] | null;
   /** The base model its current LoRA trained on. */
   base_checkpoint?: string | null;
+  /** THE default character, preselected like the default pose (console#543). */
+  is_default?: boolean;
 }
 
 /** What fills a placeholder: the trigger AND the word its LoRA bound it to, exactly as
@@ -363,6 +368,14 @@ export async function deletePose(id: string): Promise<void> {
   await api.delete(`/ltx/recipes/${id}`);
 }
 
+/** Star or unstar THE default pose (console#543). Starring clears the previous default in
+ *  the same transaction; unstarring leaves no default, which is a valid state. */
+export async function setDefaultPose(id: string, isDefault: boolean): Promise<Pose> {
+  const path = `/ltx/recipes/${id}/default`;
+  const { data } = isDefault ? await api.post<Pose>(path) : await api.delete<Pose>(path);
+  return data;
+}
+
 export interface BookDraft {
   name: string;
   /** Null clears it. */
@@ -414,6 +427,15 @@ export async function updateCharacter(
 
 export async function deleteCharacter(id: string): Promise<void> {
   await api.delete(`/ltx/characters/${id}`);
+}
+
+/** Star or unstar THE default character. See setDefaultPose. */
+export async function setDefaultCharacter(id: string, isDefault: boolean): Promise<Character> {
+  const path = `/ltx/characters/${id}/default`;
+  const { data } = isDefault
+    ? await api.post<Character>(path)
+    : await api.delete<Character>(path);
+  return data;
 }
 
 /**
