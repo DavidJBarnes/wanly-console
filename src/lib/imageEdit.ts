@@ -9,8 +9,14 @@
  * service reads it against its keyword lexicon, and the preview comes back with the numbers it
  * resolved to. Those become the sliders, so a description is a starting point exactly like a
  * preset, and the understood terms become chips.
+ *
+ * WHICH FACE (#553): the service edits the face nearest the horizontal centre unless told
+ * otherwise. With two or more faces the dialog draws them as numbered boxes and sends the
+ * chosen one's box; with one or none it sends nothing and looks exactly as before.
  */
-import type { Dataset, EditAxis, EditPreset, ImageEditPreview } from "../api/types";
+import type {
+  Dataset, DetectedFace, EditAxis, EditPreset, ImageEditFaces, ImageEditPreview,
+} from "../api/types";
 import { lockedReason } from "./datasets";
 
 export type EditValues = Record<string, number>;
@@ -131,14 +137,75 @@ export function valuesFromExpression(
 export type PreviewRequest = { kind: "values"; values: EditValues } | { kind: "prompt"; text: string };
 
 export function previewBody(
-  sourceUri: string, req: PreviewRequest,
-): { source_uri: string; mode: "face"; expression?: EditValues; prompt?: string } | null {
+  sourceUri: string, req: PreviewRequest, choice: FaceChoice = {},
+): { source_uri: string; mode: "face"; expression?: EditValues; prompt?: string } & FaceChoice | null {
   if (req.kind === "prompt") {
     const text = req.text.trim();
-    return text ? { source_uri: sourceUri, mode: "face", prompt: text } : null;
+    return text ? { source_uri: sourceUri, mode: "face", prompt: text, ...choice } : null;
   }
   const params = changedParams(req.values);
-  return Object.keys(params).length ? { source_uri: sourceUri, mode: "face", expression: params } : null;
+  return Object.keys(params).length
+    ? { source_uri: sourceUri, mode: "face", expression: params, ...choice }
+    : null;
+}
+
+// ------------------------------------------------------------------ which face (#553)
+
+/** What an edit sends to name its face: nothing, or the chosen face's box. */
+export type FaceChoice = { face_box?: number[] };
+
+/** The faces to draw as a picker: all of them when there are two or more, none otherwise —
+ *  with one face there is nothing to choose, and the dialog stays as it was. */
+export function pickerFaces(f: ImageEditFaces | null | undefined): DetectedFace[] {
+  const faces = f?.faces ?? [];
+  return faces.length >= 2 && f!.width > 0 && f!.height > 0 ? faces : [];
+}
+
+/** The face selected when the dialog opens: the one the service would edit unaided, so the
+ *  picker starts out showing what today's behaviour does. */
+export function initialFace(f: ImageEditFaces | null | undefined): number | null {
+  const faces = pickerFaces(f);
+  if (!faces.length) return null;
+  const d = f!.default_index;
+  return d != null && faces.some((x) => x.index === d) ? d : faces[0].index;
+}
+
+/** The request fields for the selected face. A box, not the index: it names the face by where
+ *  it is, which the service matches against its own detection — an index is a position in a
+ *  list. Empty when there is no picker, so the request is exactly today's. */
+export function faceChoice(f: ImageEditFaces | null | undefined, selected: number | null): FaceChoice {
+  const face = pickerFaces(f).find((x) => x.index === selected);
+  return face ? { face_box: face.box } : {};
+}
+
+export interface OverlayBox { left: number; top: number; width: number; height: number }
+
+/** A face box, measured in the source's pixels (`from`, the size the API reported), placed on
+ *  the image as drawn (`to`, its rendered size in CSS pixels) plus that image's offset inside
+ *  the pane. The API's size, not the file's: it is the upright size the boxes were measured
+ *  against, which is also what the browser draws. */
+export function scaleBox(
+  box: number[],
+  from: { width: number; height: number },
+  to: { width: number; height: number },
+  offset: { left: number; top: number } = { left: 0, top: 0 },
+): OverlayBox {
+  const sx = to.width / from.width;
+  const sy = to.height / from.height;
+  const [x1, y1, x2, y2] = box;
+  return {
+    left: offset.left + x1 * sx,
+    top: offset.top + y1 * sy,
+    width: (x2 - x1) * sx,
+    height: (y2 - y1) * sy,
+  };
+}
+
+/** The picker's hint line. Only one face is edited per pass, so the second person is a second
+ *  pass on the saved result. */
+export function faceHint(count: number): string {
+  return `${count} faces found — click a box to choose which one to edit. To change another `
+    + "face too, save, then edit the saved image.";
 }
 
 /** The API's 422 for a description with no word the lexicon knows ("nothing to apply: no

@@ -6,15 +6,18 @@ import {
 import { ExpandLess, ExpandMore, Face, RestartAlt, Send } from "@mui/icons-material";
 
 import {
-  getEditPresets, getFileUrl, listDatasets, previewImageEdit, saveImageEdit,
+  getEditFaces, getEditPresets, getFileUrl, listDatasets, previewImageEdit, saveImageEdit,
 } from "../api/client";
-import type { Dataset, EditAxis, EditPreset, ImageEditPreview, ImageEditResult } from "../api/types";
+import type {
+  Dataset, EditAxis, EditPreset, ImageEditFaces, ImageEditPreview, ImageEditResult,
+} from "../api/types";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { apiError } from "../lib/apiError";
 import {
   applyPreset, changedParams, clampToAxis, datasetChoices, datasetSaveProblem, describeRun,
-  groupAxes, hasEdit, isEditedImage, matchesPreset, MAX_PROMPT, neutralValues, previewBody,
-  promptProblem, savedName, unknownTermsMessage, valuesFromExpression,
+  faceChoice, faceHint, groupAxes, hasEdit, initialFace, isEditedImage, matchesPreset,
+  MAX_PROMPT, neutralValues, pickerFaces, previewBody, promptProblem, savedName, scaleBox,
+  unknownTermsMessage, valuesFromExpression,
   type EditValues, type PreviewRequest,
 } from "../lib/imageEdit";
 
@@ -35,6 +38,13 @@ import {
  * the service understood (chips) and the numbers it resolved to, which move the sliders so the
  * description is a starting point to fine-tune, like a preset. It shares the coalescing above:
  * whichever input came last -- a description, a preset, a slider -- is what gets previewed.
+ *
+ * Several faces (#553): the service edits the one nearest the horizontal centre unless told
+ * otherwise. On open the dialog asks which faces there are; with two or more it draws them as
+ * numbered boxes over "Before", starting on the one the service would pick, and sends the
+ * chosen box with every preview and save. One pass edits one face, so the next person is a
+ * second pass on the saved result ("Edit the saved image"). With one face, or if the faces
+ * call fails (an older service), nothing is drawn and the dialog is what it was.
  */
 export default function ImageEditDialog({
   open, sourceUri, dataset = null, onClose, onSaved,
@@ -64,6 +74,16 @@ export default function ImageEditDialog({
   // The last description the service understood, and the sliders it produced. Kept so a save
   // that has not been fine-tuned since is recorded as that description, not as bare numbers.
   const [described, setDescribed] = useState<{ text: string; terms: string[]; values: EditValues } | null>(null);
+  // "Edit the saved image": the dialog moves on to its own result without closing, so the
+  // next face is one click away. Cleared whenever the parent opens or points it elsewhere.
+  const [chained, setChained] = useState<string | null>(null);
+  const [faces, setFaces] = useState<ImageEditFaces | null>(null);
+  const [selectedFace, setSelectedFace] = useState<number | null>(null);
+  // Where "Before" is drawn inside its pane, for placing the face boxes on it.
+  const [drawn, setDrawn] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const beforeImg = useRef<HTMLImageElement | null>(null);
+  // The face to send, readable from runPreview without re-creating it on every click.
+  const face = useRef<{ faces: ImageEditFaces | null; selected: number | null }>({ faces: null, selected: null });
 
   // The slider values as of the last change, readable from callbacks without a re-render.
   const current = useRef<EditValues>({});
@@ -73,12 +93,29 @@ export default function ImageEditDialog({
   const dirty = useRef(false);
   const openFor = useRef<string | null>(null);
 
+  useEffect(() => { setChained(null); }, [open, sourceUri]);
+  const uri = chained ?? sourceUri;
+
   // By id, not by object: saving to the dataset refreshes the parent's copy of it, and a new
   // object must not reset the dialog mid-session (and wipe the "Saved ..." list).
   const fixedDatasetId = dataset?.id ?? null;
   useEffect(() => {
-    if (!open || !sourceUri) return;
-    openFor.current = sourceUri;
+    if (!open || !uri) return;
+    openFor.current = uri;
+    setFaces(null);
+    setSelectedFace(null);
+    face.current = { faces: null, selected: null };
+    // Silent on failure: without the list the service edits the centre-most face, which is
+    // exactly the dialog as it was before the picker existed.
+    getEditFaces(uri)
+      .then((f) => {
+        if (openFor.current !== uri) return;
+        const sel = initialFace(f);
+        setFaces(f);
+        setSelectedFace(sel);
+        face.current = { faces: f, selected: sel };
+      })
+      .catch((e) => console.warn("Image Edit: face list unavailable, editing the default face:", e));
     setPreview(null);
     setPreset(null);
     setError("");
@@ -99,16 +136,16 @@ export default function ImageEditDialog({
     if (!fixedDatasetId) {
       listDatasets().then(setDatasets).catch(() => setDatasets([]));
     }
-  }, [open, sourceUri, fixedDatasetId]);
+  }, [open, uri, fixedDatasetId]);
 
   const runPreview = useCallback(async () => {
-    if (!sourceUri) return;
+    if (!uri) return;
     if (inFlight.current) {
       dirty.current = true;
       return;
     }
     const req = latest.current;
-    const body = previewBody(sourceUri, req);
+    const body = previewBody(uri, req, faceChoice(face.current.faces, face.current.selected));
     if (!body) {
       setPreview(null);
       return;
@@ -118,7 +155,7 @@ export default function ImageEditDialog({
     setPreviewing(true);
     setError("");
     setPromptNote("");
-    const uri = sourceUri;
+    const forUri = uri;
     try {
       const p = await previewImageEdit(body);
       // Dropped if the dialog moved on to another image meanwhile, or if the input changed
@@ -126,7 +163,7 @@ export default function ImageEditDialog({
       // on ANY newer input, even a drag not yet released: it would move sliders the user has
       // touched since.
       const superseded = dirty.current || (req.kind === "prompt" && latest.current !== req);
-      if (openFor.current === uri && !superseded) {
+      if (openFor.current === forUri && !superseded) {
         setPreview(p);
         if (req.kind === "prompt") {
           const v = valuesFromExpression(axes, p.expression ?? p.params);
@@ -137,7 +174,7 @@ export default function ImageEditDialog({
         }
       }
     } catch (e) {
-      if (openFor.current === uri && !dirty.current) {
+      if (openFor.current === forUri && !dirty.current) {
         const msg = apiError(e, "Preview failed");
         const unknown = req.kind === "prompt" ? unknownTermsMessage(msg) : null;
         if (unknown) setPromptNote(unknown);
@@ -146,9 +183,41 @@ export default function ImageEditDialog({
     } finally {
       inFlight.current = false;
       setPreviewing(false);
-      if (dirty.current && openFor.current === uri) void runPreview();
+      if (dirty.current && openFor.current === forUri) void runPreview();
     }
-  }, [sourceUri, axes]);
+  }, [uri, axes]);
+
+  const chooseFace = (index: number) => {
+    if (index === selectedFace) return;
+    setSelectedFace(index);
+    face.current = { ...face.current, selected: index };
+    // Re-preview whatever is on the sliders (or the description), now on this face.
+    if (previewBody(uri ?? "", latest.current)) void runPreview();
+    else setPreview(null);
+  };
+
+  // The rendered size and position of "Before", re-read whenever the image loads or its box
+  // changes (window resize, the mobile layout): the face boxes are placed from it.
+  const measure = useCallback(() => {
+    const img = beforeImg.current;
+    if (!img || !img.clientWidth) return;
+    setDrawn({ left: img.offsetLeft, top: img.offsetTop, width: img.clientWidth, height: img.clientHeight });
+  }, []);
+  // A callback ref, not an effect: the dialog's content mounts through a portal a render after
+  // `open` flips, so an effect would find no image to watch. The pane is watched as well as
+  // the image because a height-bound image keeps its size while the pane widens -- only its
+  // offset moves, and the boxes must move with it.
+  const watcher = useRef<ResizeObserver | null>(null);
+  const beforeRef = useCallback((img: HTMLImageElement | null) => {
+    watcher.current?.disconnect();
+    watcher.current = null;
+    beforeImg.current = img;
+    if (!img || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(img);
+    if (img.parentElement) ro.observe(img.parentElement);
+    watcher.current = ro;
+  }, [measure]);
 
   const choosePreset = (p: EditPreset) => {
     const v = applyPreset(axes, p);
@@ -194,12 +263,12 @@ export default function ImageEditDialog({
   const stillDescribed = Boolean(described) && matchesPreset(values, { expression: described!.values });
 
   const save = async (toDataset: boolean) => {
-    if (!sourceUri || !edited) return;
+    if (!uri || !edited) return;
     setSaving(true);
     setError("");
     try {
       const result = await saveImageEdit({
-        source_uri: sourceUri,
+        source_uri: uri,
         mode: "face",
         // Named only while the sliders still say exactly what the preset said; a tweaked
         // preset is a custom edit, and the file name should not claim otherwise.
@@ -211,6 +280,8 @@ export default function ImageEditDialog({
           ? { prompt: described!.text }
           : { expression: changedParams(values) }),
         dataset_id: toDataset && target ? target.id : null,
+        // The face the preview showed: the save re-runs the edit, on the same face.
+        ...faceChoice(faces, selectedFace),
       });
       setSaved((prev) => [result, ...prev]);
       onSaved(result);
@@ -244,7 +315,41 @@ export default function ImageEditDialog({
     </Box>
   );
 
-  const pane = (label: string, src: string | null, busy = false, note?: string) => (
+  const picker = pickerFaces(faces);
+  const overlay = picker.length > 0 && drawn && faces
+    ? picker.map((f) => {
+      const b = scaleBox(f.box, faces, drawn, drawn);
+      const on = f.index === selectedFace;
+      return (
+        <Box
+          key={f.index}
+          component="button"
+          type="button"
+          onClick={() => chooseFace(f.index)}
+          disabled={saving}
+          aria-label={`Edit face ${f.index + 1}`}
+          aria-pressed={on}
+          sx={{
+            position: "absolute", left: b.left, top: b.top, width: b.width, height: b.height,
+            p: 0, m: 0, bgcolor: "transparent", cursor: "pointer", borderRadius: 0.5,
+            border: "2px solid", borderColor: on ? "primary.main" : "rgba(255,255,255,0.8)",
+            boxShadow: on ? 3 : "0 0 0 1px rgba(0,0,0,0.6)",
+            "&:hover": { borderColor: "primary.light" },
+          }}
+        >
+          <Box component="span" sx={{
+            position: "absolute", top: -2, left: -2, px: 0.6, minWidth: 18, fontSize: 12,
+            lineHeight: "18px", fontWeight: 700, borderRadius: "0 0 4px 0",
+            bgcolor: on ? "primary.main" : "rgba(0,0,0,0.7)", color: "#fff",
+          }}>
+            {f.index + 1}
+          </Box>
+        </Box>
+      );
+    })
+    : null;
+
+  const pane = (label: string, src: string | null, busy = false, note?: string, before = false) => (
     <Box sx={{ flex: 1, minWidth: 0 }}>
       <Typography variant="caption" color="text.secondary">{label}</Typography>
       <Box sx={{
@@ -253,11 +358,14 @@ export default function ImageEditDialog({
       }}>
         {src
           ? <Box component="img" src={src} alt={label}
+              ref={before ? beforeRef : undefined}
+              onLoad={before ? measure : undefined}
               sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", opacity: busy ? 0.5 : 1 }} />
           : <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: "center" }}>
               {note}
             </Typography>}
         {busy && <CircularProgress size={32} sx={{ position: "absolute" }} />}
+        {before && overlay}
       </Box>
     </Box>
   );
@@ -272,10 +380,11 @@ export default function ImageEditDialog({
           Expression, gaze and small head turns (about ±20°). The face is warped, not
           regenerated, so it stays the same person. The original is never changed.
         </Typography>
-        {sourceUri && isEditedImage(sourceUri) && (
+        {uri && isEditedImage(uri) && (
           <Alert severity="warning" sx={{ mb: 1 }}>
             This image is already an edit. Every pass re-decodes the face and loses skin texture —
             edit the original instead when you can.
+            {picker.length > 0 && " Editing a different face from last time is fine: only the chosen face is re-decoded."}
           </Alert>
         )}
         {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
@@ -288,12 +397,23 @@ export default function ImageEditDialog({
             {saved[0].dataset_id ? ` to ${dataset?.name ?? "the dataset"}` : " to the Image Repo"}
             {saved.length > 1 ? ` (${saved.length} saved this session)` : ""}. Keep editing to
             save another variant.
+            {picker.length > 0 && (
+              <Button size="small" sx={{ ml: 1 }} onClick={() => setChained(saved[0].uri)} disabled={saving}>
+                Edit the saved image
+              </Button>
+            )}
           </Alert>
+        )}
+
+        {picker.length > 0 && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {faceHint(picker.length)}
+          </Typography>
         )}
 
         <Stack direction={isMobile ? "column" : "row"} spacing={2}>
           <Stack direction="row" spacing={1} sx={{ flex: 3, minWidth: 0 }}>
-            {pane("Before", sourceUri ? getFileUrl(sourceUri) : null)}
+            {pane("Before", uri ? getFileUrl(uri) : null, false, undefined, true)}
             {pane(
               "After",
               preview?.image ?? null,

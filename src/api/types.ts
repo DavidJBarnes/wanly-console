@@ -938,6 +938,27 @@ export interface ImageEditBody {
    *  too, the numbers win. */
   prompt?: string | null;
   dataset_id?: string | null;
+  /** Which face, when there are several (#553): a box from POST /images/edit/faces. Absent,
+   *  the service edits the face nearest the horizontal centre, as it always has. */
+  face_box?: number[];
+  face_index?: number;
+}
+
+/** One face the edit can be pointed at. `box` is [x1, y1, x2, y2] in the source's pixels,
+ *  upright (EXIF orientation applied, as the browser draws it). */
+export interface DetectedFace {
+  index: number;
+  box: number[];
+  width: number;
+}
+
+/** POST /images/edit/faces: the faces left to right, the size the boxes are measured against,
+ *  and the one an edit that names none will change. */
+export interface ImageEditFaces {
+  width: number;
+  height: number;
+  faces: DetectedFace[];
+  default_index: number | null;
 }
 
 export interface ImageEditPreview {
@@ -955,6 +976,9 @@ export interface ImageEditPreview {
   device?: string | null;
   device_reason?: string | null;
   elapsed_ms?: number | null;
+  /** The face that was edited; null when the service chose (#553). */
+  face_index?: number | null;
+  face_box?: number[] | null;
 }
 
 export interface ImageEditResult {
@@ -971,4 +995,6 @@ export interface ImageEditResult {
   dataset_id?: string | null;
   device?: string | null;
   elapsed_ms?: number | null;
+  face_index?: number | null;
+  face_box?: number[] | null;
 }
