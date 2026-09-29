@@ -44,7 +44,9 @@ import type {
   WorkerModeResponse,
   CaptionQueueStatus,
   EditPresets,
+  FullEditBody,
   ImageEditBody,
+  ImageEditJob,
   ImageEditFaces,
   ImageEditPreview,
   ImageEditResult,
@@ -762,6 +764,25 @@ export async function previewImageEdit(
  *  (409 when that dataset is locked). The original is never touched. */
 export async function saveImageEdit(body: ImageEditBody): Promise<ImageEditResult> {
   const { data } = await api.post<ImageEditResult>("/images/edit", body);
+  return data;
+}
+
+/** Start a full-mode edit (#548): Qwen on the 3090, which may first have to finish a render
+ *  segment and switch modes. Answers at once with a job to poll. Stores nothing. */
+export async function startFullEdit(body: FullEditBody): Promise<ImageEditJob> {
+  const { data } = await api.post<ImageEditJob>("/images/edit", body);
+  return data;
+}
+
+export async function getEditJob(id: string): Promise<ImageEditJob> {
+  const { data } = await api.get<ImageEditJob>(`/images/edit/jobs/${encodeURIComponent(id)}`);
+  return data;
+}
+
+/** Save a finished full-mode result as a NEW image (409 for a locked dataset). */
+export async function saveEditJob(id: string, datasetId: string | null): Promise<ImageEditResult> {
+  const { data } = await api.post<ImageEditResult>(
+    `/images/edit/jobs/${encodeURIComponent(id)}/save`, { dataset_id: datasetId });
   return data;
 }
 

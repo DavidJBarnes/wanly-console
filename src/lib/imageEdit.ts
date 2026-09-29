@@ -15,7 +15,8 @@
  * chosen one's box; with one or none it sends nothing and looks exactly as before.
  */
 import type {
-  Dataset, DetectedFace, EditAxis, EditPreset, ImageEditFaces, ImageEditPreview,
+  Dataset, DetectedFace, EditAxis, EditPreset, FullEditBody, HeadAnglePreset, ImageEditFaces,
+  ImageEditJob, ImageEditPreview,
 } from "../api/types";
 import { lockedReason } from "./datasets";
 
@@ -217,3 +218,102 @@ export function unknownTermsMessage(detail: string): string | null {
   return "None of those words are ones the editor understands"
     + (m ? `. It knows: ${m[1]}.` : ". Try words like smile, frown, wink, look left, turn head right.");
 }
+
+// ------------------------------------------------------------------ head angle (#548)
+//
+// DEGREES IN THE IMAGE'S DIRECTIONS, shared by both engines: yaw < 0 turns the face toward the
+// LEFT EDGE OF THE PICTURE (the viewer's left, the subject's right) -- what LivePortrait's
+// rotate_yaw < 0 already did in phase 1 -- and pitch > 0 raises the chin. Within the face limit
+// (±20°) the angle is a LivePortrait edit: instant, and the face is warped rather than redrawn.
+// Beyond it only Qwen can invent the unseen side of the face, on the 3090, as a job.
+
+export const FACE_LIMIT_DEG = 20;
+
+/** "face" when LivePortrait can reach the angle, "full" when only Qwen can. */
+export function routeAngle(yaw: number, pitch: number, limit = FACE_LIMIT_DEG): "face" | "full" {
+  return Math.max(Math.abs(yaw), Math.abs(pitch)) <= limit ? "face" : "full";
+}
+
+/** A face-routed head angle as LivePortrait slider values over a neutral face. PITCH IS
+ *  NEGATED: the node's rotate_pitch > 0 lowers the chin (checked on sel_008), a head angle's
+ *  pitch > 0 raises it. */
+export function faceValuesForAngle(
+  axes: Pick<EditAxis, "key" | "min" | "max">[], yaw: number, pitch: number,
+): EditValues {
+  const out = neutralValues(axes);
+  for (const a of axes) {
+    if (a.key === "rotate_yaw") out[a.key] = clampToAxis(a, yaw);
+    if (a.key === "rotate_pitch") out[a.key] = clampToAxis(a, pitch === 0 ? 0 : -pitch);
+  }
+  return out;
+}
+
+/** The preset these exact angles are, if any -- so a job is recorded (and its file named) as
+ *  "profile_left" rather than a bare angle. */
+export function headPresetFor(
+  presets: HeadAnglePreset[], yaw: number, pitch: number,
+): HeadAnglePreset | null {
+  return presets.find((p) => p.yaw === yaw && p.pitch === pitch) ?? null;
+}
+
+/** The full-mode request for a head angle, or null when there is nothing to do. */
+export function fullAngleBody(
+  sourceUri: string, yaw: number, pitch: number, presets: HeadAnglePreset[] = [],
+): FullEditBody | null {
+  if (Math.max(Math.abs(yaw), Math.abs(pitch)) < 5) return null;
+  const p = headPresetFor(presets, yaw, pitch);
+  return p
+    ? { source_uri: sourceUri, mode: "full", head_preset: p.name }
+    : { source_uri: sourceUri, mode: "full", angle: { yaw, pitch } };
+}
+
+/** "Turn 45° left, tilt 20° up" — what the sliders say, in words. */
+export function describeAngle(yaw: number, pitch: number): string {
+  const parts: string[] = [];
+  if (yaw) parts.push(`turn ${Math.abs(yaw)}° ${yaw < 0 ? "left" : "right"}`);
+  if (pitch) parts.push(`tilt ${Math.abs(pitch)}° ${pitch > 0 ? "up" : "down"}`);
+  const s = parts.join(", ") || "straight ahead";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+export function jobActive(job: Pick<ImageEditJob, "state"> | null | undefined): boolean {
+  return Boolean(job) && job!.state !== "done" && job!.state !== "failed";
+}
+
+/** The status line for a job: the API's own reason while it waits ("3090.zero is rendering;
+ *  edit queued ..."), with its place in the queue when others are ahead. */
+export function jobStatusLine(job: Pick<ImageEditJob, "state" | "message" | "position" | "elapsed_s">): string {
+  const ahead = job.position ? ` — ${job.position} edit${job.position === 1 ? "" : "s"} ahead` : "";
+  const secs = job.elapsed_s != null ? ` (${Math.round(job.elapsed_s)} s)` : "";
+  if (job.state === "done") return `Done${secs}`;
+  if (job.state === "failed") return `Failed: ${job.message}`;
+  if (job.state === "running") return `Editing on the 3090…${secs}`;
+  return `${job.message}${ahead}${secs}`;
+}
+
+/** How far a full-mode result drifted from the source, as the dialog says it. AuraFace cosine;
+ *  every recognizer loses similarity with pose, even for the same person, so a profile scoring
+ *  low is expected -- the number is a warning light, the eye is the judge. */
+export function identityVerdict(
+  identity: ImageEditJob["identity"] | null | undefined,
+): { text: string; severity: "success" | "warning" | "error" | "info" } {
+  const aura = identity?.aura;
+  if (aura == null) {
+    return { text: `Identity not scored${identity?.reason ? `: ${identity.reason}` : ""}`, severity: "info" };
+  }
+  const n = aura.toFixed(2);
+  if (aura >= 0.6) return { text: `Identity ${n} (AuraFace vs the original) — close`, severity: "success" };
+  if (aura >= 0.4) {
+    return { text: `Identity ${n} (AuraFace vs the original) — some drift; check by eye`, severity: "warning" };
+  }
+  return {
+    text: `Identity ${n} (AuraFace vs the original) — far. Profiles score low even for the same `
+      + "person; judge by eye before saving.",
+    severity: "error",
+  };
+}
+
+/** The warning full mode always carries (#548): Qwen regenerates the whole frame. */
+export const FULL_MODE_WARNING = "Regenerates the image: may soften skin and look younger — "
+  + "prefer Face mode for identity datasets. Runs on the 3090, which finishes any render in "
+  + "progress first.";

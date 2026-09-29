@@ -234,3 +234,88 @@ describe("which face (#553)", () => {
     expect(faceHint(2)).toMatch(/save, then edit the saved image/);
   });
 });
+
+// ------------------------------------------------------------------ head angle (#548)
+
+import {
+  describeAngle, faceValuesForAngle, fullAngleBody, headPresetFor, identityVerdict, jobActive,
+  jobStatusLine, routeAngle,
+} from "./imageEdit";
+import type { HeadAnglePreset } from "../api/types";
+
+const ANGLES: HeadAnglePreset[] = [
+  { name: "look_left", label: "Look left", yaw: -20, pitch: 0, route: "face" },
+  { name: "profile_left", label: "Profile left", yaw: -90, pitch: 0, route: "full" },
+  { name: "look_up", label: "Look up", yaw: 0, pitch: 30, route: "full" },
+];
+const ROT_AXES = [
+  { key: "rotate_yaw", min: -20, max: 20 },
+  { key: "rotate_pitch", min: -20, max: 20 },
+  { key: "smile", min: -0.3, max: 1.3 },
+];
+
+describe("head angle routing", () => {
+  it("splits at ±20°: LivePortrait inside, Qwen beyond", () => {
+    expect(routeAngle(-20, 0)).toBe("face");
+    expect(routeAngle(0, 20)).toBe("face");
+    expect(routeAngle(-25, 0)).toBe("full");
+    expect(routeAngle(10, -30)).toBe("full");
+    expect(routeAngle(30, 0, 40)).toBe("face");
+  });
+
+  it("a face-routed angle becomes LivePortrait sliders, pitch negated for the node", () => {
+    // rotate_pitch > 0 lowers the chin on the node; a head angle's pitch > 0 raises it.
+    expect(faceValuesForAngle(ROT_AXES, -15, 10)).toEqual({ rotate_yaw: -15, rotate_pitch: -10, smile: 0 });
+    expect(faceValuesForAngle(ROT_AXES, 0, 0)).toEqual({ rotate_yaw: 0, rotate_pitch: 0, smile: 0 });
+  });
+
+  it("names the preset when the angles are exactly one", () => {
+    expect(headPresetFor(ANGLES, -90, 0)?.name).toBe("profile_left");
+    expect(headPresetFor(ANGLES, -85, 0)).toBeNull();
+  });
+
+  it("builds the full-mode request by preset, else by angle, and not for no change", () => {
+    expect(fullAngleBody("s3://b/x.png", -90, 0, ANGLES))
+      .toEqual({ source_uri: "s3://b/x.png", mode: "full", head_preset: "profile_left" });
+    expect(fullAngleBody("s3://b/x.png", 60, -10, ANGLES))
+      .toEqual({ source_uri: "s3://b/x.png", mode: "full", angle: { yaw: 60, pitch: -10 } });
+    expect(fullAngleBody("s3://b/x.png", 3, 0, ANGLES)).toBeNull();
+  });
+
+  it("says the angle in words, left/right as the picture is seen", () => {
+    expect(describeAngle(-45, 20)).toBe("Turn 45° left, tilt 20° up");
+    expect(describeAngle(0, -30)).toBe("Tilt 30° down");
+    expect(describeAngle(0, 0)).toBe("Straight ahead");
+  });
+});
+
+describe("full-mode jobs", () => {
+  it("is active until done or failed", () => {
+    expect(jobActive({ state: "queued" })).toBe(true);
+    expect(jobActive({ state: "waiting" })).toBe(true);
+    expect(jobActive({ state: "running" })).toBe(true);
+    expect(jobActive({ state: "done" })).toBe(false);
+    expect(jobActive({ state: "failed" })).toBe(false);
+    expect(jobActive(null)).toBe(false);
+  });
+
+  it("shows the API's reason while it waits, with the queue", () => {
+    expect(jobStatusLine({
+      state: "waiting", message: "3090.zero is rendering; edit queued", position: 2, elapsed_s: 61.4,
+    })).toBe("3090.zero is rendering; edit queued — 2 edits ahead (61 s)");
+    expect(jobStatusLine({ state: "running", message: "", position: null, elapsed_s: 5 }))
+      .toBe("Editing on the 3090… (5 s)");
+    expect(jobStatusLine({ state: "failed", message: "boom", position: null, elapsed_s: null }))
+      .toBe("Failed: boom");
+  });
+
+  it("grades the identity score, and says why there is none", () => {
+    expect(identityVerdict({ aura: 0.72 }).severity).toBe("success");
+    expect(identityVerdict({ aura: 0.5 }).severity).toBe("warning");
+    const far = identityVerdict({ aura: 0.21 });
+    expect(far.severity).toBe("error");
+    expect(far.text).toContain("Profiles score low");
+    expect(identityVerdict({ aura: null, reason: "no face detected in the result" }).text)
+      .toBe("Identity not scored: no face detected in the result");
+  });
+});

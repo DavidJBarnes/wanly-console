@@ -933,8 +933,8 @@ export interface SegmentReprocessRequest {
 
 // --- Image Edit tool (wanly-console#547) ---
 
-/** Phase 1 has one mode. Phase 2 (#548) adds "full" (Qwen-Image-Edit on the 3090). */
-export type ImageEditMode = "face";
+/** "face": LivePortrait, inline. "full" (#548): Qwen-Image-Edit on the 3090, as a job. */
+export type ImageEditMode = "face" | "full";
 
 /** One LivePortrait parameter, as the API describes it (GET /images/edit/presets). */
 export interface EditAxis {
@@ -953,10 +953,60 @@ export interface EditPreset {
   expression: Record<string, number>;
 }
 
+/** A head-angle preset (#548). Degrees in the IMAGE's directions: yaw < 0 turns the face
+ *  toward the left edge of the picture, pitch > 0 raises the chin. `route` is where it runs:
+ *  "face" (LivePortrait, within face_limit_deg) or "full" (Qwen on the 3090). */
+export interface HeadAnglePreset {
+  name: string;
+  label: string;
+  yaw: number;
+  pitch: number;
+  route: "face" | "full" | string;
+}
+
 export interface EditPresets {
   mode: ImageEditMode;
   presets: EditPreset[];
   axes: EditAxis[];
+  /** Absent from an API older than #548: the dialog then has no head-angle section. */
+  head_angles?: HeadAnglePreset[];
+  face_limit_deg?: number;
+  max_yaw?: number;
+  max_pitch?: number;
+}
+
+/** POST /images/edit {mode: "full"}: an instruction, or a head angle. */
+export interface FullEditBody {
+  source_uri: string;
+  mode: "full";
+  instruction?: string;
+  angle?: { yaw: number; pitch: number };
+  head_preset?: string;
+  seed?: number;
+  denoise?: number;
+}
+
+/** A full-mode edit job (#548): queued -> waiting (the 3090 is rendering, training or
+ *  switching; `message` says which) -> running -> done | failed. */
+export interface ImageEditJob {
+  id: string;
+  state: "queued" | "waiting" | "running" | "done" | "failed" | string;
+  message: string;
+  source_uri: string;
+  position?: number | null;
+  tag: string;
+  request: Record<string, unknown>;
+  error?: string | null;
+  elapsed_s?: number | null;
+  /** When done: a capped JPEG data URI for the "after" pane. Nothing is stored until save. */
+  preview?: string | null;
+  width?: number | null;
+  height?: number | null;
+  /** AuraFace cosine against the source, or null with the reason. */
+  identity?: { aura: number | null; reason?: string | null } | null;
+  prompt?: string | null;
+  seed?: number | null;
+  saved?: { uri: string; dataset_id: string | null }[];
 }
 
 export interface ImageEditBody {
