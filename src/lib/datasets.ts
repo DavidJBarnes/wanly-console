@@ -207,23 +207,69 @@ export function trainedByLabel(t: Pick<DatasetTrainedBy, "character" | "version"
   return `${t.character} v${t.version} (${t.status})`;
 }
 
-/** The lock chip's text. A set the API calls locked with no runs listed still says so — the
- *  API is the judge of the lock, and a chip that vanished would re-enable nothing anyway. */
-export function lockLabel(trainedBy: DatasetTrainedBy[] | null | undefined): string {
-  const runs = (trainedBy ?? []).map(trainedByLabel);
-  return runs.length ? `Trained ${runs.join(", ")}` : "Trained a LoRA";
+type LockFacts = Pick<Dataset, "locked" | "trained_by" | "locked_at" | "locked_reason">;
+
+/** The hand-lock half of the chip (wanly-api#358), or null when it was never locked by hand. */
+export function manualLockLabel(ds: Pick<Dataset, "locked_at" | "locked_reason">): string | null {
+  if (!ds.locked_at) return null;
+  const reason = ds.locked_reason?.trim();
+  return reason ? `Locked by hand: ${reason}` : "Locked by hand";
+}
+
+/**
+ * The lock chip's text: what trained it, that it was locked by hand, or both — the two reasons
+ * are told apart (wanly-api#358), because "trained v5" and "frozen as the final set" mean
+ * different things about whether it is safe to build on.
+ *
+ * A set the API calls locked with neither reason listed still says so — the API is the judge
+ * of the lock, and a chip that vanished would re-enable nothing anyway.
+ */
+export function lockLabel(ds: Pick<Dataset, "trained_by" | "locked_at" | "locked_reason">): string {
+  const runs = (ds.trained_by ?? []).map(trainedByLabel);
+  const manual = manualLockLabel(ds);
+  const parts = [
+    ...(runs.length ? [`Trained ${runs.join(", ")}`] : []),
+    ...(manual ? [manual] : []),
+  ];
+  return parts.length ? parts.join(" · ") : "Trained a LoRA";
 }
 
 /**
  * Why an edit control is off, or null when the set is editable.
  *
  * One sentence for every refused control, so the tooltip on each says the same thing the
- * API's 409 would: what locked it, and that Clone is the way to change it.
+ * API's 409 would: what locked it, and that Clone is the way to change it. Driven by
+ * `locked` alone, so a hand lock turns off exactly what a training lock does.
  */
-export function lockedReason(ds: Pick<Dataset, "locked" | "trained_by">): string | null {
+export function lockedReason(ds: LockFacts): string | null {
   if (!ds.locked) return null;
-  return `Locked: this set ${lockLabel(ds.trained_by).replace(/^Trained/, "trained")}, and `
-    + "changing it would make that LoRA's record untrue. Clone it to change it.";
+  const runs = (ds.trained_by ?? []).map(trainedByLabel);
+  const manual = Boolean(ds.locked_at);
+  const why: string[] = [];
+  if (runs.length) why.push(`trained ${runs.join(", ")}`);
+  if (manual) {
+    const reason = ds.locked_reason?.trim();
+    why.push(`was locked by hand${reason ? ` (“${reason}”)` : ""}`);
+  }
+  // Locked with no reason listed: the #356 wording, since training is the lock that predates
+  // the hand one.
+  const trained = runs.length > 0 || !manual;
+  if (!why.length) why.push("trained a LoRA");
+  return `Locked: this set ${why.join(" and ")}`
+    + (trained ? ", and changing it would make that LoRA's record untrue" : "")
+    + ". Clone it to change it.";
+}
+
+/** Whether to offer the Lock button: only on a set that is not locked for any reason. */
+export function canLockByHand(ds: Pick<Dataset, "locked">): boolean {
+  return !ds.locked;
+}
+
+/** The body POST /datasets/{id}/lock is sent: the reason trimmed, and left out when blank so
+ *  the chip does not end in an empty "Locked by hand: ". */
+export function lockReasonBody(reason: string): string | undefined {
+  const r = reason.trim();
+  return r ? r : undefined;
 }
 
 /** The name the Clone prompt starts with — "<name> copy", cut to the API's 100-character

@@ -521,12 +521,18 @@ export interface Dataset {
   /** Likeness to the anchor per URI, saved when the set is scored, so the ring survives a
    *  reload. Null is "no face detected", an absent score rather than a low one. */
   scores?: Record<string, number | null> | null;
-  /** True once a pending, running or completed training run used this set (wanly-api#356).
-   *  The API then refuses every change to what it trains on — images, crops, captions, kind,
-   *  owner, class, delete — with a 409, so the LoRA's record stays true. Clone to change it. */
+  /** True once a pending, running or completed training run used this set (wanly-api#356),
+   *  or once somebody locked it by hand (wanly-api#358). The API then refuses every change to
+   *  what it trains on — images, crops, captions, kind, owner, class, delete — with a 409, so
+   *  the record stays true. Clone to change it. */
   locked?: boolean;
   /** The runs that lock it. A failed or cancelled run is not here: no LoRA came of it. */
   trained_by?: DatasetTrainedBy[];
+  /** When it was locked by hand (POST /datasets/{id}/lock), or null if it never was. One-way:
+   *  there is no unlock, and a clone starts unlocked (wanly-api#358). */
+  locked_at?: string | null;
+  /** The optional note given when it was locked by hand. */
+  locked_reason?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }

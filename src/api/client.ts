@@ -405,6 +405,14 @@ export async function cloneDataset(id: string, name: string): Promise<Dataset> {
   return data;
 }
 
+/** Lock a set by hand (wanly-api#358), for one that should stop changing without having
+ *  trained. ONE-WAY: there is no unlock — Clone is the way to change it afterwards, as with the
+ *  training lock. Locking a set that is already locked returns it unchanged. */
+export async function lockDataset(id: string, reason?: string): Promise<Dataset> {
+  const { data } = await api.post<Dataset>(`/datasets/${id}/lock`, reason ? { reason } : {});
+  return data;
+}
+
 export async function deleteDataset(id: string, purge = false): Promise<void> {
   await api.delete(`/datasets/${id}`, { params: { purge } });
 }
