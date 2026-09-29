@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  byRecent, canLockByHand, captionCoverage, captionProgressLabel, datasetNameProblem,
+  byRecent, canLockByHand, canUnlock, captionCoverage, captionProgressLabel, datasetNameProblem,
   defaultCloneName, isAssigned, lockedReason, lockLabel, lockReasonBody, manualLockLabel,
-  ownerLabel, parseTags, progressPct, regularizeProgressLabel, scoreFor, trainedByLabel,
+  localDate, ownerLabel, parseTags, progressPct, regularizeProgressLabel, scoreFor,
+  trainedByLabel, unlockedLabel,
 } from "./datasets";
 import type { Dataset } from "../api/types";
 
@@ -209,5 +210,41 @@ describe("defaultCloneName", () => {
     const long = defaultCloneName("a".repeat(100));
     expect(long.length).toBeLessThanOrEqual(100);
     expect(datasetNameProblem(long)).toBeNull();
+  });
+});
+
+describe("one-time unlock (wanly-api#363)", () => {
+  const v6 = { job_id: "j6", character: "Me", version: 6, status: "pending" };
+  // Midday UTC, so the local date is the same in every timezone the tests might run in.
+  const at = "2026-09-29T12:00:00Z";
+
+  it("offers Unlock on a set locked for either reason, and only then", () => {
+    expect(canUnlock(ds())).toBe(false);
+    expect(canUnlock(ds({ locked: false, unlocked_at: at }))).toBe(false);
+    expect(canUnlock(ds({ locked: true, trained_by: [v6] }))).toBe(true);
+    expect(canUnlock(ds({ locked: true, locked_at: at }))).toBe(true);
+  });
+
+  it("says when it was unlocked while it is still unlocked", () => {
+    expect(unlockedLabel(ds({ locked: false, unlocked_at: at }))).toBe("Unlocked 2026-09-29");
+  });
+
+  it("drops the note once it is locked again, or if it never was unlocked", () => {
+    // The next run (or a hand lock) locks it again; the lock chip then says why.
+    expect(unlockedLabel(ds({ locked: true, trained_by: [v6], unlocked_at: at }))).toBeNull();
+    expect(unlockedLabel(ds({ locked: true, locked_at: at, unlocked_at: at }))).toBeNull();
+    expect(unlockedLabel(ds({ locked: false, unlocked_at: null }))).toBeNull();
+    expect(unlockedLabel(ds())).toBeNull();
+  });
+
+  it("formats a date the same in every locale, and passes junk through", () => {
+    expect(localDate(at)).toMatch(/^2026-09-29$/);
+    expect(localDate("not a date")).toBe("not a date");
+  });
+
+  it("keeps the Lock and Unlock buttons mutually exclusive", () => {
+    for (const d of [ds(), ds({ locked: true, trained_by: [v6] }), ds({ locked: false, unlocked_at: at })]) {
+      expect(canLockByHand(d)).toBe(!canUnlock(d));
+    }
   });
 });

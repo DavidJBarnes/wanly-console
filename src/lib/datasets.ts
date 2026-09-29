@@ -265,6 +265,29 @@ export function canLockByHand(ds: Pick<Dataset, "locked">): boolean {
   return !ds.locked;
 }
 
+/** Whether to offer the Unlock button (wanly-api#363): on a set locked for either reason. */
+export function canUnlock(ds: Pick<Dataset, "locked">): boolean {
+  return Boolean(ds.locked);
+}
+
+/** A timestamp's LOCAL calendar date as YYYY-MM-DD — the same in every locale. */
+export function localDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * The "unlocked <date>" chip (wanly-api#363), or null. Only while the set is still unlocked:
+ * once a new run or a hand lock locks it again, the lock chip says why and this would only
+ * confuse it.
+ */
+export function unlockedLabel(ds: Pick<Dataset, "locked" | "unlocked_at">): string | null {
+  if (ds.locked || !ds.unlocked_at) return null;
+  return `Unlocked ${localDate(ds.unlocked_at)}`;
+}
+
 /** The body POST /datasets/{id}/lock is sent: the reason trimmed, and left out when blank so
  *  the chip does not end in an empty "Locked by hand: ". */
 export function lockReasonBody(reason: string): string | undefined {

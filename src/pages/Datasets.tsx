@@ -6,14 +6,15 @@ import {
   LinearProgress, MenuItem, Radio, RadioGroup, Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
 import {
-  Add, AutoAwesome, Check, Close, ContentCopy, ContentCut, Delete, Edit, Lock, ModelTraining,
-  Movie, PhotoLibrary, Star, StarBorder, Upload, WarningAmber,
+  Add, AutoAwesome, Check, Close, ContentCopy, ContentCut, Delete, Edit, Lock, LockOpen,
+  ModelTraining, Movie, PhotoLibrary, Star, StarBorder, Upload, WarningAmber,
 } from "@mui/icons-material";
 
 import {
   addDatasetImages, captionDataset, cloneDataset, createDataset, cropDatasetFaces, deleteDataset,
   getCaptionStatus, getFileUrl, getRegularizeStatus, listDatasets, lockDataset, regularizeDataset,
-  removeDatasetImage, scoreDataset, setDatasetAnchor, updateDataset, updateDatasetCaption,
+  removeDatasetImage, scoreDataset, setDatasetAnchor, unlockDataset, updateDataset,
+  updateDatasetCaption,
 } from "../api/client";
 import { listRecipes } from "../api/ltx";
 import type { Character } from "../api/ltx";
@@ -22,10 +23,10 @@ import AddFromRepoDialog from "../components/AddFromRepoDialog";
 import NewCharacterDialog from "../components/NewCharacterDialog";
 import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
 import {
-  byLikeness, byRecent, canLockByHand, captionCoverage, captionProgressLabel,
+  byLikeness, byRecent, canLockByHand, canUnlock, captionCoverage, captionProgressLabel,
   cropSelectionProblem, datasetNameProblem, defaultCloneName, formatCos, isAssigned,
   lockedReason, lockLabel, lockReasonBody, ownerLabel, parseTags, progressPct, regularizeProgressLabel, removalWarning, scoreFor,
-  verdictFor,
+  unlockedLabel, verdictFor,
 } from "../lib/datasets";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
 import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
@@ -168,6 +169,7 @@ function DatasetCard({
   const [name, setName] = useState(ds.name);
   const [assignOpen, setAssignOpen] = useState(false);
   const [lockOpen, setLockOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
   const [generateCount, setGenerateCount] = useState(150);
   const eligible = canTrain(ds.images);
   const isReg = ds.kind === "regularization";
@@ -177,6 +179,7 @@ function DatasetCard({
   // Set once it has trained a LoRA (wanly-api#356) or was locked by hand (wanly-api#358):
   // everything that changes what it trains on is off, with this as the reason. Rename, tags, anchor, scoring and Train stay on.
   const locked = lockedReason(ds);
+  const unlocked = unlockedLabel(ds);
 
   // Background runs on the server (#537). Both re-read the set when they finish, so the
   // captions or frames they wrote show up without a reload.
@@ -377,6 +380,12 @@ function DatasetCard({
               <Chip size="small" color="default" icon={<Lock />} label={lockLabel(ds)} />
             </Tooltip>
           )}
+          {/* One-time unlock (wanly-api#363): shown until a new run or a hand lock locks it again. */}
+          {unlocked && (
+            <Tooltip title="Unlocked by hand: editable until the next training run that uses it, which locks it again">
+              <Chip size="small" variant="outlined" icon={<LockOpen />} label={unlocked} />
+            </Tooltip>
+          )}
           {/* What the set is for and whose it is. Unassigned is loud on purpose: training
               refuses it, and it is how another person's images got into a LoRA. */}
           <Tooltip title={locked ?? ""}>
@@ -439,12 +448,22 @@ function DatasetCard({
             </span>
           </Tooltip>
           {/* Hand lock (wanly-api#358): for a set that should stop changing without having
-              trained. One-way, so gone once locked — Clone is the way back to an editable set. */}
+              trained. Gone once locked — Clone is the way to an editable set, and Unlock
+              (wanly-api#363) the deliberate one-time override. */}
           {canLockByHand(ds) && (
-            <Tooltip title="Freeze this set as it is. Permanent — clone it to change it later">
+            <Tooltip title="Freeze this set as it is. Clone it to change it later">
               <span>
                 <Button size="small" startIcon={<Lock />} disabled={busy} onClick={() => setLockOpen(true)}>
                   Lock
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          {canUnlock(ds) && (
+            <Tooltip title="One-time override: make this set editable again. The next training run that uses it locks it again">
+              <span>
+                <Button size="small" startIcon={<LockOpen />} disabled={busy} onClick={() => setUnlockOpen(true)}>
+                  Unlock
                 </Button>
               </span>
             </Tooltip>
@@ -722,6 +741,14 @@ function DatasetCard({
             ds={ds}
             onClose={() => setLockOpen(false)}
             onLocked={() => { setLockOpen(false); setMsg("locked"); onChanged(); }}
+          />
+        )}
+
+        {unlockOpen && (
+          <UnlockDialog
+            ds={ds}
+            onClose={() => setUnlockOpen(false)}
+            onUnlocked={() => { setUnlockOpen(false); setMsg("unlocked"); onChanged(); }}
           />
         )}
 
@@ -1053,8 +1080,8 @@ function CaptionField({
  *
  * The API refuses a change while a running job uses the set; its message is shown as is.
  */
-/** Confirm a hand lock (wanly-api#358). Says it is permanent before asking, because there is
- *  no unlock: the only way to change the set afterwards is to clone it. */
+/** Confirm a hand lock (wanly-api#358). Says it sticks before asking: the way to change the set
+ *  afterwards is to clone it, or the deliberate one-time Unlock (wanly-api#363). */
 function LockDialog({
   ds, onClose, onLocked,
 }: {
@@ -1087,8 +1114,8 @@ function LockDialog({
           {error && <Alert severity="error">{error}</Alert>}
           <Typography variant="body2">
             Its images, crops, captions and owner can no longer be changed, and it cannot be
-            deleted. <strong>This is permanent</strong> — there is no unlock. To change it later,
-            clone it and edit the copy.
+            deleted. To change it later, clone it and edit the copy — or, as a deliberate
+            one-time override, unlock it.
           </Typography>
           <TextField
             size="small"
@@ -1105,7 +1132,63 @@ function LockDialog({
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button variant="contained" startIcon={<Lock />} onClick={lock} disabled={busy}>
-          Lock permanently
+          Lock
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/** Confirm the one-time unlock (wanly-api#363). Says what it does and does not do before
+ *  asking: the LoRAs already trained keep their own snapshot, and the set locks itself again
+ *  at its next training run. */
+function UnlockDialog({
+  ds, onClose, onUnlocked,
+}: {
+  ds: Dataset;
+  onClose: () => void;
+  onUnlocked: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const unlock = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await unlockDataset(ds.id);
+      onUnlocked();
+    } catch (e: unknown) {
+      setError(apiErrorText(e, "could not unlock it"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={busy ? undefined : onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Unlock “{ds.name}”?</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Typography variant="body2">
+            <strong>A one-time override.</strong> Its images, crops, captions and owner can be
+            changed again, and it can be deleted.
+          </Typography>
+          <Typography variant="body2">
+            The LoRAs already trained from it keep their own snapshot of its images and captions,
+            so changing the set does not change what they learned or what a retry trains on.
+          </Typography>
+          <Typography variant="body2">
+            The next training run that uses it locks it again.
+          </Typography>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button variant="contained" color="warning" startIcon={<LockOpen />} onClick={unlock}
+                disabled={busy}>
+          Unlock
         </Button>
       </DialogActions>
     </Dialog>
