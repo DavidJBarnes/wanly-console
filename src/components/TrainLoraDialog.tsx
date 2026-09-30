@@ -36,7 +36,8 @@ type NewCharacterSlot = "character" | "memberA" | "memberB";
 
 const EMPTY: TrainForm = {
   mode: "solo", character: "", memberA: "", memberB: "", pairName: "", datasets: {},
-  compositionId: null, allowNoComposition: false, version: 1, steps: 0, publish: "final",
+  compositionId: null, allowNoComposition: false, allowLowScores: false, version: 1, steps: 0,
+  publish: "final",
   ...RECIPE_DEFAULTS,
 };
 
@@ -441,6 +442,8 @@ export default function TrainLoraDialog({
             error={failed}
             preflight={current}
             submitProblems={refused}
+            allowLowScores={form.allowLowScores}
+            onAllowLowScores={(v) => patch({ allowLowScores: v })}
             onRecheck={() => {
               setSubmitProblems({ key: "", items: [] });
               setCheckedKey("");
@@ -481,7 +484,8 @@ export default function TrainLoraDialog({
  * and which cannot be removed — each with a few of its final captions.
  */
 function PreflightPanel({
-  incomplete, checking, error, preflight, submitProblems, onRecheck,
+  incomplete, checking, error, preflight, submitProblems, onRecheck, allowLowScores,
+  onAllowLowScores,
 }: {
   incomplete: string | null;
   checking: boolean;
@@ -489,6 +493,8 @@ function PreflightPanel({
   preflight: TrainingPreflight | null;
   submitProblems: PreflightItem[];
   onRecheck: () => void;
+  allowLowScores: boolean;
+  onAllowLowScores: (v: boolean) => void;
 }) {
   const row = (icon: ReactNode, text: string, key: string) => (
     <Box key={key} sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
@@ -516,6 +522,22 @@ function PreflightPanel({
         row(<ErrorOutline color="error" fontSize="small" />, p.message, `p${i}-${p.code}`))}
       {preflight?.warnings.map((w, i) =>
         row(<WarningAmber color="warning" fontSize="small" />, w.message, `w${i}-${w.code}`))}
+      {/* The floor exists to catch bad faceswaps; real profiles and face-filling selfies fail
+          it too (console#575). Shown while the question is live, ticked or not. */}
+      {(problems.some((p) => p.code === "score_below_floor")
+        || preflight?.warnings.some((w) => w.code === "score_below_floor_allowed")) && (
+        <FormControlLabel
+          sx={{ ml: 3 }}
+          control={
+            <Checkbox
+              size="small"
+              checked={allowLowScores}
+              onChange={(e) => onAllowLowScores(e.target.checked)}
+            />
+          }
+          label="These are verified real photos of this person (profiles and close-ups score low)"
+        />
+      )}
       {preflight?.ok && problems.length === 0 && row(
         <CheckCircle color="success" fontSize="small" />,
         `Ready: ${preflight.steps} steps, ${preflight.samples_per_epoch} samples an epoch, `

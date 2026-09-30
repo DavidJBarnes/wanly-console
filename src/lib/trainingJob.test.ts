@@ -360,7 +360,8 @@ const ds = (id: string, kind: Dataset["kind"], owner: string | null): Dataset =>
 
 const form = (over: Partial<TrainForm> = {}): TrainForm => ({
   mode: "solo", character: "", memberA: "", memberB: "", pairName: "", datasets: {},
-  compositionId: null, allowNoComposition: false, version: 1, steps: 1200, publish: "final",
+  compositionId: null, allowNoComposition: false, allowLowScores: false, version: 1, steps: 1200,
+  publish: "final",
   ...RECIPE_DEFAULTS, ...over,
 });
 
@@ -421,6 +422,13 @@ describe("trainingBody", () => {
     expect(body.base_checkpoint).toBe("ltx-2.3-22b-dev");
     expect(body.regularization).toBe(false);
     expect(body.caption_mode).toBe("per_image");
+  });
+  it("sends the low-score acknowledgement only when ticked", () => {
+    expect(trainingBody(form({ character: "David" }))).not.toHaveProperty("allow_low_scores");
+    expect(trainingBody(form({ character: "David", allowLowScores: true })).allow_low_scores)
+      .toBe(true);
+    expect(trainingBody(form({ mode: "pair", memberA: "A", memberB: "B", pairName: "AB",
+      allowLowScores: true })).allow_low_scores).toBe(true);
   });
   it("sends the recipe the user picked", () => {
     const body = trainingBody(form({
