@@ -55,6 +55,71 @@ export function lightboxNav<T extends { path: string }>(image: T | null, pool: T
 }
 
 /**
+ * Where the lightbox can step to from `image`, as pool indices (console#560).
+ *
+ * `index` is the image's own position, or null when it has LEFT the pool while on screen:
+ * tagged out of the Untagged view (the whole point of that view), or unfavourited out of
+ * Favourites. Its neighbours close the gap, so the image that now sits at `lastIndex` —
+ * where it was last seen — is the next one, and the one before that is the previous one.
+ * Navigating from where you were beats the arrows vanishing, which is what `lightboxNav`
+ * alone did, and why the Untagged view "had no arrows": the first tag took the image out
+ * of the pool.
+ *
+ * `lastIndex` is only trusted for a detached image; pass null when there is none. Null
+ * overall when there is nowhere to go and nothing to say (closed, or detached with no
+ * memory of where it was).
+ */
+export type LightboxSteps = {
+  index: number | null;
+  total: number;
+  prev: number | null;
+  next: number | null;
+};
+
+export function lightboxSteps<T extends { path: string }>(
+  image: T | null,
+  pool: T[],
+  lastIndex: number | null,
+): LightboxSteps | null {
+  if (!image) return null;
+  const total = pool.length;
+  const index = pool.findIndex((item) => item.path === image.path);
+  if (index !== -1) {
+    return {
+      index,
+      total,
+      prev: index > 0 ? index - 1 : null,
+      next: index < total - 1 ? index + 1 : null,
+    };
+  }
+  if (lastIndex === null || total === 0) return null;
+  const at = Math.min(Math.max(lastIndex, 0), total);
+  return { index: null, total, prev: at > 0 ? at - 1 : null, next: at < total ? at : null };
+}
+
+/**
+ * What the lightbox shows after the image on screen is deleted (console#560): the NEXT
+ * image, or the previous one when it was the last, or null — close — when none are left.
+ *
+ * Taken from the pool as it was BEFORE the delete, so "next" means the image the person
+ * would have reached with →, not whatever a refetch happens to put there. A deleted image
+ * that had already left the pool (tagged out of Untagged, then deleted) is found by
+ * `lastIndex`, the same memory `lightboxSteps` uses.
+ */
+export function successorAfterDelete<T extends { path: string }>(
+  pool: T[],
+  deletedPath: string,
+  lastIndex: number | null,
+): T | null {
+  const index = pool.findIndex((item) => item.path === deletedPath);
+  const rest = index === -1 ? pool : pool.filter((item) => item.path !== deletedPath);
+  if (rest.length === 0) return null;
+  const at = index !== -1 ? index : lastIndex;
+  if (at === null) return null;
+  return rest[Math.min(Math.max(at, 0), rest.length - 1)];
+}
+
+/**
  * The array the lightbox steps through: whichever grid is on screen.
  * Precedence mirrors ImageRepo's render gates — a filter shows search results
  * wherever it was typed; then the toggles; otherwise the open folder.

@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { isTypingTarget, lightboxNav, orderForBrowse, stepIndex } from "./lightboxNav";
+import {
+  isTypingTarget,
+  lightboxNav,
+  lightboxSteps,
+  orderForBrowse,
+  poolForView,
+  stepIndex,
+  successorAfterDelete,
+} from "./lightboxNav";
 
 const img = (path: string, lastModified: string) => ({ path, last_modified: lastModified });
 const POOL = [img("a.jpg", "2026-01-01"), img("b.jpg", "2026-02-01"), img("c.jpg", "2026-03-01")];
@@ -87,5 +95,125 @@ describe("isTypingTarget", () => {
     expect(isTypingTarget(null)).toBe(false);
     expect(isTypingTarget(undefined)).toBe(false);
     expect(isTypingTarget("nonsense")).toBe(false);
+  });
+});
+
+describe("lightboxSteps", () => {
+  it("steps either side of an image in the pool", () => {
+    expect(lightboxSteps(POOL[1], POOL, null)).toEqual({ index: 1, total: 3, prev: 0, next: 2 });
+  });
+
+  it("has no previous at the start and no next at the end", () => {
+    expect(lightboxSteps(POOL[0], POOL, null)).toMatchObject({ prev: null, next: 1 });
+    expect(lightboxSteps(POOL[2], POOL, null)).toMatchObject({ prev: 1, next: null });
+  });
+
+  it("ignores lastIndex while the image is still in the pool", () => {
+    expect(lightboxSteps(POOL[1], POOL, 0)).toMatchObject({ index: 1 });
+  });
+
+  it("keeps the arrows when the image leaves the pool — tagged out of Untagged", () => {
+    // b was at 1 and was tagged: the untagged list is now [a, c].
+    const after = [POOL[0], POOL[2]];
+    expect(lightboxSteps(POOL[1], after, 1)).toEqual({ index: null, total: 2, prev: 0, next: 1 });
+  });
+
+  it("a detached image that was last has only a previous", () => {
+    const after = [POOL[0], POOL[1]];
+    expect(lightboxSteps(POOL[2], after, 2)).toEqual({ index: null, total: 2, prev: 1, next: null });
+  });
+
+  it("a detached image that was first has only a next", () => {
+    const after = [POOL[1], POOL[2]];
+    expect(lightboxSteps(POOL[0], after, 0)).toEqual({ index: null, total: 2, prev: null, next: 0 });
+  });
+
+  it("clamps a stale lastIndex into the pool", () => {
+    expect(lightboxSteps(img("gone.jpg", "x"), [POOL[0]], 5)).toEqual({
+      index: null, total: 1, prev: 0, next: null,
+    });
+  });
+
+  it("returns null with nowhere to go", () => {
+    expect(lightboxSteps(null, POOL, 0)).toBeNull();
+    expect(lightboxSteps(img("gone.jpg", "x"), POOL, null)).toBeNull();
+    expect(lightboxSteps(img("gone.jpg", "x"), [], 0)).toBeNull();
+  });
+
+  it("walks the untagged list while every image is tagged out of it in turn", () => {
+    // The Untagged workflow: open the first, tag it (it leaves the list), press →, repeat.
+    let pool = [...POOL];
+    let on = pool[0];
+    let last = 0;
+    const seen = [on.path];
+    for (;;) {
+      last = pool.findIndex((i) => i.path === on.path);
+      pool = pool.filter((i) => i.path !== on.path);             // tagged: gone from the view
+      const steps = lightboxSteps(on, pool, last);
+      if (!steps || steps.next === null) break;
+      on = pool[steps.next];
+      seen.push(on.path);
+    }
+    expect(seen).toEqual(["a.jpg", "b.jpg", "c.jpg"]);
+  });
+});
+
+describe("successorAfterDelete", () => {
+  it("moves to the next image", () => {
+    expect(successorAfterDelete(POOL, "a.jpg", null)?.path).toBe("b.jpg");
+    expect(successorAfterDelete(POOL, "b.jpg", null)?.path).toBe("c.jpg");
+  });
+
+  it("moves to the previous image when the deleted one was last", () => {
+    expect(successorAfterDelete(POOL, "c.jpg", null)?.path).toBe("b.jpg");
+  });
+
+  it("closes when nothing is left", () => {
+    expect(successorAfterDelete([POOL[0]], "a.jpg", null)).toBeNull();
+    expect(successorAfterDelete([], "a.jpg", 0)).toBeNull();
+  });
+
+  it("uses lastIndex for an image that had already left the pool", () => {
+    // b was at 1, tagged out of Untagged ([a, c] now), then deleted: c took its place.
+    expect(successorAfterDelete([POOL[0], POOL[2]], "b.jpg", 1)?.path).toBe("c.jpg");
+    // c was last and left: a detached delete falls back to the new last.
+    expect(successorAfterDelete([POOL[0], POOL[1]], "c.jpg", 2)?.path).toBe("b.jpg");
+  });
+
+  it("closes for a detached image with no remembered position", () => {
+    expect(successorAfterDelete(POOL, "gone.jpg", null)).toBeNull();
+  });
+
+  it("deleting down to nothing visits next, next, then previous, then closes", () => {
+    let pool = [...POOL];
+    let on: { path: string } | null = pool[1];
+    const seen: string[] = [];
+    while (on) {
+      seen.push(on.path);
+      const gone: string = on.path;
+      on = successorAfterDelete(pool, gone, null);
+      pool = pool.filter((i) => i.path !== gone);
+    }
+    expect(seen).toEqual(["b.jpg", "c.jpg", "a.jpg"]);
+  });
+});
+
+describe("poolForView", () => {
+  const view = {
+    filterActive: false, favoritesView: false, untaggedView: false,
+    search: ["s"], favorites: ["f"], untagged: ["u"], folder: ["d"],
+  };
+
+  it("steps through the untagged list in the Untagged view", () => {
+    expect(poolForView({ ...view, untaggedView: true })).toEqual(["u"]);
+  });
+
+  it("a filter wins wherever it was typed", () => {
+    expect(poolForView({ ...view, untaggedView: true, filterActive: true })).toEqual(["s"]);
+  });
+
+  it("otherwise favourites, then the folder", () => {
+    expect(poolForView({ ...view, favoritesView: true })).toEqual(["f"]);
+    expect(poolForView(view)).toEqual(["d"]);
   });
 });
