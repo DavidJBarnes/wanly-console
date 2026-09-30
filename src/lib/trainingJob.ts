@@ -412,6 +412,9 @@ export interface TrainForm {
   datasets: Record<string, string>;
   compositionId: string | null;
   allowNoComposition: boolean;
+  /** "These are verified real photos of her" (console#575): profiles and face-filling selfies
+   *  of the real person score low or read as no face, and must not be thrown out for it. */
+  allowLowScores: boolean;
   version: number;
   steps: number;
   publish: "final" | "all";
@@ -454,6 +457,8 @@ export function trainingBody(f: TrainForm): TrainingCreate {
   const recipe = {
     caption_mode: f.captionMode, regularization: f.regularization,
     base_checkpoint: f.baseCheckpoint || null,
+    // Only when ticked, so a request that never met the question does not carry an answer.
+    ...(f.allowLowScores ? { allow_low_scores: true } : {}),
   };
   const pick = (names: string[]) => Object.fromEntries(
     names.filter((n) => f.datasets[n]).map((n) => [n, f.datasets[n]]));

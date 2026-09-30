@@ -623,6 +623,9 @@ export interface TrainingCreate {
   /** Pair only: an explicit "yes, without both-in-frame images", which the API otherwise
    *  refuses — faces blend without them. */
   allow_no_composition?: boolean;
+  /** Train on images below the anchor floor, as verified real photos (console#575). Sent
+   *  only when ticked; the API turns that blocker into a warning. */
+  allow_low_scores?: boolean;
   version: number;
   steps: number;
   /** Which checkpoints to upload as they are written. Final only by default: a checkpoint
