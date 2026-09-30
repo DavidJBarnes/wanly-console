@@ -601,10 +601,22 @@ export async function getUntaggedImages(): Promise<ImageFile[]> {
   return data;
 }
 
+/** How long a delete may take before the console gives up and says so (console#559).
+ *
+ *  A delete is a few reads, one row write and one S3 call — well under a second. Anything
+ *  near this long means the request never got going (the browser's per-host connection cap
+ *  held it behind long-running describes, or the API was saturated), and a dialog that
+ *  spins on regardless is the bug. The timer runs from send(), so it covers time spent
+ *  queued in the browser too. */
+export const DELETE_TIMEOUT_MS = 30_000;
+
 /** Delete an image. Refused with 409 when a job or segment still references it; pass
  *  force to delete anyway and accept the dangling reference. */
 export async function deleteImage(path: string, force = false): Promise<void> {
-  await api.delete("/images", { params: force ? { path, force: true } : { path } });
+  await api.delete("/images", {
+    params: force ? { path, force: true } : { path },
+    timeout: DELETE_TIMEOUT_MS,
+  });
 }
 
 export async function createImageFolder(name: string): Promise<{ name: string }> {
@@ -618,6 +630,8 @@ export async function createImageFolder(name: string): Promise<{ name: string }>
 export async function deleteImageFolder(name: string, force = false): Promise<{ deleted: number }> {
   const { data } = await api.delete("/images/folder", {
     params: force ? { name, force: true } : { name },
+    // A folder is one batch S3 delete, so the same bound holds; see DELETE_TIMEOUT_MS.
+    timeout: DELETE_TIMEOUT_MS,
   });
   return data;
 }
