@@ -17,7 +17,8 @@ import type {
 } from "../api/types";
 import NewCharacterDialog from "./NewCharacterDialog";
 import {
-  apiErrorText, characterHasTrained, datasetsOwnedBy, defaultEpochsForSamples, defaultPairName,
+  apiErrorText, BASE_CHECKPOINTS, characterHasTrained, datasetsOwnedBy, defaultEpochsForSamples,
+  defaultPairName, NUM_REPEATS, RECIPE_DEFAULTS,
   estimatedMinutes, formIncomplete, initialFromDataset, isPairCharacter, nextVersion,
   problemsFromError, runCharacter, stepsForSamples, stepsPerEpoch, trainingBody,
 } from "../lib/trainingJob";
@@ -36,6 +37,7 @@ type NewCharacterSlot = "character" | "memberA" | "memberB";
 const EMPTY: TrainForm = {
   mode: "solo", character: "", memberA: "", memberB: "", pairName: "", datasets: {},
   compositionId: null, allowNoComposition: false, version: 1, steps: 0, publish: "final",
+  ...RECIPE_DEFAULTS,
 };
 
 /**
@@ -365,16 +367,56 @@ export default function TrainLoraDialog({
               type="number"
               value={epochsShown}
               onChange={(e) => setEpochs(Math.max(1, parseInt(e.target.value) || 1))}
-              helperText={`${steps} steps (${samplesPerEpoch} samples an epoch × ${epochsShown}) — `
-                + `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch`}
+              helperText={`${steps} steps (${samplesPerEpoch} samples an epoch × ${epochsShown}), `
+                + `each image seen ${current?.passes_per_image ?? epochsShown * NUM_REPEATS}× — `
+                + `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch. `
+                + `Kelly-2000 v5 used ~30×.`}
               slotProps={{ htmlInput: { min: 1 } }}
               sx={{ flex: 1 }}
             />
           </Box>
 
-          <Typography variant="body2" color="text.secondary">
-            Base model: <strong>{current?.base_checkpoint ?? "—"}</strong>
-          </Typography>
+          <Box>
+            <Typography variant="body2" sx={{ mb: 1 }}>Recipe</Typography>
+            <TextField
+              select
+              fullWidth
+              size="small"
+              label="Base model"
+              value={form.baseCheckpoint}
+              onChange={(e) => patch({ baseCheckpoint: e.target.value })}
+              helperText="What the LoRA trains against. Renders use the render checkpoint either way."
+            >
+              {BASE_CHECKPOINTS.map((b) => (
+                <MenuItem key={b.value} value={b.value}>{b.label}</MenuItem>
+              ))}
+            </TextField>
+            <FormControlLabel
+              sx={{ mt: 1 }}
+              control={
+                <Checkbox
+                  size="small"
+                  checked={form.regularization}
+                  onChange={(e) => patch({ regularization: e.target.checked })}
+                />
+              }
+              label="Regularization pool (generic man/woman images)"
+            />
+            <Typography variant="caption" color="text.secondary" component="div">
+              Off in Kelly-2000 v5's recipe. Off keeps identity strongest; "man"/"woman" in
+              prompts may drift toward these people.
+            </Typography>
+            <RadioGroup
+              row
+              value={form.captionMode}
+              onChange={(e) => patch({ captionMode: e.target.value as TrainForm["captionMode"] })}
+            >
+              <FormControlLabel value="per_image" control={<Radio size="small" />}
+                label="Dataset captions (blank = bare trigger)" />
+              <FormControlLabel value="trigger_only" control={<Radio size="small" />}
+                label="Bare trigger only" />
+            </RadioGroup>
+          </Box>
 
           <Box>
             <Typography variant="body2" sx={{ mb: 0.5 }}>Upload</Typography>

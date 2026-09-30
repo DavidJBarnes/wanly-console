@@ -614,6 +614,13 @@ export interface TrainingCreate {
   /** Which checkpoints to upload as they are written. Final only by default: a checkpoint
    *  takes ~18 minutes to leave the 3090 and most epochs go unused. */
   publish: "final" | "all";
+  /** "per_image" trains each image under "<trigger>, <gender>, <its stored caption>" (blank =
+   *  bare); "trigger_only" ignores stored captions. */
+  caption_mode?: "per_image" | "trigger_only";
+  /** Add a regularization pool per gender (the API's default is true). */
+  regularization?: boolean;
+  /** Bare checkpoint name under ltx-2.3/diffusion_models; null = the render stack's. */
+  base_checkpoint?: string | null;
 }
 
 export interface PreflightItem {

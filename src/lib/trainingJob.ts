@@ -415,7 +415,31 @@ export interface TrainForm {
   version: number;
   steps: number;
   publish: "final" | "all";
+  /** The recipe. Defaults are Kelly-2000 v5's, the run that held her best. */
+  baseCheckpoint: string;
+  regularization: boolean;
+  captionMode: "per_image" | "trigger_only";
 }
+
+/**
+ * The bases the trainer can train against. Dev first, and the default: Kelly-2000 v1 and v5
+ * (the two that held her) trained on it; v2/v3 trained on 10Eros, and whether that swap cost
+ * identity has not been measured on its own. Rendering still happens on the render stack's
+ * checkpoint either way.
+ */
+export const BASE_CHECKPOINTS: { value: string; label: string }[] = [
+  { value: "ltx-2.3-22b-dev", label: "LTX-2.3 dev (Kelly-2000 v1/v5)" },
+  { value: "10Eros_v1.5_bf16", label: "10Eros v1.5 (the render checkpoint)" },
+];
+
+/**
+ * v5's recipe: dev base, no regularization pool, stored captions (blank = the bare trigger;
+ * type only props). Regularization is opt-in because the run that used it (Kelly-2000 v2, with
+ * long captions) came out a generic woman, and the pools were deleted after.
+ */
+export const RECIPE_DEFAULTS: Pick<TrainForm, "baseCheckpoint" | "regularization" | "captionMode"> = {
+  baseCheckpoint: BASE_CHECKPOINTS[0].value, regularization: false, captionMode: "per_image",
+};
 
 /** Who this run trains as — the row it publishes to. */
 export function runCharacter(f: Pick<TrainForm, "mode" | "character" | "pairName">): string {
@@ -427,6 +451,10 @@ export function runCharacter(f: Pick<TrainForm, "mode" | "character" | "pairName
  * was checked is exactly what is sent.
  */
 export function trainingBody(f: TrainForm): TrainingCreate {
+  const recipe = {
+    caption_mode: f.captionMode, regularization: f.regularization,
+    base_checkpoint: f.baseCheckpoint || null,
+  };
   const pick = (names: string[]) => Object.fromEntries(
     names.filter((n) => f.datasets[n]).map((n) => [n, f.datasets[n]]));
   if (f.mode === "solo") {
@@ -434,7 +462,7 @@ export function trainingBody(f: TrainForm): TrainingCreate {
     return {
       mode: "solo", character: f.character.trim(),
       ...(Object.keys(ds).length ? { datasets: ds } : {}),
-      version: f.version, steps: f.steps, publish: f.publish,
+      version: f.version, steps: f.steps, publish: f.publish, ...recipe,
     };
   }
   const ds = pick([f.memberA, f.memberB]);
@@ -446,7 +474,7 @@ export function trainingBody(f: TrainForm): TrainingCreate {
     // Only with no composition set: acknowledging a risk that is not being taken means
     // nothing, and a stale tick must not ride along into a later run that has one.
     allow_no_composition: !f.compositionId && f.allowNoComposition,
-    version: f.version, steps: f.steps, publish: f.publish,
+    version: f.version, steps: f.steps, publish: f.publish, ...recipe,
   };
 }
 

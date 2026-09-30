@@ -21,7 +21,7 @@ import {
   formatRunDuration,
   canTrain,
   characterHasTrained, datasetsOwnedBy, defaultPairName, formIncomplete, initialFromDataset,
-  isPairCharacter, problemsFromError, runCharacter, trainingBody,
+  isPairCharacter, problemsFromError, runCharacter, trainingBody, RECIPE_DEFAULTS,
   trainingPct,
   trainingSummary,
 } from "./trainingJob";
@@ -361,7 +361,7 @@ const ds = (id: string, kind: Dataset["kind"], owner: string | null): Dataset =>
 const form = (over: Partial<TrainForm> = {}): TrainForm => ({
   mode: "solo", character: "", memberA: "", memberB: "", pairName: "", datasets: {},
   compositionId: null, allowNoComposition: false, version: 1, steps: 1200, publish: "final",
-  ...over,
+  ...RECIPE_DEFAULTS, ...over,
 });
 
 describe("characters", () => {
@@ -411,6 +411,24 @@ describe("trainingBody", () => {
     expect(body).toEqual({
       mode: "solo", character: "David", datasets: { David: "a" },
       version: 1, steps: 1200, publish: "final",
+      caption_mode: "per_image", regularization: false, base_checkpoint: "ltx-2.3-22b-dev",
+    });
+  });
+  it("defaults to Kelly-2000 v5's recipe: dev base, no regularization, stored captions", () => {
+    // The API's own defaults are 10Eros and regularization on; the dialog must send v5's
+    // explicitly or a run silently trains a different recipe from the one that held her.
+    const body = trainingBody(form({ mode: "pair", memberA: "A", memberB: "B", pairName: "AB" }));
+    expect(body.base_checkpoint).toBe("ltx-2.3-22b-dev");
+    expect(body.regularization).toBe(false);
+    expect(body.caption_mode).toBe("per_image");
+  });
+  it("sends the recipe the user picked", () => {
+    const body = trainingBody(form({
+      character: "David", baseCheckpoint: "10Eros_v1.5_bf16", regularization: true,
+      captionMode: "trigger_only",
+    }));
+    expect(body).toMatchObject({
+      base_checkpoint: "10Eros_v1.5_bf16", regularization: true, caption_mode: "trigger_only",
     });
   });
   it("omits the dataset map when nothing is chosen, so the API picks the only one", () => {
