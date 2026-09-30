@@ -1,73 +1,22 @@
 /**
  * The Image Edit dialog's rules, kept out of the component so they can be tested (#547).
  *
- * The dialog edits by NUMBERS: a preset is a starting point that moves the sliders, and a
- * drag afterwards changes one axis without losing the others. What is sent is only the axes
- * that are not zero, so the API's record of an edit reads as the edit.
+ * QWEN FOR EVERYTHING (#569). LivePortrait "drops every detail", so every edit the dialog makes
+ * is a Qwen-Image-Edit job: a head angle (preset or yaw/pitch), an expression preset and a
+ * free-text description, any mix of the three, composed into ONE job. There is no instant
+ * preview any more: a job is queued, waits for a GPU (and says why), runs, and comes back with
+ * an AuraFace identity score against the original before anything is saved.
  *
- * A DESCRIBED change (#550) is the other way in: the text goes to the API, the face-edit
- * service reads it against its keyword lexicon, and the preview comes back with the numbers it
- * resolved to. Those become the sliders, so a description is a starting point exactly like a
- * preset, and the understood terms become chips.
- *
- * WHICH FACE (#553): the service edits the face nearest the horizontal centre unless told
- * otherwise. With two or more faces the dialog draws them as numbered boxes and sends the
- * chosen one's box; with one or none it sends nothing and looks exactly as before.
+ * WHICH FACE (#553): with two or more faces the dialog draws them as numbered boxes and sends
+ * the chosen one's box; the service crops around that face, edits it alone and pastes it back,
+ * so nobody else in the picture is regenerated. With one or none it sends nothing and the
+ * whole frame is edited.
  */
 import type {
-  Dataset, DetectedFace, EditAxis, EditPreset, FullEditBody, HeadAnglePreset, ImageEditFaces,
-  ImageEditJob, ImageEditPreview,
+  Dataset, DetectedFace, ExpressionPreset, FullEditBody, HeadAnglePreset, ImageEditFaces,
+  ImageEditJob,
 } from "../api/types";
 import { lockedReason } from "./datasets";
-
-export type EditValues = Record<string, number>;
-
-/** Every axis at zero: the unedited face. */
-export function neutralValues(axes: Pick<EditAxis, "key">[]): EditValues {
-  return Object.fromEntries(axes.map((a) => [a.key, 0]));
-}
-
-/** A preset's values over a neutral face. Replaces, never adds: clicking "Smile" after
- *  "Look left" gives a smile, not a smiling sideways glance nobody asked for. */
-export function applyPreset(axes: Pick<EditAxis, "key">[], preset: Pick<EditPreset, "expression">): EditValues {
-  return { ...neutralValues(axes), ...preset.expression };
-}
-
-/** The axes that actually move — what the API receives and what the record shows. */
-export function changedParams(values: EditValues): EditValues {
-  return Object.fromEntries(Object.entries(values).filter(([, v]) => v !== 0 && Number.isFinite(v)));
-}
-
-export function hasEdit(values: EditValues): boolean {
-  return Object.keys(changedParams(values)).length > 0;
-}
-
-/** Whether `values` is still exactly what `preset` set. Once a slider moves away from it the
- *  edit is no longer that preset, and saving it under the preset's name would mislabel it. */
-export function matchesPreset(values: EditValues, preset: Pick<EditPreset, "expression"> | null): boolean {
-  if (!preset) return false;
-  const a = changedParams(values);
-  const b = changedParams(preset.expression);
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  for (const k of keys) if ((a[k] ?? 0) !== (b[k] ?? 0)) return false;
-  return true;
-}
-
-/** Axes by where the dialog shows them. Unknown groups fall into "more" rather than vanishing. */
-export function groupAxes<T extends Pick<EditAxis, "group">>(axes: T[]): { main: T[]; gaze: T[]; more: T[] } {
-  const out = { main: [] as T[], gaze: [] as T[], more: [] as T[] };
-  for (const a of axes) {
-    if (a.group === "main") out.main.push(a);
-    else if (a.group === "gaze") out.gaze.push(a);
-    else out.more.push(a);
-  }
-  return out;
-}
-
-/** Keep a value on its axis: the API refuses out-of-range numbers rather than clamping. */
-export function clampToAxis(axis: Pick<EditAxis, "min" | "max">, v: number): number {
-  return Math.min(axis.max, Math.max(axis.min, v));
-}
 
 /** Why an edit cannot be saved to this dataset, or null when it can. A locked set (trained
  *  #356, or locked by hand #358) is refused by the API with a 409; the dialog says so first. */
@@ -85,21 +34,12 @@ export function datasetChoices(datasets: Dataset[]): { ds: Dataset; problem: str
       || a.ds.name.localeCompare(b.ds.name));
 }
 
-/** True for an image this tool made. Editing an edit re-decodes the face through LivePortrait's
- *  256 px stage again, and keyframe-server measured texture falling 100 -> 31 -> 9% over
- *  successive face passes: edit the original instead. */
+/** True for an image this tool made. Every Qwen pass regenerates what it edits, and drift
+ *  compounds (keyframe-server measured de-ageing and halved skin texture per pass): edit the
+ *  original instead when you can. */
 export function isEditedImage(uri: string): boolean {
   const name = uri.split("/").pop() ?? "";
-  return /_edit-[a-z0-9_]+_[0-9a-f]{6}\.png$/i.test(name);
-}
-
-/** "GPU · 1.2 s" or "CPU (Automatic1111 on this card is generating) · 9.4 s". The device is
- *  worth showing: a slow preview is otherwise indistinguishable from a hung one. */
-export function describeRun(p: Pick<ImageEditPreview, "device" | "device_reason" | "elapsed_ms">): string {
-  const secs = p.elapsed_ms != null ? ` · ${(p.elapsed_ms / 1000).toFixed(1)} s` : "";
-  if (p.device === "cuda") return `GPU${secs}`;
-  if (p.device === "cpu") return `CPU${p.device_reason ? ` (${p.device_reason})` : ""}${secs}`;
-  return secs.replace(" · ", "");
+  return /_edit-[a-z0-9_-]+_[0-9a-f]{6}\.png$/i.test(name);
 }
 
 /** The file name of a saved edit, for the confirmation line. */
@@ -107,47 +47,13 @@ export function savedName(uri: string): string {
   return uri.split("/").pop() ?? uri;
 }
 
-/** The API's limit on a description (MAX_PROMPT in wanly-api app/face_edit.py). */
-export const MAX_PROMPT = 500;
+/** The API's limit on a free-text instruction (ImageEditRequest.instruction). */
+export const MAX_INSTRUCTION = 2000;
 
-/** Why this description cannot be sent, or null when it can. */
-export function promptProblem(text: string): string | null {
-  const t = text.trim();
-  if (!t) return "Describe the change first — e.g. “big smile, eyes closed, look left”";
-  if (t.length > MAX_PROMPT) return `Keep the description under ${MAX_PROMPT} characters`;
-  return null;
-}
-
-/** The sliders after a described change: the service's resolved numbers over a neutral face,
- *  kept on each axis. Axes the dialog does not draw are ignored rather than added. */
-export function valuesFromExpression(
-  axes: Pick<EditAxis, "key" | "min" | "max">[],
-  expression: Record<string, number> | null | undefined,
-): EditValues {
-  const out = neutralValues(axes);
-  for (const a of axes) {
-    const v = expression?.[a.key];
-    if (typeof v === "number" && Number.isFinite(v)) out[a.key] = clampToAxis(a, v);
-  }
-  return out;
-}
-
-/** What the next preview sends. Only ever one of the two: the LATEST input wins — a slider
- *  released after a description previews the sliders, a description sent after a drag
- *  previews the description. */
-export type PreviewRequest = { kind: "values"; values: EditValues } | { kind: "prompt"; text: string };
-
-export function previewBody(
-  sourceUri: string, req: PreviewRequest, choice: FaceChoice = {},
-): { source_uri: string; mode: "face"; expression?: EditValues; prompt?: string } & FaceChoice | null {
-  if (req.kind === "prompt") {
-    const text = req.text.trim();
-    return text ? { source_uri: sourceUri, mode: "face", prompt: text, ...choice } : null;
-  }
-  const params = changedParams(req.values);
-  return Object.keys(params).length
-    ? { source_uri: sourceUri, mode: "face", expression: params, ...choice }
-    : null;
+/** Why this description cannot be sent, or null when it can (blank is fine: it is optional). */
+export function instructionProblem(text: string): string | null {
+  return text.trim().length > MAX_INSTRUCTION
+    ? `Keep the description under ${MAX_INSTRUCTION} characters` : null;
 }
 
 // ------------------------------------------------------------------ which face (#553)
@@ -162,8 +68,8 @@ export function pickerFaces(f: ImageEditFaces | null | undefined): DetectedFace[
   return faces.length >= 2 && f!.width > 0 && f!.height > 0 ? faces : [];
 }
 
-/** The face selected when the dialog opens: the one the service would edit unaided, so the
- *  picker starts out showing what today's behaviour does. */
+/** The face selected when the dialog opens: the API's default (the largest face, or the
+ *  centre-most one when the list came from the face-edit service). */
 export function initialFace(f: ImageEditFaces | null | undefined): number | null {
   const faces = pickerFaces(f);
   if (!faces.length) return null;
@@ -172,8 +78,8 @@ export function initialFace(f: ImageEditFaces | null | undefined): number | null
 }
 
 /** The request fields for the selected face. A box, not the index: it names the face by where
- *  it is, which the service matches against its own detection — an index is a position in a
- *  list. Empty when there is no picker, so the request is exactly today's. */
+ *  it is, and the service crops around it whichever detector drew it. Empty when there is no
+ *  picker: the whole frame is edited. */
 export function faceChoice(f: ImageEditFaces | null | undefined, selected: number | null): FaceChoice {
   const face = pickerFaces(f).find((x) => x.index === selected);
   return face ? { face_box: face.box } : {};
@@ -202,50 +108,35 @@ export function scaleBox(
   };
 }
 
-/** The picker's hint line. Only one face is edited per pass, so the second person is a second
- *  pass on the saved result. */
+/** The picker's hint line. Only the chosen face is regenerated, so the second person is a
+ *  second pass on the saved result. */
 export function faceHint(count: number): string {
-  return `${count} faces found — click a box to choose which one to edit. To change another `
-    + "face too, save, then edit the saved image.";
+  return `${count} faces found — click a box to choose which one to edit. Only that face is `
+    + "regenerated; the rest of the picture is kept. To change another face too, save, then "
+    + "edit the saved image.";
 }
 
-/** The API's 422 for a description with no word the lexicon knows ("nothing to apply: no
- *  known terms in '…'. Recognised terms: smile, grin, …"), reworded for the dialog; null for
- *  any other error, which is shown as it came. */
-export function unknownTermsMessage(detail: string): string | null {
-  if (!/no known terms/i.test(detail)) return null;
-  const m = /Recognised terms:\s*(.+?)\.?\s*$/i.exec(detail);
-  return "None of those words are ones the editor understands"
-    + (m ? `. It knows: ${m[1]}.` : ". Try words like smile, frown, wink, look left, turn head right.");
-}
-
-// ------------------------------------------------------------------ head angle (#548)
+// ------------------------------------------------------------------ the edit (#548, #569)
 //
-// DEGREES IN THE IMAGE'S DIRECTIONS, shared by both engines: yaw < 0 turns the face toward the
-// LEFT EDGE OF THE PICTURE (the viewer's left, the subject's right) -- what LivePortrait's
-// rotate_yaw < 0 already did in phase 1 -- and pitch > 0 raises the chin. Within the face limit
-// (±20°) the angle is a LivePortrait edit: instant, and the face is warped rather than redrawn.
-// Beyond it only Qwen can invent the unseen side of the face, on the 3090, as a job.
+// DEGREES IN THE IMAGE'S DIRECTIONS: yaw < 0 turns the face toward the LEFT EDGE OF THE
+// PICTURE (the viewer's left, the subject's right) and pitch > 0 raises the chin. Any size of
+// turn, up to a full profile, is one Qwen job -- there is no LivePortrait route any more.
 
-export const FACE_LIMIT_DEG = 20;
+/** Below this a head angle is not a change (the API refuses it). */
+export const MIN_ANGLE_DEG = 5;
 
-/** "face" when LivePortrait can reach the angle, "full" when only Qwen can. */
-export function routeAngle(yaw: number, pitch: number, limit = FACE_LIMIT_DEG): "face" | "full" {
-  return Math.max(Math.abs(yaw), Math.abs(pitch)) <= limit ? "face" : "full";
+/** What the user has asked for: an angle, an expression preset, a description, or a mix. */
+export interface EditChoice {
+  yaw: number;
+  pitch: number;
+  expression: string | null;
+  text: string;
 }
 
-/** A face-routed head angle as LivePortrait slider values over a neutral face. PITCH IS
- *  NEGATED: the node's rotate_pitch > 0 lowers the chin (checked on sel_008), a head angle's
- *  pitch > 0 raises it. */
-export function faceValuesForAngle(
-  axes: Pick<EditAxis, "key" | "min" | "max">[], yaw: number, pitch: number,
-): EditValues {
-  const out = neutralValues(axes);
-  for (const a of axes) {
-    if (a.key === "rotate_yaw") out[a.key] = clampToAxis(a, yaw);
-    if (a.key === "rotate_pitch") out[a.key] = clampToAxis(a, pitch === 0 ? 0 : -pitch);
-  }
-  return out;
+export const NO_EDIT: EditChoice = { yaw: 0, pitch: 0, expression: null, text: "" };
+
+export function angleSet(yaw: number, pitch: number): boolean {
+  return Math.max(Math.abs(yaw), Math.abs(pitch)) >= MIN_ANGLE_DEG;
 }
 
 /** The preset these exact angles are, if any -- so a job is recorded (and its file named) as
@@ -256,15 +147,37 @@ export function headPresetFor(
   return presets.find((p) => p.yaw === yaw && p.pitch === pitch) ?? null;
 }
 
-/** The full-mode request for a head angle, or null when there is nothing to do. */
-export function fullAngleBody(
-  sourceUri: string, yaw: number, pitch: number, presets: HeadAnglePreset[] = [],
+/** The job request for everything chosen, or null when there is nothing to do. The angle goes
+ *  by preset name when it is exactly one, else as numbers; the expression as `preset`; the
+ *  description as `instruction`; the chosen face as its box. */
+export function editBody(
+  sourceUri: string, c: EditChoice, presets: HeadAnglePreset[] = [], face: FaceChoice = {},
 ): FullEditBody | null {
-  if (Math.max(Math.abs(yaw), Math.abs(pitch)) < 5) return null;
-  const p = headPresetFor(presets, yaw, pitch);
-  return p
-    ? { source_uri: sourceUri, mode: "full", head_preset: p.name }
-    : { source_uri: sourceUri, mode: "full", angle: { yaw, pitch } };
+  const body: FullEditBody = { source_uri: sourceUri, mode: "full" };
+  if (angleSet(c.yaw, c.pitch)) {
+    const p = headPresetFor(presets, c.yaw, c.pitch);
+    if (p) body.head_preset = p.name;
+    else body.angle = { yaw: c.yaw, pitch: c.pitch };
+  }
+  if (c.expression) body.preset = c.expression;
+  const text = c.text.trim();
+  if (text) body.instruction = text;
+  if (!body.head_preset && !body.angle && !body.preset && !body.instruction) return null;
+  return { ...body, ...face };
+}
+
+/** "Profile left · Smile · “red sweater”" — what Run will ask for, in words. */
+export function describeEdit(
+  c: EditChoice, presets: HeadAnglePreset[] = [], expressions: ExpressionPreset[] = [],
+): string {
+  const parts: string[] = [];
+  if (angleSet(c.yaw, c.pitch)) {
+    parts.push(headPresetFor(presets, c.yaw, c.pitch)?.label ?? describeAngle(c.yaw, c.pitch));
+  }
+  if (c.expression) parts.push(expressions.find((e) => e.name === c.expression)?.label ?? c.expression);
+  const text = c.text.trim();
+  if (text) parts.push(`“${text.length > 60 ? `${text.slice(0, 57)}…` : text}”`);
+  return parts.join(" · ");
 }
 
 /** "Turn 45° left, tilt 20° up" — what the sliders say, in words. */
@@ -281,13 +194,16 @@ export function jobActive(job: Pick<ImageEditJob, "state"> | null | undefined): 
 }
 
 /** The status line for a job: the API's own reason while it waits ("3090.zero is rendering;
- *  edit queued ..."), with its place in the queue when others are ahead. */
-export function jobStatusLine(job: Pick<ImageEditJob, "state" | "message" | "position" | "elapsed_s">): string {
+ *  edit queued ...", "second 3090 busy (A1111 generating); edit queued"), with its place in
+ *  the queue when others are ahead, and the box it runs on once it runs (#570). */
+export function jobStatusLine(
+  job: Pick<ImageEditJob, "state" | "message" | "position" | "elapsed_s"> & Partial<Pick<ImageEditJob, "worker">>,
+): string {
   const ahead = job.position ? ` — ${job.position} edit${job.position === 1 ? "" : "s"} ahead` : "";
   const secs = job.elapsed_s != null ? ` (${Math.round(job.elapsed_s)} s)` : "";
   if (job.state === "done") return `Done${secs}`;
   if (job.state === "failed") return `Failed: ${job.message}`;
-  if (job.state === "running") return `Editing on the 3090…${secs}`;
+  if (job.state === "running") return `Editing on ${job.worker ?? "the GPU"}…${secs}`;
   return `${job.message}${ahead}${secs}`;
 }
 
@@ -313,7 +229,9 @@ export function identityVerdict(
   };
 }
 
-/** The warning full mode always carries (#548): Qwen regenerates the whole frame. */
-export const FULL_MODE_WARNING = "Regenerates the image: may soften skin and look younger — "
-  + "prefer Face mode for identity datasets. Runs on the 3090, which finishes any render in "
-  + "progress first.";
+/** Said once at the top of the dialog (#569): every edit is a Qwen regeneration now, so it is
+ *  the dialog's premise rather than a warning on one mode. */
+export const QWEN_NOTE = "Edits run on Qwen-Image-Edit, which regenerates what it edits — only the "
+  + "chosen face when there are several. It can soften skin and look younger, so each result "
+  + "comes back with an identity score against the original. Edits queue for a free GPU; the "
+  + "original is never changed.";

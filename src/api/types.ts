@@ -954,7 +954,8 @@ export interface SegmentReprocessRequest {
 
 // --- Image Edit tool (wanly-console#547) ---
 
-/** "face": LivePortrait, inline. "full" (#548): Qwen-Image-Edit on the 3090, as a job. */
+/** "face": LivePortrait, inline -- no longer used by the dialog (#569). "full" (#548): Qwen-Image-Edit,
+ *  as a job; every edit the dialog makes. */
 export type ImageEditMode = "face" | "full";
 
 /** One LivePortrait parameter, as the API describes it (GET /images/edit/presets). */
@@ -975,8 +976,8 @@ export interface EditPreset {
 }
 
 /** A head-angle preset (#548). Degrees in the IMAGE's directions: yaw < 0 turns the face
- *  toward the left edge of the picture, pitch > 0 raises the chin. `route` is where it runs:
- *  "face" (LivePortrait, within face_limit_deg) or "full" (Qwen on the 3090). */
+ *  toward the left edge of the picture, pitch > 0 raises the chin. `route` is "full" (Qwen)
+ *  for all of them since #569. */
 export interface HeadAnglePreset {
   name: string;
   label: string;
@@ -985,30 +986,44 @@ export interface HeadAnglePreset {
   route: "face" | "full" | string;
 }
 
+/** An expression button (#569): sent as `preset` on a full-mode edit. The words are the
+ *  image-edit service's. */
+export interface ExpressionPreset {
+  name: string;
+  label: string;
+}
+
 export interface EditPresets {
   mode: ImageEditMode;
   presets: EditPreset[];
   axes: EditAxis[];
   /** Absent from an API older than #548: the dialog then has no head-angle section. */
   head_angles?: HeadAnglePreset[];
+  /** The expression presets as Qwen instructions (#569). Absent from an older API. */
+  expressions?: ExpressionPreset[];
   face_limit_deg?: number;
   max_yaw?: number;
   max_pitch?: number;
 }
 
-/** POST /images/edit {mode: "full"}: an instruction, or a head angle. */
+/** POST /images/edit {mode: "full"}: any mix of a head angle, an expression preset and an
+ *  instruction (#569), optionally scoped to one face. */
 export interface FullEditBody {
   source_uri: string;
   mode: "full";
   instruction?: string;
   angle?: { yaw: number; pitch: number };
   head_preset?: string;
+  /** An expression preset's name (EditPresets.expressions). */
+  preset?: string;
+  /** The chosen face, in the source's pixels (#553/#569): only it is regenerated. */
+  face_box?: number[];
   seed?: number;
   denoise?: number;
 }
 
-/** A full-mode edit job (#548): queued -> waiting (the 3090 is rendering, training or
- *  switching; `message` says which) -> running -> done | failed. */
+/** A full-mode edit job (#548): queued -> waiting (a box is rendering, training, switching
+ *  or its A1111 is generating; `message` says which) -> running -> done | failed. */
 export interface ImageEditJob {
   id: string;
   state: "queued" | "waiting" | "running" | "done" | "failed" | string;
@@ -1028,6 +1043,10 @@ export interface ImageEditJob {
   prompt?: string | null;
   seed?: number | null;
   saved?: { uri: string; dataset_id: string | null }[];
+  /** The box it runs on: the standing second 3090 or the main one's edit mode (#570). */
+  worker?: string | null;
+  /** The face it was scoped to; null for the whole frame (#569). */
+  face_box?: number[] | null;
 }
 
 export interface ImageEditBody {

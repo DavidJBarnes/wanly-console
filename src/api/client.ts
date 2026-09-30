@@ -800,8 +800,9 @@ export async function saveImageEdit(body: ImageEditBody): Promise<ImageEditResul
   return data;
 }
 
-/** Start a full-mode edit (#548): Qwen on the 3090, which may first have to finish a render
- *  segment and switch modes. Answers at once with a job to poll. Stores nothing. */
+/** Start a full-mode edit (#548) -- every Edit-dialog edit since #569: Qwen on the standing
+ *  second 3090 when it is up (#570), else the main 3090, which may first have to finish a
+ *  render segment and switch modes. Answers at once with a job to poll. Stores nothing. */
 export async function startFullEdit(body: FullEditBody): Promise<ImageEditJob> {
   const { data } = await api.post<ImageEditJob>("/images/edit", body);
   return data;
