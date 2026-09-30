@@ -35,6 +35,13 @@ describe("apiError", () => {
     );
   });
 
+  it("names a timeout as a timeout, not as a lost connection (console#559)", () => {
+    const e = { isAxiosError: true, code: "ECONNABORTED", message: "timeout of 30000ms exceeded" };
+    expect(apiError(e, "Could not delete image")).toBe(
+      "Could not delete image — the API did not answer in time. Nothing may have changed; try again.",
+    );
+  });
+
   it("says so when the API did not answer at all", () => {
     const e = { isAxiosError: true, message: "Network Error" };
     expect(apiError(e, "Failed to finalize job")).toBe(

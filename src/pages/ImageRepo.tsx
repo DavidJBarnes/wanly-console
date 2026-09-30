@@ -1,4 +1,5 @@
 import { ltxError } from "../api/ltx";
+import { apiError } from "../lib/apiError";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Box,
@@ -134,6 +135,8 @@ export default function ImageRepo() {
   const [loading, setLoading] = useState(true);
   const [lightboxImage, setLightboxImage] = useState<ImageFile | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ImageFile | null>(null);
+  // In flight: the confirm buttons show it and cannot be pressed twice.
+  const [deleting, setDeleting] = useState(false);
   const [folderDelete, setFolderDelete] = useState<{ name: string; conflict: FolderInUse | null } | null>(null);
   const [inUse, setInUse] = useState<{ image: ImageFile; conflict: ImageInUse } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -507,7 +510,8 @@ export default function ImageRepo() {
 
   const handleDeleteConfirm = async (force = false) => {
     const target = deleteConfirm ?? inUse?.image ?? null;
-    if (!target) return;
+    if (!target || deleting) return;
+    setDeleting(true);
     try {
       await deleteImage(target.path, force);
       removeFromView(target.key);
@@ -520,8 +524,13 @@ export default function ImageRepo() {
       if (conflict) {
         setInUse({ image: target, conflict });
       } else {
-        setError("Could not delete image");
+        // The API's reason (a 503 names what is busy), or that we gave up waiting — never
+        // a bare "could not", and never a dialog left spinning (console#559).
+        setInUse(null);
+        setError(apiError(e, "Could not delete image"));
       }
+    } finally {
+      setDeleting(false);
     }
     setDeleteConfirm(null);
   };
@@ -543,7 +552,7 @@ export default function ImageRepo() {
       if (conflict) {
         setFolderDelete({ ...folderDelete, conflict });
       } else {
-        setError("Could not delete folder");
+        setError(apiError(e, "Could not delete folder"));
         setFolderDelete(null);
       }
     }
@@ -844,6 +853,8 @@ export default function ImageRepo() {
     const deleted: string[] = [];
     let refused = 0;
     let failed = 0;
+    // The first failure's reason, so "3 failed" can say why (a timeout, a busy API).
+    let firstFailure: string | null = null;
     // Look the image up across every view's array, not just `images`. Selection is possible in
     // the untagged and favorites views too, whose items are NOT in `images` — so the old
     // `images.find` skipped them entirely, deleting nothing and updating nothing (#315).
@@ -861,7 +872,10 @@ export default function ImageRepo() {
           deleted.push(key);
         } catch (e) {
           if (parseImageInUse(e)) refused += 1;
-          else failed += 1;
+          else {
+            failed += 1;
+            firstFailure ??= apiError(e, "delete failed");
+          }
         }
       }
       const wasDeleted = (img: ImageFile) => deleted.includes(img.key);
@@ -883,7 +897,7 @@ export default function ImageRepo() {
       if (refused || failed) {
         const parts = [`Deleted ${deleted.length}`];
         if (refused) parts.push(`${refused} still in use`);
-        if (failed) parts.push(`${failed} failed`);
+        if (failed) parts.push(`${failed} failed (${firstFailure})`);
         setError(parts.join(" · "));
       }
     } finally {
@@ -1293,7 +1307,7 @@ export default function ImageRepo() {
       {/* Delete Confirmation */}
       <Dialog
         open={!!deleteConfirm}
-        onClose={() => setDeleteConfirm(null)}
+        onClose={() => !deleting && setDeleteConfirm(null)}
         fullScreen={isMobile}
       >
         <DialogTitle>Delete Image?</DialogTitle>
@@ -1304,9 +1318,14 @@ export default function ImageRepo() {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={() => handleDeleteConfirm()}>
-            Delete
+          <Button onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => handleDeleteConfirm()}
+            disabled={deleting}
+          >
+            {deleting ? <CircularProgress size={20} /> : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1365,7 +1384,7 @@ export default function ImageRepo() {
       </Dialog>
 
       {/* Refused: something still points at this image (wanly-api#156). */}
-      <Dialog open={!!inUse} onClose={() => setInUse(null)} maxWidth="xs" fullWidth>
+      <Dialog open={!!inUse} onClose={() => !deleting && setInUse(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Image is still in use</DialogTitle>
         <DialogContent>
           <Typography variant="body2" gutterBottom>
@@ -1424,9 +1443,9 @@ export default function ImageRepo() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setInUse(null)}>Keep it</Button>
-          <Button color="error" onClick={() => handleDeleteConfirm(true)}>
-            Delete anyway
+          <Button onClick={() => setInUse(null)} disabled={deleting}>Keep it</Button>
+          <Button color="error" onClick={() => handleDeleteConfirm(true)} disabled={deleting}>
+            {deleting ? <CircularProgress size={20} /> : "Delete anyway"}
           </Button>
         </DialogActions>
       </Dialog>

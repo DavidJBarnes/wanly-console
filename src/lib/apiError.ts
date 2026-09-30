@@ -21,6 +21,11 @@ export function apiError(err: unknown, fallback: string): string {
         .filter(Boolean);
       if (parts.length) return parts.join("; ");
     }
+    // Our own timeout, not a dropped connection: say how long we waited, so "try again" is
+    // an informed choice rather than the same spinner a second time (console#559).
+    if (!err.response && (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT")) {
+      return `${fallback} — the API did not answer in time. Nothing may have changed; try again.`;
+    }
     if (!err.response) return `${fallback} — no response from the API.`;
     return `${fallback} — ${err.response.status} ${err.response.statusText}`;
   }
