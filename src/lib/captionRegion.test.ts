@@ -6,7 +6,7 @@ import {
   hasRegion,
   regionText,
   restorePlaceholders,
-  stripMarkers,
+  submitPrompt,
   wants,
 } from "./captionRegion";
 
@@ -46,25 +46,45 @@ describe("filling the placeholder", () => {
 
 describe("stripping before submit", () => {
   it("keeps the words and drops the markers", () => {
-    expect(stripMarkers(fill(TEMPLATE, "scene", DESC))).toBe(
+    expect(submitPrompt(fill(TEMPLATE, "scene", DESC))).toBe(
       "k3llydw, a woman in a red dress on a sofa, she grips the edge of the sofa",
     );
   });
 
-  it("drops an unfilled placeholder entirely", () => {
-    // A literal <SCENE> reaching the text encoder is garbage tokens — the reason the API
-    // drops it rather than shipping it.
-    expect(stripMarkers(TEMPLATE)).toBe("k3llydw, , she grips the edge of the sofa");
+  it("KEEPS an unfilled placeholder, so the API can hold the render for its words", () => {
+    // console#577. This used to delete it, the API then saw nothing to wait for, and a
+    // Motion recipe queued before its caption landed rendered with an empty prompt. The
+    // API fills the placeholder from the saved caption, or refuses to hand the segment out.
+    expect(submitPrompt(TEMPLATE)).toBe(TEMPLATE);
+  });
+
+  it("sends a Motion recipe's prompt exactly as the API's hold test posts it", () => {
+    // The string wanly-api's test_caption_hold_e2e posts to POST /jobs. If this changes,
+    // that test is no longer testing what the console sends.
+    expect(submitPrompt("k3lly2026, woman, <MOTION>")).toBe("k3lly2026, woman, <MOTION>");
+  });
+
+  it("strips marker spellings the API does not recognise as a placeholder", () => {
+    // Only the exact <SCENE>/<MOTION> is a placeholder. Anything else would reach the
+    // text encoder as garbage tokens.
+    expect(submitPrompt("a, <scene>, b </motion> c <Motion>")).toBe("a, , b  c ");
+  });
+
+  it("scrubs markers typed inside a filled region", () => {
+    // They are not the description, and a <MOTION> left there would be read by the API
+    // as a placeholder to fill.
+    expect(submitPrompt("k, <motion>she <MOTION>leans</scene> in</motion>")).toBe(
+      "k, she leans in");
   });
 
   it("is idempotent, so stripping an already-clean prompt is safe", () => {
-    const clean = stripMarkers(fill(TEMPLATE, "scene", DESC));
-    expect(stripMarkers(clean)).toBe(clean);
+    const clean = submitPrompt(fill(TEMPLATE, "scene", DESC));
+    expect(submitPrompt(clean)).toBe(clean);
   });
 
   it("leaves a prompt that never had a scene alone", () => {
     const plain = "k3llydw, a woman on a sofa, she grips";
-    expect(stripMarkers(plain)).toBe(plain);
+    expect(submitPrompt(plain)).toBe(plain);
   });
 });
 
@@ -89,7 +109,7 @@ describe("telling the two forms apart", () => {
   it("handles a multi-line description", () => {
     const filled = fill(TEMPLATE, "scene", "a woman\non a sofa");
     expect(hasRegion(filled, "scene")).toBe(true);
-    expect(stripMarkers(filled)).toContain("a woman\non a sofa");
+    expect(submitPrompt(filled)).toContain("a woman\non a sofa");
   });
 });
 
@@ -127,8 +147,9 @@ describe("the motion half behaves like the scene half", () => {
     expect(filled).toContain(`<motion>${MOTION}</motion>`);
     expect(hasRegion(filled, "motion")).toBe(true);
     expect(hasPlaceholder(filled, "motion")).toBe(false);
-    expect(stripMarkers(filled)).toBe(
-      "k3llydw, , she grips the edge of the sofa, she leans forward as the light shifts",
+    // The scene half is still unfilled, so its placeholder goes to the API (console#577).
+    expect(submitPrompt(filled)).toBe(
+      "k3llydw, <SCENE>, she grips the edge of the sofa, she leans forward as the light shifts",
     );
   });
 
@@ -152,11 +173,11 @@ describe("the two halves do not interfere", () => {
     expect(hasPlaceholder(scened, "scene")).toBe(false);
   });
 
-  it("strips BOTH halves at submit", () => {
+  it("unwraps BOTH halves at submit", () => {
     // One act. A strip that took a half would be a way to ship the other half's markers
     // to the text encoder, which is the exact thing this module exists to prevent.
     const filled = fill(fill(BOTH, "scene", DESC), "motion", MOTION);
-    expect(stripMarkers(filled)).toBe(
+    expect(submitPrompt(filled)).toBe(
       "k3llydw, a woman in a red dress on a sofa, she grips the edge of the sofa, "
       + "she leans forward as the light shifts",
     );
@@ -174,8 +195,8 @@ describe("the two halves do not interfere", () => {
     const odd = "<scene>unclosed <motion>she reaches</motion>";
     expect(regionText(odd, "motion")).toBe("she reaches");
     expect(hasRegion(odd, "scene")).toBe(false);
-    // The stray opener has no words in it, so it is dropped like any bare token.
-    expect(stripMarkers(odd)).toBe("unclosed she reaches");
+    // The stray opener is not a placeholder the API knows, so it is dropped.
+    expect(submitPrompt(odd)).toBe("unclosed she reaches");
   });
 
   it("does not read a motion region as a scene placeholder, or the reverse", () => {
