@@ -30,6 +30,7 @@ import { useSortable, isSortable } from "@dnd-kit/react/sortable";
 import { getJobs, getFileUrl, reorderJobs } from "../api/client";
 import type { JobResponse, JobStatus } from "../api/types";
 import StatusChip from "../components/StatusChip";
+import { CaptionHoldChip } from "../components/CaptionHold";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import { POLL_INTERVAL_FAST } from "../constants";
 import StalledQueueBanner from "../components/StalledQueueBanner";
@@ -520,7 +521,10 @@ function SortableTableRow({
         </Typography>
       </TableCell>
       <TableCell>
-        <StatusChip status={job.status} />
+        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+          <StatusChip status={job.status} />
+          <CaptionHoldChip hold={job.caption_hold} />
+        </Box>
       </TableCell>
       <TableCell>
         <Typography variant="caption" color="text.secondary">
@@ -620,7 +624,10 @@ function SortableMobileCard({
               <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
                 {job.name}
               </Typography>
-              <StatusChip status={job.status} />
+              <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+                <CaptionHoldChip hold={job.caption_hold} />
+                <StatusChip status={job.status} />
+              </Box>
             </Box>
             <Typography variant="caption" color="text.secondary">
               {job.width}x{job.height} &middot; {job.fps}fps &middot; {job.completed_segment_count} seg{job.completed_segment_count !== 1 ? "s" : ""}{job.estimated_run_time != null ? ` · ~${formatDuration(job.estimated_run_time)}` : ""} &middot; {formatDate(job.updated_at)}

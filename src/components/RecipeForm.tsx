@@ -23,6 +23,7 @@ import {
 } from "../lib/recipeBlob";
 import type { CharacterSlot } from "../lib/recipeBlob";
 import { groupPosesByBook } from "../lib/poseGroups";
+import { captionInFlight, joinNote } from "../lib/captionHold";
 import { seedRecipePrefill } from "../lib/recipePrefill";
 import { preselectCharacter, preselectPose } from "../lib/defaultSelection";
 
@@ -101,6 +102,10 @@ type StartFrame =
  *  the image itself; this is the same arithmetic so the job record agrees with
  *  what actually renders instead of carrying a placeholder. */
 const to64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
+
+/** How often the dialog re-asks about a frame whose caption is running elsewhere. Captions
+ *  are ~25 s a call, so faster buys nothing (same reasoning as useCaptionQueue). */
+const JOIN_POLL_MS = 3000;
 
 /** Measured from the rendered image, so it works for an uploaded File and an S3
  *  object alike — the object URL and the presigned file URL both just load. */
@@ -357,30 +362,50 @@ export default function RecipeForm({
   // Whether the saved description for THIS path has been looked up yet. Distinct from
   // "there is none": one means wait, the other means describe it.
   const [sceneLookedUpFor, setSceneLookedUpFor] = useState<string | null>(null);
+  // Set while a caption of this frame is already running somewhere else -- the image modal,
+  // another job's caption hold (console#562). The dialog JOINS it: waits for those words to
+  // be saved and fills them in, rather than asking for a second caption that would replace
+  // them with different ones. The text is where that caption has got to.
+  const [joining, setJoining] = useState<string | null>(null);
 
   useEffect(() => {
     setSavedScene(null);
     setSavedMotion(null);
     setSceneLookedUpFor(null);
+    setJoining(null);
     if (!describePath) return;
     let live = true;
-    getImageScene(describePath)
-      .then((s) => {
-        if (!live) return;
-        setSavedScene(s.scene_description);
-        setSavedMotion(s.motion_description);
-        setSceneLookedUpFor(describePath);
-      })
-      // A failure here costs the auto-fill, not the form. The button still works and the API
-      // still resolves the placeholder at claim time.
-      .catch(() => {
-        if (live) {
-          setSavedScene(null);
-          setSavedMotion(null);
-        }
-      });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const look = () => {
+      getImageScene(describePath)
+        .then((s) => {
+          if (!live) return;
+          if (captionInFlight(s)) {
+            // Not the saved words yet: a caption in flight is about to replace them, and the
+            // ones about to land are the ones the modal is showing. Ask again shortly.
+            setJoining(joinNote(s));
+            timer = setTimeout(look, JOIN_POLL_MS);
+            return;
+          }
+          setJoining(null);
+          setSavedScene(s.scene_description);
+          setSavedMotion(s.motion_description);
+          setSceneLookedUpFor(describePath);
+        })
+        // A failure here costs the auto-fill, not the form. The button still works, and a
+        // submit with the placeholder still in it is held until the caption exists.
+        .catch(() => {
+          if (live) {
+            setJoining(null);
+            setSavedScene(null);
+            setSavedMotion(null);
+          }
+        });
+    };
+    look();
     return () => {
       live = false;
+      clearTimeout(timer);
     };
   }, [describePath]);
 
@@ -394,6 +419,10 @@ export default function RecipeForm({
    *
    * Fires once per frame and only when there is a slot to fill, so a pose with no <SCENE>
    * costs nothing and reopening the dialog costs nothing — the API kept the words.
+   *
+   * NEVER WHILE ONE IS ALREADY RUNNING (console#562). The lookup above only marks the frame
+   * looked-up once no caption of it is in flight, so a frame the modal is still describing
+   * is joined, not described a second time.
    *
    * EITHER needed half being missing is enough to describe (console#529). One POST
    * regenerates and returns both halves, so a frame described before the motion half
@@ -561,6 +590,12 @@ export default function RecipeForm({
   // or both, and offering to "re-roll the description and motion" on a prompt with no
   // <MOTION> in it would be describing a control that does not exist.
   const described = hasRegion(prompt, "scene") || hasRegion(prompt, "motion");
+  // The API holds a segment whose start image it KNOWS until its captions are saved
+  // (console#562), so queueing mid-describe is safe there. A continuation that picked no
+  // frame sends none -- its frame is resolved at the claim -- so it is not promised this.
+  const waitsNote = start?.kind === "uri"
+    ? " You can queue now -- the render waits for the words."
+    : "";
   const halvesInPlay =
     wants(prompt, "scene") && wants(prompt, "motion")
       ? "description and motion"
@@ -608,7 +643,9 @@ export default function RecipeForm({
           ? "The frame this segment would continue from is missing from storage, so this "
             + "segment would fail. Pick a start frame above to continue from instead."
           : ltxError(e)
-            + " -- you can still submit; it will be described when the segment runs.",
+            + (start?.kind === "uri"
+              ? " -- you can still submit; the render waits until the frame is described."
+              : " -- you can still submit; it will be described when the segment runs."),
       );
     } finally {
       setDescribing(false);
@@ -707,7 +744,7 @@ export default function RecipeForm({
                 size="small"
                 variant="outlined"
                 onClick={handleDescribe}
-                disabled={describing || !describePath}
+                disabled={describing || !describePath || joining !== null}
               >
                 {describing
                   ? "Describing..."
@@ -718,14 +755,18 @@ export default function RecipeForm({
               <Typography variant="caption" color="text.secondary">
                 {!describePath
                   ? start
-                    ? "Available once the frame is saved -- it is described automatically when the segment runs."
+                    ? continuing
+                      ? "Available once the frame is saved -- it is described automatically when the segment runs."
+                      : "Available once the frame is saved -- it is described after you queue, and the render waits for the words."
                     : continuing
                       ? "The previous segment has not rendered yet, so there is no frame to describe. It is described automatically when this segment runs."
                       : "Pick a start frame first."
+                  : joining
+                    ? `Already being described elsewhere (${joining}); the words fill in here when it finishes.${waitsNote}`
                   : describing
                     ? continuing
-                      ? "Describing the frame this segment continues from..."
-                      : "Describing this frame..."
+                      ? `Describing the frame this segment continues from...${waitsNote}`
+                      : `Describing this frame...${waitsNote}`
                     : described
                       ? `Re-rolls the ${halvesInPlay}, saving the new words on the frame.`
                       : "Describes the frame and saves the words, so this is free next time."}

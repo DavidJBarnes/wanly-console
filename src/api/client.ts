@@ -223,6 +223,25 @@ export async function retrySegment(
   return data;
 }
 
+/**
+ * A segment held on its caption whose caption failed: try the caption again (console#562).
+ * Only the halves still missing are made -- a scene already saved is kept.
+ */
+export async function retrySegmentCaption(segmentId: string): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(`/segments/${segmentId}/caption/retry`);
+  return data;
+}
+
+/**
+ * Release a caption-held segment without the half it is missing (console#562). Whatever is
+ * saved is still filled; only the missing placeholders are dropped. A person's decision --
+ * the API never does this on its own.
+ */
+export async function renderWithoutCaption(segmentId: string): Promise<SegmentResponse> {
+  const { data } = await api.post<SegmentResponse>(`/segments/${segmentId}/caption/skip`);
+  return data;
+}
+
 export async function cancelSegment(
   segmentId: string,
 ): Promise<SegmentResponse> {
