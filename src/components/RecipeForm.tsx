@@ -14,7 +14,7 @@ import {
   addSegment, createJob, describeImageScene, getFileUrl, getImageScene,
 } from "../api/client";
 import {
-  fill, hasPlaceholder, hasRegion, restorePlaceholders, stripMarkers, wants,
+  fill, hasPlaceholder, hasRegion, restorePlaceholders, submitPrompt, wants,
   type CaptionHalf,
 } from "../lib/captionRegion";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
@@ -485,10 +485,12 @@ export default function RecipeForm({
 
       // The segment, identical either way. What differs is only where it is posted: a new job
       // carries it as first_segment, a continuation appends it to an existing one.
-      // The markers are an editing affordance and stop here. A literal <scene> or <SCENE>
-      // reaching the text encoder is garbage tokens -- the same reason the API drops an
-      // unresolved placeholder rather than shipping it.
-      const submittedPrompt = stripMarkers(prompt).trim();
+      // Filled regions are unwrapped to their words; an UNFILLED <SCENE>/<MOTION> is sent
+      // as-is (console#577). The API holds a segment whose placeholder has no saved words
+      // yet and fills them in when the caption lands -- which is what makes queueing while
+      // the frame is still being described safe. Stripping the placeholder here used to
+      // defeat that hold, and a Motion recipe rendered with an empty prompt.
+      const submittedPrompt = submitPrompt(prompt).trim();
 
       const segment = {
         prompt: submittedPrompt,
@@ -591,7 +593,8 @@ export default function RecipeForm({
   // <MOTION> in it would be describing a control that does not exist.
   const described = hasRegion(prompt, "scene") || hasRegion(prompt, "motion");
   // The API holds a segment whose start image it KNOWS until its captions are saved
-  // (console#562), so queueing mid-describe is safe there. A continuation that picked no
+  // (console#562), so queueing mid-describe is safe there -- as long as the placeholder
+  // reaches it, which submitPrompt guarantees (console#577). A continuation that picked no
   // frame sends none -- its frame is resolved at the claim -- so it is not promised this.
   const waitsNote = start?.kind === "uri"
     ? " You can queue now -- the render waits for the words."

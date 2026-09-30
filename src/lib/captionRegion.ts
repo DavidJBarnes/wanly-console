@@ -18,9 +18,18 @@
  * A marked region is rewritable in place: re-describe, or change the start frame, and only
  * the inside changes. Text typed inside it survives until the next explicit replace.
  *
- * NEITHER FORM MAY REACH THE TEXT ENCODER. A literal placeholder is garbage tokens — the
- * same reason the API drops an unresolved `<SCENE>` rather than shipping it — so both are
- * stripped at submit, and the API strips them again on the way in (wanly-api#346).
+ * AN UNFILLED PLACEHOLDER IS SUBMITTED AS-IS (console#577). A filled region is unwrapped to
+ * its words at submit, but a bare `<SCENE>`/`<MOTION>` goes to the API untouched: that
+ * placeholder is how the API knows the render needs a caption half, and it holds the segment
+ * (`awaiting_caption`, wanly-api caption_hold) until the words are saved, then fills them in
+ * verbatim. Deleting it here -- which this module used to do -- made the hold impossible, and
+ * a Motion recipe queued before its caption landed rendered with an EMPTY prompt. The API is
+ * what keeps a literal placeholder away from the text encoder: it fills it, or refuses to
+ * hand the segment out.
+ *
+ * Any OTHER marker spelling -- an unpaired `<scene>`, a stray `</motion>`, `<Scene>` -- is
+ * not a placeholder the API recognises and would reach the encoder as garbage, so it is
+ * stripped.
  *
  * The PAIRED form is matched first and the leftover bare token is the placeholder. That
  * pairing, not letter case, is what tells them apart: `<scene>` opening a region and
@@ -106,19 +115,34 @@ export function regionText(prompt: string, half: CaptionHalf): string | null {
 }
 
 /**
- * Remove the markers of BOTH halves, keeping the words. What gets submitted.
- *
- * Both, because a prompt carries both and submit is one act: a strip that took a half would
- * be a way to ship the other half's markers to the encoder.
- *
- * A leftover BARE token is dropped entirely rather than kept — it has no words in it, and
- * an unresolved placeholder reaching the encoder is exactly what this guards. The API drops
- * it too; doing it here as well means the stored prompt is the one that ran.
+ * Every marker in one pattern: a filled region (closing tag a backreference to its opener, so
+ * `<scene>…</motion>` is never a region) or a bare/stray tag of either half, any case.
  */
-export function stripMarkers(prompt: string): string {
-  return HALVES.reduce(
-    (p, half) => p.replace(regionRe(half), "$1").replace(bareRe(half), ""),
-    prompt);
+const ANY_MARKER = /<(scene|motion)>([\s\S]*?)<\/\1>|<\/?(?:scene|motion)>/gi;
+
+/** A marker of either half, any spelling -- for scrubbing the words inside a region. */
+const ANY_TAG = /<\/?(?:scene|motion)>/gi;
+
+/**
+ * The prompt as it is submitted (console#577).
+ *
+ *   filled region    `<motion>she leans in</motion>`  ->  `she leans in`
+ *   placeholder      `<SCENE>` / `<MOTION>`           ->  KEPT, exactly as written
+ *   stray spelling   `<scene>` alone, `</motion>`     ->  removed
+ *
+ * The placeholder is kept because the API needs to see it: it is what makes the caption hold
+ * fire and fill the saved words in at release. Dropping it made the API create the segment
+ * PENDING with the half simply missing -- a Motion recipe went out with an empty prompt.
+ *
+ * One non-rescanning pass for both halves, so words unwrapped for one half can never be read
+ * as the other half's marker. Markers typed INSIDE a region are scrubbed: they are not the
+ * description, and a canonical `<MOTION>` there would otherwise be taken for a placeholder.
+ */
+export function submitPrompt(prompt: string): string {
+  return prompt.replace(ANY_MARKER, (match, _half?: string, words?: string) => {
+    if (words !== undefined) return words.replace(ANY_TAG, "");
+    return match === SCENE_TOKEN || match === MOTION_TOKEN ? match : "";
+  });
 }
 
 /**
