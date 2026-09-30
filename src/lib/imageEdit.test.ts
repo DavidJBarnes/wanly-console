@@ -1,64 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
-  applyPreset, changedParams, clampToAxis, datasetChoices, datasetSaveProblem, describeRun,
-  faceChoice, faceHint, groupAxes, hasEdit, initialFace, isEditedImage, matchesPreset,
-  MAX_PROMPT, neutralValues, pickerFaces, previewBody, promptProblem, savedName, scaleBox,
-  unknownTermsMessage, valuesFromExpression,
+  datasetChoices, datasetSaveProblem, faceChoice, faceHint, initialFace, instructionProblem,
+  isEditedImage, MAX_INSTRUCTION, pickerFaces, savedName, scaleBox,
 } from "./imageEdit";
 import type { Dataset, ImageEditFaces } from "../api/types";
-
-const AXES = [
-  { key: "rotate_yaw", label: "Turn", min: -20, max: 20, step: 0.5, group: "main" },
-  { key: "smile", label: "Smile", min: -0.3, max: 1.3, step: 0.01, group: "main" },
-  { key: "pupil_x", label: "Gaze", min: -15, max: 15, step: 0.5, group: "gaze" },
-  { key: "woo", label: "Woo", min: -20, max: 15, step: 0.2, group: "more" },
-  { key: "odd", label: "Odd", min: 0, max: 1, step: 0.1, group: "future" },
-];
 
 const ds = (over: Partial<Dataset> = {}): Dataset => ({
   id: "d1", name: "Kelly v3", tags: null, notes: null, images: [], prefix: null,
   anchor_uri: null, locked: false, trained_by: [], locked_at: null, ...over,
 } as Dataset);
-
-describe("presets and values", () => {
-  it("starts every axis at zero", () => {
-    expect(neutralValues(AXES)).toEqual({ rotate_yaw: 0, smile: 0, pupil_x: 0, woo: 0, odd: 0 });
-  });
-
-  it("a preset replaces the face, it does not stack on the last one", () => {
-    const glance = applyPreset(AXES, { expression: { pupil_x: -8 } });
-    const smile = applyPreset(AXES, { expression: { smile: 0.5 } });
-    expect(glance.pupil_x).toBe(-8);
-    expect(smile).toEqual({ ...neutralValues(AXES), smile: 0.5 });
-  });
-
-  it("sends only the axes that move", () => {
-    expect(changedParams({ smile: 0.5, rotate_yaw: 0, pupil_x: -8 })).toEqual({ smile: 0.5, pupil_x: -8 });
-    expect(hasEdit(neutralValues(AXES))).toBe(false);
-    expect(hasEdit({ smile: 0.01 })).toBe(true);
-  });
-
-  it("knows when a drag has taken the edit away from its preset", () => {
-    const preset = { expression: { smile: 1.3, aaa: 52.5 } };
-    expect(matchesPreset({ smile: 1.3, aaa: 52.5, blink: 0 }, preset)).toBe(true);
-    expect(matchesPreset({ smile: 1.3, aaa: 40 }, preset)).toBe(false);
-    expect(matchesPreset({ smile: 1.3, aaa: 52.5, blink: -2 }, preset)).toBe(false);
-    expect(matchesPreset({ smile: 1 }, null)).toBe(false);
-  });
-
-  it("groups axes, and an unknown group is shown under more rather than lost", () => {
-    const g = groupAxes(AXES);
-    expect(g.main.map((a) => a.key)).toEqual(["rotate_yaw", "smile"]);
-    expect(g.gaze.map((a) => a.key)).toEqual(["pupil_x"]);
-    expect(g.more.map((a) => a.key)).toEqual(["woo", "odd"]);
-  });
-
-  it("clamps to the axis, because the API refuses rather than clamps", () => {
-    expect(clampToAxis(AXES[1], 2)).toBe(1.3);
-    expect(clampToAxis(AXES[1], -1)).toBe(-0.3);
-    expect(clampToAxis(AXES[1], 0.4)).toBe(0.4);
-  });
-});
 
 describe("saving to a dataset", () => {
   it("an unlocked set is fine", () => {
@@ -90,6 +40,8 @@ describe("chained edits", () => {
   it("recognises this tool's own output", () => {
     expect(isEditedImage("s3://b/2026-09-01/sel_008_edit-smile_1a2b3c.png")).toBe(true);
     expect(isEditedImage("s3://b/datasets/x/edits/a_edit-custom_abcdef.png")).toBe(true);
+    // A combined edit's tag (#569): angle and expression together.
+    expect(isEditedImage("s3://b/2026-09-30/k_edit-profile_left-smile_0a1b2c.png")).toBe(true);
   });
 
   it("leaves ordinary images alone", () => {
@@ -98,61 +50,15 @@ describe("chained edits", () => {
   });
 });
 
-describe("describing a run", () => {
-  it("names the device and the time", () => {
-    expect(describeRun({ device: "cuda", elapsed_ms: 1234 })).toBe("GPU · 1.2 s");
-    expect(describeRun({ device: "cpu", device_reason: "Automatic1111 on this card is generating", elapsed_ms: 9400 }))
-      .toBe("CPU (Automatic1111 on this card is generating) · 9.4 s");
-    expect(describeRun({ device: null, elapsed_ms: 500 })).toBe("0.5 s");
-  });
-
+describe("saved files and descriptions", () => {
   it("names a saved file", () => {
     expect(savedName("s3://b/f/a_edit-smile_123abc.png")).toBe("a_edit-smile_123abc.png");
   });
-});
 
-describe("describe the change (#550)", () => {
-  it("refuses a blank or oversized description before sending it", () => {
-    expect(promptProblem("  ")).toMatch(/Describe the change/);
-    expect(promptProblem("x".repeat(MAX_PROMPT + 1))).toMatch(/500/);
-    expect(promptProblem("big smile, eyes closed, look left")).toBeNull();
-  });
-
-  it("moves the sliders to what the service resolved, over a neutral face", () => {
-    const v = valuesFromExpression(AXES, { smile: 1.3, pupil_x: -12, rotate_yaw: 0, blink: -20 });
-    expect(v).toEqual({ ...neutralValues(AXES), smile: 1.3, pupil_x: -12 });
-  });
-
-  it("keeps resolved values on their axis and ignores junk", () => {
-    const v = valuesFromExpression(AXES, { smile: 2, pupil_x: Number.NaN });
-    expect(v.smile).toBe(1.3);
-    expect(v.pupil_x).toBe(0);
-    expect(valuesFromExpression(AXES, undefined)).toEqual(neutralValues(AXES));
-  });
-
-  it("sends only the latest input: the text, or the moved axes", () => {
-    expect(previewBody("s3://b/a.png", { kind: "prompt", text: " wink " }))
-      .toEqual({ source_uri: "s3://b/a.png", mode: "face", prompt: "wink" });
-    expect(previewBody("s3://b/a.png", { kind: "values", values: { smile: 0.5, pupil_x: 0 } }))
-      .toEqual({ source_uri: "s3://b/a.png", mode: "face", expression: { smile: 0.5 } });
-  });
-
-  it("sends nothing when there is nothing to preview", () => {
-    expect(previewBody("s3://b/a.png", { kind: "prompt", text: "  " })).toBeNull();
-    expect(previewBody("s3://b/a.png", { kind: "values", values: neutralValues(AXES) })).toBeNull();
-  });
-
-  it("rewords the API's no-known-terms 422 and lists what it knows", () => {
-    const msg = unknownTermsMessage(
-      "nothing to apply: no known terms in 'dance a jig'. Recognised terms: smile, grin, look left/right.");
-    expect(msg).toBe("None of those words are ones the editor understands. It knows: smile, grin, look left/right.");
-    expect(unknownTermsMessage("nothing to apply: no known terms in 'x'."))
-      .toMatch(/understands\. Try words like/);
-  });
-
-  it("leaves every other error alone", () => {
-    expect(unknownTermsMessage("face-edit refused this image: no face detected in the image")).toBeNull();
-    expect(unknownTermsMessage("face-edit is busy or not ready: busy")).toBeNull();
+  it("a description is optional, but not a paste", () => {
+    expect(instructionProblem("")).toBeNull();
+    expect(instructionProblem("a warm smile")).toBeNull();
+    expect(instructionProblem("x".repeat(MAX_INSTRUCTION + 1))).toMatch(/under 2000/);
   });
 });
 
@@ -190,23 +96,6 @@ describe("which face (#553)", () => {
     expect(faceChoice(null, 0)).toEqual({});
   });
 
-  it("puts the chosen face on every kind of preview body", () => {
-    const choice = faceChoice(TWO, 0);
-    expect(previewBody("s3://b/a.png", { kind: "values", values: { smile: 0.5 } }, choice)).toEqual({
-      source_uri: "s3://b/a.png", mode: "face", expression: { smile: 0.5 }, face_box: [101.5, 400, 351.5, 700],
-    });
-    expect(previewBody("s3://b/a.png", { kind: "prompt", text: " wink " }, choice)).toEqual({
-      source_uri: "s3://b/a.png", mode: "face", prompt: "wink", face_box: [101.5, 400, 351.5, 700],
-    });
-    expect(previewBody("s3://b/a.png", { kind: "values", values: { smile: 0 } }, choice)).toBeNull();
-  });
-
-  it("without a choice the body is unchanged", () => {
-    expect(previewBody("s3://b/a.png", { kind: "values", values: { smile: 0.5 } })).toEqual({
-      source_uri: "s3://b/a.png", mode: "face", expression: { smile: 0.5 },
-    });
-  });
-
   it("scales a box from source pixels to the drawn image, plus its offset in the pane", () => {
     // 1248x1824 drawn at 301x440 (height-bound), centred in a 600-wide pane.
     const drawn = { width: 1248 * (440 / 1824), height: 440 };
@@ -232,41 +121,59 @@ describe("which face (#553)", () => {
   it("the hint says how to reach the next face", () => {
     expect(faceHint(3)).toMatch(/^3 faces/);
     expect(faceHint(2)).toMatch(/save, then edit the saved image/);
+    expect(faceHint(2)).toMatch(/Only that face is regenerated/);
   });
 });
 
-// ------------------------------------------------------------------ head angle (#548)
+// ------------------------------------------------------------ the edit (#548, #569)
 
 import {
-  describeAngle, faceValuesForAngle, fullAngleBody, headPresetFor, identityVerdict, jobActive,
-  jobStatusLine, routeAngle,
+  angleSet, describeAngle, describeEdit, editBody, headPresetFor, identityVerdict, jobActive,
+  jobStatusLine, NO_EDIT, QWEN_NOTE,
 } from "./imageEdit";
-import type { HeadAnglePreset } from "../api/types";
+import type { ExpressionPreset, HeadAnglePreset } from "../api/types";
 
 const ANGLES: HeadAnglePreset[] = [
-  { name: "look_left", label: "Look left", yaw: -20, pitch: 0, route: "face" },
+  { name: "look_left", label: "Look left", yaw: -20, pitch: 0, route: "full" },
   { name: "profile_left", label: "Profile left", yaw: -90, pitch: 0, route: "full" },
   { name: "look_up", label: "Look up", yaw: 0, pitch: 30, route: "full" },
 ];
-const ROT_AXES = [
-  { key: "rotate_yaw", min: -20, max: 20 },
-  { key: "rotate_pitch", min: -20, max: 20 },
-  { key: "smile", min: -0.3, max: 1.3 },
+const EXPRS: ExpressionPreset[] = [
+  { name: "smile", label: "Smile" }, { name: "big_laugh", label: "Big laugh" },
 ];
+const SRC = "s3://b/x.png";
 
-describe("head angle routing", () => {
-  it("splits at ±20°: LivePortrait inside, Qwen beyond", () => {
-    expect(routeAngle(-20, 0)).toBe("face");
-    expect(routeAngle(0, 20)).toBe("face");
-    expect(routeAngle(-25, 0)).toBe("full");
-    expect(routeAngle(10, -30)).toBe("full");
-    expect(routeAngle(30, 0, 40)).toBe("face");
+describe("one Qwen job for everything (#569)", () => {
+  it("a small head turn is a Qwen job too: there is no LivePortrait route", () => {
+    expect(editBody(SRC, { ...NO_EDIT, yaw: -20 }, ANGLES))
+      .toEqual({ source_uri: SRC, mode: "full", head_preset: "look_left" });
+    expect(editBody(SRC, { ...NO_EDIT, yaw: 10 }, ANGLES))
+      .toEqual({ source_uri: SRC, mode: "full", angle: { yaw: 10, pitch: 0 } });
   });
 
-  it("a face-routed angle becomes LivePortrait sliders, pitch negated for the node", () => {
-    // rotate_pitch > 0 lowers the chin on the node; a head angle's pitch > 0 raises it.
-    expect(faceValuesForAngle(ROT_AXES, -15, 10)).toEqual({ rotate_yaw: -15, rotate_pitch: -10, smile: 0 });
-    expect(faceValuesForAngle(ROT_AXES, 0, 0)).toEqual({ rotate_yaw: 0, rotate_pitch: 0, smile: 0 });
+  it("an expression preset is sent by name", () => {
+    expect(editBody(SRC, { ...NO_EDIT, expression: "big_laugh" }))
+      .toEqual({ source_uri: SRC, mode: "full", preset: "big_laugh" });
+  });
+
+  it("the description goes straight through as the instruction", () => {
+    expect(editBody(SRC, { ...NO_EDIT, text: "  make her smile, eyes to camera  " }))
+      .toEqual({ source_uri: SRC, mode: "full", instruction: "make her smile, eyes to camera" });
+  });
+
+  it("all three compose into one request, on the chosen face", () => {
+    expect(editBody(SRC, { yaw: -90, pitch: 0, expression: "smile", text: "red sweater" }, ANGLES,
+      { face_box: [1, 2, 3, 4] })).toEqual({
+      source_uri: SRC, mode: "full", head_preset: "profile_left", preset: "smile",
+      instruction: "red sweater", face_box: [1, 2, 3, 4],
+    });
+  });
+
+  it("nothing chosen, or an angle under 5°, is nothing to run", () => {
+    expect(editBody(SRC, NO_EDIT)).toBeNull();
+    expect(editBody(SRC, { ...NO_EDIT, yaw: 3, pitch: -4, text: "   " })).toBeNull();
+    expect(angleSet(0, 5)).toBe(true);
+    expect(angleSet(-4, 4)).toBe(false);
   });
 
   it("names the preset when the angles are exactly one", () => {
@@ -274,18 +181,23 @@ describe("head angle routing", () => {
     expect(headPresetFor(ANGLES, -85, 0)).toBeNull();
   });
 
-  it("builds the full-mode request by preset, else by angle, and not for no change", () => {
-    expect(fullAngleBody("s3://b/x.png", -90, 0, ANGLES))
-      .toEqual({ source_uri: "s3://b/x.png", mode: "full", head_preset: "profile_left" });
-    expect(fullAngleBody("s3://b/x.png", 60, -10, ANGLES))
-      .toEqual({ source_uri: "s3://b/x.png", mode: "full", angle: { yaw: 60, pitch: -10 } });
-    expect(fullAngleBody("s3://b/x.png", 3, 0, ANGLES)).toBeNull();
+  it("says what Run will do", () => {
+    expect(describeEdit({ yaw: -90, pitch: 0, expression: "smile", text: "red sweater" }, ANGLES, EXPRS))
+      .toBe("Profile left · Smile · “red sweater”");
+    expect(describeEdit({ ...NO_EDIT, yaw: 60, pitch: -10 }, ANGLES, EXPRS)).toBe("Turn 60° right, tilt 10° down");
+    expect(describeEdit({ ...NO_EDIT, text: "x".repeat(80) })).toMatch(/…”$/);
+    expect(describeEdit(NO_EDIT)).toBe("");
   });
 
   it("says the angle in words, left/right as the picture is seen", () => {
     expect(describeAngle(-45, 20)).toBe("Turn 45° left, tilt 20° up");
     expect(describeAngle(0, -30)).toBe("Tilt 30° down");
     expect(describeAngle(0, 0)).toBe("Straight ahead");
+  });
+
+  it("states the Qwen premise once, not as an exception", () => {
+    expect(QWEN_NOTE).toMatch(/regenerates/);
+    expect(QWEN_NOTE).not.toMatch(/Face mode/);
   });
 });
 
@@ -303,8 +215,13 @@ describe("full-mode jobs", () => {
     expect(jobStatusLine({
       state: "waiting", message: "3090.zero is rendering; edit queued", position: 2, elapsed_s: 61.4,
     })).toBe("3090.zero is rendering; edit queued — 2 edits ahead (61 s)");
+    expect(jobStatusLine({ state: "running", message: "", position: null, elapsed_s: 5, worker: "second 3090" }))
+      .toBe("Editing on second 3090… (5 s)");
     expect(jobStatusLine({ state: "running", message: "", position: null, elapsed_s: 5 }))
-      .toBe("Editing on the 3090… (5 s)");
+      .toBe("Editing on the GPU… (5 s)");
+    expect(jobStatusLine({
+      state: "waiting", message: "second 3090 busy (A1111 generating); edit queued", position: 0, elapsed_s: 4,
+    })).toBe("second 3090 busy (A1111 generating); edit queued (4 s)");
     expect(jobStatusLine({ state: "failed", message: "boom", position: null, elapsed_s: null }))
       .toBe("Failed: boom");
   });
