@@ -83,6 +83,7 @@ import type { BulkTagResult } from "../api/client";
 import { shouldAutoDescribe } from "../lib/autoDescribe";
 import {
   isTypingTarget,
+  lightboxKeyAction,
   lightboxNav,
   lightboxSteps,
   orderForBrowse,
@@ -333,12 +334,20 @@ export default function ImageRepo() {
     // Move-to keep the lightbox mounted underneath, so gate on those too.
     if (!lightboxImage || deleteConfirm || inUse || moveDialogOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      // The tag editor lives inside this modal: Left/Right must move the caret.
+      const action = lightboxKeyAction(e.key);
+      if (!action) return;
+      // The tag editor lives inside this modal: Left/Right must move the caret, and Del
+      // must delete a character, not the image.
       if (isTypingTarget(e.target)) return;
+      if (action === "delete") {
+        // The confirmation, not the delete (console#567): same dialog as the button.
+        e.preventDefault();
+        setDeleteConfirm(lightboxImage);
+        return;
+      }
       if (!lightboxPosition) return;
       e.preventDefault();
-      stepLightbox(e.key === "ArrowLeft" ? -1 : 1);
+      stepLightbox(action === "prev" ? -1 : 1);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
