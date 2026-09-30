@@ -149,3 +149,15 @@ export function isTypingTarget(target: unknown): boolean {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   return el.isContentEditable === true;
 }
+
+/**
+ * What a key does in the image modal (console#560, #567), or null for "not ours". Arrows step;
+ * Del asks to delete -- it opens the SAME confirmation as the Delete button, never deletes
+ * outright, because a stray keypress while captioning must not cost an image.
+ */
+export function lightboxKeyAction(key: string): "prev" | "next" | "delete" | null {
+  if (key === "ArrowLeft") return "prev";
+  if (key === "ArrowRight") return "next";
+  if (key === "Delete") return "delete";
+  return null;
+}

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isTypingTarget,
+  lightboxKeyAction,
   lightboxNav,
   lightboxSteps,
   orderForBrowse,
@@ -215,5 +216,19 @@ describe("poolForView", () => {
   it("otherwise favourites, then the folder", () => {
     expect(poolForView({ ...view, favoritesView: true })).toEqual(["f"]);
     expect(poolForView(view)).toEqual(["d"]);
+  });
+});
+
+describe("lightboxKeyAction", () => {
+  it("steps on the arrows and asks to delete on Del", () => {
+    expect(lightboxKeyAction("ArrowLeft")).toBe("prev");
+    expect(lightboxKeyAction("ArrowRight")).toBe("next");
+    expect(lightboxKeyAction("Delete")).toBe("delete");
+  });
+  it("leaves every other key alone, Backspace included", () => {
+    // Backspace is how a caption gets edited; it must never read as delete.
+    for (const k of ["Backspace", "Enter", "d", "ArrowUp", " "]) {
+      expect(lightboxKeyAction(k)).toBeNull();
+    }
   });
 });
