@@ -121,6 +121,10 @@ export interface JobResponse {
   segment_count: number;
   completed_segment_count: number;
   estimated_run_time: number | null;
+  /** Set when a live segment is held on its start image's caption (console#562). The job's
+   *  own status stays "pending" -- it IS queued -- so this is what says why it is not
+   *  starting. "caption_failed" wins over "awaiting_caption": it needs a person. */
+  caption_hold?: "awaiting_caption" | "caption_failed" | null;
   /** What the clips actually render at (wanly-api#359). width/height are the start frame's;
    *  a recipe render is capped below that. Absent/null means the same as width/height —
    *  read it through lib/renderSize. */
@@ -185,6 +189,11 @@ export interface SegmentResponse {
    *  the moment a worker holding the file comes online. Null means nothing to say — either
    *  somebody can run it, or no worker has reported an inventory to judge against. */
   blocked_reason: string | null;
+  /** A caption-held segment (console#562): the image its <SCENE>/<MOTION> comes from, and --
+   *  while awaiting_caption -- what the hold is doing and where the image sits in the caption
+   *  queue. Filled by the job detail endpoint only. */
+  caption_image?: string | null;
+  caption_wait?: string | null;
 }
 
 export interface HologramRequest {
@@ -289,7 +298,12 @@ export type SegmentStatus =
   | "claimed"
   | "processing"
   | "completed"
-  | "failed";
+  | "failed"
+  // Held until its start image's captions are saved (console#562); never claimed.
+  | "awaiting_caption"
+  // That caption failed or timed out: error_message says why, and a person picks Retry
+  // caption or Render without.
+  | "caption_failed";
 
 export interface GpuStats {
   vram_used_mb: number;

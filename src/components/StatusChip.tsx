@@ -17,6 +17,15 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   running: { bg: "#e3f2fd", fg: "#1565c0" },
   cancelled: { bg: "#eeeeee", fg: "#616161" },
   archived: { bg: "#eeeeee", fg: "#424242" },
+  // Held on a caption (console#562): not waiting on a worker, so not "pending"'s grey.
+  awaiting_caption: { bg: "#e1f5fe", fg: "#0277bd" },
+  caption_failed: { bg: "#ffebee", fg: "#c62828" },
+};
+
+// Statuses whose raw value does not read as words. Everything else is shown as it is.
+const STATUS_LABELS: Record<string, string> = {
+  awaiting_caption: "Waiting for caption…",
+  caption_failed: "Caption failed",
 };
 
 interface Props {
@@ -27,7 +36,7 @@ export default function StatusChip({ status }: Props) {
   const colors = STATUS_COLORS[status] ?? { bg: "#f5f5f5", fg: "#616161" };
   return (
     <Chip
-      label={status}
+      label={STATUS_LABELS[status] ?? status}
       size="small"
       sx={{
         bgcolor: colors.bg,

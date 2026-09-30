@@ -54,6 +54,8 @@ import {
   getJob,
   updateJob,
   retrySegment,
+  retrySegmentCaption,
+  renderWithoutCaption,
   rerollSegment,
   cancelSegment,
   deleteSegment,
@@ -75,6 +77,8 @@ import type {
   FramePreviewResponse,
 } from "../api/types";
 import StatusChip from "../components/StatusChip";
+import { CaptionHoldChip, CaptionHoldPanel } from "../components/CaptionHold";
+import { isCaptionHeld } from "../lib/captionHold";
 import { discardSegment } from "../api/client";
 import SegmentPromptPopover from "../components/SegmentPromptPopover";
 import { rerollableSegment } from "../lib/rerollEligibility";
@@ -448,6 +452,22 @@ export default function JobDetail() {
       fetchJob();
     } catch (e) {
       setError(apiError(e, "Failed to retry segment"));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // The two ways out of caption_failed (console#562). The API never picks for you.
+  const handleCaptionAction = async (
+    seg: SegmentResponse, action: "retry" | "without",
+  ) => {
+    setActionLoading(seg.id);
+    try {
+      await (action === "retry" ? retrySegmentCaption : renderWithoutCaption)(seg.id);
+      fetchJob();
+    } catch (e) {
+      setError(apiError(e, action === "retry"
+        ? "Failed to retry the caption" : "Failed to release the segment"));
     } finally {
       setActionLoading(null);
     }
@@ -869,6 +889,7 @@ export default function JobDetail() {
           </IconButton>
         </Tooltip>
         <StatusChip status={job.status} />
+        <CaptionHoldChip hold={job.caption_hold} />
       </Box>
 
       {error && (
@@ -1248,11 +1269,17 @@ export default function JobDetail() {
                       {/* The error alert lived inside the removed Video Settings cell and
                           moves here rather than going with it — a failed segment must still
                           say why, and Output is where you look when one fails. */}
-                      {seg.error_message && (
+                      {seg.error_message && !isCaptionHeld(seg.status) && (
                         <Alert severity="error" sx={{ mb: 1 }}>
                           {seg.error_message}
                         </Alert>
                       )}
+                      <CaptionHoldPanel
+                        seg={seg}
+                        busy={actionLoading === seg.id}
+                        onRetry={() => handleCaptionAction(seg, "retry")}
+                        onRenderWithout={() => handleCaptionAction(seg, "without")}
+                      />
                       {seg.status === "completed" && seg.last_frame_path ? (
                         <Box
                           sx={{ position: "relative", cursor: "pointer" }}
@@ -1361,7 +1388,8 @@ export default function JobDetail() {
                     </TableCell>
                     <TableCell padding="none" align="center">
                       <Box sx={{ display: "flex", gap: 0.25, justifyContent: "center" }}>
-                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing") && (
+                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing"
+                          || isCaptionHeld(seg.status)) && (
                           <Tooltip title="Stop">
                             <IconButton
                               size="small"
@@ -1575,7 +1603,8 @@ export default function JobDetail() {
                             {segmentRunTime(seg)}
                           </Typography>
                         )}
-                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing") && (
+                        {(seg.status === "pending" || seg.status === "claimed" || seg.status === "processing"
+                          || isCaptionHeld(seg.status)) && (
                           <IconButton
                             size="small"
                             color="warning"
@@ -1686,11 +1715,19 @@ export default function JobDetail() {
                       ) : null}
                     </Box>
 
-                    {seg.error_message && (
+                    {seg.error_message && !isCaptionHeld(seg.status) && (
                       <Alert severity="error" sx={{ mt: 1 }}>
                         {seg.error_message}
                       </Alert>
                     )}
+                    <Box sx={{ mt: 1 }}>
+                      <CaptionHoldPanel
+                        seg={seg}
+                        busy={actionLoading === seg.id}
+                        onRetry={() => handleCaptionAction(seg, "retry")}
+                        onRenderWithout={() => handleCaptionAction(seg, "without")}
+                      />
+                    </Box>
 
                     {/* Meta line */}
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
