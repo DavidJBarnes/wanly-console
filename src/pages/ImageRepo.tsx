@@ -84,9 +84,10 @@ import { shouldAutoDescribe } from "../lib/autoDescribe";
 import {
   isTypingTarget,
   lightboxNav,
+  lightboxSteps,
   orderForBrowse,
   poolForView,
-  stepIndex,
+  successorAfterDelete,
 } from "../lib/lightboxNav";
 import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
 import { describeQueuePlace, useCaptionQueue } from "../hooks/useCaptionQueue";
@@ -300,16 +301,31 @@ export default function ImageRepo() {
       sortDesc,
     ],
   );
-  const lightboxPosition = lightboxNav(lightboxImage, lightboxPool);
+  // Where the image on screen was last seen in its pool (console#560). The pool is live, so
+  // an image can leave it while it is on screen — tagging it in the Untagged view does
+  // exactly that, and the arrows used to vanish with it. Remembering its last index lets
+  // ←/→ (and delete-and-advance) carry on from where it was. Recorded during render, the
+  // "adjust state when a value changes" pattern, and guarded so it settles in one pass.
+  const [lightboxAnchor, setLightboxAnchor] = useState<{ path: string; index: number } | null>(
+    null,
+  );
+  const livePosition = lightboxNav(lightboxImage, lightboxPool);
+  if (
+    lightboxImage && livePosition &&
+    (lightboxAnchor?.path !== lightboxImage.path || lightboxAnchor.index !== livePosition.index)
+  ) {
+    setLightboxAnchor({ path: lightboxImage.path, index: livePosition.index });
+  }
+  const lightboxLastIndex =
+    lightboxImage && lightboxAnchor?.path === lightboxImage.path ? lightboxAnchor.index : null;
+  const lightboxPosition = lightboxSteps(lightboxImage, lightboxPool, lightboxLastIndex);
 
   // Stepping re-enters through handleOpenLightbox, not a bare setImage: each image must
   // refetch its job list, and the tag field resets via the flush effect above.
   const stepLightbox = (dir: -1 | 1) => {
-    if (!lightboxImage) return;
-    const nav = lightboxNav(lightboxImage, lightboxPool);
-    if (!nav) return;
-    const next = stepIndex(nav.index, nav.total, dir);
-    if (next !== nav.index) handleOpenLightbox(lightboxPool[next]);
+    if (!lightboxPosition) return;
+    const to = dir < 0 ? lightboxPosition.prev : lightboxPosition.next;
+    if (to !== null) handleOpenLightbox(lightboxPool[to]);
   };
 
   useEffect(() => {
@@ -320,14 +336,14 @@ export default function ImageRepo() {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       // The tag editor lives inside this modal: Left/Right must move the caret.
       if (isTypingTarget(e.target)) return;
-      if (lightboxNav(lightboxImage, lightboxPool) === null) return;
+      if (!lightboxPosition) return;
       e.preventDefault();
       stepLightbox(e.key === "ArrowLeft" ? -1 : 1);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lightboxImage, lightboxPool, deleteConfirm, inUse, moveDialogOpen]);
+  }, [lightboxImage, lightboxPool, lightboxLastIndex, deleteConfirm, inUse, moveDialogOpen]);
 
   // Commit the search box to the URL after a pause. The equality guard means a
   // remount (restored ?q=…) does not re-commit the same term — which would wipe
@@ -511,10 +527,22 @@ export default function ImageRepo() {
   const handleDeleteConfirm = async (force = false) => {
     const target = deleteConfirm ?? inUse?.image ?? null;
     if (!target || deleting) return;
+    // Deleting from the lightbox keeps it open (console#560): the person is stepping
+    // through images, and closing threw away their place. The successor is chosen from the
+    // pool as it is NOW, before the delete, so it is the image → would have reached.
+    const fromLightbox = lightboxImage?.key === target.key;
+    const successor = fromLightbox
+      ? successorAfterDelete(lightboxPool, target.path, lightboxLastIndex)
+      : null;
     setDeleting(true);
     try {
       await deleteImage(target.path, force);
       removeFromView(target.key);
+      if (fromLightbox) {
+        // None left: close. Otherwise show the next (or, at the end, the previous) image.
+        if (successor) handleOpenLightbox(successor);
+        else setLightboxImage(null);
+      }
       setInUse(null);
     } catch (e) {
       // A refusal is not a failure — the API declined because something still points at this
@@ -957,8 +985,12 @@ export default function ImageRepo() {
               {lightboxImage.filename}
               <Typography variant="body2" color="text.secondary">
                 {formatBytes(lightboxImage.size)}
-                {lightboxPosition && lightboxPosition.total > 1
+                {lightboxPosition && lightboxPosition.index !== null && lightboxPosition.total > 1
                   ? ` — ${lightboxPosition.index + 1} of ${lightboxPosition.total}`
+                  : ""}
+                {/* Left the list while on screen (tagged out of Untagged): say what is left. */}
+                {lightboxPosition && lightboxPosition.index === null
+                  ? ` — ${lightboxPosition.total} more in this view`
                   : ""}
               </Typography>
             </DialogTitle>
@@ -982,9 +1014,9 @@ export default function ImageRepo() {
                   {/* Edge arrows (console#522) flank the photo itself — inside the
                       image pane, never over the tag/jobs panel — and only appear
                       while there is an image to step to in that direction. */}
-                  {lightboxPosition && lightboxPosition.total > 1 && (
+                  {lightboxPosition && (
                     <>
-                      {lightboxPosition.index > 0 && (
+                      {lightboxPosition.prev !== null && (
                         <IconButton
                           aria-label="Previous image"
                           onClick={() => stepLightbox(-1)}
@@ -1000,7 +1032,7 @@ export default function ImageRepo() {
                           <ChevronLeft />
                         </IconButton>
                       )}
-                      {lightboxPosition.index < lightboxPosition.total - 1 && (
+                      {lightboxPosition.next !== null && (
                         <IconButton
                           aria-label="Next image"
                           onClick={() => stepLightbox(1)}
