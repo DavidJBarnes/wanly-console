@@ -4,7 +4,7 @@ import {
   DialogContent, DialogTitle, Divider, IconButton, MenuItem, Stack, TextField, Tooltip,
   Typography,
 } from "@mui/material";
-import { Add, DeleteOutline, Edit } from "@mui/icons-material";
+import { Add, AutoAwesome, DeleteOutline, Edit } from "@mui/icons-material";
 import { Link } from "react-router";
 
 import {
@@ -16,6 +16,7 @@ import type { Gender } from "../api/types";
 import { getFileUrl } from "../api/client";
 import DefaultStar from "../components/DefaultStar";
 import PickFromRepoDialog from "../components/PickFromRepoDialog";
+import SheetBuilderDialog from "../components/SheetBuilderDialog";
 import {
   draftFor, fillPhrase, formError, formFor, hasLora, identityBadges, referenceMode,
   sheetSizeWarning, type CharacterForm,
@@ -36,6 +37,7 @@ export default function Characters() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Character | "new" | null>(null);
   const [confirm, setConfirm] = useState<Character | null>(null);
+  const [building, setBuilding] = useState<Character | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -96,8 +98,9 @@ export default function Characters() {
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         A character is a LoRA, a character sheet, or both. The sheet (a 1536×1024 turnaround
-        from the Image Repo) is conditioned into every render of the character and held
-        identity better than the LoRA alone in testing; it adds about a third to render time.
+        from the Image Repo, or built here from a real face photo with Build sheet) is
+        conditioned into every render of the character and held identity better than the LoRA
+        alone in testing; it adds about a third to render time.
         Every pose in <Link to="/lora-recipes">LoRA Recipes</Link> works for every character.
       </Typography>
 
@@ -155,6 +158,15 @@ export default function Characters() {
                 </Box>
                 <DefaultStar isDefault={!!c.is_default} what="character"
                              onToggle={() => toggleDefault(c)} />
+                {(c.kind ?? "solo") !== "pair" && (
+                  <Tooltip title={c.sheet_uri ? "Build a new sheet from a face photo"
+                    : "Build a sheet from a face photo"}>
+                    <Button size="small" startIcon={<AutoAwesome fontSize="small" />}
+                            onClick={() => setBuilding(c)}>
+                      Build sheet
+                    </Button>
+                  </Tooltip>
+                )}
                 <Tooltip title="Edit">
                   <IconButton size="small" onClick={() => setEditing(c)}>
                     <Edit fontSize="small" />
@@ -183,6 +195,17 @@ export default function Characters() {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            void load();
+          }}
+        />
+      )}
+
+      {building && (
+        <SheetBuilderDialog
+          character={building}
+          onClose={() => setBuilding(null)}
+          onSaved={(c) => {
+            setBuilding(c);
             void load();
           }}
         />

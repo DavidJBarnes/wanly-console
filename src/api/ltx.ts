@@ -447,6 +447,127 @@ export async function deleteCharacter(id: string): Promise<void> {
   await api.delete(`/ltx/characters/${id}`);
 }
 
+// ---------------------------------------------------------------- character sheets (#582)
+
+/** The prompt's pronoun for a sheet: the recipe was written for "she"; a man gets "he". */
+export type SheetGender = "female" | "male";
+
+export interface SheetBodyPreset {
+  name: string;
+  label: string;
+  /** The words that complete "She has ...". */
+  text: string;
+}
+
+export interface SheetPresets {
+  body: SheetBodyPreset[];
+  /** Pre-filled outfit and hair per pronoun. */
+  defaults: Record<SheetGender, { outfit: string; hair: string }>;
+  default_count: number;
+  max_count: number;
+}
+
+export interface SheetGenerateBody {
+  /** The REAL face photo (Image Repo s3:// URI): the model's reference and the sheet's face panel. */
+  face_uri: string;
+  outfit: string;
+  hair?: string;
+  /** Body build: its own sentence in the prompt ("She has an athletic build."). */
+  body?: string;
+  gender?: SheetGender;
+  count?: number;
+  seeds?: number[];
+}
+
+export interface SheetCandidate {
+  seed: number;
+  /** The 1088x1024 turnaround and the composed 1536x1024 sheet: drafts in the jobs bucket. */
+  candidate_uri: string;
+  sheet_uri: string;
+  preview_uri?: string | null;
+  prompt?: string | null;
+  model?: string | null;
+  settings?: string | null;
+  /** How the real-face panel was cut: "crop", "letterbox" or "centre". */
+  face_panel?: string | null;
+  face_panel_note?: string | null;
+  identity?: { aura: number | null; reason: string | null } | null;
+  width?: number | null;
+  height?: number | null;
+  timings_ms?: Record<string, number> | null;
+}
+
+/** A sheet job on the image-edit queue: queued -> waiting (`message` says why) -> running ->
+ *  done | failed. Candidates appear as each is made; a failed job keeps the ones it made. */
+export interface SheetJob {
+  id: string;
+  state: "queued" | "waiting" | "running" | "done" | "failed";
+  message: string;
+  character_id?: string | null;
+  character_name?: string | null;
+  face_uri?: string | null;
+  request: Record<string, unknown>;
+  seeds: number[];
+  candidates: SheetCandidate[];
+  position?: number | null;
+  error?: string | null;
+  worker?: string | null;
+  elapsed_s?: number | null;
+  saved: { seed: number; sheet_uri: string; sheet_id?: string }[];
+}
+
+/** Where a saved sheet came from (wanly-api migration 108). */
+export interface CharacterSheetRecord {
+  id: string;
+  character_id?: string | null;
+  character_name: string;
+  sheet_uri: string;
+  candidate_uri?: string | null;
+  face_uri: string;
+  outfit: string;
+  hair?: string | null;
+  body?: string | null;
+  gender?: string | null;
+  prompt: string;
+  seed: number;
+  model?: string | null;
+  settings?: string | null;
+  face_panel?: string | null;
+  identity?: { aura: number | null; reason: string | null } | null;
+  job_id?: string | null;
+  created_at?: string | null;
+}
+
+export async function getSheetPresets(): Promise<SheetPresets> {
+  const { data } = await api.get<SheetPresets>("/ltx/characters/sheet/presets");
+  return data;
+}
+
+export async function startSheetJob(characterId: string, body: SheetGenerateBody): Promise<SheetJob> {
+  const { data } = await api.post<SheetJob>(`/ltx/characters/${characterId}/sheet/generate`, body);
+  return data;
+}
+
+export async function getSheetJob(jobId: string): Promise<SheetJob> {
+  const { data } = await api.get<SheetJob>(
+    `/ltx/characters/sheet/jobs/${encodeURIComponent(jobId)}`);
+  return data;
+}
+
+/** Approve a candidate: its sheet is saved to the Image Repo and becomes the character's. */
+export async function composeSheet(
+  characterId: string, jobId: string, seed: number,
+): Promise<{ character: Character; sheet: CharacterSheetRecord }> {
+  const { data } = await api.post<{ character: Character; sheet: CharacterSheetRecord }>(
+    `/ltx/characters/${characterId}/sheet/compose`, { job_id: jobId, seed });
+  return data;
+}
+
+export async function listCharacterSheets(characterId: string): Promise<CharacterSheetRecord[]> {
+  const { data } = await api.get<CharacterSheetRecord[]>(`/ltx/characters/${characterId}/sheets`);
+  return data;
+}
+
 /** Star or unstar THE default character. See setDefaultPose. */
 export async function setDefaultCharacter(id: string, isDefault: boolean): Promise<Character> {
   const path = `/ltx/characters/${id}/default`;
