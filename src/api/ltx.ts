@@ -89,10 +89,12 @@ export interface Pose {
 export interface Character {
   id: string;
   name: string;
-  char_lora: string;
-  /** Fills a pose's placeholder. "Adding a character costs a LoRA and a trigger
-   *  swap" — this is the trigger half. */
-  trigger: string;
+  /** Null (or the legacy "none") is no LoRA: a sheet-only character, or one registered
+   *  before it trained. See lib/characterIdentity hasLora. */
+  char_lora: string | null;
+  /** Fills a pose's placeholder. Null for a sheet-only character (console#581), whose
+   *  placeholder fills from `description` instead. */
+  trigger: string | null;
   /** The other half of the caption the LoRA trained on (console#487). Null for a
    *  character that predates the trainer: it renders the bare trigger as before. */
   gender?: Gender | null;
@@ -115,6 +117,13 @@ export interface Character {
   base_checkpoint?: string | null;
   /** THE default character, preselected like the default pose (console#543). */
   is_default?: boolean;
+  /** The identity reference (console#581, wanly-api#379): an Image Repo s3:// URI for the
+   *  1536x1024 character sheet and/or a face close-up, and which of them renders. */
+  sheet_uri?: string | null;
+  face_ref_uri?: string | null;
+  identity_mode?: "sheet" | "face" | null;
+  /** A few words that fill <TRIGGER> when there is no trigger. */
+  description?: string | null;
 }
 
 /** What fills a placeholder: the trigger AND the word its LoRA bound it to, exactly as
@@ -122,8 +131,8 @@ export interface Character {
  *  same weights this pair is the only thing that says which face goes on which body
  *  (console#487). No trigger is the "no character" slot and never grows a gender; no
  *  gender is the bare trigger, which is what every character rendered before. */
-export function triggerPhrase(c: { trigger: string; gender?: Gender | null }): string {
-  if (!c.trigger || !c.gender) return c.trigger;
+export function triggerPhrase(c: { trigger: string | null; gender?: Gender | null }): string {
+  if (!c.trigger || !c.gender) return c.trigger ?? "";
   return `${c.trigger}, ${c.gender}`;
 }
 
@@ -292,7 +301,10 @@ export async function listLoras(
   const objs = await listLoraObjects();
   // Only character LoRAs union with the catalog: a character's own char_lora must stay
   // pickable even once its file leaves the bucket, but that has no meaning for content.
-  const fromBook = kind === "character" ? (catalog?.characters ?? []).map((c) => c.char_lora) : [];
+  // A sheet-only character has no LoRA (null) and contributes nothing here (console#581).
+  const fromBook = kind === "character"
+    ? (catalog?.characters ?? []).flatMap((c) => (c.char_lora ? [c.char_lora] : []))
+    : [];
   return mergeLoraOptions(
     fromBook,
     objs.filter((o) => o.kind === kind).map((o) => o.name),
@@ -400,8 +412,9 @@ export async function deleteBook(id: string): Promise<void> {
 export interface CharacterDraft {
   name: string;
   /** Absent for a character registered before it has trained (#537): the trigger and gender
-   *  come first, and the LoRA arrives when the run publishes. */
-  char_lora?: string;
+   *  come first, and the LoRA arrives when the run publishes. Null removes the LoRA, which
+   *  the API allows only while a character sheet or face reference remains (console#581). */
+  char_lora?: string | null;
   kind?: "solo" | "pair";
   /** Optional on create only — the API defaults it to the name. */
   trigger?: string | null;
@@ -410,6 +423,11 @@ export interface CharacterDraft {
   strength_stage_1?: number;
   strength_stage_2?: number;
   image_uri?: string | null;
+  /** The identity reference (console#581). Null clears on update. */
+  sheet_uri?: string | null;
+  face_ref_uri?: string | null;
+  identity_mode?: "sheet" | "face" | null;
+  description?: string | null;
 }
 
 export async function createCharacter(draft: CharacterDraft): Promise<Character> {

@@ -201,7 +201,7 @@ export function nextVersion(
     }
   }
   const c = characters.find((x) => x.name.toLowerCase() === name);
-  if (c) highest = Math.max(highest, versionOfLora(c.char_lora) ?? 0);
+  if (c) highest = Math.max(highest, versionOfLora(c.char_lora ?? "") ?? 0);
   return highest + 1;
 }
 

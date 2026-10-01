@@ -19,11 +19,14 @@ export type Gender = "woman" | "man" | "person";
 /** One person in the shot (console#473). Slot 0 fills `<TRIGGER>`, slot 1 `<TRIGGER2>`. */
 export interface LtxRecipeCharacter {
   name: string;
-  trigger: string;
+  /** Null for a sheet-only character (console#581). */
+  trigger: string | null;
+  /** What fills <TRIGGER> when there is no trigger (console#581). */
+  description?: string | null;
   /** Recorded since console#487 so a re-roll can rebuild "p@yton, woman" after the
    *  character row is gone. Absent on older blobs. */
   gender?: Gender | null;
-  char_lora: string;
+  char_lora: string | null;
   s1: number;
   s2: number;
 }
@@ -92,6 +95,9 @@ export interface JobCreate {
   flow_shift?: number | null;
   video_preset_id?: string | null;
   continuation_mode?: string | null; // "vace" | "traditional"
+  /** Render with the character's sheet / face reference (console#581)? Absent: the API's
+   *  default, on when the character has one. */
+  use_identity_ref?: boolean | null;
   starting_image_uri?: string | null;
   starting_image_hash?: string | null;
   first_segment: SegmentCreate;
