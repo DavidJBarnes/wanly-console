@@ -98,7 +98,7 @@ export default function Characters() {
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         A character is a LoRA, a character sheet, or both. The sheet (a 1536×1024 turnaround
-        from the Image Repo, or built here from a real face photo with Build sheet) is
+        from the Image Repo, or built here from one photo of her with Build sheet) is
         conditioned into every render of the character and held identity better than the LoRA
         alone in testing; it adds about a third to render time.
         Every pose in <Link to="/lora-recipes">LoRA Recipes</Link> works for every character.
@@ -159,8 +159,8 @@ export default function Characters() {
                 <DefaultStar isDefault={!!c.is_default} what="character"
                              onToggle={() => toggleDefault(c)} />
                 {(c.kind ?? "solo") !== "pair" && (
-                  <Tooltip title={c.sheet_uri ? "Build a new sheet from a face photo"
-                    : "Build a sheet from a face photo"}>
+                  <Tooltip title={c.sheet_uri ? "Build a new sheet from one photo of her"
+                    : "Build a sheet from one photo of her"}>
                     <Button size="small" startIcon={<AutoAwesome fontSize="small" />}
                             onClick={() => setBuilding(c)}>
                       Build sheet

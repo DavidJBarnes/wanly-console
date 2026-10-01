@@ -2,18 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import type { SheetJob } from "../api/ltx";
 import {
-  bodySentence, candidateScore, FACE_PANEL_W, FALLBACK_PRESETS, facePanelNote, initialSheetForm,
-  MAX_COUNT, savedSeeds, SHEET_H, SHEET_W, sheetFormProblem, sheetGenderFor, sheetJobActive,
+  candidateScore, FACE_PANEL_W, FALLBACK_PRESETS, facePanelNote, facePanelPreview,
+  initialSheetForm, MAX_COUNT, PHOTO_HINT, savedSeeds, SHEET_H, SHEET_W, sheetFormProblem, sheetGenderFor, sheetJobActive,
   sheetJobLine, sheetPanels, sheetRequest, switchGender, TURNAROUND_W,
 } from "./characterSheet";
 
 /**
- * The sheet builder (console#580, epic #582): a real face photo + outfit, hair and BODY words
- * -> N turnaround candidates on the image-edit queue -> one approved and saved as the
- * character's 1536x1024 sheet.
+ * The sheet builder (console#580, #585, epic #582): ONE photo of her (face + body) + outfit and
+ * hair words describing it -> N turnaround candidates on the image-edit queue, the face panel
+ * auto-cropped from the same photo -> one approved and saved as the character's 1536x1024 sheet.
  */
 
-const FACE = "s3://wanly-images/2026-09-30/kelly.png";
+const PHOTO = "s3://wanly-images/2026-10-01/kelly_full_body.png";
 
 function job(over: Partial<SheetJob> = {}): SheetJob {
   return { id: "j1", state: "queued", message: "queued", request: {}, seeds: [11, 22, 33],
@@ -29,6 +29,7 @@ describe("the layout", () => {
     const p = sheetPanels();
     expect(p.map((x) => x.kind)).toEqual(["real", "generated", "generated", "generated"]);
     expect(p[0].label).toBe("REAL");
+    expect(p[0].caption).toBe("face cropped from the photo");
     expect(p.slice(1).map((x) => x.caption.split(" ")[0])).toEqual(["front", "side", "back"]);
     expect(p[0].widthPct).toBeCloseTo((448 / 1536) * 100);
     const end = p[3].leftPct + p[3].widthPct;
@@ -61,36 +62,35 @@ describe("the form", () => {
     expect(typed.hair).toBe("his hair exactly as in image 1");
   });
 
-  it("body is its own sentence, never part of the outfit", () => {
-    expect(bodySentence("an athletic build.", "female")).toBe("She has an athletic build.");
-    expect(bodySentence("a broad build", "male")).toBe("He has a broad build.");
-    expect(bodySentence("  ", "female")).toBe("");
-    const body = sheetRequest({ ...initialSheetForm("woman"), faceUri: FACE,
-                                body: " a petite frame " });
-    expect(body.body).toBe("a petite frame");
-    expect(body.outfit).not.toContain("petite");
+  it("has no body field: the build comes from the photo (#585)", () => {
+    const f = initialSheetForm("woman");
+    expect(Object.keys(f).sort()).toEqual(["count", "gender", "hair", "outfit", "photoUri"]);
+    const body = sheetRequest({ ...f, photoUri: PHOTO });
+    expect("body" in body).toBe(false);
+    expect("face_uri" in body).toBe(false);
+    expect("body" in FALLBACK_PRESETS).toBe(false);
   });
 
   it("says what is missing before anything is sent", () => {
     const f = initialSheetForm("woman");
-    expect(sheetFormProblem(f)).toMatch(/face photo/);
-    expect(sheetFormProblem({ ...f, faceUri: FACE, outfit: "  " })).toMatch(/outfit/);
-    expect(sheetFormProblem({ ...f, faceUri: FACE, count: MAX_COUNT + 1 })).toMatch(/Between/);
-    expect(sheetFormProblem({ ...f, faceUri: FACE, count: 0 })).toMatch(/Between/);
-    expect(sheetFormProblem({ ...f, faceUri: FACE })).toBeNull();
+    expect(sheetFormProblem(f)).toMatch(/photo of her \(face \+ body\)/);
+    expect(sheetFormProblem({ ...f, photoUri: PHOTO, outfit: "  " })).toMatch(/outfit/);
+    expect(sheetFormProblem({ ...f, photoUri: PHOTO, count: MAX_COUNT + 1 })).toMatch(/Between/);
+    expect(sheetFormProblem({ ...f, photoUri: PHOTO, count: 0 })).toMatch(/Between/);
+    expect(sheetFormProblem({ ...f, photoUri: PHOTO })).toBeNull();
   });
 
   it("sends trimmed words and leaves blanks out", () => {
-    const body = sheetRequest({ faceUri: FACE, outfit: " jeans ", hair: " ", body: "",
+    const body = sheetRequest({ photoUri: PHOTO, outfit: " jeans ", hair: " ",
                                 gender: "female", count: 2 });
-    expect(body).toEqual({ face_uri: FACE, outfit: "jeans", gender: "female", count: 2 });
+    expect(body).toEqual({ photo_uri: PHOTO, outfit: "jeans", gender: "female", count: 2 });
   });
 
-  it("the fallback presets complete 'She has ...'", () => {
-    for (const p of FALLBACK_PRESETS.body) {
-      expect(p.text).toMatch(/^[a-z]/);
-      expect(p.text.endsWith(".")).toBe(false);
-    }
+  it("the defaults describe the photo, and the hint asks for a large face", () => {
+    expect(FALLBACK_PRESETS.defaults.female.outfit).toContain("she wears in image 1");
+    expect(FALLBACK_PRESETS.crop_padding).toBe(140);
+    expect(PHOTO_HINT).toBe(
+      "Use a photo where her face is reasonably large; a tiny face gives a soft face panel.");
   });
 });
 
@@ -125,11 +125,23 @@ describe("the job", () => {
 
   it("scores and notes", () => {
     expect(candidateScore({ identity: { aura: 0.612, reason: null } }))
-      .toBe("AuraFace 0.61 vs the photo");
+      .toBe("AuraFace 0.61 vs the face panel");
     expect(candidateScore({ identity: { aura: null, reason: "no face" } })).toBe("not scored: no face");
-    expect(facePanelNote({ face_panel: "crop" })).toBeNull();
-    expect(facePanelNote({ face_panel: "letterbox" })).toMatch(/letterboxed on white/);
+    expect(facePanelNote({ face_panel: "auto_crop", face_panel_crop: { scale: 0.9 } })).toBeNull();
+    expect(facePanelNote({ face_panel: "auto_crop", face_panel_crop: { scale: 1.5 } })).toBeNull();
+    expect(facePanelNote({ face_panel: "auto_crop", face_panel_crop: { scale: 2.6 } }))
+      .toMatch(/enlarged 2\.6× and will be soft/);
+    expect(facePanelNote({ face_panel: "auto_crop" })).toBeNull();
     expect(facePanelNote({ face_panel: "centre", face_panel_note: null })).toMatch(/No face/);
     expect([...savedSeeds(job({ saved: [{ seed: 22, sheet_uri: "x" }] }))]).toEqual([22]);
+  });
+
+  it("previews the auto-cropped face panel once a candidate has one", () => {
+    expect(facePanelPreview(null)).toBeNull();
+    expect(facePanelPreview(job())).toBeNull();
+    const c = { seed: 11, candidate_uri: "a", sheet_uri: "b" };
+    expect(facePanelPreview(job({ candidates: [c, { ...c, seed: 22,
+      face_panel_preview_uri: "s3://wanly-jobs/sheet-jobs/j1/s22_face_panel.jpg" }] })))
+      .toBe("s3://wanly-jobs/sheet-jobs/j1/s22_face_panel.jpg");
   });
 });
