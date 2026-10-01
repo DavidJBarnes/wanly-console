@@ -164,7 +164,10 @@ export default function SegmentPromptPopover({
             <Stack spacing={0.5}>
               {people.map((person, i) => {
                 const link = runLinks[person.name];
-                const line = `${person.char_lora} @ ${person.s1}/${person.s2}`;
+                // A sheet-only character records no LoRA (console#581): say so, not "null @ 0.8/1.5".
+                const line = person.char_lora && person.char_lora.toLowerCase() !== "none"
+                  ? `${person.char_lora} @ ${person.s1}/${person.s2}`
+                  : `${person.name ?? "no character"} — no LoRA`;
                 return (
                   <RecipeRow key={i} label={i === 0 ? "Character LoRA" : "Second character"}>
                     {link ? (

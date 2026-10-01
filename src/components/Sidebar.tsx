@@ -13,6 +13,7 @@ import {
   Casino,
   Dashboard as DashboardIcon,
   Dns,
+  Face,
   Image,
   ModelTraining,
   Movie,
@@ -38,8 +39,11 @@ const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }
   // LoRA Recipes was indented under Storyboard. That page is gone (recipe renders go through
   // the New Job dialog and the queue like anything else), so this is top level rather than
   // orphaned: with `sub` still set it would have indented under Workers, which means nothing.
-  // It is the only way to add a character for a newly trained LoRA, so it earns a row.
   { label: "LoRA Recipes", icon: <AutoAwesomeMotion />, path: "/lora-recipes" },
+  // A character is a LoRA, a character sheet, or both (console#579/#581) -- no longer a
+  // section at the bottom of LoRA Recipes, and the only way to add one for a newly trained
+  // LoRA or a new sheet, so it earns a top-level row.
+  { label: "Characters", icon: <Face />, path: "/characters" },
   { label: "Videos", icon: <VideoLibrary />, path: "/videos" },
   { label: "Smashcut", icon: <Movie />, path: "/smashcut", sub: true },
   { label: "Image Repo", icon: <Image />, path: "/images" },

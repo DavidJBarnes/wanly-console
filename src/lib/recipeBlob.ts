@@ -6,7 +6,8 @@
  * pure-logic only, so a blob with a right answer has to live outside a component to be
  * covered at all. A second person doubled the number of things that could drift.
  */
-import { NO_CHARACTER, triggerPhrase } from "../api/ltx";
+import { NO_CHARACTER } from "../api/ltx";
+import { fillPhrase } from "./characterIdentity";
 import type { Character, Pose } from "../api/ltx";
 import type { LtxRecipeCharacter, LtxRecipeRef } from "../api/types";
 
@@ -19,10 +20,16 @@ export interface CharacterSlot {
   s2: string;
 }
 
+/** The LoRA a slot starts on. A character with no LoRA (a sheet-only one, console#581)
+ *  starts on "none", the value every reader already treats as no LoRA. */
+function ownLora(character: Character): string {
+  return character.char_lora ?? "none";
+}
+
 export function slotFor(character: Character): CharacterSlot {
   return {
     character,
-    charLora: character.char_lora,
+    charLora: ownLora(character),
     s1: String(character.strength_stage_1),
     s2: String(character.strength_stage_2),
   };
@@ -43,7 +50,7 @@ export function recipeCharacters(ref: LtxRecipeRef | null | undefined): LtxRecip
 function slotEdits(slot: CharacterSlot, index: number): string[] {
   const prefix = index === 0 ? "char" : `char${index + 1}`;
   return [
-    slot.charLora !== slot.character.char_lora ? `${prefix}_lora` : null,
+    slot.charLora !== ownLora(slot.character) ? `${prefix}_lora` : null,
     Number(slot.s1) !== slot.character.strength_stage_1 ? `${prefix}_s1` : null,
     Number(slot.s2) !== slot.character.strength_stage_2 ? `${prefix}_s2` : null,
   ].filter((c): c is string => c !== null);
@@ -67,6 +74,9 @@ export function buildLtxRecipe(args: {
     name: s.character.name,
     trigger: s.character.trigger,
     gender: s.character.gender ?? null,
+    // What fills <TRIGGER> when there is no trigger, recorded like the trigger so a re-roll
+    // can rebuild the prompt after the character row is gone (console#581).
+    ...(s.character.description ? { description: s.character.description } : {}),
     char_lora: s.charLora,
     s1: Number(s.s1),
     s2: Number(s.s2),
@@ -80,7 +90,7 @@ export function buildLtxRecipe(args: {
     recipe: pose.name,
     characters,
     character: first.character.name,
-    trigger: first.character.trigger,
+    trigger: first.character.trigger ?? undefined,
     char_lora: first.charLora,
     char_s1: Number(first.s1),
     char_s2: Number(first.s2),
@@ -97,9 +107,10 @@ export function buildLtxRecipe(args: {
 }
 
 /** What fills each slot, in order, as renderPrompt takes them: the trigger phrase —
- *  "p@yton, woman" — not the bare trigger (console#487). */
+ *  "p@yton, woman" — not the bare trigger (console#487); for a character with no trigger,
+ *  its description, or "" (console#581). */
 export function slotTriggers(slots: CharacterSlot[]): string[] {
-  return slots.map((s) => triggerPhrase(s.character));
+  return slots.map((s) => fillPhrase(s.character));
 }
 
 /** "p@y & Me — Bedroom", "p@y — Missionary", "Missionary (no character)". */

@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button,
-  CircularProgress, ListSubheader, MenuItem, Stack, TextField, Typography,
+  CircularProgress, FormControlLabel, ListSubheader, MenuItem, Stack, Switch, TextField,
+  Typography,
 } from "@mui/material";
 import { ExpandMore, Casino } from "@mui/icons-material";
 import {
-  listRecipes, listLoras, ltxError, renderPrompt, triggerPhrase,
+  listRecipes, listLoras, ltxError, renderPrompt,
   NO_CHARACTER,
   type RecipeCatalog, type Character, type Pose,
 } from "../api/ltx";
@@ -26,6 +27,9 @@ import { groupPosesByBook } from "../lib/poseGroups";
 import { captionInFlight, joinNote } from "../lib/captionHold";
 import { seedRecipePrefill } from "../lib/recipePrefill";
 import { preselectCharacter, preselectPose } from "../lib/defaultSelection";
+import {
+  fillPhrase, hasLora, identityRefToSend, identityStatus, referenceMode,
+} from "../lib/characterIdentity";
 
 /**
  * Pick a validated (character, pose) configuration and a start frame. Everything
@@ -196,6 +200,10 @@ export default function RecipeForm({
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // "Use character sheet" (console#579). On by default, like the API: a character that has
+  // a sheet renders with it unless this job says otherwise. Only offered on a NEW job --
+  // it is a job setting, and a continuation inherits its job's.
+  const [useIdentityRef, setUseIdentityRef] = useState(true);
 
   useEffect(() => {
     listRecipes()
@@ -239,9 +247,10 @@ export default function RecipeForm({
   const slotKey = slotCharacters.map((c) => c?.name ?? "").join("|");
   // What this pose renders as for THESE characters — the baseline an edit is measured
   // against. An unfilled slot keeps its placeholder.
-  // The trigger PHRASE, "p@yton, woman" — what the LoRA trained on (console#487).
+  // The trigger PHRASE, "p@yton, woman" — what the LoRA trained on (console#487). A
+  // character with no trigger (sheet-only, console#581) fills its description, or nothing.
   const triggersOf = (list: (CharacterSlot | null)[]) =>
-    list.map((s) => (s ? triggerPhrase(s.character) : undefined)) as string[];
+    list.map((s) => (s ? fillPhrase(s.character) : undefined)) as string[];
   const renderedPrompt =
     pose && character ? renderPrompt(pose.prompt_template, triggersOf(filledSlots)) : "";
 
@@ -257,7 +266,7 @@ export default function RecipeForm({
     if (!pose || !character) return;
     const rendered = renderPrompt(
       pose.prompt_template,
-      slotCharacters.map((c) => (c ? triggerPhrase(c) : undefined)) as string[]);
+      slotCharacters.map((c) => (c ? fillPhrase(c) : undefined)) as string[]);
     // Auto-filled the moment there is something to fill it with (console#427). The words
     // land in the editable box, so they are still read before they are used — what changes
     // is that a description already paid for is not paid for again.
@@ -534,6 +543,9 @@ export default function RecipeForm({
         continuation_mode: "traditional",
         tags: initialTags || null,
         first_segment: segment,
+        // Sent only when the character HAS a reference; otherwise the toggle means nothing.
+        ...(identityRefToSend(character, useIdentityRef) !== undefined
+          ? { use_identity_ref: identityRefToSend(character, useIdentityRef) } : {}),
       } as JobCreate;
 
       // One decision about how the start frame is sent, in one place. An uploaded
@@ -784,6 +796,33 @@ export default function RecipeForm({
               {describeError}
             </Alert>
           )}
+          {/* What carries the identity on this render (console#579): the LoRA, the
+              character sheet, or both -- and the switch for the sheet on a new job. */}
+          {character !== NO_CHARACTER && (
+            <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
+              <Typography
+                variant="caption"
+                color={!hasLora(character.char_lora) && (!referenceMode(character)
+                  || (!continuing && !useIdentityRef)) ? "error" : "text.secondary"}
+              >
+                {identityStatus(character, continuing || useIdentityRef)}
+                {continuing && referenceMode(character)
+                  ? " Unless this job was created with it turned off." : ""}
+              </Typography>
+              {!continuing && referenceMode(character) && (
+                <FormControlLabel
+                  control={
+                    <Switch size="small" checked={useIdentityRef}
+                            onChange={(e) => setUseIdentityRef(e.target.checked)} />
+                  }
+                  label={<Typography variant="caption">
+                    {referenceMode(character) === "face"
+                      ? "Use face reference" : "Use character sheet"}
+                  </Typography>}
+                />
+              )}
+            </Stack>
+          )}
           {filledSlots.map((slot, i) => slot && (
             <Stack key={i} direction="row" spacing={2} useFlexGap flexWrap="wrap">
               <TextField
@@ -792,8 +831,11 @@ export default function RecipeForm({
                 sx={{ flex: "2 1 220px", minWidth: 180 }} size={compact ? "small" : "medium"}
                 onChange={(e) => setEditAt(i, { charLora: e.target.value })}
               >
-                {/* the recipe's own first, so it is never buried under the rest */}
-                <MenuItem value={slot.character.char_lora}>{slot.character.char_lora}</MenuItem>
+                {/* the recipe's own first, so it is never buried under the rest. A
+                    sheet-only character has none (console#581) and starts on "none". */}
+                {hasLora(slot.character.char_lora) && (
+                  <MenuItem value={slot.character.char_lora!}>{slot.character.char_lora}</MenuItem>
+                )}
                 {loras.filter((l) => l !== slot.character.char_lora).map((l) => (
                   <MenuItem key={l} value={l}>{l}</MenuItem>
                 ))}
