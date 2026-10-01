@@ -231,7 +231,7 @@ export function identityVerdict(
 
 /** Said once at the top of the dialog (#569): every edit is a Qwen regeneration now, so it is
  *  the dialog's premise rather than a warning on one mode. */
-export const QWEN_NOTE = "Edits run on Qwen-Image-Edit, which regenerates what it edits — only the "
-  + "chosen face when there are several. It can soften skin and look younger, so each result "
-  + "comes back with an identity score against the original. Edits queue for a free GPU; the "
-  + "original is never changed.";
+export const QWEN_NOTE = "Edits run on the official Qwen-Image-Edit-2511, which regenerates what it "
+  + "edits — only the chosen face when there are several. Each result comes back with an identity "
+  + "score against the original. An edit takes a few minutes (40 steps) and queues for a free GPU; "
+  + "the original is never changed.";
