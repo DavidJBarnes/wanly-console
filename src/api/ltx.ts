@@ -452,28 +452,24 @@ export async function deleteCharacter(id: string): Promise<void> {
 /** The prompt's pronoun for a sheet: the recipe was written for "she"; a man gets "he". */
 export type SheetGender = "female" | "male";
 
-export interface SheetBodyPreset {
-  name: string;
-  label: string;
-  /** The words that complete "She has ...". */
-  text: string;
-}
-
 export interface SheetPresets {
-  body: SheetBodyPreset[];
   /** Pre-filled outfit and hair per pronoun. */
   defaults: Record<SheetGender, { outfit: string; hair: string }>;
   default_count: number;
   max_count: number;
+  /** The face panel's padding around the detected face, in photo pixels. */
+  crop_padding?: number;
 }
 
 export interface SheetGenerateBody {
-  /** The REAL face photo (Image Repo s3:// URI): the model's reference and the sheet's face panel. */
-  face_uri: string;
+  /** ONE photo of her, face + body (Image Repo s3:// URI, #585): the turnaround's image 1 --
+   *  her build comes from it -- and the source the face panel is auto-cropped from. */
+  photo_uri: string;
+  /** What she wears in the photo, described. */
   outfit: string;
   hair?: string;
-  /** Body build: its own sentence in the prompt ("She has an athletic build."). */
-  body?: string;
+  /** Photo pixels around the detected face for the face panel (API default 140). */
+  crop_padding?: number;
   gender?: SheetGender;
   count?: number;
   seeds?: number[];
@@ -488,9 +484,16 @@ export interface SheetCandidate {
   prompt?: string | null;
   model?: string | null;
   settings?: string | null;
-  /** How the real-face panel was cut: "crop", "letterbox" or "centre". */
+  /** How the face panel was cut: "auto_crop" (from the same photo) or "centre" (no detector). */
   face_panel?: string | null;
   face_panel_note?: string | null;
+  /** The crop's provenance; `scale` > 1 means the face was enlarged to fill the panel. */
+  face_panel_crop?: {
+    source?: string | null; box?: number[] | null; crop?: number[] | null;
+    padding?: number | null; scale?: number | null;
+  } | null;
+  /** A JPEG of the 448x1024 face panel auto-cropped from the photo. */
+  face_panel_preview_uri?: string | null;
   identity?: { aura: number | null; reason: string | null } | null;
   width?: number | null;
   height?: number | null;
@@ -505,7 +508,8 @@ export interface SheetJob {
   message: string;
   character_id?: string | null;
   character_name?: string | null;
-  face_uri?: string | null;
+  /** The one photo the sheet is built from. */
+  photo_uri?: string | null;
   request: Record<string, unknown>;
   seeds: number[];
   candidates: SheetCandidate[];
@@ -535,6 +539,10 @@ export interface CharacterSheetRecord {
   face_panel?: string | null;
   identity?: { aura: number | null; reason: string | null } | null;
   job_id?: string | null;
+  /** "one_photo" (#585: face_uri is the one photo, the face panel cropped from it); null for
+   *  a sheet built from a face photo + body words before that. */
+  photo_mode?: string | null;
+  face_panel_crop?: Record<string, unknown> | null;
   created_at?: string | null;
 }
 

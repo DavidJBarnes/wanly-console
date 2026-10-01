@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, MenuItem, Stack, TextField, Typography,
 } from "@mui/material";
 
@@ -13,8 +13,8 @@ import type {
 import { getFileUrl } from "../api/client";
 import PickFromRepoDialog from "./PickFromRepoDialog";
 import {
-  bodySentence, candidateScore, FALLBACK_PRESETS, facePanelNote, initialSheetForm, MAX_COUNT,
-  resumeKey, savedSeeds, sheetFormProblem, sheetJobActive, sheetJobLine, sheetPanels,
+  candidateScore, FALLBACK_PRESETS, facePanelNote, facePanelPreview, initialSheetForm, MAX_COUNT,
+  PHOTO_HINT, resumeKey, savedSeeds, sheetFormProblem, sheetJobActive, sheetJobLine, sheetPanels,
   sheetRequest, switchGender, type SheetForm,
 } from "../lib/characterSheet";
 
@@ -63,9 +63,10 @@ function CandidateSheet({ c }: { c: SheetCandidate }) {
 }
 
 /**
- * Build sheet (console#580, epic #582): pick a real face photo, describe outfit, hair and body,
- * generate N candidates on the image-edit queue, compare them side by side, and approve one --
- * it is saved to the Image Repo and becomes the character's sheet.
+ * Build sheet (console#580, #585, epic #582): pick ONE photo of her (face + body), describe the
+ * outfit and hair she wears in it, generate N candidates on the image-edit queue, compare them
+ * side by side, and approve one -- it is saved to the Image Repo and becomes the character's
+ * sheet. Her build comes from the photo, and the face panel is auto-cropped from it.
  */
 export default function SheetBuilderDialog({
   character, onClose, onSaved,
@@ -154,7 +155,7 @@ export default function SheetBuilderDialog({
   };
 
   const saved = savedSeeds(job);
-  const sentence = bodySentence(form.body, form.gender);
+  const panel = facePanelPreview(job);
 
   return (
     <Dialog open fullWidth maxWidth="xl" onClose={onClose}>
@@ -162,23 +163,25 @@ export default function SheetBuilderDialog({
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            The official Qwen-Image-Edit-2511 draws a front, side and back full-body turnaround
-            from a real face photo, and the sheet puts that photo's face beside it (1536×1024,
-            the layout renders are conditioned on). Candidates queue for the image-edit GPU like
-            edits do: they wait for a render segment to finish and never interrupt training.
+            Give it one photo of her, full body or most of it, in the outfit. The official
+            Qwen-Image-Edit-2511 draws a front, side and back full-body turnaround from that
+            photo, keeping her face, build and proportions, and the sheet puts her real face,
+            cropped automatically from the same photo, beside it (1536×1024, the layout renders
+            are conditioned on). Candidates queue for the image-edit GPU like edits do: they wait
+            for a render segment to finish and never interrupt training.
           </Typography>
           {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
           {savedMsg && <Alert severity="success">{savedMsg}</Alert>}
 
           <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
             <Box sx={{ width: { xs: "100%", md: 220 }, flexShrink: 0 }}>
-              <Typography variant="overline">1 · Real face photo</Typography>
-              {form.faceUri ? (
+              <Typography variant="overline">1 · Photo of her (face + body)</Typography>
+              {form.photoUri ? (
                 <Stack spacing={1}>
-                  <img src={getFileUrl(form.faceUri)} alt="face photo"
+                  <img src={getFileUrl(form.photoUri)} alt="photo of her"
                        style={{ width: "100%", borderRadius: 4, display: "block" }} />
                   <Typography variant="caption" color="text.secondary" noWrap>
-                    {form.faceUri.split("/").pop()}
+                    {form.photoUri.split("/").pop()}
                   </Typography>
                   <Button size="small" disabled={live} onClick={() => setPicking(true)}>
                     Change
@@ -189,33 +192,42 @@ export default function SheetBuilderDialog({
                   Choose from the Image Repo
                 </Button>
               )}
+              <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
+                {PHOTO_HINT}
+              </Typography>
+              {panel && (
+                <Box sx={{ mt: 1.5 }}>
+                  <Typography variant="overline" component="div">Face panel (auto-cropped)</Typography>
+                  <Box sx={{ position: "relative", width: 112, aspectRatio: "448 / 1024",
+                             border: 2, borderColor: "success.main", borderRadius: 0.5,
+                             overflow: "hidden", bgcolor: "#fff" }}>
+                    <img src={getFileUrl(panel)} alt="face panel cropped from the photo"
+                         style={{ display: "block", width: "100%", height: "100%",
+                                  objectFit: "contain" }} />
+                    <Typography variant="caption" sx={{
+                      position: "absolute", left: 2, bottom: 2, px: 0.5, borderRadius: 0.5,
+                      bgcolor: "rgba(255,255,255,0.85)", color: "success.dark", fontWeight: 700,
+                      fontSize: 10, lineHeight: 1.3,
+                    }}>
+                      REAL
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
             </Box>
 
             <Stack spacing={1.5} sx={{ flexGrow: 1, minWidth: 0, width: "100%" }}>
-              <Typography variant="overline">2 · Outfit, hair and body</Typography>
+              <Typography variant="overline">
+                2 · Outfit and hair — describe what she wears in the photo
+              </Typography>
               <TextField label="Outfit" value={form.outfit} multiline minRows={2} fullWidth
                          disabled={live} inputProps={{ maxLength: 600 }}
                          onChange={(e) => set({ outfit: e.target.value })}
-                         helperText="Worn in all three views. Dress it like the start frames: in wide shots the body takes the sheet's clothes." />
+                         helperText="Describe what she wears in the photo; the turnaround keeps it in all three views. Her build comes from the photo itself." />
               <TextField label="Hair" value={form.hair} fullWidth disabled={live}
                          inputProps={{ maxLength: 300 }}
-                         onChange={(e) => set({ hair: e.target.value })} />
-              <Box>
-                <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
-                  {presets.body.map((p) => (
-                    <Chip key={p.name} size="small" label={p.label} disabled={live}
-                          color={form.body === p.text ? "primary" : "default"}
-                          variant={form.body === p.text ? "filled" : "outlined"}
-                          onClick={() => set({ body: form.body === p.text ? "" : p.text })} />
-                  ))}
-                </Stack>
-                <TextField label="Body build (optional)" value={form.body} fullWidth disabled={live}
-                           inputProps={{ maxLength: 300 }}
-                           onChange={(e) => set({ body: e.target.value })}
-                           helperText={sentence
-                             ? `Added to the prompt as its own sentence: “${sentence}”`
-                             : "A preset or your own words, e.g. “a slim, athletic build”. Empty: the model keeps what the photo suggests."} />
-              </Box>
+                         onChange={(e) => set({ hair: e.target.value })}
+                         helperText="Describe her hair in the photo." />
               <Stack direction="row" spacing={2}>
                 <TextField select label="Pronoun" value={form.gender} disabled={live}
                            sx={{ width: 160 }}
@@ -293,7 +305,8 @@ export default function SheetBuilderDialog({
               {history.map((h) => (
                 <Typography key={h.id} variant="caption" color="text.secondary" component="div">
                   {h.created_at ? new Date(h.created_at).toLocaleString() : ""} · seed {h.seed} ·
-                  face {h.face_uri.split("/").pop()} · {h.model ?? "?"}
+                  {h.photo_mode === "one_photo" ? "photo" : "face"} {h.face_uri.split("/").pop()}
+                  {" "}· {h.model ?? "?"}
                   {h.sheet_uri === character.sheet_uri ? " · current" : ""}
                 </Typography>
               ))}
@@ -307,10 +320,10 @@ export default function SheetBuilderDialog({
 
       {picking && (
         <PickFromRepoDialog
-          title="Choose a real face photo"
+          title="Choose a photo of her (face + body)"
           onClose={() => setPicking(false)}
           onPick={(path) => {
-            setForm((f) => ({ ...f, faceUri: path }));
+            setForm((f) => ({ ...f, photoUri: path }));
             setPicking(false);
           }}
         />

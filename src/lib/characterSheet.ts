@@ -1,9 +1,12 @@
 /**
- * Building a character sheet in the console (console#580, epic #582) -- the pure half.
+ * Building a character sheet in the console (console#580, #585, epic #582) -- the pure half.
  *
- * The sheet is the 1536x1024 layout phase 0 proved: the REAL face photo (a face-detected
- * 448 px panel) beside a 1088x1024 front / side / back turnaround that the official
- * Qwen-Image-Edit-2511 draws from that photo. The API runs it as a job on the image-edit
+ * The sheet is the 1536x1024 layout phase 0 proved: a 448 px REAL face panel beside a
+ * 1088x1024 front / side / back turnaround from the official Qwen-Image-Edit-2511. Since #585
+ * both come from ONE photo of her, face + body: the photo is the model's image 1, so her build
+ * carries into all three views, and the face panel is auto-cropped from the same photo. (Qwen
+ * ignored body words and a second body photo -- it keeps image 1 -- so there is no body
+ * field.) The API runs it as a job on the image-edit
  * queue (it waits for a render to finish and never interrupts training), returns N candidates,
  * and saves the one approved as the character's sheet. Everything decided without the network
  * lives here so vitest can hold it: the form's rules, what is sent, what the status line
@@ -23,34 +26,33 @@ export const SHEET_H = 1024;
 export const DEFAULT_COUNT = 3;
 export const MAX_COUNT = 6;
 
+/** Shown beside the photo picker: the face panel is cut from this photo, so a small face is
+ *  enlarged to fill it. */
+export const PHOTO_HINT =
+  "Use a photo where her face is reasonably large; a tiny face gives a soft face panel.";
+
+/** A face panel enlarged more than this from the photo is called out as soft. */
+export const SOFT_PANEL_SCALE = 1.5;
+
 /** Used until the API's presets arrive (or if they cannot), and kept equal to the API's
- *  sheet_gen.DEFAULTS / BODY_PRESETS -- the test pins the shape, not the words. */
+ *  sheet_gen.DEFAULTS -- the test pins the shape, not the words. */
 export const FALLBACK_PRESETS: SheetPresets = {
-  body: [
-    { name: "petite", label: "Petite", text: "a petite, slender frame" },
-    { name: "slim", label: "Slim", text: "a slim build" },
-    { name: "athletic", label: "Athletic", text: "a slim, athletic build with toned arms and legs" },
-    { name: "average", label: "Average", text: "an average build" },
-    { name: "curvy", label: "Curvy", text: "a curvy figure with full hips and bust" },
-    { name: "full", label: "Full-figured", text: "a full-figured, plus-size build" },
-    { name: "tall", label: "Tall and slender", text: "a tall, slender build with long legs" },
-    { name: "muscular", label: "Muscular", text: "a muscular build with broad shoulders" },
-  ],
   defaults: {
-    female: { outfit: "the same top that she wears in image 1, light blue jeans and white sneakers",
+    female: { outfit: "the same clothes and shoes that she wears in image 1",
               hair: "her hair exactly as in image 1" },
-    male: { outfit: "the same top that he wears in image 1, dark blue jeans and white sneakers",
+    male: { outfit: "the same clothes and shoes that he wears in image 1",
             hair: "his hair exactly as in image 1" },
   },
   default_count: DEFAULT_COUNT,
   max_count: MAX_COUNT,
+  crop_padding: 140,
 };
 
 export interface SheetForm {
-  faceUri: string;
+  /** The one photo of her, face + body. */
+  photoUri: string;
   outfit: string;
   hair: string;
-  body: string;
   gender: SheetGender;
   count: number;
 }
@@ -67,7 +69,7 @@ export function initialSheetForm(
 ): SheetForm {
   const g = sheetGenderFor(gender);
   const d = presets.defaults[g] ?? FALLBACK_PRESETS.defaults[g];
-  return { faceUri: "", outfit: d.outfit, hair: d.hair, body: "", gender: g,
+  return { photoUri: "", outfit: d.outfit, hair: d.hair, gender: g,
            count: presets.default_count || DEFAULT_COUNT };
 }
 
@@ -85,21 +87,12 @@ export function switchGender(form: SheetForm, to: SheetGender,
   };
 }
 
-/** The sentence the body words become in the prompt (the service writes it the same way). */
-export function bodySentence(body: string, gender: SheetGender): string {
-  const b = body.trim().replace(/\.+$/, "").trim();
-  if (!b) return "";
-  return `${gender === "male" ? "He" : "She"} has ${b}.`;
-}
-
 /** Why the form cannot be sent yet, or null. */
 export function sheetFormProblem(form: SheetForm): string | null {
-  if (!form.faceUri) return "Choose a real face photo from the Image Repo.";
-  if (!form.outfit.trim()) return "Describe the outfit — the one thing the photo cannot show.";
+  if (!form.photoUri) return "Choose a photo of her (face + body) from the Image Repo.";
+  if (!form.outfit.trim()) return "Describe the outfit she wears in the photo.";
   if (form.outfit.length > 600) return "The outfit is too long (600 characters at most).";
-  if (form.hair.length > 300 || form.body.length > 300) {
-    return "Hair and body are 300 characters at most.";
-  }
+  if (form.hair.length > 300) return "Hair is 300 characters at most.";
   if (!Number.isInteger(form.count) || form.count < 1 || form.count > MAX_COUNT) {
     return `Between 1 and ${MAX_COUNT} candidates.`;
   }
@@ -109,10 +102,9 @@ export function sheetFormProblem(form: SheetForm): string | null {
 /** What POST .../sheet/generate is sent: trimmed, blanks left out. */
 export function sheetRequest(form: SheetForm): SheetGenerateBody {
   const out: SheetGenerateBody = {
-    face_uri: form.faceUri, outfit: form.outfit.trim(), gender: form.gender, count: form.count,
+    photo_uri: form.photoUri, outfit: form.outfit.trim(), gender: form.gender, count: form.count,
   };
   if (form.hair.trim()) out.hair = form.hair.trim();
-  if (form.body.trim()) out.body = form.body.trim();
   return out;
 }
 
@@ -145,11 +137,20 @@ export function formatElapsed(s: number): string {
 }
 
 /** The identity number under a candidate. AuraFace of the turnaround's largest face (the
- *  front view) against the photo -- a hint, not a verdict: full-body faces are small. */
+ *  front view) against the face panel cropped from the photo -- a hint, not a verdict:
+ *  full-body faces are small. */
 export function candidateScore(c: Pick<SheetCandidate, "identity">): string {
   const a = c.identity?.aura;
   if (a == null) return c.identity?.reason ? `not scored: ${c.identity.reason}` : "not scored";
-  return `AuraFace ${a.toFixed(2)} vs the photo`;
+  return `AuraFace ${a.toFixed(2)} vs the face panel`;
+}
+
+/** The auto-cropped face panel to preview: it is the same for every seed of a job (same
+ *  photo, same padding), so the first candidate that has one. */
+export function facePanelPreview(
+  job: Pick<SheetJob, "candidates"> | null | undefined,
+): string | null {
+  return job?.candidates.find((c) => c.face_panel_preview_uri)?.face_panel_preview_uri ?? null;
 }
 
 /** The seeds of this job already saved as the character's sheet. */
@@ -174,7 +175,7 @@ export function sheetPanels(): SheetPanel[] {
   const third = TURNAROUND_W / 3;
   const views = ["front", "side", "back"];
   return [
-    { kind: "real", label: "REAL", caption: "face from the photo", leftPct: 0,
+    { kind: "real", label: "REAL", caption: "face cropped from the photo", leftPct: 0,
       widthPct: pct(FACE_PANEL_W) },
     ...views.map((v, i) => ({
       kind: "generated" as const, label: "GENERATED", caption: `${v} (Qwen-Image-Edit-2511)`,
@@ -183,13 +184,18 @@ export function sheetPanels(): SheetPanel[] {
   ];
 }
 
-/** What the face panel note says when the panel was not the usual face-detected crop. */
-export function facePanelNote(c: Pick<SheetCandidate, "face_panel" | "face_panel_note">): string | null {
-  if (c.face_panel === "letterbox") {
-    return "Tight close-up: the face panel is letterboxed on white so none of the face is cut.";
-  }
+/** A warning about the face panel, or null: a centred panel (the detector would not load) or
+ *  a face enlarged enough from a small face in the photo to be soft. */
+export function facePanelNote(
+  c: Pick<SheetCandidate, "face_panel" | "face_panel_note" | "face_panel_crop">,
+): string | null {
   if (c.face_panel === "centre") {
     return c.face_panel_note ?? "No face was detected: the face panel is a centred crop.";
+  }
+  const scale = c.face_panel_crop?.scale;
+  if (scale != null && scale > SOFT_PANEL_SCALE) {
+    return `Her face is small in this photo: the face panel is enlarged ${scale.toFixed(1)}× and `
+      + "will be soft. A photo with a larger face gives a sharper panel.";
   }
   return null;
 }
