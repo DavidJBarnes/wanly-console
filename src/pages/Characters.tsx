@@ -18,8 +18,8 @@ import DefaultStar from "../components/DefaultStar";
 import PickFromRepoDialog from "../components/PickFromRepoDialog";
 import SheetBuilderDialog from "../components/SheetBuilderDialog";
 import {
-  draftFor, fillPhrase, formError, formFor, hasLora, identityBadges, referenceMode,
-  sheetSizeWarning, type CharacterForm,
+  draftFor, draftMessage, fillPhrase, formError, formFor, formIsDraft, hasLora, identityBadges,
+  isDraft, referenceMode, sheetSizeWarning, type CharacterForm,
 } from "../lib/characterIdentity";
 import { characterHasTrained } from "../lib/trainingJob";
 
@@ -30,6 +30,9 @@ import { characterHasTrained } from "../lib/trainingJob";
  * Phase 0 (wanly-gpu-docker#155) showed a 1536x1024 character sheet, conditioned into the
  * render, holding identity better than the LoRA alone -- so a character is now a LoRA, a
  * character sheet, or both, and it gets its own page. Poses stay in LoRA Recipes.
+ *
+ * Or, for now, NEITHER (console#592): a DRAFT, saved with just a name so Build sheet -- which
+ * works on an existing character -- can make its first sheet. A draft cannot render.
  */
 export default function Characters() {
   const [characters, setCharacters] = useState<Character[] | null>(null);
@@ -126,8 +129,11 @@ export default function Characters() {
                       <Chip key={b} size="small" label={b} variant="outlined"
                             color={b === "LoRA" ? "primary" : "secondary"} />
                     ))}
-                    {badges.length === 0 && (
-                      <Chip size="small" label="not trained yet" variant="outlined" />
+                    {isDraft(c, characters ?? []) && (
+                      <Tooltip title={draftMessage(c.name)}>
+                        <Chip size="small" label="Draft: needs a LoRA or a sheet"
+                              color="warning" variant="outlined" />
+                      </Tooltip>
                     )}
                   </Stack>
                   <Typography variant="body2" color="text.secondary" noWrap>
@@ -183,7 +189,8 @@ export default function Characters() {
         })}
         {characters?.length === 0 && (
           <Typography variant="body2" color="text.secondary">
-            No characters yet — add one with a LoRA, a character sheet, or both.
+            No characters yet — add one with a LoRA, a character sheet, or both, or just a
+            name and build its sheet.
           </Typography>
         )}
       </Stack>
@@ -193,8 +200,10 @@ export default function Characters() {
           character={editing === "new" ? null : editing}
           loras={loras}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onSaved={(c, buildSheet) => {
             setEditing(null);
+            // "Save & build sheet" on a new draft (console#592): straight on to its first sheet.
+            if (buildSheet) setBuilding(c);
             void load();
           }}
         />
@@ -273,7 +282,7 @@ function CharacterDialog({
   character: Character | null;
   loras: string[];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (c: Character, buildSheet: boolean) => void;
 }) {
   const isNew = !character;
   // Once a character has trained, its trigger and gender are what the LoRA learned: another
@@ -285,9 +294,13 @@ function CharacterDialog({
   const [err, setErr] = useState<string | null>(null);
   const set = (patch: Partial<CharacterForm>) => setForm((f) => ({ ...f, ...patch }));
   const withLora = form.lora.trim() !== "";
-  const problem = formError(form, character);
+  const problem = formError(form);
+  // Neither a LoRA nor a sheet: saved as a DRAFT (console#592). Fine -- it is how a new
+  // character gets to Build sheet -- but it cannot render until it has one.
+  const draft = formIsDraft(form);
+  const canBuild = (character?.kind ?? "solo") !== "pair";
 
-  const save = async () => {
+  const save = async (buildSheet = false) => {
     if (problem) {
       setErr(problem);
       return;
@@ -295,10 +308,11 @@ function CharacterDialog({
     setSaving(true);
     setErr(null);
     try {
-      const draft = draftFor(form, character, locked);
-      if (isNew) await createCharacter({ name: form.name.trim(), ...draft });
-      else await updateCharacter(character!.id, draft);
-      onSaved();
+      const body = draftFor(form, character, locked);
+      const saved = isNew
+        ? await createCharacter({ name: form.name.trim(), ...body })
+        : await updateCharacter(character!.id, body);
+      onSaved(saved, buildSheet);
     } catch (e) {
       setErr(ltxError(e));
     } finally {
@@ -321,6 +335,14 @@ function CharacterDialog({
           {err && <Alert severity="error">{err}</Alert>}
           <TextField label="Name" value={form.name} autoFocus fullWidth
                      onChange={(e) => set({ name: e.target.value })} />
+          {draft && (
+            <Alert severity="warning">
+              No LoRA and no character sheet: this saves as a <b>draft</b>, which cannot render
+              until it has one. {canBuild
+                ? "Save & build sheet makes its first sheet from one photo of her."
+                : "A pair renders with its first member's sheet, or attach a joint LoRA."}
+            </Alert>
+          )}
 
           <Divider textAlign="left"><Typography variant="overline">LoRA (optional)</Typography></Divider>
           <TextField
@@ -346,7 +368,9 @@ function CharacterDialog({
               select label="Gender" value={form.gender} disabled={locked}
               sx={{ flex: "1 1 160px" }}
               onChange={(e) => set({ gender: e.target.value as "" | Gender })}
-              helperText={locked ? "Fixed by training." : "The word the LoRA's caption bound the trigger to."}
+              helperText={locked ? "Fixed by training."
+                : withLora ? "The word the LoRA's caption bound the trigger to."
+                  : "Sets Build sheet's pronoun; also what a later LoRA's captions bind to."}
             >
               <MenuItem value=""><em>None — bare trigger</em></MenuItem>
               <MenuItem value="woman">woman</MenuItem>
@@ -426,8 +450,15 @@ function CharacterDialog({
           </Typography>
         )}
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={saving || problem !== null} onClick={save}>
-          {saving ? "Saving…" : "Save"}
+        {draft && canBuild && (
+          <Button variant="outlined" startIcon={<AutoAwesome fontSize="small" />}
+                  disabled={saving || problem !== null} onClick={() => void save(true)}>
+            Save & build sheet
+          </Button>
+        )}
+        <Button variant="contained" disabled={saving || problem !== null}
+                onClick={() => void save()}>
+          {saving ? "Saving…" : draft ? "Save draft" : "Save"}
         </Button>
       </DialogActions>
 

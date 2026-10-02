@@ -34,9 +34,52 @@ export function referenceMode(c: IdentityFields): "sheet" | "face" | null {
   return null;
 }
 
+/**
+ * A DRAFT has neither a LoRA nor a sheet/face reference (console#592). It exists so Build
+ * sheet has a character to make the first sheet for -- the sheet flow lives on an existing
+ * character -- and it cannot render: the API refuses a job for it with draftMessage.
+ *
+ * A pair has no reference of its own and renders with its FIRST member's, so a pair with no
+ * joint LoRA is a draft when that member (looked up in `all`) has no reference either.
+ * Mirrors the API's character_registry.is_draft.
+ */
+export function isDraft(
+  c: IdentityFields & Partial<Pick<Character, "kind" | "members">>,
+  all: readonly (IdentityFields & Pick<Character, "name">)[] = [],
+): boolean {
+  if (hasLora(c.char_lora)) return false;
+  if ((c.kind ?? "solo") === "pair") {
+    const first = all.find((m) => m.name === c.members?.[0]);
+    return !first || !referenceMode(first);
+  }
+  return !referenceMode(c);
+}
+
+/** What a draft says wherever it would render. The API's refusal reads the same. */
+export function draftMessage(name: string): string {
+  return `${name} has no LoRA or sheet yet: build a sheet or attach a LoRA.`;
+}
+
+/**
+ * The job form's refusal for a draft (console#592), or null. What renders is the job's LoRA
+ * (the slot's, which may differ from the character's) and the character's reference, so the
+ * render is a draft when the character is one AND the slot carries no LoRA either -- the same
+ * rule the API refuses the submit with.
+ */
+export function draftRenderProblem(
+  c: (IdentityFields & Pick<Character, "name"> & Partial<Pick<Character, "kind" | "members">>)
+    | null,
+  slotLora: string | null | undefined,
+  all: readonly (IdentityFields & Pick<Character, "name">)[] = [],
+): string | null {
+  if (!c || hasLora(slotLora) || !isDraft(c, all)) return null;
+  return draftMessage(c.name);
+}
+
 export type IdentityBadge = "LoRA" | "Sheet" | "Face";
 
-/** The list's badges: LoRA, Sheet (or Face, for a face-only reference), or both. */
+/** The list's badges: LoRA, Sheet (or Face, for a face-only reference), or both. None for a
+ *  draft -- the list shows isDraft's own badge, which knows about pairs. */
 export function identityBadges(c: IdentityFields): IdentityBadge[] {
   const out: IdentityBadge[] = [];
   if (hasLora(c.char_lora)) out.push("LoRA");
@@ -66,7 +109,7 @@ export function identityStatus(c: IdentityFields | null, useRef: boolean): strin
   const ref = mode === "sheet" ? "character sheet" : mode === "face" ? "face reference" : null;
   if (!ref) {
     return lora ? "Identity: LoRA only — this character has no character sheet."
-      : "Identity: none — no LoRA and no character sheet.";
+      : "Identity: none — a draft, with no LoRA and no character sheet. It cannot render.";
   }
   if (!useRef) {
     return lora ? `Identity: LoRA only — the ${ref} is turned off for this job.`
@@ -122,16 +165,12 @@ export function formFor(c: Character | null): CharacterForm {
   };
 }
 
-/** Why the form cannot be saved, or null. At least one of a LoRA or a character sheet is
- *  required; strengths only matter — and are only checked — when there is a LoRA. A
- *  character registered for training (LoRA "none", no sheet) can still be edited. */
-export function formError(f: CharacterForm, original: Character | null): string | null {
+/** Why the form cannot be saved, or null. Only a name is required: a character with neither
+ *  a LoRA nor a sheet is a DRAFT (console#592), saved so Build sheet can make its first
+ *  sheet (see formIsDraft). Strengths only matter — and are only checked — when there is
+ *  a LoRA. */
+export function formError(f: CharacterForm): string | null {
   if (!f.name.trim()) return "A character needs a name.";
-  const registeredOnly = original !== null && !hasLora(original.char_lora)
-    && !original.sheet_uri && !original.face_ref_uri;
-  if (!f.lora.trim() && !f.sheetUri && !registeredOnly) {
-    return "Choose a LoRA, a character sheet, or both.";
-  }
   if (f.lora.trim()) {
     // Number("") is 0, and a strength of 0 is a LoRA that loads and does nothing: the
     // render costs its ten minutes and comes back as the base model. Caught here.
@@ -143,6 +182,11 @@ export function formError(f: CharacterForm, original: Character | null): string 
   }
   if (f.identityMode === "face" && !f.faceRefUri) return "Choose a face reference to use it.";
   return null;
+}
+
+/** True when the form, as typed, saves a draft: no LoRA, no sheet, no face reference. */
+export function formIsDraft(f: CharacterForm): boolean {
+  return !f.lora.trim() && !f.sheetUri && !f.faceRefUri;
 }
 
 /**
@@ -168,7 +212,7 @@ export function draftFor(
       name: f.name.trim(),
       ...(lora ? { char_lora: lora } : {}),
       // Absent means "no opinion": the API defaults it to the name for a LoRA character and
-      // leaves a sheet-only one without.
+      // leaves a sheet-only one, or a draft (console#592), without.
       trigger: f.trigger.trim() || null,
       gender: f.gender || null,
       ...strengths,
@@ -181,8 +225,8 @@ export function draftFor(
   const hadLora = hasLora(original.char_lora);
   return {
     name: f.name.trim(),
-    // A LoRA chosen is sent; one REMOVED from a character that had one goes as null, which
-    // the API allows only while a sheet remains. A registration with "none" is left alone.
+    // A LoRA chosen is sent; one REMOVED from a character that had one goes as null (with no
+    // sheet left, the character becomes a draft). A registration with "none" is left alone.
     ...(lora ? { char_lora: lora } : hadLora ? { char_lora: null } : {}),
     ...(locked ? {} : {
       ...(f.trigger.trim() ? { trigger: f.trigger.trim() } : {}),
