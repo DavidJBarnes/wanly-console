@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { renderPrompt } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import {
-  draftFor, fillPhrase, formError, formFor, hasLora, identityBadges, identityRefToSend,
-  identityStatus, referenceMode, sheetSizeWarning,
+  draftFor, draftMessage, draftRenderProblem, fillPhrase, formError, formFor, formIsDraft,
+  hasLora, identityBadges, identityRefToSend, identityStatus, isDraft, referenceMode,
+  sheetSizeWarning,
 } from "./characterIdentity";
 import { buildLtxRecipe, slotFor, slotTriggers } from "./recipeBlob";
 
@@ -125,24 +126,30 @@ describe("the sheet layout check", () => {
 });
 
 describe("the character dialog", () => {
-  it("needs a LoRA or a sheet", () => {
+  it("needs only a name: neither a LoRA nor a sheet saves a draft (console#592)", () => {
     const f = { ...formFor(null), name: "New" };
-    expect(formError(f, null)).toMatch(/LoRA, a character sheet, or both/);
-    expect(formError({ ...f, sheetUri: SHEET }, null)).toBeNull();
-    expect(formError({ ...f, lora: "x_v1" }, null)).toBeNull();
-    // A face ref alone is not enough: the sheet is what was proven.
-    expect(formError({ ...f, faceRefUri: FACE }, null)).toMatch(/or both/);
+    expect(formError({ ...f, name: " " })).toMatch(/needs a name/);
+    expect(formError(f)).toBeNull();
+    expect(formIsDraft(f)).toBe(true);
+    expect(formIsDraft({ ...f, sheetUri: SHEET })).toBe(false);
+    expect(formIsDraft({ ...f, lora: "x_v1" })).toBe(false);
+    expect(formIsDraft({ ...f, faceRefUri: FACE })).toBe(false);
+  });
+
+  it("creates a draft with just a name and a gender, no trigger, no LoRA", () => {
+    const d = draftFor({ ...formFor(null), name: "Kel", gender: "woman" }, null, false);
+    expect(d).toEqual({ name: "Kel", trigger: null, gender: "woman" });
   });
 
   it("checks strengths only when there is a LoRA", () => {
     const f = { ...formFor(null), name: "New", sheetUri: SHEET, s1: "", s2: "" };
-    expect(formError(f, null)).toBeNull();
-    expect(formError({ ...f, lora: "x_v1" }, null)).toMatch(/strengths/);
+    expect(formError(f)).toBeNull();
+    expect(formError({ ...f, lora: "x_v1" })).toMatch(/strengths/);
   });
 
   it("still lets a registered-for-training character be edited", () => {
     const registered = char({ char_lora: "none", trigger: "new" });
-    expect(formError(formFor(registered), registered)).toBeNull();
+    expect(formError(formFor(registered))).toBeNull();
   });
 
   it("creates a sheet-only character without LoRA or strengths", () => {
@@ -171,5 +178,45 @@ describe("the character dialog", () => {
   it("never sends char_lora for a registration that has none", () => {
     const registered = char({ char_lora: "none", trigger: "new" });
     expect(draftFor(formFor(registered), registered, false)).not.toHaveProperty("char_lora");
+  });
+});
+
+describe("drafts (console#592)", () => {
+  const draft = char({ char_lora: null, trigger: null, name: "Nova" });
+
+  it("is a character with neither a LoRA nor a reference", () => {
+    expect(isDraft(draft)).toBe(true);
+    // The legacy registration ahead of training is one too: nothing in it is the person.
+    expect(isDraft(char({ char_lora: "none" }))).toBe(true);
+    expect(isDraft(loraOnly)).toBe(false);
+    expect(isDraft(sheetOnly)).toBe(false);
+    expect(isDraft(char({ char_lora: null, face_ref_uri: FACE }))).toBe(false);
+    expect(identityBadges(draft)).toEqual([]);
+  });
+
+  it("is a pair with no joint LoRA whose first member has no sheet", () => {
+    const a = char({ name: "A", char_lora: null, trigger: "a" });
+    const b = char({ name: "B", char_lora: null, trigger: "b", sheet_uri: SHEET });
+    const pair = char({ name: "AB", char_lora: "none", kind: "pair", members: ["A", "B"] });
+    expect(isDraft(pair, [a, b])).toBe(true);
+    expect(isDraft(pair, [{ ...a, sheet_uri: SHEET }, b])).toBe(false);
+    expect(isDraft({ ...pair, char_lora: "ab_v1" }, [a, b])).toBe(false);
+  });
+
+  it("says the same thing the API refuses with", () => {
+    expect(draftMessage("Nova"))
+      .toBe("Nova has no LoRA or sheet yet: build a sheet or attach a LoRA.");
+  });
+
+  it("blocks the job form unless the slot carries a LoRA", () => {
+    expect(draftRenderProblem(draft, "none")).toBe(draftMessage("Nova"));
+    expect(draftRenderProblem(draft, "")).toBe(draftMessage("Nova"));
+    expect(draftRenderProblem(draft, "x_v1")).toBeNull();
+    expect(draftRenderProblem(sheetOnly, "none")).toBeNull();
+    expect(draftRenderProblem(null, "none")).toBeNull();
+  });
+
+  it("tells the job form it cannot render", () => {
+    expect(identityStatus(draft, true)).toMatch(/draft.*cannot render/);
   });
 });

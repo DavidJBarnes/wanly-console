@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import { Link } from "react-router";
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button,
   CircularProgress, FormControlLabel, ListSubheader, MenuItem, Stack, Switch, TextField,
@@ -37,7 +38,7 @@ class CaptionTicketFailed extends Error {}
 import { seedRecipePrefill } from "../lib/recipePrefill";
 import { preselectCharacter, preselectPose } from "../lib/defaultSelection";
 import {
-  fillPhrase, hasLora, identityRefToSend, identityStatus, referenceMode,
+  draftRenderProblem, fillPhrase, hasLora, identityRefToSend, identityStatus, referenceMode,
 } from "../lib/characterIdentity";
 
 /**
@@ -588,7 +589,13 @@ export default function RecipeForm({
     }
   };
 
-  const submitDisabled = !pose || busy || (!continuing && !start);
+  // A DRAFT character -- no LoRA, no sheet (console#592) -- cannot render, and the API would
+  // refuse the submit. Said here the moment it is picked, and the submit waits for a LoRA
+  // in the slot below or a sheet on the Characters page.
+  const draftProblem = character && character !== NO_CHARACTER
+    ? draftRenderProblem(character, filledSlots[0]?.charLora, book?.characters ?? [])
+    : null;
+  const submitDisabled = !pose || busy || (!continuing && !start) || draftProblem !== null;
   const submitLabel = busy
     ? "Queueing…"
     : continuing
@@ -872,6 +879,12 @@ export default function RecipeForm({
           )}
           {/* What carries the identity on this render (console#579): the LoRA, the
               character sheet, or both -- and the switch for the sheet on a new job. */}
+          {draftProblem && (
+            <Alert severity="warning">
+              {draftProblem} Build it on the <Link to="/characters">Characters</Link> page, or
+              pick a LoRA below.
+            </Alert>
+          )}
           {character !== NO_CHARACTER && (
             <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
               <Typography
