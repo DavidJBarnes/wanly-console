@@ -755,15 +755,19 @@ export async function getImageScene(path: string): Promise<ImageScene> {
 }
 
 /**
- * Ask for an image to be described, and get its caption TICKET back at once (console#564).
+ * Ask for HALVES of an image's caption, and get the first half's TICKET back at once
+ * (console#564), with every half's in `tickets`.
  *
- * The caption takes its turn in the API's one queue in the background, so leaving the page
- * loses nothing. Single-flight: if a caption of this image is already queued or running --
- * from the modal, another tab, a held job -- this IS that caption (`joined`).
+ * Per half since console#590: `halves` is ["scene"] (Describe, Redo scene, and what tagging
+ * asks for), ["motion"] (Describe motion, Redo motion -- grounded on the saved scene) or
+ * both. Saving one half never touches the other. The caption takes its turn in that half's
+ * queue in the background, so leaving the page loses nothing. Single-flight per half: if
+ * that half of this image is already queued or running -- from the modal, another tab, a
+ * held job -- this IS that caption (`joined`).
  */
 export async function requestImageDescribe(
   path: string,
-  body: { style?: string; instruction?: string } = {},
+  body: { halves: ("scene" | "motion")[]; style?: string; instruction?: string },
 ): Promise<CaptionTicket> {
   const { data } = await api.post<CaptionTicket>("/images/scene/describe", body,
     { params: { path } });

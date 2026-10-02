@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { CaptionQueueStatus, CaptionTicket } from "../api/types";
+import { captionKey } from "../lib/captionStatus";
 import { useCaptionStore } from "./captionStore";
 
 const A = "s3://wanly-images/2026-10-01/a.png";
+const SA = captionKey(A, "scene");
+const MA = captionKey(A, "motion");
 
 const q = (over: Partial<CaptionQueueStatus>): CaptionQueueStatus => ({
   depth: 0, waiting: 0, running: null, entries: [], recent: [], ...over,
@@ -27,21 +30,21 @@ describe("the caption store (console#564)", () => {
     const store = useCaptionStore.getState();
     store.apply(q({}), Date.now() - 10);             // first read: nothing going on
     useCaptionStore.getState().noteTicket(ticket);    // the click
-    expect(useCaptionStore.getState().statuses.get(A)?.state).toBe("queued");
+    expect(useCaptionStore.getState().statuses.get(SA)?.state).toBe("queued");
 
     const later = Date.now() + 10;
     useCaptionStore.getState().apply(q({
       depth: 1,
       entries: [{ path: A, kind: "describe", status: "running", position: 0, ticket_id: "t1" }],
     }), later);
-    expect(useCaptionStore.getState().statuses.get(A)?.state).toBe("running");
+    expect(useCaptionStore.getState().statuses.get(SA)?.state).toBe("running");
     expect(useCaptionStore.getState().doneSeq).toBe(0);
 
     useCaptionStore.getState().apply(q({
       recent: [{ ...ticket, status: "done", position: null, finished_at: "2026-10-02T02:30:00Z" }],
     }), later + 10);
     const s = useCaptionStore.getState();
-    expect(s.statuses.get(A)?.state).toBe("done");
+    expect(s.statuses.get(SA)?.state).toBe("done");
     expect(s.doneSeq).toBe(1);
     expect(s.lastDone).toEqual([A]);                  // the moment views fetch the words
   });
@@ -51,7 +54,7 @@ describe("the caption store (console#564)", () => {
     const before = Date.now() - 5;
     useCaptionStore.getState().noteTicket(ticket);
     useCaptionStore.getState().apply(q({}), before);  // in flight when the click happened
-    expect(useCaptionStore.getState().statuses.get(A)?.state).toBe("queued");
+    expect(useCaptionStore.getState().statuses.get(SA)?.state).toBe("queued");
   });
 
   it("does not announce finishes it never saw start (a page load)", () => {
@@ -66,8 +69,33 @@ describe("the caption store (console#564)", () => {
       depth: 2, entries: [{ path: A, kind: "hold", status: "queued", position: 1, ticket_id: "t" }],
     });
     useCaptionStore.getState().apply(read, Date.now());
-    const first = useCaptionStore.getState().statuses.get(A);
+    const first = useCaptionStore.getState().statuses.get(SA);
     useCaptionStore.getState().apply(read, Date.now());
-    expect(useCaptionStore.getState().statuses.get(A)).toBe(first);
+    expect(useCaptionStore.getState().statuses.get(SA)).toBe(first);
+  });
+
+  it("notes every half a describe answered with, each under its own key (console#590)", () => {
+    useCaptionStore.getState().apply(q({}), Date.now() - 10);
+    const motion: CaptionTicket = { ...ticket, ticket_id: "t2", half: "motion", mode: "motion" };
+    useCaptionStore.getState().noteTicket({
+      ...ticket, half: "scene", mode: "scene", tickets: [{ ...ticket, half: "scene" }, motion],
+    });
+    const s = useCaptionStore.getState().statuses;
+    expect(s.get(SA)?.half).toBe("scene");
+    expect(s.get(MA)).toMatchObject({ half: "motion", ticketId: "t2", state: "queued" });
+  });
+
+  it("announces a motion finishing as the image's words changing", () => {
+    useCaptionStore.getState().apply(q({
+      entries: [{ path: A, kind: "describe", status: "running", position: 0, ticket_id: "m",
+        lane: "motion" }],
+    }), Date.now());
+    useCaptionStore.getState().apply(q({
+      recent: [{ ...ticket, ticket_id: "m", half: "motion", mode: "motion", status: "done",
+        finished_at: "2026-10-02T03:00:00Z" }],
+    }), Date.now() + 10);
+    const st = useCaptionStore.getState();
+    expect(st.statuses.get(MA)?.state).toBe("done");
+    expect(st.lastDone).toEqual([A]);
   });
 });

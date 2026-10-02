@@ -93,9 +93,12 @@ import {
 } from "../lib/lightboxNav";
 import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
 import CaptionStatusChip from "../components/CaptionStatusChip";
-import { captionLabel, captionPending } from "../lib/captionStatus";
 import {
-  noteCaptionTicket, refreshCaptionStatus, useCaptionDone, useCaptionStatus, useCaptionStore,
+  type CaptionHalfName, captionPending, halfActions, motionNeedsRegrounding, REGROUND_HINT,
+  requestedByNote,
+} from "../lib/captionStatus";
+import {
+  captionStatusNow, noteCaptionTicket, refreshCaptionStatus, useCaptionDone, useCaptionStatus,
 } from "../stores/captionStore";
 import CaptionQueueChip from "../components/CaptionQueueChip";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
@@ -188,8 +191,10 @@ export default function ImageRepo() {
   // modal may be showing a different image, and an error pinned to the wrong picture reads
   // as that picture having failed.
   const [sceneError, setSceneError] = useState<{ path: string; message: string } | null>(null);
-  const lightboxCaption = useCaptionStatus(lightboxImage?.path);
-  const lightboxCaptionPending = captionPending(lightboxCaption);
+  // Each half on its own (console#590): the scene and the motion paragraph have their own
+  // tickets, chips, buttons and retry.
+  const lightboxScene = useCaptionStatus(lightboxImage?.path, "scene");
+  const lightboxMotion = useCaptionStatus(lightboxImage?.path, "motion");
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [favoritesView, setFavoritesView] = useState(false);
@@ -610,32 +615,34 @@ export default function ImageRepo() {
   };
 
   /**
-   * Describe an image and save the result on its record.
+   * Caption ONE HALF of an image and save it on its record (console#590).
    *
-   * One function for both callers — the automatic first description and the Re-roll button
-   * — because they are the same act. The endpoint always regenerates; which one this is was
-   * decided by whoever called.
+   * One function for every caller -- the tag's automatic first description (scene), the
+   * Describe / Redo scene / Describe motion / Redo motion buttons -- because they are the
+   * same act on a half. The endpoint always regenerates that half and never touches the
+   * other; which act this is was decided by whoever called.
    *
    * Every view holding this image is updated, not just the modal: the grid, the favourites
    * list and the untagged list all carry their own copy of the row, and a description that
    * only landed in one of them would come back as null the next time the modal opened.
    */
-  const runDescribe = async (path: string) => {
-    if (requestingPaths.current.has(path)) return;
-    if (captionPending(useCaptionStore.getState().statuses.get(path))) return;
-    requestingPaths.current.add(path);
+  const runDescribe = async (path: string, half: CaptionHalfName) => {
+    const key = `${half}:${path}`;
+    if (requestingPaths.current.has(key)) return;
+    if (captionPending(captionStatusNow(path, half))) return;
+    requestingPaths.current.add(key);
     setSceneError(null);
     try {
       // Answers at once with the caption's ticket; the words arrive through the caption
       // store's "done" event below, on this page or any other.
-      noteCaptionTicket(await requestImageDescribe(path));
+      noteCaptionTicket(await requestImageDescribe(path, { halves: [half] }));
       refreshCaptionStatus();
     } catch (err) {
       // THE API'S REASON, not axios's "Request failed with status code 400".
       console.error("Failed to describe image:", err);
       setSceneError({ path, message: ltxError(err) });
     } finally {
-      requestingPaths.current.delete(path);
+      requestingPaths.current.delete(key);
     }
   };
 
@@ -658,9 +665,9 @@ export default function ImageRepo() {
                   ...img,
                   scene_description: scene.scene_description,
                   scene_described_at: scene.scene_described_at,
-                  // Both halves come from the one caption, so both are replaced together.
-                  // A partial failure returns motion_description null, which clears the
-                  // old motion text the same way the API clears the stored column.
+                  // Whichever half finished, both are read back: each is saved on its own
+                  // and neither ever clears the other (console#590), so the row is the
+                  // truth for both.
                   motion_description: scene.motion_description,
                   motion_described_at: scene.motion_described_at,
                 }
@@ -670,14 +677,6 @@ export default function ImageRepo() {
           setUntaggedImages((prev) => prev.map(patch));
           setSearchResults((prev) => prev.map(patch));
           setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
-          if (scene.caption?.motion_error) {
-            // The static half landed; the motion half did not. Say why the paragraph is
-            // missing rather than let its absence look intentional.
-            setSceneError({
-              path,
-              message: `Scene described, but the motion caption failed: ${scene.caption.motion_error}`,
-            });
-          }
         })
         .catch((err) => console.error("Failed to read the new description:", err));
     }
@@ -707,18 +706,20 @@ export default function ImageRepo() {
         }
         setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
         // Tagging an image is the moment someone decided it was worth keeping, so it is the
-        // moment to describe it (console#414). `existingScene` was captured with the edit
+        // moment to describe it (console#414) -- its SCENE only (console#590): the motion
+        // paragraph is minutes of another GPU and waits for an explicit Describe motion or a
+        // job that needs it. `existingScene` was captured with the edit
         // rather than read now: by the time this runs the modal may be showing something
         // else entirely, and the question is about the image that was tagged.
         if (
           shouldAutoDescribe({
             tags,
             existing: existingScene,
-            inFlight: requestingPaths.current.has(path)
-              || captionPending(useCaptionStore.getState().statuses.get(path)),
+            inFlight: requestingPaths.current.has(`scene:${path}`)
+              || captionPending(captionStatusNow(path, "scene")),
           })
         ) {
-          void runDescribe(path);
+          void runDescribe(path, "scene");
         }
       })
       .catch((err) => {
@@ -1209,90 +1210,114 @@ export default function ImageRepo() {
                       first" would be an arbitrary rule about a button. */}
                   <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
                   <Box>
-                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
-                        Scene description
-                      </Typography>
-                      <CaptionStatusChip path={lightboxImage.path} />
-                      <Button
-                        size="small"
-                        onClick={() => runDescribe(lightboxImage.path)}
-                        disabled={lightboxCaptionPending}
-                      >
-                        {lightboxCaptionPending
-                          ? "Describing..."
-                          : lightboxImage.scene_description
-                            ? "Re-roll"
-                            : "Describe"}
-                      </Button>
-                    </Stack>
-                    {lightboxCaptionPending ? (
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <CircularProgress size={16} />
-                        <Typography variant="body2" color="text.secondary">
-                          {/* WHERE IN THE LINE, not just "working". ollama captions one at
-                              a time, so the seventh image of a batch is minutes out, and a
-                              spinner says the same thing at ten seconds and at ten minutes
-                              -- which is how a batch that is working fine gets abandoned.
-                              The caption carries on if you close this or leave the page. */}
-                          {captionLabel(lightboxCaption)}
-                          {lightboxCaption && lightboxCaption.depth > 1
-                            ? ` — ${lightboxCaption.depth} in the caption queue`
-                            : ""}
-                          . It carries on if you close this.
-                        </Typography>
-                      </Stack>
-                    ) : lightboxImage.scene_description ? (
-                      <>
-                        <Typography variant="body2">
-                          {lightboxImage.scene_description}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {lightboxImage.scene_description.trim().split(/\s+/).length} words
-                          {lightboxImage.scene_described_at
-                            ? ` \u2014 ${new Date(lightboxImage.scene_described_at).toLocaleString()}`
-                            : ""}
-                        </Typography>
-                      </>
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">
-                        Not described yet. Tagging this image describes it automatically.
-                      </Typography>
-                    )}
-
-                    {/* The motion half (#326): the same frame read as a 10-second clip,
-                        produced in the same call. Shown under the static words because
-                        they are read together — the motion is written FROM the scene. */}
-                    {lightboxImage.scene_description && lightboxImage.motion_description && (
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                          Motion
-                        </Typography>
-                        <Typography variant="body2" fontStyle="italic">
-                          {lightboxImage.motion_description}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {lightboxImage.motion_description.trim().split(/\s+/).length} words
-                          {lightboxImage.motion_described_at
-                            ? ` \u2014 ${new Date(lightboxImage.motion_described_at).toLocaleString()}`
-                            : ""}
-                        </Typography>
-                      </Box>
-                    )}
-                    {lightboxCaption?.state === "failed" && sceneError?.path !== lightboxImage.path && (
-                      <Alert
-                        severity="warning"
-                        sx={{ mt: 1 }}
-                        action={
-                          <Button color="inherit" size="small"
-                                  onClick={() => runDescribe(lightboxImage.path)}>
-                            Retry
+                    {(() => {
+                      // One status pill per half is the only "in progress" indicator
+                      // (console#590): the buttons disable while their half is in flight,
+                      // and nothing else spins or relabels.
+                      const [sceneAct, motionAct] = halfActions({
+                        scene: lightboxImage.scene_description,
+                        motion: lightboxImage.motion_description,
+                        sceneStatus: lightboxScene,
+                        motionStatus: lightboxMotion,
+                      });
+                      const halfButton = (act: typeof sceneAct) => (
+                        <span title={act.why ?? undefined}>
+                          <Button
+                            size="small"
+                            onClick={() => runDescribe(lightboxImage.path, act.half)}
+                            disabled={act.disabled}
+                          >
+                            {act.label}
                           </Button>
-                        }
-                      >
-                        The last caption failed: {lightboxCaption.error ?? "no reason given"}
-                      </Alert>
-                    )}
+                        </span>
+                      );
+                      const failed = (s: typeof lightboxScene) => s?.state === "failed" && (
+                        <Alert
+                          severity="warning"
+                          sx={{ mt: 1 }}
+                          action={
+                            <Button color="inherit" size="small"
+                                    onClick={() => runDescribe(lightboxImage.path, s.half)}>
+                              Retry
+                            </Button>
+                          }
+                        >
+                          The last {s.half} caption failed: {s.error ?? "no reason given"}
+                        </Alert>
+                      );
+                      const motionAsker = requestedByNote(lightboxMotion);
+                      return (
+                        <>
+                          <Stack direction="row" alignItems="center" spacing={1}
+                                 useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
+                              Scene description
+                            </Typography>
+                            <CaptionStatusChip path={lightboxImage.path} half="scene" />
+                            {halfButton(sceneAct)}
+                          </Stack>
+                          {lightboxImage.scene_description ? (
+                            <>
+                              <Typography variant="body2">
+                                {lightboxImage.scene_description}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {lightboxImage.scene_description.trim().split(/\s+/).length} words
+                                {lightboxImage.scene_described_at
+                                  ? ` \u2014 ${new Date(lightboxImage.scene_described_at).toLocaleString()}`
+                                  : ""}
+                              </Typography>
+                            </>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              Not described yet. Tagging this image describes its scene
+                              automatically.
+                            </Typography>
+                          )}
+                          {failed(lightboxScene)}
+
+                          {/* The motion half (#326): the frame read as a 10-second clip,
+                              grounded on the SAVED scene. Its own caption since console#590 --
+                              made only on an explicit click or a held job's need. */}
+                          <Stack direction="row" alignItems="center" spacing={1}
+                                 useFlexGap flexWrap="wrap" sx={{ mt: 2, mb: 0.5 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 600, flexGrow: 1 }}>
+                              Motion
+                            </Typography>
+                            <CaptionStatusChip path={lightboxImage.path} half="motion" />
+                            {halfButton(motionAct)}
+                          </Stack>
+                          {lightboxImage.motion_description ? (
+                            <>
+                              <Typography variant="body2" fontStyle="italic">
+                                {lightboxImage.motion_description}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {lightboxImage.motion_description.trim().split(/\s+/).length} words
+                                {lightboxImage.motion_described_at
+                                  ? ` \u2014 ${new Date(lightboxImage.motion_described_at).toLocaleString()}`
+                                  : ""}
+                              </Typography>
+                            </>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              No motion caption. Describe motion makes one from the scene.
+                            </Typography>
+                          )}
+                          {motionAsker && (
+                            <Typography variant="caption" color="text.secondary" component="div">
+                              {motionAsker}
+                            </Typography>
+                          )}
+                          {motionNeedsRegrounding(lightboxImage) && !captionPending(lightboxMotion) && (
+                            <Alert severity="info" sx={{ mt: 1 }}>
+                              {REGROUND_HINT}.
+                            </Alert>
+                          )}
+                          {failed(lightboxMotion)}
+                        </>
+                      );
+                    })()}
                     {sceneError?.path === lightboxImage.path && (
                       <Alert
                         severity="warning"

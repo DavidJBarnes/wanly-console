@@ -13,7 +13,8 @@ import { create } from "zustand";
 import { getCaptionQueue } from "../api/client";
 import type { CaptionQueueStatus, CaptionTicket } from "../api/types";
 import {
-  type ImageCaptionStatus, newlyDone, sameStatus, statusesFromQueue,
+  type CaptionHalfName, captionKey, type ImageCaptionStatus, newlyDone, sameStatus,
+  statusesFromQueue, ticketHalf,
 } from "../lib/captionStatus";
 
 //: The wait is dominated by minute-long captions; faster buys no accuracy.
@@ -21,8 +22,9 @@ const POLL_MS = 3000;
 
 interface CaptionStore {
   queue: CaptionQueueStatus | null;
+  /** By captionKey(path, half) -- each half of an image has its own (console#590). */
   statuses: Map<string, ImageCaptionStatus>;
-  /** Tickets handed to this page that the last read predates, by path. */
+  /** Tickets handed to this page that the last read predates, by captionKey. */
   pending: Map<string, CaptionTicket>;
   /** Bumped per image each time its caption is seen to finish; views refetch on change. */
   doneSeq: number;
@@ -63,10 +65,16 @@ export const useCaptionStore = create<CaptionStore>((set, get) => ({
     });
   },
 
-  noteTicket: (t) => {
-    if (!t.status) return;
-    notedAt.set(t.path, Date.now());
-    const pending = new Map(get().pending).set(t.path, t);
+  noteTicket: (answer) => {
+    // A describe answers with the first half's ticket and every half's in `tickets`.
+    const all = (answer.tickets?.length ? answer.tickets : [answer]).filter((t) => t.status);
+    if (all.length === 0) return;
+    const pending = new Map(get().pending);
+    for (const t of all) {
+      const key = captionKey(t.path, ticketHalf(t));
+      notedAt.set(key, Date.now());
+      pending.set(key, t);
+    }
     const statuses = statusesFromQueue(get().queue, pending.values());
     set({ pending, statuses: mergeKeeping(get().statuses, statuses) });
   },
@@ -125,11 +133,17 @@ export function useCaptionPoll(): void {
   useEffect(() => watch(), []);
 }
 
-/** One image's caption status, or undefined when there is nothing to say. */
-export function useCaptionStatus(path: string | null | undefined): ImageCaptionStatus | undefined {
+/** One half of one image's caption status, or undefined when there is nothing to say. */
+export function useCaptionStatus(
+  path: string | null | undefined, half: CaptionHalfName,
+): ImageCaptionStatus | undefined {
   useCaptionPoll();
-  return useCaptionStore((s) => (path ? s.statuses.get(path) : undefined));
+  return useCaptionStore((s) => (path ? s.statuses.get(captionKey(path, half)) : undefined));
 }
+
+/** Read a half's status outside React (a debounced callback, say). */
+export const captionStatusNow = (path: string, half: CaptionHalfName) =>
+  useCaptionStore.getState().statuses.get(captionKey(path, half));
 
 /** The captioner's whole queue, for the toolbar chip. */
 export function useCaptionQueueSnapshot(): CaptionQueueStatus | null {
