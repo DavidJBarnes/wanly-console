@@ -1,5 +1,6 @@
 import { Alert, Box, Button, Chip, CircularProgress, Tooltip } from "@mui/material";
-import type { JobResponse, SegmentResponse } from "../api/types";
+import type { CaptionHoldDetail, JobResponse, SegmentResponse } from "../api/types";
+import { holdPlace } from "../lib/captionHold";
 
 /**
  * A segment held until its start image's captions exist (console#562).
@@ -25,8 +26,17 @@ export function CaptionHoldPanel({ seg, busy, onRetry, onRenderWithout }: PanelP
     return (
       <Alert severity="info" icon={<CircularProgress size={16} />} sx={{ mb: 1 }}>
         Waiting for caption… it renders once the start image's words are saved.
-        {seg.caption_wait && (
-          <Box component="span" sx={{ display: "block", fontSize: 12, opacity: 0.85 }}>
+        {/* WHAT it waits for and WHERE its image is in line (console#587): "Waiting for
+            caption…" alone reads the same at position 1 and position 30, and the same
+            whether the captioner is working or refusing. */}
+        <Box component="span" sx={{ display: "block", fontSize: 12, opacity: 0.85 }}>
+          {holdPlace({
+            queue_status: seg.caption_queue_status, queue_position: seg.caption_queue_position,
+            needs: seg.caption_needs, note: seg.caption_wait,
+          })}
+        </Box>
+        {seg.caption_wait && seg.caption_queue_status !== "waiting" && (
+          <Box component="span" sx={{ display: "block", fontSize: 12, opacity: 0.7 }}>
             {seg.caption_wait}
           </Box>
         )}
@@ -56,12 +66,25 @@ export function CaptionHoldPanel({ seg, busy, onRetry, onRenderWithout }: PanelP
   return null;
 }
 
-/** The job-level flag: its status stays "pending" (it is queued), so this says why it waits. */
-export function CaptionHoldChip({ hold }: { hold: JobResponse["caption_hold"] }) {
+/** The job-level flag: its status stays "pending" (it is queued), so this says why it waits,
+ *  and -- when the API says (console#587) -- where its image is in the caption queue. */
+export function CaptionHoldChip({ hold, detail }: {
+  hold: JobResponse["caption_hold"];
+  detail?: CaptionHoldDetail | null;
+}) {
   if (hold === "awaiting_caption") {
+    const label = !detail
+      ? "Waiting for caption…"
+      : detail.queue_status === "queued" && detail.queue_position
+        ? `In caption queue (#${detail.queue_position})`
+        : detail.queue_status === "running"
+          ? "Captioning…"
+          : "Waiting for caption…";
     return (
-      <Tooltip title="Held until its start image's scene and motion captions are saved">
-        <Chip size="small" color="info" variant="outlined" label="Waiting for caption…" />
+      <Tooltip title={detail
+        ? `Held until its start image's captions are saved. ${holdPlace(detail)}`
+        : "Held until its start image's scene and motion captions are saved"}>
+        <Chip size="small" color="info" variant="outlined" label={label} />
       </Tooltip>
     );
   }

@@ -42,7 +42,9 @@ import type {
   TrainingPreflight,
   TrainingJob,
   WorkerModeResponse,
+  CaptionHoldSummary,
   CaptionQueueStatus,
+  CaptionTicket,
   EditPresets,
   FullEditBody,
   ImageEditBody,
@@ -753,21 +755,53 @@ export async function getImageScene(path: string): Promise<ImageScene> {
 }
 
 /**
- * Describe an image NOW and save the result on its record, replacing any previous one.
+ * Ask for an image to be described, and get its caption TICKET back at once (console#564).
  *
- * This is both the first description and the re-roll — they are the same act, and which
- * one it is is decided by whether the caller calls. It PERSISTS, which is the whole point:
- * the next job starting from this frame gets the words for free, and a claim renders with
- * the same description that was shown rather than generating a different one.
- *
- * Works for a generated frame too (console#438) -- a segment's last frame is the start
- * frame of the one after it, and the Next Segment dialog describes it on open.
+ * The caption takes its turn in the API's one queue in the background, so leaving the page
+ * loses nothing. Single-flight: if a caption of this image is already queued or running --
+ * from the modal, another tab, a held job -- this IS that caption (`joined`).
  */
-export async function describeImageScene(
+export async function requestImageDescribe(
   path: string,
   body: { style?: string; instruction?: string } = {},
-): Promise<ImageScene> {
-  const { data } = await api.post<ImageScene>("/images/scene", body, { params: { path } });
+): Promise<CaptionTicket> {
+  const { data } = await api.post<CaptionTicket>("/images/scene/describe", body,
+    { params: { path } });
+  return data;
+}
+
+/** One caption ticket by id. 404 once the API has forgotten it. */
+export async function getCaptionTicket(id: string): Promise<CaptionTicket> {
+  const { data } = await api.get<CaptionTicket>(
+    `/images/scene/tickets/${encodeURIComponent(id)}`);
+  return data;
+}
+
+/**
+ * Wait for a caption ticket to finish, polling. Resolves with the finished ticket (done or
+ * failed); rejects only if the request itself fails or `signal` aborts.
+ */
+export async function waitForCaptionTicket(
+  id: string, opts: { intervalMs?: number; signal?: AbortSignal } = {},
+): Promise<CaptionTicket> {
+  const every = opts.intervalMs ?? 3000;
+  for (;;) {
+    if (opts.signal?.aborted) throw new DOMException("aborted", "AbortError");
+    const t = await getCaptionTicket(id);
+    if (t.status === "done" || t.status === "failed") return t;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, every);
+      opts.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new DOMException("aborted", "AbortError"));
+      }, { once: true });
+    });
+  }
+}
+
+/** GET /caption-holds: jobs waiting on captions and how the caption queue looks (#587). */
+export async function getCaptionHolds(): Promise<CaptionHoldSummary> {
+  const { data } = await api.get<CaptionHoldSummary>("/caption-holds");
   return data;
 }
 

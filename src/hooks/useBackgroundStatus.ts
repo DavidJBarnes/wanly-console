@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * show what the run wrote.
  */
 
-//: Same cadence as useCaptionQueue: each caption is seconds, each render minutes, so a
+//: Same cadence as the caption store (stores/captionStore): each caption is seconds, each render minutes, so a
 //: faster poll buys nothing.
 const POLL_MS = 3000;
 

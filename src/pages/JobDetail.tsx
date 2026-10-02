@@ -889,7 +889,7 @@ export default function JobDetail() {
           </IconButton>
         </Tooltip>
         <StatusChip status={job.status} />
-        <CaptionHoldChip hold={job.caption_hold} />
+        <CaptionHoldChip hold={job.caption_hold} detail={job.caption_hold_detail} />
       </Box>
 
       {error && (

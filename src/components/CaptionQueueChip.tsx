@@ -1,8 +1,6 @@
-import { useEffect, useState } from "react";
 import { Chip, CircularProgress, Tooltip } from "@mui/material";
 
-import { getCaptionQueue } from "../api/client";
-import type { CaptionQueueStatus } from "../api/types";
+import { useCaptionQueueSnapshot } from "../stores/captionStore";
 
 /**
  * How the captioner's queue looks, wherever you are on the page.
@@ -17,38 +15,15 @@ import type { CaptionQueueStatus } from "../api/types";
  *
  * ONE POLL, NOT ONE PER IMAGE. Depth belongs to the captioner, not to any image, so
  * GET /images/caption-queue needs no path -- no database and no captioner call behind it
- * either, because the queue lives in the API process.
+ * either, because the queue lives in the API process. Since console#564 that same poll
+ * (stores/captionStore.ts) also feeds every image's own caption badge.
  *
  * SILENT WHEN IDLE. A chip reading "0 queued" on every page all day is furniture; the
  * useful signal is that there IS a queue.
  */
 
-//: The wait is dominated by ~25s captions, so a faster poll buys no accuracy and costs a
-//: request every time.
-const POLL_MS = 4000;
-
 export default function CaptionQueueChip() {
-  const [q, setQ] = useState<CaptionQueueStatus | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    const tick = async () => {
-      try {
-        const next = await getCaptionQueue();
-        if (live) setQ(next);
-      } catch {
-        // An unreachable API is already loud elsewhere on the page; a queue chip that
-        // flickers into an error adds noise to a problem you can already see.
-        if (live) setQ(null);
-      }
-    };
-    void tick();
-    const t = setInterval(() => void tick(), POLL_MS);
-    return () => {
-      live = false;
-      clearInterval(t);
-    };
-  }, []);
+  const q = useCaptionQueueSnapshot();
 
   if (!q || q.depth === 0) return null;
 

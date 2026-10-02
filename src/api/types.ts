@@ -131,6 +131,9 @@ export interface JobResponse {
    *  own status stays "pending" -- it IS queued -- so this is what says why it is not
    *  starting. "caption_failed" wins over "awaiting_caption": it needs a person. */
   caption_hold?: "awaiting_caption" | "caption_failed" | null;
+  /** While awaiting_caption: the image, which halves it still needs and its place in the
+   *  caption queue (console#587). */
+  caption_hold_detail?: CaptionHoldDetail | null;
   /** What the clips actually render at (wanly-api#359). width/height are the start frame's;
    *  a recipe render is capped below that. Absent/null means the same as width/height —
    *  read it through lib/renderSize. */
@@ -200,6 +203,12 @@ export interface SegmentResponse {
    *  queue. Filled by the job detail endpoint only. */
   caption_image?: string | null;
   caption_wait?: string | null;
+  /** console#587: the halves still missing, and the image's place in the caption queue
+   *  ("waiting" = the captioner is refusing; caption_wait says why). */
+  caption_needs?: ("scene" | "motion")[] | null;
+  caption_queue_status?: "queued" | "running" | "waiting" | null;
+  caption_queue_position?: number | null;
+  caption_queue_depth?: number | null;
 }
 
 export interface HologramRequest {
@@ -793,6 +802,70 @@ export interface CaptionQueueStatus {
   waiting: number;
   /** The image being captioned right now, so the view can name it rather than only count. */
   running: string | null;
+  /** The whole line, running first (console#564). Absent from an API older than that. */
+  entries?: CaptionQueueEntry[];
+  /** The last finished caption ticket of each image still remembered, newest first. */
+  recent?: CaptionTicket[];
+}
+
+/** One place in the caption queue. "describe" and "hold" save words on the image; "dataset"
+ *  (a training caption) and "try" (a Settings preview) do not. */
+export interface CaptionQueueEntry {
+  path: string;
+  kind: "describe" | "hold" | "dataset" | "try" | string;
+  status: "running" | "queued";
+  /** 0 = being captioned now, 1 = next up. */
+  position: number;
+  ticket_id: string | null;
+}
+
+/** One caption of one image, made in the background (console#564). POST
+ *  /images/scene/describe answers with this at once; poll it by image or by id. */
+export interface CaptionTicket {
+  path: string;
+  ticket_id: string | null;
+  /** null: nothing in flight and nothing remembered for this image. */
+  status: "queued" | "running" | "done" | "failed" | null;
+  /** 0 while running, 1 = next up; null otherwise. */
+  position: number | null;
+  depth: number;
+  mode: "pair" | "motion" | null;
+  origin: "describe" | "hold" | null;
+  error: string | null;
+  /** Failed because the box beside the captioner is rendering: try again later. */
+  busy: boolean;
+  /** Done, but the motion half failed and the scene was saved without it. */
+  motion_error: string | null;
+  /** This request joined a caption already in flight rather than queueing another. */
+  joined: boolean;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+/** What a caption-held job waits for (console#587). */
+export interface CaptionHoldDetail {
+  image: string | null;
+  /** The halves not saved yet, in order: "scene", "motion". */
+  needs: ("scene" | "motion")[];
+  /** "queued" (+ position), "running", "waiting" (the captioner is refusing -- the box is
+   *  rendering; `note` says so), or null (no waiter yet; the API's sweep gives it one). */
+  queue_status: "queued" | "running" | "waiting" | null;
+  queue_position: number | null;
+  queue_depth: number;
+  note: string | null;
+}
+
+/** GET /caption-holds: the JobQueue summary. */
+export interface CaptionHoldSummary {
+  jobs_waiting: number;
+  segments_waiting: number;
+  jobs_failed: number;
+  segments_failed: number;
+  queue_depth: number;
+  queue_waiting: number;
+  running: string | null;
+  images: (CaptionHoldDetail & { segments: number; jobs: number })[];
 }
 
 /** An image's scene description, as GET/POST /images/scene return it. */
@@ -821,6 +894,9 @@ export interface ImageScene {
   queue_status: "queued" | "running" | null;
   queue_position: number | null;
   queue_depth: number;
+  /** The image's caption ticket: the one in flight, else the last finished one remembered
+   *  (console#564). Absent from an older API. */
+  caption?: CaptionTicket | null;
 }
 
 /** One tag and how many items carry it under the current filter. Images and jobs both. */
