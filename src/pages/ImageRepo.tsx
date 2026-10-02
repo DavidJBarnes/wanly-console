@@ -74,7 +74,8 @@ import {
   getFavoriteImages,
   getUntaggedImages,
   updateImageTags,
-  describeImageScene,
+  getImageScene,
+  requestImageDescribe,
   searchImages,
   getImageTagCounts,
 } from "../api/client";
@@ -91,7 +92,11 @@ import {
   successorAfterDelete,
 } from "../lib/lightboxNav";
 import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
-import { describeQueuePlace, useCaptionQueue } from "../hooks/useCaptionQueue";
+import CaptionStatusChip from "../components/CaptionStatusChip";
+import { captionLabel, captionPending } from "../lib/captionStatus";
+import {
+  noteCaptionTicket, refreshCaptionStatus, useCaptionDone, useCaptionStatus, useCaptionStore,
+} from "../stores/captionStore";
 import CaptionQueueChip from "../components/CaptionQueueChip";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
@@ -170,30 +175,21 @@ export default function ImageRepo() {
   const [editImage, setEditImage] = useState<ImageFile | null>(null);
   const [lightboxJobs, setLightboxJobs] = useState<ImageJobInfo[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
-  // Scene description (console#414). `describingPaths` is a ref, not state, because it
-  // guards a debounced callback: the tag save closes over whatever it captured, and a
-  // re-render is not what decides whether a second caption may be launched.
-  const describingPaths = useRef<Set<string>>(new Set());
-  // EVERY path in flight, not just the last one. `describingPath` was a single value, so
-  // describing A, moving to B and coming back to A showed A as idle -- with a Describe
-  // button offering to start a caption that was already running. A ref alone cannot drive
-  // that: it does not re-render, so the indicator would never appear or clear.
-  const [describing, setDescribing] = useState<Set<string>>(new Set());
+  // Scene description (console#414). A describe is a caption TICKET since console#564: the
+  // API answers at once and captions in the background, and where every image's caption has
+  // got to comes from the shared caption store (one poll for the page) -- so leaving the
+  // page and coming back still shows "In caption queue (#4)" instead of an idle image.
+  //
+  // `requestingPaths` covers only the moment between the click and the API's answer, so a
+  // double click (or a tag save landing at the same time) cannot ask twice. A ref, because
+  // it guards a debounced callback rather than drives a render.
+  const requestingPaths = useRef<Set<string>>(new Set());
   // Carries its own path: descriptions run in the background, so by the time one fails the
   // modal may be showing a different image, and an error pinned to the wrong picture reads
   // as that picture having failed.
   const [sceneError, setSceneError] = useState<{ path: string; message: string } | null>(null);
-  // Polled, because the POST does not return until that image's caption is DONE -- its
-  // queue fields describe a queue the image has already left, which is no use while you are
-  // waiting in one.
-  //
-  // ONLY THE IMAGE ON SCREEN. Position is per-image but DEPTH is a property of the
-  // captioner, so one read answers both, and asking about all ten images in a batch would
-  // put ten requests on a busy API every tick to learn one shared number.
-  const watchedPath = lightboxImage && describing.has(lightboxImage.path)
-    ? lightboxImage.path : null;
-  const queueInfo = useCaptionQueue(useMemo(
-    () => (watchedPath ? [watchedPath] : []), [watchedPath]));
+  const lightboxCaption = useCaptionStatus(lightboxImage?.path);
+  const lightboxCaptionPending = captionPending(lightboxCaption);
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [favoritesView, setFavoritesView] = useState(false);
@@ -625,55 +621,68 @@ export default function ImageRepo() {
    * only landed in one of them would come back as null the next time the modal opened.
    */
   const runDescribe = async (path: string) => {
-    if (describingPaths.current.has(path)) return;
-    describingPaths.current.add(path);
-    setDescribing((prev) => new Set(prev).add(path));
+    if (requestingPaths.current.has(path)) return;
+    if (captionPending(useCaptionStore.getState().statuses.get(path))) return;
+    requestingPaths.current.add(path);
     setSceneError(null);
     try {
-      const scene = await describeImageScene(path);
-      const patch = (img: ImageFile) =>
-        img.path === path
-          ? {
-              ...img,
-              scene_description: scene.scene_description,
-              scene_described_at: scene.scene_described_at,
-              // Both halves come from the one call, so both are replaced together. A
-              // partial failure returns motion_description null, which clears the old
-              // motion text the same way the API clears the stored column.
-              motion_description: scene.motion_description,
-              motion_described_at: scene.motion_described_at,
-            }
-          : img;
-      setImages((prev) => prev.map(patch));
-      setFavImages((prev) => prev.map(patch));
-      setUntaggedImages((prev) => prev.map(patch));
-      setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
-      if (scene.motion_error) {
-        // The static half landed; the motion half did not. The image now has the static
-        // words and no motion words, and the paragraph's absence should say why rather
-        // than look intentional.
-        setSceneError({
-          path,
-          message: `Scene described, but the motion caption failed: ${scene.motion_error}`,
-        });
-      }
+      // Answers at once with the caption's ticket; the words arrive through the caption
+      // store's "done" event below, on this page or any other.
+      noteCaptionTicket(await requestImageDescribe(path));
+      refreshCaptionStatus();
     } catch (err) {
-      // A failed description is a thing to retry, not a broken image, so it is reported
-      // and nothing else changes. THE API'S REASON, not axios's "Request failed with status
-      // code 503": the captioner shares the 3090 with the render stack and the 503 says
-      // which box is rendering (wanly-gpu-docker#83) -- a status code alone reads as an
-      // outage.
+      // THE API'S REASON, not axios's "Request failed with status code 400".
       console.error("Failed to describe image:", err);
       setSceneError({ path, message: ltxError(err) });
     } finally {
-      describingPaths.current.delete(path);
-      setDescribing((prev) => {
-        const next = new Set(prev);
-        next.delete(path);
-        return next;
-      });
+      requestingPaths.current.delete(path);
     }
   };
+
+  /**
+   * A caption finished (console#564): fetch its words and put them on every copy of the row.
+   *
+   * Every view holding this image is updated, not just the modal: the grid, the favourites
+   * list and the untagged list all carry their own copy of the row, and a description that
+   * only landed in one of them would come back as null the next time the modal opened. Fires
+   * for any image whose caption finished while this page was open -- including one asked for
+   * from another page, or by a held job.
+   */
+  const onCaptionDone = useCallback((paths: string[]) => {
+    for (const path of paths) {
+      getImageScene(path)
+        .then((scene) => {
+          const patch = (img: ImageFile) =>
+            img.path === path
+              ? {
+                  ...img,
+                  scene_description: scene.scene_description,
+                  scene_described_at: scene.scene_described_at,
+                  // Both halves come from the one caption, so both are replaced together.
+                  // A partial failure returns motion_description null, which clears the
+                  // old motion text the same way the API clears the stored column.
+                  motion_description: scene.motion_description,
+                  motion_described_at: scene.motion_described_at,
+                }
+              : img;
+          setImages((prev) => prev.map(patch));
+          setFavImages((prev) => prev.map(patch));
+          setUntaggedImages((prev) => prev.map(patch));
+          setSearchResults((prev) => prev.map(patch));
+          setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
+          if (scene.caption?.motion_error) {
+            // The static half landed; the motion half did not. Say why the paragraph is
+            // missing rather than let its absence look intentional.
+            setSceneError({
+              path,
+              message: `Scene described, but the motion caption failed: ${scene.caption.motion_error}`,
+            });
+          }
+        })
+        .catch((err) => console.error("Failed to read the new description:", err));
+    }
+  }, []);
+  useCaptionDone(onCaptionDone);
 
   /**
    * Write the pending tag edit now, whatever it was and whichever image it belongs to.
@@ -705,7 +714,8 @@ export default function ImageRepo() {
           shouldAutoDescribe({
             tags,
             existing: existingScene,
-            inFlight: describingPaths.current.has(path),
+            inFlight: requestingPaths.current.has(path)
+              || captionPending(useCaptionStore.getState().statuses.get(path)),
           })
         ) {
           void runDescribe(path);
@@ -1203,29 +1213,33 @@ export default function ImageRepo() {
                       <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
                         Scene description
                       </Typography>
+                      <CaptionStatusChip path={lightboxImage.path} />
                       <Button
                         size="small"
                         onClick={() => runDescribe(lightboxImage.path)}
-                        disabled={describing.has(lightboxImage.path)}
+                        disabled={lightboxCaptionPending}
                       >
-                        {describing.has(lightboxImage.path)
+                        {lightboxCaptionPending
                           ? "Describing..."
                           : lightboxImage.scene_description
                             ? "Re-roll"
                             : "Describe"}
                       </Button>
                     </Stack>
-                    {describing.has(lightboxImage.path) ? (
+                    {lightboxCaptionPending ? (
                       <Stack direction="row" spacing={1} alignItems="center">
                         <CircularProgress size={16} />
                         <Typography variant="body2" color="text.secondary">
                           {/* WHERE IN THE LINE, not just "working". ollama captions one at
-                              a time, so the seventh image of a batch is five minutes out,
-                              and a spinner says the same thing at ten seconds and at five
-                              minutes -- which is how a batch that is working fine gets
-                              abandoned. */}
-                          {describeQueuePlace(queueInfo.get(lightboxImage.path))
-                            ?? "Asking the captioner..."}
+                              a time, so the seventh image of a batch is minutes out, and a
+                              spinner says the same thing at ten seconds and at ten minutes
+                              -- which is how a batch that is working fine gets abandoned.
+                              The caption carries on if you close this or leave the page. */}
+                          {captionLabel(lightboxCaption)}
+                          {lightboxCaption && lightboxCaption.depth > 1
+                            ? ` — ${lightboxCaption.depth} in the caption queue`
+                            : ""}
+                          . It carries on if you close this.
                         </Typography>
                       </Stack>
                     ) : lightboxImage.scene_description ? (
@@ -1264,6 +1278,20 @@ export default function ImageRepo() {
                             : ""}
                         </Typography>
                       </Box>
+                    )}
+                    {lightboxCaption?.state === "failed" && sceneError?.path !== lightboxImage.path && (
+                      <Alert
+                        severity="warning"
+                        sx={{ mt: 1 }}
+                        action={
+                          <Button color="inherit" size="small"
+                                  onClick={() => runDescribe(lightboxImage.path)}>
+                            Retry
+                          </Button>
+                        }
+                      >
+                        The last caption failed: {lightboxCaption.error ?? "no reason given"}
+                      </Alert>
                     )}
                     {sceneError?.path === lightboxImage.path && (
                       <Alert
@@ -1936,6 +1964,9 @@ export default function ImageRepo() {
                             alt={image.filename}
                             sx={{ height: 200, objectFit: "cover" }}
                           />
+                          <Box sx={{ position: "relative" }}>
+                            <CaptionStatusChip path={image.path} overlay />
+                          </Box>
                           <Box sx={{ p: 1 }}>
                             <Typography variant="caption" noWrap>
                               {image.filename}
@@ -2031,6 +2062,9 @@ export default function ImageRepo() {
                             alt={image.filename}
                             sx={{ height: 200, objectFit: "cover" }}
                           />
+                          <Box sx={{ position: "relative" }}>
+                            <CaptionStatusChip path={image.path} overlay />
+                          </Box>
                           <Box sx={{ p: 1 }}>
                             <Typography variant="caption" noWrap>
                               {image.filename}
@@ -2090,6 +2124,9 @@ export default function ImageRepo() {
                           alt={image.filename}
                           sx={{ height: 200, objectFit: "cover" }}
                         />
+                        <Box sx={{ position: "relative" }}>
+                          <CaptionStatusChip path={image.path} overlay />
+                        </Box>
                         <Box sx={{ p: 1 }}>
                           <Typography variant="caption" noWrap>
                             {image.filename}
@@ -2503,6 +2540,9 @@ export default function ImageRepo() {
                           alt={image.filename}
                           sx={{ height: 200, objectFit: "cover" }}
                         />
+                        <Box sx={{ position: "relative" }}>
+                          <CaptionStatusChip path={image.path} overlay />
+                        </Box>
                         <Box sx={{ p: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
                           <Box
                             component="span"
@@ -2663,6 +2703,9 @@ export default function ImageRepo() {
                   alt={image.filename}
                   sx={{ height: 200, objectFit: "cover" }}
                 />
+                <Box sx={{ position: "relative" }}>
+                  <CaptionStatusChip path={image.path} overlay />
+                </Box>
                 <Box sx={{ p: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
                   <Box
                     component="span"

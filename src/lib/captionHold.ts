@@ -24,22 +24,59 @@ export function captionInFlight(scene: Pick<ImageScene, "queue_status">): boolea
   return scene.queue_status != null;
 }
 
-/** "captioning now" / "3rd in line": where a caption the dialog is joining has got to. */
+/** "Captioning…" / "In caption queue (#3)": where a caption the dialog is joining has got
+ *  to. The same words as every other caption badge (lib/captionStatus, console#564). */
 export function joinNote(
   scene: Pick<ImageScene, "queue_status" | "queue_position">,
 ): string {
-  if (scene.queue_status === "running") return "captioning now";
+  if (scene.queue_status === "running") return "Captioning…";
   const n = scene.queue_position ?? 0;
-  return n > 0 ? `${ordinal(n)} in the caption queue` : "queued for captioning";
+  return n > 0 ? `In caption queue (#${n})` : "In caption queue";
 }
 
-function ordinal(n: number): string {
-  const rest = n % 100;
-  if (rest >= 11 && rest <= 13) return `${n}th`;
-  switch (n % 10) {
-    case 1: return `${n}st`;
-    case 2: return `${n}nd`;
-    case 3: return `${n}rd`;
-    default: return `${n}th`;
+/** "needs the scene and motion" -- what a held job is waiting for (console#587). */
+export function needsNote(needs: readonly string[] | null | undefined): string | null {
+  if (!needs || needs.length === 0) return null;
+  return `needs the ${needs.join(" and ")}`;
+}
+
+/**
+ * One line for a caption-held job or segment: where its image's caption is, and what it is
+ * waiting for. "In caption queue (#3) · needs the scene and motion".
+ */
+export function holdPlace(d: {
+  queue_status?: string | null; queue_position?: number | null;
+  needs?: readonly string[] | null; note?: string | null;
+}): string {
+  let where: string;
+  if (d.queue_status === "running") where = "Captioning…";
+  else if (d.queue_status === "queued") {
+    where = d.queue_position ? `In caption queue (#${d.queue_position})` : "In caption queue";
+  } else if (d.queue_status === "waiting") {
+    where = d.note ? `Waiting: ${d.note}` : "Waiting for the captioner";
+  } else where = "Waiting for caption…";
+  const needs = needsNote(d.needs);
+  return needs ? `${where} · ${needs}` : where;
+}
+
+/**
+ * The JobQueue's summary line (console#587), or null when nothing is held.
+ * "3 jobs waiting for captions (2 images) · caption queue 12 deep · 1 caption failed"
+ */
+export function holdSummary(s: {
+  jobs_waiting: number; jobs_failed: number; queue_depth: number;
+  images: readonly unknown[];
+} | null | undefined): string | null {
+  if (!s || (s.jobs_waiting === 0 && s.jobs_failed === 0)) return null;
+  const parts: string[] = [];
+  if (s.jobs_waiting > 0) {
+    const images = s.images.length;
+    parts.push(`${s.jobs_waiting} job${s.jobs_waiting === 1 ? "" : "s"} waiting for captions`
+      + (images > 0 ? ` (${images} image${images === 1 ? "" : "s"})` : ""));
   }
+  parts.push(s.queue_depth > 0 ? `caption queue ${s.queue_depth} deep` : "caption queue empty");
+  if (s.jobs_failed > 0) {
+    parts.push(`${s.jobs_failed} job${s.jobs_failed === 1 ? "" : "s"} with a failed caption`);
+  }
+  return parts.join(" · ");
 }

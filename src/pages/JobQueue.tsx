@@ -34,6 +34,7 @@ import { CaptionHoldChip } from "../components/CaptionHold";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import { POLL_INTERVAL_FAST } from "../constants";
 import StalledQueueBanner from "../components/StalledQueueBanner";
+import CaptionHoldSummary from "../components/CaptionHoldSummary";
 
 const ALL_STATUSES: JobStatus[] = [
   "awaiting",
@@ -223,6 +224,7 @@ export default function JobQueue() {
   return (
     <Box>
       <StalledQueueBanner />
+      <CaptionHoldSummary />
       <Box
         sx={{
           display: "flex",
@@ -523,7 +525,7 @@ function SortableTableRow({
       <TableCell>
         <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
           <StatusChip status={job.status} />
-          <CaptionHoldChip hold={job.caption_hold} />
+          <CaptionHoldChip hold={job.caption_hold} detail={job.caption_hold_detail} />
         </Box>
       </TableCell>
       <TableCell>
@@ -625,7 +627,7 @@ function SortableMobileCard({
                 {job.name}
               </Typography>
               <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                <CaptionHoldChip hold={job.caption_hold} />
+                <CaptionHoldChip hold={job.caption_hold} detail={job.caption_hold_detail} />
                 <StatusChip status={job.status} />
               </Box>
             </Box>

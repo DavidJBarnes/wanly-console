@@ -12,7 +12,7 @@ import {
   type RecipeCatalog, type Character, type Pose,
 } from "../api/ltx";
 import {
-  addSegment, createJob, describeImageScene, getFileUrl, getImageScene,
+  addSegment, createJob, getFileUrl, getImageScene, requestImageDescribe, waitForCaptionTicket,
 } from "../api/client";
 import {
   fill, hasPlaceholder, hasRegion, restorePlaceholders, submitPrompt, wants,
@@ -25,6 +25,14 @@ import {
 import type { CharacterSlot } from "../lib/recipeBlob";
 import { groupPosesByBook } from "../lib/poseGroups";
 import { captionInFlight, joinNote } from "../lib/captionHold";
+import { captionLabel } from "../lib/captionStatus";
+import CaptionStatusChip from "./CaptionStatusChip";
+import {
+  noteCaptionTicket, refreshCaptionStatus, useCaptionStatus,
+} from "../stores/captionStore";
+
+/** A caption ticket that finished as failed; its message is the API's reason. */
+class CaptionTicketFailed extends Error {}
 import { seedRecipePrefill } from "../lib/recipePrefill";
 import { preselectCharacter, preselectPose } from "../lib/defaultSelection";
 import {
@@ -108,7 +116,7 @@ type StartFrame =
 const to64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
 
 /** How often the dialog re-asks about a frame whose caption is running elsewhere. Captions
- *  are ~25 s a call, so faster buys nothing (same reasoning as useCaptionQueue). */
+ *  are ~25 s a call, so faster buys nothing (same reasoning as stores/captionStore). */
 const JOIN_POLL_MS = 3000;
 
 /** Measured from the rendered image, so it works for an uploaded File and an S3
@@ -367,6 +375,9 @@ export default function RecipeForm({
       : continuing && initialFrom?.last_frame_path
         ? initialFrom.last_frame_path
         : null;
+
+  // Where this frame's caption has got to, from the shared caption store (console#564).
+  const frameCaption = useCaptionStatus(describePath);
 
   // Whether the saved description for THIS path has been looked up yet. Distinct from
   // "there is none": one means wait, the other means describe it.
@@ -631,14 +642,34 @@ export default function RecipeForm({
    * and produced beside it, so there is no such thing as re-rolling half a description —
    * and a prompt that uses only one half simply has nowhere to put the other.
    */
+  // The describe this dialog asked for, so closing the dialog or switching frames stops
+  // WAITING for it. The caption itself carries on in the API either way (console#564).
+  const describeAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => describeAbort.current?.abort(), [describePath]);
+
   const handleDescribe = async () => {
     if (!describePath) return;
+    const path = describePath;
+    describeAbort.current?.abort();
+    const abort = new AbortController();
+    describeAbort.current = abort;
     setDescribing(true);
     setDescribeError(null);
     try {
-      const {
-        scene_description: caption, motion_description: motion,
-      } = await describeImageScene(describePath);
+      // A TICKET, answered at once (console#564): the caption waits its turn in the API's
+      // queue in the background, and joins one already running for this frame rather than
+      // making a second. This dialog only waits for it to finish; the shared caption store
+      // shows where it is in line meanwhile.
+      const ticket = await requestImageDescribe(path);
+      noteCaptionTicket(ticket);
+      refreshCaptionStatus();
+      const done = ticket.ticket_id
+        ? await waitForCaptionTicket(ticket.ticket_id, { signal: abort.signal })
+        : ticket;
+      if (done.status === "failed") throw new CaptionTicketFailed(done.error ?? "the caption failed");
+      const { scene_description: caption, motion_description: motion } =
+        await getImageScene(path);
+      if (abort.signal.aborted) return;
       if (!caption) throw new Error("the captioner returned nothing for this frame");
       setSavedScene(caption);
       setSavedMotion(motion);
@@ -648,22 +679,27 @@ export default function RecipeForm({
       // placeholder and is resolved at claim time, which is the pre-#529 behaviour.
       setPrompt((p) => fillSaved(p, { scene: caption, motion }));
     } catch (e) {
-      // A MISSING FRAME IS NOT A CAPTION PROBLEM (console#440). 404 means the object the
-      // previous segment points at is not in storage — the claim resolves this segment's
-      // start image from that same path, so the render will fail too, not merely lose its
-      // description. Saying "you can still submit" there would be false comfort.
-      const missing = axios.isAxiosError(e) && e.response?.status === 404;
+      if (abort.signal.aborted) return;
+      // A MISSING FRAME IS NOT A CAPTION PROBLEM (console#440). The object the previous
+      // segment points at is not in storage -- the claim resolves this segment's start image
+      // from that same path, so the render will fail too, not merely lose its description.
+      // Saying "you can still submit" there would be false comfort.
+      const missing = (axios.isAxiosError(e) && e.response?.status === 404)
+        || (e instanceof CaptionTicketFailed && e.message.startsWith("could not read"));
       setDescribeError(
         missing
           ? "The frame this segment would continue from is missing from storage, so this "
             + "segment would fail. Pick a start frame above to continue from instead."
-          : ltxError(e)
+          : (e instanceof CaptionTicketFailed ? e.message : ltxError(e))
             + (start?.kind === "uri"
               ? " -- you can still submit; the render waits until the frame is described."
               : " -- you can still submit; it will be described when the segment runs."),
       );
     } finally {
-      setDescribing(false);
+      if (describeAbort.current === abort) {
+        describeAbort.current = null;
+        setDescribing(false);
+      }
     }
   };
 
@@ -767,6 +803,7 @@ export default function RecipeForm({
                     ? "Re-describe frame"
                     : "Describe start frame"}
               </Button>
+              <CaptionStatusChip path={describePath} />
               <Typography variant="caption" color="text.secondary">
                 {!describePath
                   ? start
@@ -779,9 +816,9 @@ export default function RecipeForm({
                   : joining
                     ? `Already being described elsewhere (${joining}); the words fill in here when it finishes.${waitsNote}`
                   : describing
-                    ? continuing
-                      ? `Describing the frame this segment continues from...${waitsNote}`
-                      : `Describing this frame...${waitsNote}`
+                    ? `${captionLabel(frameCaption) ?? "Asking the captioner…"} ${
+                      continuing ? "(the frame this segment continues from)" : ""
+                    }${waitsNote}`
                     : described
                       ? `Re-rolls the ${halvesInPlay}, saving the new words on the frame.`
                       : "Describes the frame and saves the words, so this is free next time."}

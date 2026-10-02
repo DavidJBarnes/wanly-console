@@ -22,6 +22,7 @@ import TrainLoraDialog from "../components/TrainLoraDialog";
 import AddFromRepoDialog from "../components/AddFromRepoDialog";
 import NewCharacterDialog from "../components/NewCharacterDialog";
 import ImageEditDialog from "../components/ImageEditDialog";
+import CaptionStatusChip from "../components/CaptionStatusChip";
 import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
 import {
   byLikeness, byRecent, canLockByHand, canUnlock, captionCoverage, captionProgressLabel,
@@ -692,6 +693,9 @@ function DatasetCard({
                       <Face sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Tooltip>
+                  {/* Where this image's caption is (console#564): its description, a held
+                      job's, or this set's training caption while it is in line. */}
+                  <CaptionStatusChip path={uri} overlay corner="right" includeDatasetCaptions />
                   {!isReg && <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
                     <IconButton
                       size="small"
