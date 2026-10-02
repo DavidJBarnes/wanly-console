@@ -804,8 +804,17 @@ export interface CaptionQueueStatus {
   running: string | null;
   /** The whole line, running first (console#564). Absent from an API older than that. */
   entries?: CaptionQueueEntry[];
-  /** The last finished caption ticket of each image still remembered, newest first. */
+  /** The last finished caption ticket of each image AND HALF still remembered, newest
+   *  first (per half since console#590). */
   recent?: CaptionTicket[];
+  /** Each lane on its own: "scene" and "motion" (console#572). */
+  lanes?: { name: string; depth: number; waiting: number; running: string | null }[];
+}
+
+/** A held job a caption is being made for (console#590). */
+export interface CaptionRequester {
+  job_id: string;
+  name: string | null;
 }
 
 /** One place in the caption queue. "describe" and "hold" save words on the image; "dataset"
@@ -817,9 +826,13 @@ export interface CaptionQueueEntry {
   /** 0 = being captioned now, 1 = next up. */
   position: number;
   ticket_id: string | null;
+  /** "scene" or "motion" (console#572). For a caption ticket, the half it makes. */
+  lane?: "scene" | "motion" | string;
+  /** The held jobs a ticket is for (console#590). */
+  requested_by?: CaptionRequester[];
 }
 
-/** One caption of one image, made in the background (console#564). POST
+/** One HALF of the caption of one image, made in the background (console#564, #590). POST
  *  /images/scene/describe answers with this at once; poll it by image or by id. */
 export interface CaptionTicket {
   path: string;
@@ -829,18 +842,25 @@ export interface CaptionTicket {
   /** 0 while running, 1 = next up; null otherwise. */
   position: number | null;
   depth: number;
-  mode: "pair" | "motion" | null;
+  /** The half this ticket makes (console#590). Absent from an older API. */
+  half?: "scene" | "motion" | null;
+  /** Same as `half` since console#590; "pair" before it. */
+  mode: "pair" | "scene" | "motion" | null;
   origin: "describe" | "hold" | null;
   error: string | null;
   /** Failed because the box beside the captioner is rendering: try again later. */
   busy: boolean;
-  /** Done, but the motion half failed and the scene was saved without it. */
+  /** Pre-#590 pair tickets only: done, but the motion half failed. Null since. */
   motion_error: string | null;
   /** This request joined a caption already in flight rather than queueing another. */
   joined: boolean;
   created_at: string | null;
   started_at: string | null;
   finished_at: string | null;
+  /** The held jobs this caption is for: "Motion requested by job …" (console#590). */
+  requested_by?: CaptionRequester[];
+  /** POST /images/scene/describe: every half's ticket, scene first. */
+  tickets?: CaptionTicket[];
 }
 
 /** What a caption-held job waits for (console#587). */
@@ -897,6 +917,9 @@ export interface ImageScene {
   /** The image's caption ticket: the one in flight, else the last finished one remembered
    *  (console#564). Absent from an older API. */
   caption?: CaptionTicket | null;
+  /** Each half's ticket (console#590): in flight, else the last finished. */
+  scene_caption?: CaptionTicket | null;
+  motion_caption?: CaptionTicket | null;
 }
 
 /** One tag and how many items carry it under the current filter. Images and jobs both. */
