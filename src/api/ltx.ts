@@ -1,6 +1,7 @@
 import axios from "axios";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 import { mergeLoraOptions } from "../lib/loraOptions";
+import type { CharacterProvenance, LoraProvenance } from "../lib/loraProvenance";
 import type { Gender } from "./types";
 
 /**
@@ -441,6 +442,20 @@ export async function updateCharacter(
 ): Promise<Character> {
   const { data } = await api.patch<Character>(`/ltx/characters/${id}`, patch);
   return data;
+}
+
+/** What a character LoRA trained on (console#596): its wanly run, its file metadata, or none. */
+export async function getLoraProvenance(name: string): Promise<LoraProvenance> {
+  const { data } = await api.get<LoraProvenance>(
+    `/loras/${encodeURIComponent(name)}/provenance`);
+  return data;
+}
+
+/** Every LoRA character's provenance and where its trigger/gender disagree, in one call. */
+export async function checkCharacterProvenance(): Promise<CharacterProvenance[]> {
+  const { data } = await api.get<{ characters: CharacterProvenance[] }>(
+    "/ltx/characters/provenance-check");
+  return data.characters;
 }
 
 export async function deleteCharacter(id: string): Promise<void> {
