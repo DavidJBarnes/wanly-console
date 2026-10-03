@@ -28,6 +28,8 @@ import {
   Snackbar,
   Stack,
   Alert,
+  FormControlLabel,
+  Link,
 } from "@mui/material";
 import {
   ArrowBack,
@@ -65,6 +67,7 @@ import {
   getFileUrl,
   getImageJobs,
   deleteImage,
+  checkImagesInUse,
   createImageFolder,
   deleteImageFolder,
   uploadImage,
@@ -118,6 +121,24 @@ import {
 } from "../lib/tagFilter";
 import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
 import { parseFolderInUse } from "../lib/folderDeleteConflict";
+import {
+  deleteFailureReason,
+  describeImageHolders,
+  neededHolders,
+  newlyNeeded,
+  splitSelection,
+  summarizeBulkDelete,
+  type DeleteOutcome,
+  type InUseMap,
+} from "../lib/bulkDelete";
+
+/** Where the bulk-delete dialog is (console#594): asking the API what is in use, showing the
+ *  answer, or showing what failed after a run. */
+type BulkCheck =
+  | { phase: "checking" }
+  | { phase: "error"; message: string }
+  | { phase: "ready"; inUse: InUseMap }
+  | { phase: "done"; failures: DeleteOutcome[]; message: string };
 
 const FOLDER_ROWS_OPTIONS = [12, 24, 48];
 const DEFAULT_FOLDER_ROWS = 12;
@@ -168,6 +189,12 @@ export default function ImageRepo() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteKeys, setBulkDeleteKeys] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkCheck, setBulkCheck] = useState<BulkCheck | null>(null);
+  // Force with queued or held jobs in the way needs an explicit "I understand" (console#594).
+  const [bulkAck, setBulkAck] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
+  // A check answered after the dialog was closed or reopened must not land on the new one.
+  const bulkCheckSeq = useRef(0);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
   const [bulkTagUris, setBulkTagUris] = useState<string[]>([]);
   const [sortDesc, setSortDesc] = useState(true);
@@ -827,9 +854,47 @@ export default function ImageRepo() {
     }
   };
 
+  // Look an image up across every view's array, not just `images`. Selection is possible in
+  // the untagged and favorites views too, whose items are NOT in `images` — so the old
+  // `images.find` skipped them entirely, deleting nothing and updating nothing (#315).
+  const findImage = (key: string) =>
+    images.find((i) => i.key === key) ??
+    untaggedImages.find((i) => i.key === key) ??
+    favImages.find((i) => i.key === key) ??
+    searchResults.find((i) => i.key === key);
+
+  const bulkTargets = (keys: string[]) =>
+    keys.map(findImage).filter((img): img is ImageFile => Boolean(img));
+
+  /** Ask the API which of the selection is in use, before anything is deleted (console#594).
+   *  One call for the whole selection; the dialog waits on it. */
+  const runBulkCheck = async (keys: string[]) => {
+    const seq = ++bulkCheckSeq.current;
+    setBulkCheck({ phase: "checking" });
+    setBulkAck(false);
+    setBulkNotice(null);
+    try {
+      const inUse = await checkImagesInUse(bulkTargets(keys).map((img) => img.path));
+      if (seq === bulkCheckSeq.current) setBulkCheck({ phase: "ready", inUse });
+    } catch (e) {
+      if (seq === bulkCheckSeq.current) {
+        setBulkCheck({ phase: "error", message: apiError(e, "Could not check which images are in use") });
+      }
+    }
+  };
+
   const handleOpenBulkDelete = (keys: string[]) => {
     setBulkDeleteKeys(keys);
     setBulkDeleteOpen(true);
+    void runBulkCheck(keys);
+  };
+
+  const closeBulkDelete = () => {
+    bulkCheckSeq.current += 1;
+    setBulkDeleteOpen(false);
+    setBulkCheck(null);
+    setBulkNotice(null);
+    setBulkAck(false);
   };
 
   const handleOpenBulkTag = () => {
@@ -892,41 +957,72 @@ export default function ImageRepo() {
     setError(`${mode === "add" ? "Added" : "Removed"} tags on ${touched} image${touched === 1 ? "" : "s"}${described}`);
   };
 
-  const handleBulkDeleteConfirm = async () => {
-    if (bulkDeleteKeys.length === 0) return;
+  /**
+   * Run the bulk delete the person chose (console#594).
+   *
+   * "free" deletes only what the pre-check found unheld, without force — so an image that
+   * became held since is refused by the API and reported, not deleted. "all" also deletes the
+   * held ones with force, exactly as single delete's "Delete anyway" does; before it does, it
+   * asks again, and stops if a queued or held job appeared that the person was not shown.
+   *
+   * Each image is attempted independently. Previously one failure aborted the loop and was
+   * swallowed, so images that HAD been deleted stayed on screen, the rest were never tried,
+   * and nothing was reported — the view and the bucket silently disagreed.
+   */
+  const handleBulkDeleteConfirm = async (mode: "free" | "all") => {
+    if (bulkDeleteKeys.length === 0 || bulkDeleting) return;
+    // After a failed check nothing is known to be held; every delete is unforced, so the API
+    // still refuses anything in use and the summary says which.
+    let inUse: InUseMap = bulkCheck?.phase === "ready" ? bulkCheck.inUse : {};
+    const targets = bulkTargets(bulkDeleteKeys);
+    const { held } = splitSelection(targets.map((t) => t.path), inUse);
     setBulkDeleting(true);
-    // Each image is attempted independently. Previously one failure aborted the loop and was
-    // swallowed, so images that HAD been deleted stayed on screen, the rest were never tried,
-    // and nothing was reported — the view and the bucket silently disagreed.
-    const deleted: string[] = [];
-    let refused = 0;
-    let failed = 0;
-    // The first failure's reason, so "3 failed" can say why (a timeout, a busy API).
-    let firstFailure: string | null = null;
-    // Look the image up across every view's array, not just `images`. Selection is possible in
-    // the untagged and favorites views too, whose items are NOT in `images` — so the old
-    // `images.find` skipped them entirely, deleting nothing and updating nothing (#315).
-    const findImage = (key: string) =>
-      images.find((i) => i.key === key) ??
-      untaggedImages.find((i) => i.key === key) ??
-      favImages.find((i) => i.key === key) ??
-      searchResults.find((i) => i.key === key);
+    setBulkNotice(null);
     try {
-      for (const key of bulkDeleteKeys) {
-        const img = findImage(key);
-        if (!img) continue;
+      if (mode === "all" && held.length > 0) {
+        let fresh: InUseMap;
         try {
-          await deleteImage(img.path);
-          deleted.push(key);
+          fresh = await checkImagesInUse(held);
         } catch (e) {
-          if (parseImageInUse(e)) refused += 1;
-          else {
-            failed += 1;
-            firstFailure ??= apiError(e, "delete failed");
-          }
+          setBulkNotice(apiError(e, "Could not re-check before deleting; nothing was deleted"));
+          return;
+        }
+        const added = newlyNeeded(inUse, fresh, held);
+        inUse = { ...inUse, ...fresh };
+        if (added.length > 0) {
+          // The acknowledgement covered what was on screen. Show the new list and ask again
+          // rather than break a job nobody saw.
+          setBulkCheck({ phase: "ready", inUse });
+          setBulkAck(false);
+          setBulkNotice(
+            `Since this opened, ${added.map((h) => h.label).join(", ")} started needing ` +
+              `${added.length === 1 ? "one of these images" : "these images"}. Nothing was ` +
+              "deleted — review and confirm again.",
+          );
+          return;
         }
       }
-      const wasDeleted = (img: ImageFile) => deleted.includes(img.key);
+
+      const outcomes: DeleteOutcome[] = [];
+      let skipped = 0;
+      for (const img of targets) {
+        const isHeld = !!inUse[img.path];
+        if (isHeld && mode === "free") {
+          skipped += 1;
+          continue;
+        }
+        try {
+          await deleteImage(img.path, isHeld && mode === "all");
+          outcomes.push({ path: img.path, filename: img.filename, error: null });
+        } catch (e) {
+          outcomes.push({ path: img.path, filename: img.filename, error: deleteFailureReason(e) });
+        }
+      }
+
+      const deleted = new Set(
+        outcomes.filter((o) => o.error === null).map((o) => o.path),
+      );
+      const wasDeleted = (img: ImageFile) => deleted.has(img.path);
       setImages((prev) => prev.filter((img) => !wasDeleted(img)));
       setUntaggedImages((prev) => prev.filter((img) => !wasDeleted(img)));
       setFavImages((prev) => prev.filter((img) => !wasDeleted(img)));
@@ -935,18 +1031,20 @@ export default function ImageRepo() {
         setSearchTotal((t) => Math.max(0, t - (prev.length - next.length)));
         return next;
       });
-      if (lightboxImage && deleted.includes(lightboxImage.key)) {
+      if (lightboxImage && deleted.has(lightboxImage.path)) {
         setLightboxImage(null);
       }
       setSelectedKeys(new Set());
       setSelectMode(false);
-      setBulkDeleteOpen(false);
       setBulkDeleteKeys([]);
-      if (refused || failed) {
-        const parts = [`Deleted ${deleted.length}`];
-        if (refused) parts.push(`${refused} still in use`);
-        if (failed) parts.push(`${failed} failed (${firstFailure})`);
-        setError(parts.join(" · "));
+
+      const summary = summarizeBulkDelete(outcomes, skipped);
+      if (summary.failures.length > 0) {
+        // Leave the dialog up with every failure and its reason; a snackbar would truncate.
+        setBulkCheck({ phase: "done", failures: summary.failures, message: summary.message });
+      } else {
+        closeBulkDelete();
+        setError(summary.message);
       }
     } finally {
       setBulkDeleting(false);
@@ -1551,32 +1649,258 @@ export default function ImageRepo() {
         message={error ?? ""}
       />
 
-      {/* Bulk Delete Confirmation */}
+      {/* Bulk delete: pre-checked, so in-use images are named before anything goes (console#594). */}
       <Dialog
         open={bulkDeleteOpen}
-        onClose={() => !bulkDeleting && setBulkDeleteOpen(false)}
+        onClose={() => !bulkDeleting && closeBulkDelete()}
         fullScreen={isMobile}
+        maxWidth="sm"
+        fullWidth
       >
-        <DialogTitle>Delete Images?</DialogTitle>
+        <DialogTitle>
+          {bulkCheck?.phase === "done" ? "Some images were not deleted" : "Delete Images?"}
+        </DialogTitle>
         <DialogContent>
-          <Typography>
-            Are you sure you want to delete{" "}
-            <strong>{bulkDeleteKeys.length} image{bulkDeleteKeys.length > 1 ? "s" : ""}</strong>?
-            This cannot be undone.
-          </Typography>
+          {bulkNotice && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              {bulkNotice}
+            </Alert>
+          )}
+          {(!bulkCheck || bulkCheck.phase === "checking") && (
+            <Stack direction="row" spacing={2} alignItems="center">
+              <CircularProgress size={20} />
+              <Typography variant="body2">
+                Checking which of the {bulkDeleteKeys.length} selected image
+                {bulkDeleteKeys.length === 1 ? " is" : "s are"} in use…
+              </Typography>
+            </Stack>
+          )}
+          {bulkCheck?.phase === "error" && (
+            <>
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {bulkCheck.message}
+              </Alert>
+              <Typography variant="body2">
+                You can still delete the selection without force: the API refuses any image that
+                is in use, and the result lists each one it kept.
+              </Typography>
+            </>
+          )}
+          {bulkCheck?.phase === "done" && (
+            <>
+              <Typography variant="body2" gutterBottom>
+                {bulkCheck.message}.
+              </Typography>
+              {bulkCheck.failures.map((f) => (
+                <Stack key={f.path} direction="row" spacing={1.5} alignItems="center" sx={{ py: 0.75 }}>
+                  <Box
+                    component="img"
+                    src={getFileUrl(f.path)}
+                    alt={f.filename}
+                    sx={{ width: 48, height: 48, objectFit: "cover", borderRadius: 1, flexShrink: 0 }}
+                  />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" sx={{ wordBreak: "break-all" }}>{f.filename}</Typography>
+                    <Typography variant="caption" color="error">{f.error}</Typography>
+                  </Box>
+                </Stack>
+              ))}
+            </>
+          )}
+          {bulkCheck?.phase === "ready" && (() => {
+            const targets = bulkTargets(bulkDeleteKeys);
+            const { free, held } = splitSelection(targets.map((t) => t.path), bulkCheck.inUse);
+            if (held.length === 0) {
+              return (
+                <Typography>
+                  None of the selected images are in use. Delete{" "}
+                  <strong>{free.length} image{free.length === 1 ? "" : "s"}</strong>? This cannot be
+                  undone.
+                </Typography>
+              );
+            }
+            const needed = neededHolders(bulkCheck.inUse, held);
+            const byPath = new Map(targets.map((t) => [t.path, t]));
+            return (
+              <>
+                <Typography variant="body2" gutterBottom>
+                  <strong>{held.length}</strong> of <strong>{targets.length}</strong> selected
+                  image{targets.length === 1 ? " is" : "s are"} in use.
+                </Typography>
+                <Box sx={{ maxHeight: 320, overflowY: "auto", my: 1 }}>
+                  {held.map((path) => {
+                    const h = bulkCheck.inUse[path];
+                    const img = byPath.get(path);
+                    return (
+                      <Stack key={path} direction="row" spacing={1.5} alignItems="flex-start" sx={{ py: 0.75 }}>
+                        <Box
+                          component="img"
+                          src={getFileUrl(path)}
+                          alt={img?.filename ?? ""}
+                          sx={{ width: 56, height: 56, objectFit: "cover", borderRadius: 1, flexShrink: 0 }}
+                        />
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
+                            {img?.filename ?? path.split("/").pop()}{" "}
+                            <Typography component="span" variant="caption" color="text.secondary">
+                              — {describeImageHolders(h)}
+                            </Typography>
+                          </Typography>
+                          <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ mt: 0.5 }}>
+                            {h.datasets.map((d) => (
+                              <Chip
+                                key={`d-${d.id}`}
+                                size="small"
+                                variant="outlined"
+                                label={`dataset: ${d.name}`}
+                                onClick={() => navigate(`/datasets?dataset=${d.id}`)}
+                              />
+                            ))}
+                            {h.jobs.map((j) => (
+                              <Chip
+                                key={`j-${j.id}`}
+                                size="small"
+                                variant="outlined"
+                                color={j.state === "idle" ? "default" : "warning"}
+                                label={`job: ${j.name || j.id.slice(0, 8)} (${j.status})`}
+                                onClick={() => navigate(`/jobs/${j.id}`)}
+                              />
+                            ))}
+                            {h.segments.map((sg) => (
+                              <Chip
+                                key={`s-${sg.id}`}
+                                size="small"
+                                variant="outlined"
+                                color={sg.state === "idle" ? "default" : "warning"}
+                                label={`segment ${sg.index + 1} of ${sg.jobName || sg.jobId.slice(0, 8)} (${sg.status.replace(/_/g, " ")})`}
+                                onClick={() => navigate(`/jobs/${sg.jobId}`)}
+                              />
+                            ))}
+                            {h.trainings.map((t) => (
+                              <Chip
+                                key={`t-${t.id}`}
+                                size="small"
+                                variant="outlined"
+                                color={t.state === "idle" ? "default" : "warning"}
+                                label={`training: ${t.character}${t.version != null ? ` v${t.version}` : ""} (${t.status})`}
+                                onClick={() => navigate("/training")}
+                              />
+                            ))}
+                          </Stack>
+                          {h.needed && (
+                            <Typography variant="caption" color="warning.main">
+                              A queued or held job still needs this image.
+                            </Typography>
+                          )}
+                        </Box>
+                      </Stack>
+                    );
+                  })}
+                </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  <strong>Delete the free ones</strong> deletes the other {free.length} and keeps
+                  every image above. <strong>Delete all</strong> forces the in-use ones too, as
+                  single delete&apos;s &ldquo;Delete anyway&rdquo; does: the image&apos;s dataset
+                  captions and scores go, each dataset keeps a dead entry in its list (its count
+                  lies and training fetches a 404), and any job pointing at the file fails when a
+                  worker picks it up. This cannot be undone.
+                </Typography>
+                {needed.length > 0 && (
+                  <Alert severity="warning" sx={{ mt: 2 }}>
+                    <Typography variant="body2" gutterBottom>
+                      Delete all will break {needed.length} queued or held
+                      {needed.length === 1 ? " job" : " jobs"}:
+                    </Typography>
+                    {needed.map((n) => (
+                      <Box key={`${n.kind}-${n.id}`}>
+                        <Link
+                          component="button"
+                          variant="body2"
+                          onClick={() => navigate(n.jobId ? `/jobs/${n.jobId}` : "/training")}
+                          sx={{ textAlign: "left", wordBreak: "break-all" }}
+                        >
+                          {n.label}
+                        </Link>
+                      </Box>
+                    ))}
+                    <FormControlLabel
+                      sx={{ mt: 1 }}
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={bulkAck}
+                          onChange={(e) => setBulkAck(e.target.checked)}
+                        />
+                      }
+                      label={`I understand ${needed.length === 1 ? "this" : "these"} will fail`}
+                    />
+                  </Alert>
+                )}
+              </>
+            );
+          })()}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setBulkDeleteOpen(false)} disabled={bulkDeleting}>
-            Cancel
-          </Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={handleBulkDeleteConfirm}
-            disabled={bulkDeleting}
-          >
-            {bulkDeleting ? <CircularProgress size={20} /> : `Delete ${bulkDeleteKeys.length} image${bulkDeleteKeys.length > 1 ? "s" : ""}`}
-          </Button>
+          {bulkCheck?.phase === "done" ? (
+            <Button onClick={closeBulkDelete}>Close</Button>
+          ) : (
+            <>
+              <Button onClick={closeBulkDelete} disabled={bulkDeleting}>
+                Cancel
+              </Button>
+              {bulkCheck?.phase === "error" && (
+                <>
+                  <Button onClick={() => void runBulkCheck(bulkDeleteKeys)} disabled={bulkDeleting}>
+                    Check again
+                  </Button>
+                  <Button
+                    color="error"
+                    variant="contained"
+                    onClick={() => handleBulkDeleteConfirm("free")}
+                    disabled={bulkDeleting}
+                  >
+                    {bulkDeleting ? <CircularProgress size={20} /> : "Delete, skipping any in use"}
+                  </Button>
+                </>
+              )}
+              {bulkCheck?.phase === "ready" && (() => {
+                const targets = bulkTargets(bulkDeleteKeys);
+                const { free, held } = splitSelection(targets.map((t) => t.path), bulkCheck.inUse);
+                const needsAck = neededHolders(bulkCheck.inUse, held).length > 0;
+                if (held.length === 0) {
+                  return (
+                    <Button
+                      color="error"
+                      variant="contained"
+                      onClick={() => handleBulkDeleteConfirm("free")}
+                      disabled={bulkDeleting || free.length === 0}
+                    >
+                      {bulkDeleting ? <CircularProgress size={20} /> : `Delete ${free.length} image${free.length === 1 ? "" : "s"}`}
+                    </Button>
+                  );
+                }
+                return (
+                  <>
+                    <Button
+                      color="error"
+                      onClick={() => handleBulkDeleteConfirm("all")}
+                      disabled={bulkDeleting || (needsAck && !bulkAck)}
+                    >
+                      {`Delete all ${targets.length}`}
+                    </Button>
+                    <Button
+                      color="error"
+                      variant="contained"
+                      onClick={() => handleBulkDeleteConfirm("free")}
+                      disabled={bulkDeleting || free.length === 0}
+                    >
+                      {bulkDeleting ? <CircularProgress size={20} /> : `Delete the ${free.length} free`}
+                    </Button>
+                  </>
+                );
+              })()}
+            </>
+          )}
         </DialogActions>
       </Dialog>
 

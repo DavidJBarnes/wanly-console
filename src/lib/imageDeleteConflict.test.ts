@@ -32,6 +32,16 @@ describe("parseImageInUse", () => {
     expect(out.jobIds).toEqual([]);
   });
 
+  it("extracts live training runs (console#594)", () => {
+    // A training run was always part of the gate but missing from the body, so a refusal
+    // naming only a run fell through to an ordinary error.
+    const out = parseImageInUse(
+      conflict({ job_ids: [], segment_ids: [], dataset_ids: [], training_ids: ["t-1"] }),
+    )!;
+    expect(out.trainingIds).toEqual(["t-1"]);
+    expect(describeHolders(out)).toBe("1 training run");
+  });
+
   it("returns null for anything that is not a 409", () => {
     // A network failure must never be reported to the user as "image in use".
     expect(parseImageInUse({ response: { status: 500, data: {} } })).toBeNull();
@@ -58,20 +68,20 @@ describe("parseImageInUse", () => {
 
 describe("describeHolders", () => {
   it("reads naturally at one and at many", () => {
-    expect(describeHolders({ path: "", jobIds: ["a"], segmentIds: [], datasetIds: [] })).toBe("1 job");
-    expect(describeHolders({ path: "", jobIds: ["a", "b"], segmentIds: [], datasetIds: [] })).toBe("2 jobs");
-    expect(describeHolders({ path: "", jobIds: [], segmentIds: ["s"], datasetIds: [] })).toBe("1 segment");
-    expect(describeHolders({ path: "", jobIds: ["a"], segmentIds: ["s", "t"], datasetIds: [] })).toBe(
+    expect(describeHolders({ path: "", jobIds: ["a"], segmentIds: [], datasetIds: [], trainingIds: [] })).toBe("1 job");
+    expect(describeHolders({ path: "", jobIds: ["a", "b"], segmentIds: [], datasetIds: [], trainingIds: [] })).toBe("2 jobs");
+    expect(describeHolders({ path: "", jobIds: [], segmentIds: ["s"], datasetIds: [], trainingIds: [] })).toBe("1 segment");
+    expect(describeHolders({ path: "", jobIds: ["a"], segmentIds: ["s", "t"], datasetIds: [], trainingIds: [] })).toBe(
       "1 job and 2 segments",
     );
   });
 
   it("names datasets alongside jobs and segments (wanly-api#305)", () => {
     expect(
-      describeHolders({ path: "", jobIds: [], segmentIds: [], datasetIds: ["d"] }),
+      describeHolders({ path: "", jobIds: [], segmentIds: [], datasetIds: ["d"], trainingIds: [] }),
     ).toBe("1 dataset");
     expect(
-      describeHolders({ path: "", jobIds: ["a"], segmentIds: [], datasetIds: ["d", "e"] }),
+      describeHolders({ path: "", jobIds: ["a"], segmentIds: [], datasetIds: ["d", "e"], trainingIds: [] }),
     ).toBe("1 job and 2 datasets");
   });
 });
