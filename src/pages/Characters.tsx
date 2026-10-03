@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert, Avatar, Box, Button, Card, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, IconButton, MenuItem, Stack, TextField, Tooltip,
@@ -8,8 +8,8 @@ import { Add, AutoAwesome, DeleteOutline, Edit } from "@mui/icons-material";
 import { Link } from "react-router";
 
 import {
-  createCharacter, deleteCharacter, listLoras, listRecipes, ltxError, setDefaultCharacter,
-  TRIGGER_PLACEHOLDER, updateCharacter,
+  checkCharacterProvenance, createCharacter, deleteCharacter, getLoraProvenance, listLoras,
+  listRecipes, ltxError, setDefaultCharacter, TRIGGER_PLACEHOLDER, updateCharacter,
 } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import type { Gender } from "../api/types";
@@ -22,6 +22,11 @@ import {
   isDraft, referenceMode, sheetSizeWarning, type CharacterForm,
 } from "../lib/characterIdentity";
 import { characterHasTrained } from "../lib/trainingJob";
+import {
+  applyProvenance, autoFillOf, describeFix, fixPatch, mismatchLabel, NO_AUTOFILL,
+  provenanceHint, type AutoFill, type CharacterProvenance, type LoraProvenance,
+  type ProvenanceMismatch,
+} from "../lib/loraProvenance";
 
 /**
  * Characters (console#579, epic #581): who a render is of.
@@ -42,6 +47,9 @@ export default function Characters() {
   const [confirm, setConfirm] = useState<Character | null>(null);
   const [building, setBuilding] = useState<Character | null>(null);
   const [busy, setBusy] = useState(false);
+  // Where each character's trigger/gender disagree with how its LoRA trained (console#596).
+  const [checks, setChecks] = useState<Record<string, CharacterProvenance>>({});
+  const [fixing, setFixing] = useState<{ c: Character; ms: ProvenanceMismatch[] } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -49,6 +57,10 @@ export default function Characters() {
       setCharacters(b.characters ?? []);
       setLoras(await listLoras(b, "character"));
       setError(null);
+      // Advisory, so a failure here never hides the list: no badges is the fallback.
+      checkCharacterProvenance()
+        .then((rows) => setChecks(Object.fromEntries(rows.map((r) => [r.id, r]))))
+        .catch(() => setChecks({}));
     } catch (e) {
       setError(ltxError(e));
     }
@@ -114,6 +126,8 @@ export default function Characters() {
       <Stack spacing={1}>
         {(characters ?? []).map((c) => {
           const badges = identityBadges(c);
+          const check = checks[c.id];
+          const ms = check?.mismatches ?? [];
           const thumb = c.sheet_uri ?? c.image_uri ?? c.face_ref_uri;
           return (
             <Card key={c.id} sx={{ p: 1.5 }} variant="outlined">
@@ -134,6 +148,18 @@ export default function Characters() {
                         <Chip size="small" label="Draft: needs a LoRA or a sheet"
                               color="warning" variant="outlined" />
                       </Tooltip>
+                    )}
+                    {ms.map((m) => (
+                      <Tooltip key={m.field}
+                               title={`Stored: ${m.stored ?? "none"} · ${provenanceHint(check.provenance) ?? ""}. Click to use the trained values.`}>
+                        <Chip size="small" color="warning" label={mismatchLabel(m)}
+                              onClick={() => setFixing({ c, ms })} />
+                      </Tooltip>
+                    ))}
+                    {ms.length > 0 && (
+                      <Button size="small" color="warning" onClick={() => setFixing({ c, ms })}>
+                        Use trained values
+                      </Button>
                     )}
                   </Stack>
                   <Typography variant="body2" color="text.secondary" noWrap>
@@ -199,6 +225,8 @@ export default function Characters() {
         <CharacterDialog
           character={editing === "new" ? null : editing}
           loras={loras}
+          check={editing === "new" ? undefined : checks[editing.id]}
+          onFixed={() => void load()}
           onClose={() => setEditing(null)}
           onSaved={(c, buildSheet) => {
             setEditing(null);
@@ -220,6 +248,17 @@ export default function Characters() {
         />
       )}
 
+      {fixing && (
+        <UseTrainedDialog
+          character={fixing.c} mismatches={fixing.ms}
+          onClose={() => setFixing(null)}
+          onFixed={() => {
+            setFixing(null);
+            void load();
+          }}
+        />
+      )}
+
       <Dialog open={!!confirm} onClose={() => setConfirm(null)}>
         <DialogTitle>Delete {confirm?.name}?</DialogTitle>
         <DialogContent>
@@ -234,6 +273,50 @@ export default function Characters() {
         </DialogActions>
       </Dialog>
     </Box>
+  );
+}
+
+/** Confirm, then write the trained trigger/gender over a character's stored ones
+ *  (console#596). Never automatic: each fix is a click and a confirm. */
+function UseTrainedDialog({
+  character, mismatches, onClose, onFixed,
+}: {
+  character: Character;
+  mismatches: ProvenanceMismatch[];
+  onClose: () => void;
+  onFixed: (c: Character) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const apply = async () => {
+    setSaving(true);
+    setErr(null);
+    try {
+      onFixed(await updateCharacter(character.id, fixPatch(mismatches)));
+    } catch (e) {
+      setErr(ltxError(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Dialog open onClose={onClose}>
+      <DialogTitle>Use the trained values for {character.name}?</DialogTitle>
+      <DialogContent>
+        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        <Typography variant="body2">
+          Its LoRA trained on different words than the character stores. This changes{" "}
+          {describeFix(mismatches)}, so every pose renders {TRIGGER_PLACEHOLDER} the way the
+          LoRA learned it.
+        </Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" color="warning" disabled={saving} onClick={() => void apply()}>
+          {saving ? "Saving…" : "Use trained values"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -277,10 +360,13 @@ function ReferenceImage({
 }
 
 function CharacterDialog({
-  character, loras, onClose, onSaved,
+  character, loras, check, onFixed, onClose, onSaved,
 }: {
   character: Character | null;
   loras: string[];
+  /** This character's provenance check, if its LoRA has one (console#596). */
+  check?: CharacterProvenance;
+  onFixed: () => void;
   onClose: () => void;
   onSaved: (c: Character, buildSheet: boolean) => void;
 }) {
@@ -293,6 +379,46 @@ function CharacterDialog({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = (patch: Partial<CharacterForm>) => setForm((f) => ({ ...f, ...patch }));
+  // How the picked LoRA trained (console#596), and what the last auto-fill wrote, so a
+  // later pick replaces only its own values and never something typed.
+  const [prov, setProv] = useState<LoraProvenance | null>(null);
+  const [fixOpen, setFixOpen] = useState(false);
+  const [fixed, setFixed] = useState(false);
+  const autoRef = useRef<AutoFill>(NO_AUTOFILL);
+  const seqRef = useRef(0);
+  const initialLora = character?.char_lora && hasLora(character.char_lora)
+    ? character.char_lora : null;
+  useEffect(() => {
+    if (!initialLora) return;
+    let live = true;
+    getLoraProvenance(initialLora).then((p) => { if (live) setProv(p); }).catch(() => {});
+    return () => { live = false; };
+  }, [initialLora]);
+
+  const pickLora = async (lora: string) => {
+    set({ lora });
+    const seq = ++seqRef.current;
+    let p: LoraProvenance | null = null;
+    if (lora) {
+      try {
+        p = await getLoraProvenance(lora);
+      } catch {
+        p = null;
+      }
+    }
+    if (seq !== seqRef.current) return; // a later pick won
+    setProv(p);
+    // A trained character's trigger and gender are locked: nothing to fill.
+    if (locked) return;
+    const last = autoRef.current;
+    autoRef.current = autoFillOf(p);
+    setForm((f) => ({ ...f, ...applyProvenance(f, p, last) }));
+  };
+  const sameLora = (a: string, b: string) =>
+    a.trim().replace(/\.safetensors$/i, "") === b.trim().replace(/\.safetensors$/i, "");
+  const mismatches = !fixed && check && sameLora(form.lora, check.char_lora)
+    ? check.mismatches : [];
+  const hint = form.lora ? provenanceHint(prov) : null;
   const withLora = form.lora.trim() !== "";
   const problem = formError(form);
   // Neither a LoRA nor a sheet: saved as a DRAFT (console#592). Fine -- it is how a new
@@ -347,12 +473,25 @@ function CharacterDialog({
           <Divider textAlign="left"><Typography variant="overline">LoRA (optional)</Typography></Divider>
           <TextField
             select={loras.length > 0} label="Character LoRA" value={form.lora} fullWidth
-            onChange={(e) => set({ lora: e.target.value })}
-            helperText="The LoRA file name, without .safetensors. None: the character sheet carries the identity alone."
+            onChange={(e) => void pickLora(e.target.value)}
+            helperText={hint
+              ? (hint.startsWith("from") ? `Trigger and gender ${hint}.` : hint)
+              : "The LoRA file name, without .safetensors. None: the character sheet carries the identity alone."}
           >
             <MenuItem value=""><em>None — no LoRA</em></MenuItem>
             {loras.map((l) => <MenuItem key={l} value={l}>{l}</MenuItem>)}
           </TextField>
+          {mismatches.length > 0 && (
+            <Alert severity="warning" action={
+              <Button color="inherit" size="small" onClick={() => setFixOpen(true)}>
+                Use trained values
+              </Button>
+            }>
+              {mismatches.map(mismatchLabel).join(" · ")}
+              {" "}(stored: {mismatches.map((m) => m.stored ?? "none").join(", ")};{" "}
+              {provenanceHint(check!.provenance)}).
+            </Alert>
+          )}
           <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
             <TextField
               label="Trigger" value={form.trigger} disabled={locked}
@@ -461,6 +600,19 @@ function CharacterDialog({
           {saving ? "Saving…" : draft ? "Save draft" : "Save"}
         </Button>
       </DialogActions>
+
+      {fixOpen && character && (
+        <UseTrainedDialog
+          character={character} mismatches={mismatches}
+          onClose={() => setFixOpen(false)}
+          onFixed={(c) => {
+            setFixOpen(false);
+            setFixed(true);
+            set({ trigger: c.trigger ?? "", gender: c.gender ?? "" });
+            onFixed();
+          }}
+        />
+      )}
 
       {picking && (
         <PickFromRepoDialog
