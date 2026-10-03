@@ -1,4 +1,5 @@
 import axios from "axios";
+import { parseInUseResponse, type InUseMap } from "../lib/bulkDelete";
 import type {
   TokenResponse,
   JobResponse,
@@ -638,6 +639,23 @@ export async function deleteImage(path: string, force = false): Promise<void> {
     params: force ? { path, force: true } : { path },
     timeout: DELETE_TIMEOUT_MS,
   });
+}
+
+/** The API's cap on one in-use check; a bigger selection is asked about in chunks. */
+const IN_USE_CHUNK = 2000;
+
+/** The bulk-delete pre-check (console#594): which of these images something still holds,
+ *  with names and whether a queued or held job needs it. Read-only on the server. Paths
+ *  absent from the result are free. */
+export async function checkImagesInUse(paths: string[]): Promise<InUseMap> {
+  const out: InUseMap = {};
+  for (let i = 0; i < paths.length; i += IN_USE_CHUNK) {
+    const { data } = await api.post("/images/in-use", { paths: paths.slice(i, i + IN_USE_CHUNK) }, {
+      timeout: DELETE_TIMEOUT_MS,
+    });
+    Object.assign(out, parseInUseResponse(data));
+  }
+  return out;
 }
 
 export async function createImageFolder(name: string): Promise<{ name: string }> {

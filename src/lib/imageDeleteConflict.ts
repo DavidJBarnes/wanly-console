@@ -16,6 +16,9 @@ export interface ImageInUse {
   jobIds: string[];
   segmentIds: string[];
   datasetIds: string[];
+  /** Live training runs whose dataset includes the image. Always part of the gate; only
+   *  in the 409 body since console#594, so an older API simply sends none. */
+  trainingIds: string[];
 }
 
 /**
@@ -31,7 +34,10 @@ export function parseImageInUse(error: unknown): ImageInUse | null {
   const detail = (response.data as { detail?: unknown })?.detail;
   if (!detail || typeof detail !== "object") return null;
 
-  const d = detail as { path?: unknown; job_ids?: unknown; segment_ids?: unknown; dataset_ids?: unknown };
+  const d = detail as {
+    path?: unknown; job_ids?: unknown; segment_ids?: unknown; dataset_ids?: unknown;
+    training_ids?: unknown;
+  };
   const jobIds = Array.isArray(d.job_ids) ? d.job_ids.filter((x): x is string => typeof x === "string") : [];
   const segmentIds = Array.isArray(d.segment_ids)
     ? d.segment_ids.filter((x): x is string => typeof x === "string")
@@ -39,16 +45,22 @@ export function parseImageInUse(error: unknown): ImageInUse | null {
   const datasetIds = Array.isArray(d.dataset_ids)
     ? d.dataset_ids.filter((x): x is string => typeof x === "string")
     : [];
+  const trainingIds = Array.isArray(d.training_ids)
+    ? d.training_ids.filter((x): x is string => typeof x === "string")
+    : [];
 
   // A 409 with no holders at all would be the API contradicting itself. Treat it as an ordinary
   // error rather than rendering "still used by 0 things".
-  if (jobIds.length === 0 && segmentIds.length === 0 && datasetIds.length === 0) return null;
+  if (jobIds.length + segmentIds.length + datasetIds.length + trainingIds.length === 0) {
+    return null;
+  }
 
   return {
     path: typeof d.path === "string" ? d.path : "",
     jobIds,
     segmentIds,
     datasetIds,
+    trainingIds,
   };
 }
 
@@ -66,6 +78,11 @@ export function describeHolders(conflict: ImageInUse): string {
   if (conflict.datasetIds.length) {
     parts.push(
       `${conflict.datasetIds.length} dataset${conflict.datasetIds.length === 1 ? "" : "s"}`,
+    );
+  }
+  if (conflict.trainingIds.length) {
+    parts.push(
+      `${conflict.trainingIds.length} training run${conflict.trainingIds.length === 1 ? "" : "s"}`,
     );
   }
   return parts.join(" and ");
