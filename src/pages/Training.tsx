@@ -18,7 +18,7 @@ import type { Character } from "../api/ltx";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import {
-  checkpointInUse, epochRows, groupByCharacter, loraStem, lossPath, runTimeDetail, runTimeLabel,
+  checkpointInUse, epochRows, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
   trainingPct, trainingSummary,
 } from "../lib/trainingJob";
 import LossChart from "../components/LossChart";
@@ -163,6 +163,8 @@ function TrainingRow({
   const live = job.status === "running" || job.status === "claimed" || job.status === "pending";
   const when = runTimeLabel(job);
   const inUse = checkpointInUse(job, characters);
+  // A start-image LoRA (console#600): the LTX engine cannot load it, so it is never "used".
+  const sdxl = isSdxlJob(job);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   /** The API's reason for refusing to delete this run with its files, while it stands. */
@@ -263,6 +265,11 @@ function TrainingRow({
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
           <Typography variant="h6">v{job.version}</Typography>
           <StatusChip status={job.status} />
+          {sdxl && (
+            <Tooltip title="SDXL start-image LoRA (aio recipe). Download it for A1111; it is not an LTX character.">
+              <Chip size="small" color="secondary" variant="outlined" label="SDXL" />
+            </Tooltip>
+          )}
           <Tooltip
             title={
               // The joint total, per group: "Payton Synthetic (55) · Me Synthetic (50)".
@@ -455,9 +462,11 @@ function TrainingRow({
             </AccordionSummary>
             <AccordionDetails>
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-                Loss does not rank these — pick by eye at a fixed seed, same start image. “Use”
-                points {job.character} at one. An epoch that stayed on the trainer can be
-                uploaded from here.
+                Loss does not rank these — pick by eye at a fixed seed, same start image.{" "}
+                {sdxl
+                  ? "SDXL checkpoints are for the start-image generator: download one into A1111."
+                  : `“Use” points ${job.character} at one.`}{" "}
+                An epoch that stayed on the trainer can be uploaded from here.
               </Typography>
               <Stack spacing={0.5}>
                 {rows.map((row) => {
@@ -482,16 +491,18 @@ function TrainingRow({
                           >
                             Download
                           </Button>
-                          <Button
-                            size="small"
-                            variant={current ? "contained" : "outlined"}
-                            color={current ? "success" : "primary"}
-                            startIcon={current ? <CheckCircle fontSize="small" /> : undefined}
-                            disabled={busy || current}
-                            onClick={() => use(row.uri as string)}
-                          >
-                            {current ? "In use" : "Use"}
-                          </Button>
+                          {!sdxl && (
+                            <Button
+                              size="small"
+                              variant={current ? "contained" : "outlined"}
+                              color={current ? "success" : "primary"}
+                              startIcon={current ? <CheckCircle fontSize="small" /> : undefined}
+                              disabled={busy || current}
+                              onClick={() => use(row.uri as string)}
+                            >
+                              {current ? "In use" : "Use"}
+                            </Button>
+                          )}
                           <Typography variant="caption" color="text.secondary">
                             {loraStem(row.uri)}
                           </Typography>

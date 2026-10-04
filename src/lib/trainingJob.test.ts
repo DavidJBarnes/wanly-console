@@ -24,6 +24,7 @@ import {
   isPairCharacter, problemsFromError, runCharacter, trainingBody, RECIPE_DEFAULTS,
   trainingPct,
   trainingSummary,
+  isSdxlJob, SDXL_REPEATS,
 } from "./trainingJob";
 import type { Dataset, TrainingJob } from "../api/types";
 import type { TrainForm } from "./trainingJob";
@@ -526,5 +527,37 @@ describe("problemsFromError", () => {
   it("is null for any other error, so the caller falls back to apiErrorText", () => {
     expect(problemsFromError({ response: { data: { detail: "nope" } } })).toBeNull();
     expect(problemsFromError(new Error("boom"))).toBeNull();
+  });
+});
+
+describe("SDXL start-image LoRAs (console#600)", () => {
+  it("sends solo + arch and none of the LTX recipe knobs", () => {
+    // The base, captions and regularization are the aio recipe's, decided server-side. A
+    // stale pair selection must not turn an SDXL run into a pair.
+    const body = trainingBody(form({
+      arch: "sdxl", mode: "pair", memberA: "A", memberB: "B", pairName: "AB",
+      character: "Kelly", datasets: { Kelly: "k" },
+    }));
+    expect(body).toEqual({
+      mode: "solo", arch: "sdxl", character: "Kelly", datasets: { Kelly: "k" },
+      version: 1, steps: 1200, publish: "final",
+    });
+  });
+  it("an LTX body carries no arch, so an older API still accepts it", () => {
+    expect(trainingBody(form({ character: "David" }))).not.toHaveProperty("arch");
+  });
+  it("only needs a character, whatever mode the toggle was left on", () => {
+    expect(formIncomplete(form({ arch: "sdxl", mode: "pair" }))).toBe("pick a character");
+    expect(formIncomplete(form({ arch: "sdxl", mode: "pair", character: "Kelly" }))).toBeNull();
+  });
+  it("counts aio's 8 repeats and its measured step time", () => {
+    expect(SDXL_REPEATS).toBe(8);
+    expect(stepsPerEpoch(50, "sdxl")).toBe(400);
+    // 12 epochs over 50 images: 4800 steps at 1.31 s.
+    expect(estimatedMinutes(4800, "sdxl")).toBe(105);
+  });
+  it("knows an SDXL run from its snapshot; a run without one is LTX", () => {
+    expect(isSdxlJob({ config: { arch: "sdxl" } })).toBe(true);
+    expect(isSdxlJob({ config: {} })).toBe(false);
   });
 });

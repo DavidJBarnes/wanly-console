@@ -17,7 +17,7 @@ import type {
 } from "../api/types";
 import NewCharacterDialog from "./NewCharacterDialog";
 import {
-  apiErrorText, BASE_CHECKPOINTS, characterHasTrained, datasetsOwnedBy, defaultEpochsForSamples,
+  apiErrorText, BASE_CHECKPOINTS, SDXL_EPOCHS, SDXL_REPEATS, characterHasTrained, datasetsOwnedBy, defaultEpochsForSamples,
   defaultPairName, NUM_REPEATS, RECIPE_DEFAULTS,
   estimatedMinutes, formIncomplete, initialFromDataset, isPairCharacter, nextVersion,
   problemsFromError, runCharacter, stepsForSamples, stepsPerEpoch, trainingBody,
@@ -130,7 +130,11 @@ export default function TrainLoraDialog({
   const pairName = pairNameTouched
     ? form.pairName
     : form.memberA && form.memberB ? defaultPairName(form.memberA, form.memberB) : "";
-  const members = form.mode === "solo" ? [form.character] : [form.memberA, form.memberB];
+  const sdxl = form.arch === "sdxl";
+  // SDXL is solo only (the aio recipe is one identity). The pair fields are kept, not cleared,
+  // so flipping back to LTX restores them.
+  const mode = sdxl ? "solo" : form.mode;
+  const members = mode === "solo" ? [form.character] : [form.memberA, form.memberB];
   const ownedBy = (name: string) => datasetsOwnedBy(datasets, "character", name);
   // A member with exactly one set gets it without asking; with several, the choice is made
   // explicitly. With none, the select says so and preflight refuses.
@@ -142,24 +146,24 @@ export default function TrainLoraDialog({
       : owned.length === 1 ? owned[0].id : undefined;
     if (id) chosenDatasets[m] = id;
   }
-  const compositions = form.mode === "pair" && pairName
+  const compositions = mode === "pair" && pairName
     ? datasetsOwnedBy(datasets, "composition", pairName) : [];
   const compositionId = form.compositionId && compositions.some((d) => d.id === form.compositionId)
     ? form.compositionId
     : compositions.length === 1 ? compositions[0].id : null;
 
-  const who = runCharacter({ ...form, pairName });
+  const who = runCharacter({ ...form, mode, pairName });
   const version = versionTouched ? form.version : nextVersion(who, jobs, characters);
   // The epoch length is the server's once it has answered — regularization and pair groups
   // make it more than images x 10. Before that, the character images at the recipe's repeats.
   const estimateImages = Object.values(chosenDatasets)
     .reduce((n, id) => n + (datasets.find((d) => d.id === id)?.images.length ?? 0), 0);
-  const samplesPerEpoch = preflight?.samples_per_epoch || stepsPerEpoch(estimateImages);
-  const epochsShown = epochs ?? defaultEpochsForSamples(samplesPerEpoch);
+  const samplesPerEpoch = preflight?.samples_per_epoch || stepsPerEpoch(estimateImages, form.arch);
+  const epochsShown = epochs ?? (sdxl ? SDXL_EPOCHS : defaultEpochsForSamples(samplesPerEpoch));
   const steps = stepsForSamples(epochsShown, samplesPerEpoch);
 
   const effective: TrainForm = {
-    ...form, pairName, datasets: chosenDatasets, compositionId, version, steps,
+    ...form, mode, pairName, datasets: chosenDatasets, compositionId, version, steps,
   };
   const incomplete = formIncomplete(effective);
   const body = trainingBody(effective);
@@ -251,7 +255,7 @@ export default function TrainLoraDialog({
     return (
       <TextField
         select
-        label={form.mode === "pair" ? `${member}'s dataset` : "Dataset"}
+        label={mode === "pair" ? `${member}'s dataset` : "Dataset"}
         value={id}
         onChange={(e) => patch({ datasets: { ...form.datasets, [member]: e.target.value } })}
         error={owned.length === 0}
@@ -282,14 +286,27 @@ export default function TrainLoraDialog({
           <ToggleButtonGroup
             exclusive
             size="small"
-            value={form.mode}
-            onChange={(_e, v) => { if (v) patch({ mode: v }); }}
+            value={form.arch}
+            // The epoch default differs (12 for SDXL), so a typed count does not carry over.
+            onChange={(_e, v) => { if (v) { patch({ arch: v }); setEpochs(null); } }}
           >
-            <ToggleButton value="solo">Solo — one person</ToggleButton>
-            <ToggleButton value="pair">Pair — two people together</ToggleButton>
+            <ToggleButton value="ltx">LTX — video</ToggleButton>
+            <ToggleButton value="sdxl">SDXL — start images</ToggleButton>
           </ToggleButtonGroup>
 
-          {form.mode === "solo" ? (
+          {!sdxl && (
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={form.mode}
+              onChange={(_e, v) => { if (v) patch({ mode: v }); }}
+            >
+              <ToggleButton value="solo">Solo — one person</ToggleButton>
+              <ToggleButton value="pair">Pair — two people together</ToggleButton>
+            </ToggleButtonGroup>
+          )}
+
+          {mode === "solo" ? (
             <>
               {characterSelect("character", "Character", form.character,
                 (name) => patch({ character: name }))}
@@ -369,14 +386,27 @@ export default function TrainLoraDialog({
               value={epochsShown}
               onChange={(e) => setEpochs(Math.max(1, parseInt(e.target.value) || 1))}
               helperText={`${steps} steps (${samplesPerEpoch} samples an epoch × ${epochsShown}), `
-                + `each image seen ${current?.passes_per_image ?? epochsShown * NUM_REPEATS}× — `
-                + `about ${estimatedMinutes(steps)} min on the 3090, one checkpoint per epoch. `
-                + `Kelly-2000 v5 used ~30×.`}
+                + `each image seen ${current?.passes_per_image
+                  ?? epochsShown * (sdxl ? SDXL_REPEATS : NUM_REPEATS)}× — `
+                + `about ${estimatedMinutes(steps, form.arch)} min on the 3090, one checkpoint `
+                + `per epoch. `
+                + (sdxl ? `aio used ${SDXL_EPOCHS} epochs.` : `Kelly-2000 v5 used ~30×.`)}
               slotProps={{ htmlInput: { min: 1 } }}
               sx={{ flex: 1 }}
             />
           </Box>
 
+          {sdxl ? (
+          <Box>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>Recipe</Typography>
+            <Typography variant="caption" color="text.secondary" component="div">
+              The aio recipe, as k3lly_aio was trained: BigaspV2Lustify, rank 128/64, 8 repeats,
+              no regularization. The trainer captions every image with WD14 tags, trigger
+              first — the dataset's captions are not used. The LoRA is not published to the
+              character; download it from the run for A1111.
+            </Typography>
+          </Box>
+          ) : (
           <Box>
             <Typography variant="body2" sx={{ mb: 1 }}>Recipe</Typography>
             <TextField
@@ -418,6 +448,7 @@ export default function TrainLoraDialog({
                 label="Bare trigger only" />
             </RadioGroup>
           </Box>
+          )}
 
           <Box>
             <Typography variant="body2" sx={{ mb: 0.5 }}>Upload</Typography>
@@ -431,7 +462,7 @@ export default function TrainLoraDialog({
             </RadioGroup>
             <Typography variant="caption" color="text.secondary">
               Every epoch stays on the trainer either way and can be uploaded later from the
-              run. A checkpoint takes about 18 minutes to upload.
+              run. A checkpoint takes about {sdxl ? 25 : 18} minutes to upload.
             </Typography>
           </Box>
 

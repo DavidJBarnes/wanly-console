@@ -653,6 +653,10 @@ export interface TrainingCreate {
   regularization?: boolean;
   /** Bare checkpoint name under ltx-2.3/diffusion_models; null = the render stack's. */
   base_checkpoint?: string | null;
+  /** Which model the LoRA is for (console#600). Absent = "ltx", the video LoRA. "sdxl" is a
+   *  start-image LoRA: the aio recipe, solo only, WD14-captioned by the trainer, never
+   *  published to a character. */
+  arch?: "ltx" | "sdxl";
 }
 
 export interface PreflightItem {
@@ -685,6 +689,8 @@ export interface TrainingPreflight {
   samples_per_epoch: number;
   passes_per_image: number;
   base_checkpoint: string | null;
+  /** What the plan was resolved for; absent from an API older than console#600. */
+  arch?: "ltx" | "sdxl";
 }
 
 export interface WildcardResponse {

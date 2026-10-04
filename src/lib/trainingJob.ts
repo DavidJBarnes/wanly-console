@@ -329,8 +329,8 @@ export const SECONDS_PER_STEP = 3.7;
 
 /** Steps in one epoch over this many images at the recipe's repeats: the estimate the dialog
  *  uses until preflight returns the real `samples_per_epoch`. */
-export function stepsPerEpoch(images: number): number {
-  return Math.max(1, images) * NUM_REPEATS;
+export function stepsPerEpoch(images: number, arch: TrainArch = "ltx"): number {
+  return Math.max(1, images) * (arch === "sdxl" ? SDXL_REPEATS : NUM_REPEATS);
 }
 
 /**
@@ -350,8 +350,30 @@ export function defaultEpochsForSamples(samplesPerEpoch: number): number {
   return Math.max(1, Math.round(RECIPE_STEPS / Math.max(1, samplesPerEpoch)));
 }
 
-export function estimatedMinutes(steps: number): number {
-  return Math.round((steps * SECONDS_PER_STEP) / 60);
+export function estimatedMinutes(steps: number, arch: TrainArch = "ltx"): number {
+  return Math.round((steps * (arch === "sdxl" ? SDXL_SECONDS_PER_STEP : SECONDS_PER_STEP)) / 60);
+}
+
+// ---- SDXL start-image LoRAs (console#600) ---------------------------------------------------
+//
+// David makes start images in SDXL (A1111, outside Wanly), and identity comes mostly from the
+// start image. The trainer reproduces his hand-made "aio" runs: BigaspV2Lustify, rank 128,
+// 8 repeats, 12 epochs, WD14 tags. The recipe is the API's and the trainer's; the console only
+// picks the arch and shows what it costs.
+
+export type TrainArch = "ltx" | "sdxl";
+/** aio's repeats: one epoch is images x 8. */
+export const SDXL_REPEATS = 8;
+/** aio's epoch count -- k3lly_aio-2_e12 is the twelfth. */
+export const SDXL_EPOCHS = 12;
+/** Measured: k3lly_aio-2 ran 6528 steps on 3090a at 1.31 s/step (its TensorBoard log). */
+export const SDXL_SECONDS_PER_STEP = 1.31;
+
+/** An SDXL run's checkpoints are for the start-image generator, not the LTX engine -- no
+ *  "Use" button, only Download. Reads the job's snapshot, so a row from before console#600
+ *  (no `arch`) is LTX, as it was. */
+export function isSdxlJob(job: Pick<TrainingJob, "config">): boolean {
+  return (job.config as { arch?: unknown } | null)?.arch === "sdxl";
 }
 
 // ---- The Train dialog (#537) ---------------------------------------------------------------
@@ -422,6 +444,8 @@ export interface TrainForm {
   baseCheckpoint: string;
   regularization: boolean;
   captionMode: "per_image" | "trigger_only";
+  /** Which model the LoRA is for (console#600). */
+  arch: TrainArch;
 }
 
 /**
@@ -440,8 +464,9 @@ export const BASE_CHECKPOINTS: { value: string; label: string }[] = [
  * type only props). Regularization is opt-in because the run that used it (Kelly-2000 v2, with
  * long captions) came out a generic woman, and the pools were deleted after.
  */
-export const RECIPE_DEFAULTS: Pick<TrainForm, "baseCheckpoint" | "regularization" | "captionMode"> = {
+export const RECIPE_DEFAULTS: Pick<TrainForm, "baseCheckpoint" | "regularization" | "captionMode" | "arch"> = {
   baseCheckpoint: BASE_CHECKPOINTS[0].value, regularization: false, captionMode: "per_image",
+  arch: "ltx",
 };
 
 /** Who this run trains as — the row it publishes to. */
@@ -454,6 +479,18 @@ export function runCharacter(f: Pick<TrainForm, "mode" | "character" | "pairName
  * was checked is exactly what is sent.
  */
 export function trainingBody(f: TrainForm): TrainingCreate {
+  if (f.arch === "sdxl") {
+    // SDXL: solo, and none of the LTX recipe knobs -- the base, the captions (WD14, by the
+    // trainer) and regularization (none) are the aio recipe's, decided server-side.
+    const ds = Object.fromEntries(
+      [f.character].filter((n) => f.datasets[n]).map((n) => [n, f.datasets[n]]));
+    return {
+      mode: "solo", arch: "sdxl", character: f.character.trim(),
+      ...(Object.keys(ds).length ? { datasets: ds } : {}),
+      version: f.version, steps: f.steps, publish: f.publish,
+      ...(f.allowLowScores ? { allow_low_scores: true } : {}),
+    };
+  }
   const recipe = {
     caption_mode: f.captionMode, regularization: f.regularization,
     base_checkpoint: f.baseCheckpoint || null,
@@ -488,7 +525,7 @@ export function trainingBody(f: TrainForm): TrainingCreate {
  * here means "ask preflight", not "valid".
  */
 export function formIncomplete(f: TrainForm): string | null {
-  if (f.mode === "solo") return f.character.trim() ? null : "pick a character";
+  if (f.mode === "solo" || f.arch === "sdxl") return f.character.trim() ? null : "pick a character";
   if (!f.memberA.trim() || !f.memberB.trim()) return "pick both characters";
   if (sameName(f.memberA, f.memberB)) return "a pair is two different characters";
   const name = f.pairName.trim();
