@@ -1,21 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, MenuItem, Stack, TextField, Typography,
 } from "@mui/material";
 
 import {
   composeSheet, getSheetJob, getSheetPresets, listCharacterSheets, ltxError, startSheetJob,
+  updateCharacter,
 } from "../api/ltx";
-import type {
-  Character, CharacterSheetRecord, SheetCandidate, SheetJob, SheetPresets,
-} from "../api/ltx";
+import type { Character, CharacterSheetRecord, SheetJob, SheetPresets } from "../api/ltx";
 import { getFileUrl } from "../api/client";
 import PickFromRepoDialog from "./PickFromRepoDialog";
+import { SheetPreview, SheetViewerDialog } from "./SheetPreview";
 import {
   candidateScore, FALLBACK_PRESETS, facePanelNote, facePanelPreview, initialSheetForm, MAX_COUNT,
-  PHOTO_HINT, resumeKey, savedSeeds, sheetFormProblem, sheetJobActive, sheetJobLine, sheetPanels,
-  sheetRequest, switchGender, type SheetForm,
+  PHOTO_HINT, resumeKey, savedSeeds, sheetFormProblem, sheetJobActive, sheetJobLine,
+  sheetGallery, sheetGalleryLine, sheetRequest, switchGender, type SheetForm,
+  type SheetGalleryItem,
 } from "../lib/characterSheet";
 
 function readResume(characterId: string): string | null {
@@ -33,33 +34,6 @@ function writeResume(characterId: string, jobId: string | null) {
   } catch {
     // Storage blocked: the job still runs, it just will not be picked up after a close.
   }
-}
-
-/** One candidate: the composed sheet with REAL / GENERATED labels drawn over it (never burned
- *  in -- the saved sheet is exactly what renders condition on). */
-function CandidateSheet({ c }: { c: SheetCandidate }) {
-  return (
-    <Box sx={{ position: "relative", width: "100%", aspectRatio: "1536 / 1024",
-               bgcolor: "action.hover", borderRadius: 1, overflow: "hidden" }}>
-      <img src={getFileUrl(c.preview_uri ?? c.sheet_uri)} alt={`candidate seed ${c.seed}`}
-           style={{ display: "block", width: "100%", height: "100%", objectFit: "contain" }} />
-      {sheetPanels().map((p, i) => (
-        <Box key={i} sx={{
-          position: "absolute", top: 0, bottom: 0, left: `${p.leftPct}%`, width: `${p.widthPct}%`,
-          border: 2, borderColor: p.kind === "real" ? "success.main" : "error.main",
-          pointerEvents: "none",
-        }}>
-          <Typography variant="caption" sx={{
-            position: "absolute", left: 4, bottom: 4, px: 0.5, borderRadius: 0.5, lineHeight: 1.3,
-            bgcolor: "rgba(255,255,255,0.85)", color: p.kind === "real" ? "success.dark" : "error.dark",
-            fontWeight: 700, fontSize: 10,
-          }}>
-            {p.label} · {p.caption}
-          </Typography>
-        </Box>
-      ))}
-    </Box>
-  );
 }
 
 /**
@@ -84,6 +58,11 @@ export default function SheetBuilderDialog({
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<CharacterSheetRecord[]>([]);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  // The sheet the character renders with right now (console#598): it moves on approve and on
+  // Make current, without waiting for the parent to reload.
+  const [current, setCurrent] = useState<string | null>(character.sheet_uri ?? null);
+  const [viewing, setViewing] = useState<{ uri: string; title: string; subtitle?: string } | null>(null);
+  const [switching, setSwitching] = useState<string | null>(null);
   const touched = useRef(false);
   const set = (patch: Partial<SheetForm>) => {
     touched.current = true;
@@ -144,6 +123,7 @@ export default function SheetBuilderDialog({
       const out = await composeSheet(character.id, job.id, seed);
       setSavedMsg(`Saved as ${character.name}'s sheet: ${out.sheet.sheet_uri.split("/").pop()}`);
       setHistory((h) => [out.sheet, ...h]);
+      setCurrent(out.character.sheet_uri ?? out.sheet.sheet_uri);
       setJob(await getSheetJob(job.id));
       writeResume(character.id, null);
       onSaved(out.character);
@@ -154,12 +134,29 @@ export default function SheetBuilderDialog({
     }
   };
 
+  const makeCurrent = async (item: SheetGalleryItem) => {
+    setSwitching(item.uri);
+    setError(null);
+    setSavedMsg(null);
+    try {
+      const c = await updateCharacter(character.id, { sheet_uri: item.uri });
+      setCurrent(c.sheet_uri ?? item.uri);
+      setSavedMsg(`${character.name} now renders with ${item.uri.split("/").pop()}.`);
+      onSaved(c);
+    } catch (e) {
+      setError(ltxError(e));
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  const gallery = sheetGallery(history, current);
   const saved = savedSeeds(job);
   const panel = facePanelPreview(job);
 
   return (
     <Dialog open fullWidth maxWidth="xl" onClose={onClose}>
-      <DialogTitle>Build a character sheet — {character.name}</DialogTitle>
+      <DialogTitle>Character sheet — {character.name}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
@@ -172,6 +169,45 @@ export default function SheetBuilderDialog({
           </Typography>
           {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
           {savedMsg && <Alert severity="success">{savedMsg}</Alert>}
+
+          {gallery.length > 0 && (
+            <>
+              <Divider textAlign="left">
+                <Typography variant="overline">{character.name}'s sheets</Typography>
+              </Divider>
+              <Box sx={{ display: "grid", gap: 2,
+                         gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
+                {gallery.map((item) => (
+                  <Stack key={item.uri} spacing={0.5} sx={{
+                    p: 0.5, borderRadius: 1, border: 2,
+                    borderColor: item.current ? "primary.main" : "transparent",
+                  }}>
+                    <SheetPreview uri={item.uri} alt={`${character.name} sheet`} labels={false}
+                                  onClick={() => setViewing({
+                                    uri: item.uri,
+                                    title: `${character.name}${item.current ? " — current sheet" : ""}`,
+                                    subtitle: sheetGalleryLine(item),
+                                  })} />
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography variant="caption" color="text.secondary" noWrap
+                                  sx={{ flexGrow: 1, minWidth: 0 }} title={sheetGalleryLine(item)}>
+                        {sheetGalleryLine(item)}
+                      </Typography>
+                      {item.current ? (
+                        <Chip size="small" color="primary" label="Current" />
+                      ) : (
+                        <Button size="small" disabled={switching !== null}
+                                onClick={() => void makeCurrent(item)}>
+                          {switching === item.uri ? "Switching…" : "Make current"}
+                        </Button>
+                      )}
+                    </Stack>
+                  </Stack>
+                ))}
+              </Box>
+              <Divider textAlign="left"><Typography variant="overline">Build a new sheet</Typography></Divider>
+            </>
+          )}
 
           <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
             <Box sx={{ width: { xs: "100%", md: 220 }, flexShrink: 0 }}>
@@ -268,7 +304,13 @@ export default function SheetBuilderDialog({
                   const note = facePanelNote(c);
                   return (
                     <Stack key={c.seed} spacing={0.5}>
-                      <CandidateSheet c={c} />
+                      <SheetPreview uri={c.preview_uri ?? c.sheet_uri}
+                                    alt={`candidate seed ${c.seed}`}
+                                    onClick={() => setViewing({
+                                      uri: c.preview_uri ?? c.sheet_uri,
+                                      title: `Candidate — seed ${c.seed}`,
+                                      subtitle: candidateScore(c),
+                                    })} />
                       <Stack direction="row" spacing={1} alignItems="center">
                         <Typography variant="caption" sx={{ flexGrow: 1 }}>
                           Seed {c.seed} · {candidateScore(c)}
@@ -299,24 +341,16 @@ export default function SheetBuilderDialog({
             </>
           )}
 
-          {history.length > 0 && (
-            <>
-              <Divider textAlign="left"><Typography variant="overline">Sheets saved for {character.name}</Typography></Divider>
-              {history.map((h) => (
-                <Typography key={h.id} variant="caption" color="text.secondary" component="div">
-                  {h.created_at ? new Date(h.created_at).toLocaleString() : ""} · seed {h.seed} ·
-                  {h.photo_mode === "one_photo" ? "photo" : "face"} {h.face_uri.split("/").pop()}
-                  {" "}· {h.model ?? "?"}
-                  {h.sheet_uri === character.sheet_uri ? " · current" : ""}
-                </Typography>
-              ))}
-            </>
-          )}
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>{live ? "Close (it keeps running)" : "Close"}</Button>
       </DialogActions>
+
+      {viewing && (
+        <SheetViewerDialog uri={viewing.uri} title={viewing.title} subtitle={viewing.subtitle}
+                           onClose={() => setViewing(null)} />
+      )}
 
       {picking && (
         <PickFromRepoDialog
