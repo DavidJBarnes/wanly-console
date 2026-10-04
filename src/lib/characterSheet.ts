@@ -14,7 +14,7 @@
  */
 import type { Gender } from "../api/types";
 import type {
-  SheetCandidate, SheetGender, SheetGenerateBody, SheetJob, SheetPresets,
+  CharacterSheetRecord, SheetCandidate, SheetGender, SheetGenerateBody, SheetJob, SheetPresets,
 } from "../api/ltx";
 
 /** The layout, in the sheet's own pixels (wanly-gpu-docker image_edit/sheet.py). */
@@ -203,4 +203,45 @@ export function facePanelNote(
 /** The localStorage key that lets a long job survive closing the dialog. */
 export function resumeKey(characterId: string): string {
   return `wanly.sheetJob.${characterId}`;
+}
+
+/** One row of a character's sheet gallery (console#598). */
+export interface SheetGalleryItem {
+  uri: string;
+  current: boolean;
+  /** The builder's record, or null for a sheet picked from the Image Repo. */
+  record: CharacterSheetRecord | null;
+}
+
+/** The character's sheets for the builder's gallery (console#598): the CURRENT one first --
+ *  even when it was picked from the Image Repo and so has no builder record -- then every
+ *  other saved sheet newest first, each file once (saving the same seed twice makes two
+ *  records of one sheet). */
+export function sheetGallery(
+  history: CharacterSheetRecord[], currentUri: string | null | undefined,
+): SheetGalleryItem[] {
+  const newest = [...history].sort((a, b) =>
+    (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  const seen = new Set<string>();
+  const out: SheetGalleryItem[] = [];
+  if (currentUri) {
+    out.push({ uri: currentUri, current: true,
+               record: newest.find((h) => h.sheet_uri === currentUri) ?? null });
+    seen.add(currentUri);
+  }
+  for (const h of newest) {
+    if (seen.has(h.sheet_uri)) continue;
+    seen.add(h.sheet_uri);
+    out.push({ uri: h.sheet_uri, current: false, record: h });
+  }
+  return out;
+}
+
+/** One line under a gallery sheet: when, which seed, from what photo. */
+export function sheetGalleryLine(item: SheetGalleryItem): string {
+  const h = item.record;
+  if (!h) return `From the Image Repo · ${item.uri.split("/").pop()}`;
+  const when = h.created_at ? new Date(h.created_at).toLocaleString() : "";
+  const src = `${h.photo_mode === "one_photo" ? "photo" : "face"} ${h.face_uri.split("/").pop()}`;
+  return [when, `seed ${h.seed}`, src].filter(Boolean).join(" · ");
 }

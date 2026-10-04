@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { SheetJob } from "../api/ltx";
+import type { CharacterSheetRecord, SheetJob } from "../api/ltx";
 import {
   candidateScore, FACE_PANEL_W, FALLBACK_PRESETS, facePanelNote, facePanelPreview,
   initialSheetForm, MAX_COUNT, PHOTO_HINT, savedSeeds, SHEET_H, SHEET_W, sheetFormProblem, sheetGenderFor, sheetJobActive,
-  sheetJobLine, sheetPanels, sheetRequest, switchGender, TURNAROUND_W,
+  sheetGallery, sheetGalleryLine, sheetJobLine, sheetPanels, sheetRequest, switchGender, TURNAROUND_W,
 } from "./characterSheet";
 
 /**
@@ -143,5 +143,45 @@ describe("the job", () => {
     expect(facePanelPreview(job({ candidates: [c, { ...c, seed: 22,
       face_panel_preview_uri: "s3://wanly-jobs/sheet-jobs/j1/s22_face_panel.jpg" }] })))
       .toBe("s3://wanly-jobs/sheet-jobs/j1/s22_face_panel.jpg");
+  });
+});
+
+describe("sheetGallery (console#598)", () => {
+  const rec = (id: string, uri: string, at: string): CharacterSheetRecord => ({
+    id, character_name: "Kelly", sheet_uri: uri, face_uri: "s3://b/photo.png", outfit: "o",
+    prompt: "p", seed: Number(id), created_at: at, photo_mode: "one_photo",
+  });
+
+  it("puts the current sheet first, then the rest newest first", () => {
+    const h = [rec("1", "s3://b/a.png", "2026-10-01T10:00:00Z"),
+               rec("2", "s3://b/b.png", "2026-10-03T10:00:00Z"),
+               rec("3", "s3://b/c.png", "2026-10-02T10:00:00Z")];
+    const g = sheetGallery(h, "s3://b/a.png");
+    expect(g.map((i) => i.uri)).toEqual(["s3://b/a.png", "s3://b/b.png", "s3://b/c.png"]);
+    expect(g.map((i) => i.current)).toEqual([true, false, false]);
+    expect(g[0].record?.id).toBe("1");
+  });
+
+  it("keeps a current sheet picked from the Image Repo, with no record", () => {
+    const g = sheetGallery([rec("1", "s3://b/a.png", "2026-10-01T10:00:00Z")], "s3://repo/x.png");
+    expect(g[0]).toEqual({ uri: "s3://repo/x.png", current: true, record: null });
+    expect(sheetGalleryLine(g[0])).toBe("From the Image Repo · x.png");
+    expect(g).toHaveLength(2);
+  });
+
+  it("lists a sheet saved twice once", () => {
+    const h = [rec("1", "s3://b/a.png", "2026-10-01T10:00:00Z"),
+               rec("2", "s3://b/a.png", "2026-10-02T10:00:00Z")];
+    expect(sheetGallery(h, null).map((i) => i.record?.id)).toEqual(["2"]);
+  });
+
+  it("is empty with no sheets", () => {
+    expect(sheetGallery([], null)).toEqual([]);
+  });
+
+  it("describes a built sheet by seed and photo", () => {
+    const line = sheetGalleryLine({ uri: "s3://b/a.png", current: false,
+                                    record: rec("7", "s3://b/a.png", "") });
+    expect(line).toBe("seed 7 · photo photo.png");
   });
 });

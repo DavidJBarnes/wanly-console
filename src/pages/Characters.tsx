@@ -17,6 +17,7 @@ import { getFileUrl } from "../api/client";
 import DefaultStar from "../components/DefaultStar";
 import PickFromRepoDialog from "../components/PickFromRepoDialog";
 import SheetBuilderDialog from "../components/SheetBuilderDialog";
+import { SheetPreview, SheetViewerDialog } from "../components/SheetPreview";
 import {
   draftFor, draftMessage, fillPhrase, formError, formFor, formIsDraft, hasLora, identityBadges,
   isDraft, referenceMode, sheetSizeWarning, type CharacterForm,
@@ -46,6 +47,7 @@ export default function Characters() {
   const [editing, setEditing] = useState<Character | "new" | null>(null);
   const [confirm, setConfirm] = useState<Character | null>(null);
   const [building, setBuilding] = useState<Character | null>(null);
+  const [viewing, setViewing] = useState<Character | null>(null);
   const [busy, setBusy] = useState(false);
   // Where each character's trigger/gender disagree with how its LoRA trained (console#596).
   const [checks, setChecks] = useState<Record<string, CharacterProvenance>>({});
@@ -132,10 +134,21 @@ export default function Characters() {
           return (
             <Card key={c.id} sx={{ p: 1.5 }} variant="outlined">
               <Stack direction="row" alignItems="center" spacing={2}>
-                <Avatar src={thumb ? getFileUrl(thumb) : undefined} variant="rounded"
-                        sx={{ width: c.sheet_uri ? 72 : 48, height: 48 }}>
-                  {c.name.slice(0, 1).toUpperCase()}
-                </Avatar>
+                {c.sheet_uri ? (
+                  // The sheet is what the character renders with: big enough to recognise,
+                  // and a click opens it (console#598).
+                  <Tooltip title="View sheet">
+                    <Box sx={{ width: 144, flexShrink: 0 }}>
+                      <SheetPreview uri={c.sheet_uri} alt={`${c.name} sheet`} labels={false}
+                                    onClick={() => setViewing(c)} />
+                    </Box>
+                  </Tooltip>
+                ) : (
+                  <Avatar src={thumb ? getFileUrl(thumb) : undefined} variant="rounded"
+                          sx={{ width: 48, height: 48 }}>
+                    {c.name.slice(0, 1).toUpperCase()}
+                  </Avatar>
+                )}
                 <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Typography variant="subtitle2">{c.name}</Typography>
@@ -191,11 +204,12 @@ export default function Characters() {
                 <DefaultStar isDefault={!!c.is_default} what="character"
                              onToggle={() => toggleDefault(c)} />
                 {(c.kind ?? "solo") !== "pair" && (
-                  <Tooltip title={c.sheet_uri ? "Build a new sheet from one photo of her"
+                  <Tooltip title={c.sheet_uri
+                    ? "See every sheet saved for her, switch between them, or build a new one"
                     : "Build a sheet from one photo of her"}>
                     <Button size="small" startIcon={<AutoAwesome fontSize="small" />}
                             onClick={() => setBuilding(c)}>
-                      Build sheet
+                      {c.sheet_uri ? "Sheets" : "Build sheet"}
                     </Button>
                   </Tooltip>
                 )}
@@ -245,6 +259,30 @@ export default function Characters() {
             setBuilding(c);
             void load();
           }}
+        />
+      )}
+
+      {viewing?.sheet_uri && (
+        <SheetViewerDialog
+          uri={viewing.sheet_uri}
+          title={`${viewing.name} — character sheet`}
+          subtitle={`${viewing.sheet_uri.split("/").pop()}${referenceMode(viewing) === "face"
+            ? " · not used: renders with the face reference" : ""}`}
+          onClose={() => setViewing(null)}
+          actions={
+            <>
+              {(viewing.kind ?? "solo") !== "pair" && (
+                <Button startIcon={<AutoAwesome fontSize="small" />}
+                        onClick={() => { setBuilding(viewing); setViewing(null); }}>
+                  Sheets & build new
+                </Button>
+              )}
+              <Button startIcon={<Edit fontSize="small" />}
+                      onClick={() => { setEditing(viewing); setViewing(null); }}>
+                Edit character
+              </Button>
+            </>
+          }
         />
       )}
 
@@ -320,13 +358,15 @@ function UseTrainedDialog({
   );
 }
 
-/** A picked reference image: full size by default (a sheet has to be READ to be checked),
- *  with its measured size and, for a sheet, the layout warning. */
+/** A picked reference image, with its measured size and, for a sheet, the layout warning.
+ *  Fit / Actual size toggles between the whole image and every pixel. */
 function ReferenceImage({
   uri, sheet, onRemove,
 }: { uri: string; sheet: boolean; onRemove: () => void }) {
   const [size, setSize] = useState<{ uri: string; w: number; h: number } | null>(null);
-  const [fit, setFit] = useState(false);
+  // A sheet opens fitted to the dialog, so it reads as a whole (console#598); a face
+  // reference opens at actual size.
+  const [fit, setFit] = useState(sheet);
   const measured = size && size.uri === uri ? size : null;
   const warning = sheet && measured ? sheetSizeWarning(measured.w, measured.h) : null;
   return (
@@ -376,6 +416,7 @@ function CharacterDialog({
   const locked = !isNew && characterHasTrained(character!);
   const [form, setForm] = useState<CharacterForm>(() => formFor(character));
   const [picking, setPicking] = useState<"sheet" | "face" | null>(null);
+  const [building, setBuilding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = (patch: Partial<CharacterForm>) => setForm((f) => ({ ...f, ...patch }));
@@ -529,21 +570,33 @@ function CharacterDialog({
           )}
 
           <Divider textAlign="left"><Typography variant="overline">Character sheet (optional)</Typography></Divider>
-          {form.sheetUri ? (
+          {form.sheetUri && (
             <ReferenceImage uri={form.sheetUri} sheet
                             onRemove={() => set({ sheetUri: "",
                               identityMode: form.identityMode === "sheet" ? "" : form.identityMode })} />
-          ) : (
-            <Box>
-              <Button variant="outlined" onClick={() => setPicking("sheet")}>
-                Choose sheet from the Image Repo
+          )}
+          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+            {canBuild && (
+              // An existing character builds in place and the approved sheet lands in this
+              // form; a new one has to be saved first, as Build sheet works on a saved
+              // character (console#592, #598).
+              <Button variant={form.sheetUri ? "text" : "contained"}
+                      startIcon={<AutoAwesome fontSize="small" />}
+                      disabled={saving || (isNew && problem !== null)}
+                      onClick={() => (isNew ? void save(true) : setBuilding(true))}>
+                {form.sheetUri ? "Sheets & build new" : isNew ? "Save & build sheet" : "Build sheet"}
               </Button>
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
+            )}
+            <Button variant={form.sheetUri ? "text" : "outlined"} onClick={() => setPicking("sheet")}>
+              {form.sheetUri ? "Replace from the Image Repo" : "Choose sheet from the Image Repo"}
+            </Button>
+            {!form.sheetUri && (
+              <Typography variant="caption" color="text.secondary">
                 A 1536×1024 turnaround. Dress it in the start frame's outfit: in wide shots the
                 body the model invents takes the sheet's clothes.
               </Typography>
-            </Box>
-          )}
+            )}
+          </Stack>
 
           <Divider textAlign="left"><Typography variant="overline">Face reference (optional)</Typography></Divider>
           {form.faceRefUri ? (
@@ -609,6 +662,19 @@ function CharacterDialog({
             setFixOpen(false);
             setFixed(true);
             set({ trigger: c.trigger ?? "", gender: c.gender ?? "" });
+            onFixed();
+          }}
+        />
+      )}
+
+      {building && character && (
+        <SheetBuilderDialog
+          character={{ ...character, sheet_uri: form.sheetUri || null }}
+          onClose={() => setBuilding(false)}
+          // The API has already saved it as the character's sheet; the form follows, so a
+          // later Save keeps it rather than writing the old one back.
+          onSaved={(c) => {
+            set({ sheetUri: c.sheet_uri ?? "" });
             onFixed();
           }}
         />
