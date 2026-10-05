@@ -190,17 +190,23 @@ export function versionOfLora(stem: string): number | null {
  * meant a v1 that silently overwrote the last v1's files.
  */
 export function nextVersion(
-  character: string, jobs: TrainingJob[], characters: Character[],
+  character: string, jobs: TrainingJob[], characters: Character[], arch: TrainArch = "ltx",
 ): number {
   const name = character.trim().toLowerCase();
   if (!name) return 1;
   let highest = 0;
   for (const j of jobs) {
-    if (j.character.toLowerCase() === name && j.status === "completed") {
+    // PER ARCH (console#612): an SDXL LoRA is a different model, not the next LTX version, so
+    // each arch counts its own. And LIVE runs count, not just completed ones -- a version
+    // that is training is taken, and offering it was how KimJule's LTX run got "v1 is already
+    // running". Failed and cancelled versions stay free to reuse.
+    if (j.character.toLowerCase() === name && jobArch(j) === arch
+        && ["completed", "pending", "claimed", "running"].includes(j.status)) {
       highest = Math.max(highest, j.version);
     }
   }
-  const c = characters.find((x) => x.name.toLowerCase() === name);
+  // The character row's LoRA is an LTX one; it says nothing about SDXL versions.
+  const c = arch === "ltx" ? characters.find((x) => x.name.toLowerCase() === name) : undefined;
   if (c) highest = Math.max(highest, versionOfLora(c.char_lora ?? "") ?? 0);
   return highest + 1;
 }
