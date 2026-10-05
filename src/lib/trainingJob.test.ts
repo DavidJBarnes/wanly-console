@@ -27,7 +27,7 @@ import {
   isSdxlJob, SDXL_REPEATS,
   allInSecondsPerStep, estimateRunMinutes, liveSecondsPerIt, remainingMinutes, queueEtas,
   etaLabel, formatMinutes, UPLOAD_MINUTES,
-  scpCommand, trainerCheckpointPath, shq,
+  scpCommand, trainerCheckpointPath, shq, runTriggers,
 } from "./trainingJob";
 import type { Dataset, TrainingJob } from "../api/types";
 import type { TrainForm } from "./trainingJob";
@@ -651,5 +651,16 @@ describe("copy as scp (console#604, #606)", () => {
   it("quotes what a shell would mangle", () => {
     expect(shq("p@y")).toBe("p@y");
     expect(shq("it's $x")).toBe(`'it'\\''s $x'`);
+  });
+});
+
+describe("runTriggers (console#608)", () => {
+  it("a solo run's trigger", () => {
+    expect(runTriggers({ trigger: "jo@na", identities: null })).toEqual(["jo@na"]);
+  });
+  it("a pair lists each identity's, skipping composition/regularization groups", () => {
+    expect(runTriggers({ trigger: "d@vid", identities: [
+      { trigger: "k3lly2026" }, { trigger: null }, { trigger: "" }, { trigger: "d@vid" },
+    ] })).toEqual(["d@vid", "k3lly2026"]);
   });
 });
