@@ -25,6 +25,8 @@ import {
   trainingPct,
   trainingSummary,
   isSdxlJob, SDXL_REPEATS,
+  allInSecondsPerStep, estimateRunMinutes, liveSecondsPerIt, remainingMinutes, queueEtas,
+  etaLabel, formatMinutes, UPLOAD_MINUTES,
 } from "./trainingJob";
 import type { Dataset, TrainingJob } from "../api/types";
 import type { TrainForm } from "./trainingJob";
@@ -559,5 +561,66 @@ describe("SDXL start-image LoRAs (console#600)", () => {
   it("knows an SDXL run from its snapshot; a run without one is LTX", () => {
     expect(isSdxlJob({ config: { arch: "sdxl" } })).toBe(true);
     expect(isSdxlJob({ config: {} })).toBe(false);
+  });
+});
+
+describe("time estimates (console#602)", () => {
+  const T0 = Date.parse("2026-10-04T12:00:00Z");
+  const min = (m: number) => new Date(T0 + m * 60000).toISOString();
+  /** A completed run that took `wallMin` minutes for `steps` steps. */
+  const done = (steps: number, wallMin: number, config: Record<string, unknown> = {}, at = 0) =>
+    ({ id: `d${steps}-${wallMin}-${at}`, status: "completed", config, total_steps: steps,
+       claimed_at: min(at), completed_at: min(at + wallMin) }) as unknown as TrainingJob;
+  const job = (over: Partial<TrainingJob>) =>
+    ({ id: "x", status: "pending", config: { steps: 1200 }, total_steps: 1200, step: null,
+       progress_log: null, claimed_at: null, created_at: min(0), ...over }) as TrainingJob;
+
+  it("takes the median all-in s/step of the arch's own runs, dropping a stuck one", () => {
+    // 1200 steps in 80/90/86 min = 4.0/4.5/4.3 s; the 400-step run that sat 169 min is out.
+    const h = [done(1200, 80), done(1200, 90, {}, 1), done(1200, 86, {}, 2), done(400, 169, {}, 3)];
+    expect(allInSecondsPerStep("ltx", h)).toBeCloseTo(4.3, 1);
+    expect(allInSecondsPerStep("sdxl", h)).toBeNull();   // no SDXL history yet
+  });
+
+  it("falls back to the measured constants without history", () => {
+    expect(estimateRunMinutes("ltx", 1200, "final", [])).toBe(86);           // 1200 x 4.3 s
+    // SDXL: 1536 x 1.31 s training + 3 min overhead + one 25 min upload.
+    expect(estimateRunMinutes("sdxl", 1536, "final", [])).toBe(62);
+    expect(estimateRunMinutes("sdxl", 1536, "all", []) - 62).toBe(UPLOAD_MINUTES.sdxl);
+  });
+
+  it("reads the trainer's live rate off its progress line", () => {
+    expect(liveSecondsPerIt("step 34/1536 (2%), 1.35s/it, ~34 min left")).toBe(1.35);
+    expect(liveSecondsPerIt("staging 16 images")).toBeNull();
+  });
+
+  it("a training run: steps left at the live rate, plus the upload", () => {
+    const j = job({ status: "running", step: 536, total_steps: 1536, config: { arch: "sdxl" },
+                    progress_log: "step 536/1536 (35%), 1.2s/it" });
+    expect(remainingMinutes(j, [], T0)).toBe(20 + 25);
+  });
+
+  it("queued runs start when everything ahead is done, oldest first", () => {
+    const running = job({ id: "r", status: "running", step: 1000, total_steps: 1600,
+                          progress_log: "step 1000/1600, 3s/it", config: { steps: 1600 } });
+    const later = job({ id: "b", created_at: min(5) });
+    const first = job({ id: "a", created_at: min(1) });
+    const etas = queueEtas([running, later, first], T0);
+    // running: 600 x 3 s = 30 min + 18 upload = 48.
+    expect(etas.get("r")).toEqual({ startsAt: null, doneAt: T0 + 48 * 60000, minutesLeft: 48 });
+    expect(etas.get("a")!.startsAt).toBe(T0 + 48 * 60000);
+    expect(etas.get("b")!.startsAt).toBe(etas.get("a")!.doneAt);
+    expect(etaLabel(etas.get("a"))).toMatch(/^≈ starts ~.* · done ~/);
+    expect(etaLabel(etas.get("r"))).toMatch(/^≈ 48 min left · done ~/);
+  });
+
+  it("finished runs get no estimate", () => {
+    expect(remainingMinutes(job({ status: "completed" }), [], T0)).toBeNull();
+    expect(queueEtas([job({ status: "failed" })], T0).size).toBe(0);
+  });
+
+  it("formats hours", () => {
+    expect(formatMinutes(35)).toBe("35 min");
+    expect(formatMinutes(125)).toBe("2 h 5 min");
   });
 });
