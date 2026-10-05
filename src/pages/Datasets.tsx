@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import CharacterAvatar from "../components/CharacterAvatar";
+import { offeredCharacters } from "../lib/characterIcon";
 import { useNavigate, useSearchParams } from "react-router";
 import {
   Alert, Autocomplete, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog,
@@ -1310,7 +1312,14 @@ function AssignDialog({
               error={Boolean(owner) && !soloMatch}
               fullWidth
             >
-              {solos.map((c) => <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>)}
+              {offeredCharacters(solos, owner).map((c) => (
+                <MenuItem key={c.id} value={c.name}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <CharacterAvatar character={c} name={c.name} />
+                    <span>{c.name}</span>
+                  </Stack>
+                </MenuItem>
+              ))}
               <Divider />
               <MenuItem value="__new__"><em>New character…</em></MenuItem>
             </TextField>

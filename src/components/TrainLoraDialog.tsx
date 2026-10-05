@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import CharacterAvatar from "./CharacterAvatar";
+import { offeredCharacters } from "../lib/characterIcon";
 import type { ReactNode } from "react";
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
@@ -238,8 +240,13 @@ export default function TrainLoraDialog({
         error={Boolean(value) && !c}
         fullWidth
       >
-        {solos.filter((s) => s.name !== exclude).map((s) => (
-          <MenuItem key={s.id} value={s.name}>{s.name}</MenuItem>
+        {offeredCharacters(solos, value).filter((s) => s.name !== exclude).map((s) => (
+          <MenuItem key={s.id} value={s.name}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <CharacterAvatar character={s} name={s.name} />
+              <span>{s.name}</span>
+            </Stack>
+          </MenuItem>
         ))}
         <Divider />
         <MenuItem value={NEW_CHARACTER}><em>New character…</em></MenuItem>

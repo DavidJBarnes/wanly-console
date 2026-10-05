@@ -125,6 +125,11 @@ export interface Character {
   identity_mode?: "sheet" | "face" | null;
   /** A few words that fill <TRIGGER> when there is no trigger. */
   description?: string | null;
+  /** The image that stands for the character wherever it is shown or picked (console#616,
+   *  wanly-api#404). Null falls back: see lib/characterIcon. */
+  icon_uri?: string | null;
+  /** Left out of every picker (console#617). Still listed here, renders, keeps its runs. */
+  hidden?: boolean;
 }
 
 /** What fills a placeholder: the trigger AND the word its LoRA bound it to, exactly as
@@ -429,6 +434,10 @@ export interface CharacterDraft {
   face_ref_uri?: string | null;
   identity_mode?: "sheet" | "face" | null;
   description?: string | null;
+  /** console#616: null clears back to the fallback image. */
+  icon_uri?: string | null;
+  /** console#617. */
+  hidden?: boolean;
 }
 
 export async function createCharacter(draft: CharacterDraft): Promise<Character> {

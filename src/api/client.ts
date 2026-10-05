@@ -502,8 +502,15 @@ export async function preflightTraining(body: TrainingCreate): Promise<TrainingP
   return data;
 }
 
-export async function listTrainingJobs(): Promise<TrainingJob[]> {
-  const { data } = await api.get<TrainingJob[]>("/training");
+export async function listTrainingJobs(
+  opts: { character?: string; limit?: number } = {},
+): Promise<TrainingJob[]> {
+  // `character` (wanly-api#404): one character's runs, both arches -- the character card's
+  // versions table. With it, ask for the whole history rather than the newest 50.
+  const params = opts.character
+    ? { character: opts.character, limit: opts.limit ?? 500 }
+    : opts.limit ? { limit: opts.limit } : undefined;
+  const { data } = await api.get<TrainingJob[]>("/training", { params });
   return data;
 }
 

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import CharacterAvatar from "./CharacterAvatar";
+import { offeredCharacters } from "../lib/characterIcon";
 import axios from "axios";
 import { Link } from "react-router";
 import {
@@ -749,8 +751,15 @@ export default function RecipeForm({
           sx={{ flex: "1 1 180px", minWidth: 160 }} size={compact ? "small" : "medium"}
           onChange={(e) => setCharacterName(e.target.value)}
         >
-          {(book?.characters ?? []).map((c) => (
-            <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>
+          {/* Hidden characters are not offered (console#617) -- except the one already
+              picked, so a job made before it was hidden still says who it is of. */}
+          {offeredCharacters(book?.characters ?? [], characterName).map((c) => (
+            <MenuItem key={c.id} value={c.name}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CharacterAvatar character={c} name={c.name} />
+                <span>{c.name}</span>
+              </Stack>
+            </MenuItem>
           ))}
           {/* Render on the base model alone — no LoRA, and no trigger token in the prompt.
               Last, because it is the deliberate exception (console#412). */}
