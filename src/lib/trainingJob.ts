@@ -760,12 +760,37 @@ export function trainerCheckpointPath(
  * (Joana_v2-000003) carry neither.
  */
 export function scpCommand(
-  job: Pick<TrainingJob, "config" | "character" | "version" | "worker_name">, label: string,
+  job: Pick<TrainingJob, "config" | "character" | "version" | "worker_name"
+    | "thumbnail_uri" | "dataset_images">,
+  label: string,
 ): string {
   const host = job.worker_name || DEFAULT_TRAINER_HOST;
-  const src = `${host}:${shq(trainerCheckpointPath(job, label))}`;
   const arch = isSdxlJob(job) ? "_sdxl" : "";
-  return `scp ${src} ${shq(`${job.character}${arch}_v${job.version}_${label}.safetensors`)}`;
+  const dest = `${job.character}${arch}_v${job.version}_${label}`;
+  const lora = `scp ${host}:${shq(trainerCheckpointPath(job, label))} ${shq(`${dest}.safetensors`)}`;
+  // THE PREVIEW TOO (#610): A1111 and StabilityMatrix show <name>.preview.<ext> beside a LoRA
+  // as its card image. The run's thumbnail -- the dataset's anchor face -- is already on the
+  // trainer, staged with the rest.
+  const thumb = trainerThumbnailPath(job);
+  if (!thumb) return lora;
+  return `${lora} && scp ${host}:${shq(thumb.path)} ${shq(`${dest}.preview${thumb.ext}`)}`;
+}
+
+/**
+ * Where the run's thumbnail sits on the trainer, or null when it is not one of group 0's
+ * images. The trainer stages group 0's images in order as data/sel_NNN<ext>, ext lowercased
+ * from the file name, so the anchor's index in dataset_images names its file. (Checked on
+ * Joana v2: its anchor is index 3, and data/sel_003.jpg is byte-identical to it in S3.)
+ */
+export function trainerThumbnailPath(
+  job: Pick<TrainingJob, "config" | "character" | "version" | "thumbnail_uri" | "dataset_images">,
+): { path: string; ext: string } | null {
+  const i = job.thumbnail_uri ? job.dataset_images.indexOf(job.thumbnail_uri) : -1;
+  if (i < 0) return null;
+  const m = /(\.[^./]+)$/.exec(job.thumbnail_uri!);
+  const ext = (m ? m[1] : ".jpg").toLowerCase();
+  const run = trainerCheckpointPath(job, "final").replace(/\/output\/[^/]+$/, "");
+  return { path: `${run}/data/sel_${String(i).padStart(3, "0")}${ext}`, ext };
 }
 
 /**

@@ -627,7 +627,8 @@ describe("time estimates (console#602)", () => {
 });
 
 describe("copy as scp (console#604, #606)", () => {
-  const joana = { character: "Joana", version: 2, config: { arch: "sdxl" }, worker_name: "3090a.zero" };
+  const joana = { character: "Joana", version: 2, config: { arch: "sdxl" }, worker_name: "3090a.zero",
+                  thumbnail_uri: null as string | null, dataset_images: [] as string[] };
   it("names the file exactly as the trainer wrote it", () => {
     expect(trainerCheckpointPath(joana, "e03"))
       .toBe("/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2-000003.safetensors");
@@ -644,6 +645,18 @@ describe("copy as scp (console#604, #606)", () => {
     expect(scpCommand(joana, "e03")).toBe(
       "scp 3090a.zero:/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2-000003.safetensors "
       + "Joana_sdxl_v2_e03.safetensors");
+  });
+  it("also pulls the thumbnail as the LoRA's A1111 preview, from where the trainer staged it", () => {
+    const imgs = ["s3://b/a.jpg", "s3://b/b.png", "s3://b/c.jpg", "s3://b/Anchor.JPG"];
+    const j = { ...joana, dataset_images: imgs, thumbnail_uri: "s3://b/Anchor.JPG" };
+    expect(scpCommand(j, "final")).toBe(
+      "scp 3090a.zero:/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2.safetensors "
+      + "Joana_sdxl_v2_final.safetensors && "
+      + "scp 3090a.zero:/home/david/projects/loras/Joana/sdxl-v2/data/sel_003.jpg "
+      + "Joana_sdxl_v2_final.preview.jpg");
+    // A thumbnail that is not one of group 0's images has no staged copy: LoRA only.
+    expect(scpCommand({ ...j, thumbnail_uri: "s3://b/elsewhere.png" }, "final"))
+      .not.toContain("preview");
   });
   it("LTX lands in the current directory; an unknown trainer is 3090a", () => {
     expect(scpCommand({ ...joana, config: {}, worker_name: null }, "final")).toBe(
