@@ -771,3 +771,14 @@ export function scpCommand(
   }
   return `scp ${src} ${shq(`${job.character}_v${job.version}_${label}.safetensors`)}`;
 }
+
+/**
+ * The trigger word(s) a run trained under, as a prompt should type them (console#608): the
+ * job's own snapshot, not the registry's current value -- a re-registered trigger does not
+ * change what this file learned. A pair lists each identity group's trigger (composition and
+ * regularization groups have none), deduplicated, in group order.
+ */
+export function runTriggers(job: Pick<TrainingJob, "trigger" | "identities">): string[] {
+  const all = [job.trigger, ...(job.identities ?? []).map((g) => g.trigger)];
+  return [...new Set(all.filter((t): t is string => Boolean(t && t.trim())))];
+}

@@ -20,7 +20,7 @@ import type { Character } from "../api/ltx";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import {
-  checkpointInUse, epochRows, scpCommand, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
+  checkpointInUse, epochRows, runTriggers, scpCommand, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
   trainingPct, trainingSummary, queueEtas, etaLabel, type RunEta,
 } from "../lib/trainingJob";
 import LossChart from "../components/LossChart";
@@ -175,6 +175,9 @@ function TrainingRow({
   const sdxl = isSdxlJob(job);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  /** The trigger chip says "copied" for a moment: the row's message line is inside the
+   *  checkpoints accordion, which is usually collapsed. */
+  const [triggerCopied, setTriggerCopied] = useState(false);
   /** The API's reason for refusing to delete this run with its files, while it stands. */
   const [refusal, setRefusal] = useState("");
   /** Likewise for a refused retry (a live twin of the same version, a dataset that fell
@@ -303,6 +306,25 @@ function TrainingRow({
               label={`${job.dataset_images.length + (job.identities ?? [])
                 .reduce((n, g) => n + (g.images?.length ?? g.dataset?.count ?? 0), 0)} images`} />
           </Tooltip>
+          {runTriggers(job).length > 0 && (
+            <Tooltip title="The trigger this LoRA trained under — prompt with it. Click to copy.">
+              <Chip
+                size="small"
+                variant="outlined"
+                color="primary"
+                label={triggerCopied ? "copied" : `trigger: ${runTriggers(job).join(" and ")}`}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(runTriggers(job).join(", "));
+                    setTriggerCopied(true);
+                    setTimeout(() => setTriggerCopied(false), 1500);
+                  } catch {
+                    setMsg("could not copy the trigger");
+                  }
+                }}
+              />
+            </Tooltip>
+          )}
           {job.gpu_name && <Chip size="small" variant="outlined" label={job.gpu_name} />}
           {when && (
             <Tooltip title={runTimeDetail(job) ?? when}>
