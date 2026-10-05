@@ -27,7 +27,7 @@ import {
   isSdxlJob, SDXL_REPEATS,
   allInSecondsPerStep, estimateRunMinutes, liveSecondsPerIt, remainingMinutes, queueEtas,
   etaLabel, formatMinutes, UPLOAD_MINUTES,
-  curlCommand, shq,
+  scpCommand, trainerCheckpointPath, shq,
 } from "./trainingJob";
 import type { Dataset, TrainingJob } from "../api/types";
 import type { TrainForm } from "./trainingJob";
@@ -626,23 +626,27 @@ describe("time estimates (console#602)", () => {
   });
 });
 
-describe("copy as curl (console#604)", () => {
-  const url = "https://ltx-loras.s3.amazonaws.com/character/sdxl/Joana_sdxl_v2_final.safetensors?X-Amz-Signature=abc&X-Amz-Expires=21600";
-  it("puts an SDXL LoRA straight into A1111's folder on 3090b, per character", () => {
-    expect(curlCommand({ character: "Joana", config: { arch: "sdxl" } },
-      "Joana_sdxl_v2_final.safetensors", url)).toBe(
-      'mkdir -p "$HOME/StabilityMatrix-linux-x64/Data/Models/Lora"/Joana && curl -fL -o '
-      + '"$HOME/StabilityMatrix-linux-x64/Data/Models/Lora"/Joana/Joana_sdxl_v2_final.safetensors '
-      + `'${url}'`);
+describe("copy as scp (console#604, #606)", () => {
+  const joana = { character: "Joana", version: 2, config: { arch: "sdxl" }, worker_name: "3090a.zero" };
+  it("names the file exactly as the trainer wrote it", () => {
+    expect(trainerCheckpointPath(joana, "e03"))
+      .toBe("/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2-000003.safetensors");
+    expect(trainerCheckpointPath(joana, "final"))
+      .toBe("/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2.safetensors");
+    // LTX: the .comfy variant, in the ltx23b run dir.
+    expect(trainerCheckpointPath({ ...joana, config: {} }, "e01"))
+      .toBe("/home/david/projects/loras/Joana/ltx23b-v2/output/Joana_v2-000001.comfy.safetensors");
   });
-  it("an LTX LoRA lands in the current directory", () => {
-    expect(curlCommand({ character: "p@y", config: {} }, "pay_v2_final.safetensors", url))
-      .toBe(`curl -fL -o pay_v2_final.safetensors '${url}'`);
+  it("SDXL goes into A1111's folder on 3090b, renamed to say what it is", () => {
+    expect(scpCommand(joana, "e03")).toBe(
+      "mkdir -p ~/StabilityMatrix-linux-x64/Data/Models/Lora/Joana && scp "
+      + "3090a.zero:/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2-000003.safetensors "
+      + "~/StabilityMatrix-linux-x64/Data/Models/Lora/Joana/Joana_sdxl_v2_e03.safetensors");
   });
-  it("never carries the login token, and fails loudly on an expired link (-f)", () => {
-    const c = curlCommand({ character: "Joana", config: { arch: "sdxl" } }, "f.safetensors", url);
-    expect(c).not.toMatch(/token=/);
-    expect(c).toContain("curl -fL");
+  it("LTX lands in the current directory; an unknown trainer is 3090a", () => {
+    expect(scpCommand({ ...joana, config: {}, worker_name: null }, "final")).toBe(
+      "scp 3090a.zero:/home/david/projects/loras/Joana/ltx23b-v2/output/Joana_v2.comfy.safetensors "
+      + "Joana_v2_final.safetensors");
   });
   it("quotes what a shell would mangle", () => {
     expect(shq("p@y")).toBe("p@y");

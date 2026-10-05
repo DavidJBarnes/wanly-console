@@ -11,7 +11,7 @@ import {
 } from "@mui/icons-material";
 
 import {
-  cancelTrainingJob, deleteTrainingJob, getFileUrl, getPresignedFileUrl, listTrainingJobs,
+  cancelTrainingJob, deleteTrainingJob, getFileUrl, listTrainingJobs,
   publishTrainingEpoch,
   retryTrainingJob, updateTrainingNotes,
 } from "../api/client";
@@ -20,7 +20,7 @@ import type { Character } from "../api/ltx";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import {
-  checkpointInUse, curlCommand, epochRows, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
+  checkpointInUse, epochRows, scpCommand, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
   trainingPct, trainingSummary, queueEtas, etaLabel, type RunEta,
 } from "../lib/trainingJob";
 import LossChart from "../components/LossChart";
@@ -249,17 +249,15 @@ function TrainingRow({
     }
   };
 
-  /** Copy a curl that pulls this checkpoint from a shell -- onto 3090b for A1111 (#604). */
-  const copyCurl = async (uri: string) => {
+  /** Copy an scp that pulls this checkpoint off the trainer box -- onto 3090b for A1111. */
+  const copyScp = async (label: string) => {
     setMsg("");
     try {
-      const { url, filename, expires_in } = await getPresignedFileUrl(uri);
-      await navigator.clipboard.writeText(curlCommand(job, filename, url));
-      setMsg(`curl for ${filename} copied — paste it in a shell`
-        + (sdxl ? " on 3090b; it saves into A1111's LoRA folder" : "")
-        + `. The link works for ${Math.round(expires_in / 3600)} h.`);
+      await navigator.clipboard.writeText(scpCommand(job, label));
+      setMsg(`scp for ${label} copied — paste it in a shell`
+        + (sdxl ? " on 3090b; it saves into A1111's LoRA folder." : "."));
     } catch {
-      setMsg("could not copy the download command");
+      setMsg("could not copy the scp command");
     }
   };
 
@@ -505,6 +503,19 @@ function TrainingRow({
                         {row.step !== null ? `step ${row.step}` : ""}
                         {row.loss !== null ? ` · loss ${row.loss.toFixed(3)}` : ""}
                       </Typography>
+                      {/* Every epoch, uploaded or not: it is on the trainer's disk (#606). */}
+                      <Tooltip title={sdxl
+                        ? "Copy an scp that pulls this into A1111's LoRA folder on 3090b"
+                        : "Copy an scp that pulls this off the trainer box"}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<ContentCopy fontSize="small" />}
+                          onClick={() => copyScp(row.label)}
+                        >
+                          Copy scp
+                        </Button>
+                      </Tooltip>
                       {row.uri ? (
                         <>
                           <Button
@@ -518,18 +529,6 @@ function TrainingRow({
                           >
                             Download
                           </Button>
-                          <Tooltip title={sdxl
-                            ? "Copy a curl command that saves this into A1111's LoRA folder on 3090b"
-                            : "Copy a curl command that downloads this from a shell"}>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<ContentCopy fontSize="small" />}
-                              onClick={() => copyCurl(row.uri as string)}
-                            >
-                              Copy curl
-                            </Button>
-                          </Tooltip>
                           {!sdxl && (
                             <Button
                               size="small"

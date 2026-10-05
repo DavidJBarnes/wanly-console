@@ -717,15 +717,22 @@ export function etaLabel(eta: RunEta | undefined): string | null {
     : `≈ ${formatMinutes(eta.minutesLeft)} left · done ~${t(eta.doneAt)}`;
 }
 
-// ---- Copy a checkpoint as a curl command (console#604) --------------------------------------
+// ---- Copy a checkpoint as an scp command (console#604, #606) -------------------------------
 //
-// Pulling a LoRA onto 3090b from a shell, where A1111 runs. The URL is the presigned S3 link
-// (GET /files/presigned), never getFileUrl's -- that one carries the login JWT, and pasted into
-// a terminal it would sit in shell history as a working credential.
+// Pulling a LoRA onto 3090b, where A1111 runs, over ZeroTier. scp straight from the trainer
+// box's run directory: every epoch is there the moment it is written, so this works for epochs
+// that were never uploaded, with no S3 round trip and nothing that expires. (An S3 curl came
+// first; David wanted a plain scp.)
 
 /** A1111's LoRA folder on 3090b. stable-diffusion-webui/models/Lora symlinks here, and the
- *  existing hand-trained ones live in per-character subfolders (kelly/). */
-export const A1111_LORA_DIR = "$HOME/StabilityMatrix-linux-x64/Data/Models/Lora";
+ *  existing hand-trained ones live in per-character subfolders (kelly/). `~` so it expands in
+ *  the shell the command is pasted into. */
+export const A1111_LORA_DIR = "~/StabilityMatrix-linux-x64/Data/Models/Lora";
+/** Where the trainer box keeps run directories on the HOST: LORA_RUNS_DIR in its worker.env,
+ *  mounted into the container as /loras. */
+export const TRAINER_RUNS_DIR = "/home/david/projects/loras";
+/** The trainer when a run does not say which box it was (every run so far is 3090a's). */
+export const DEFAULT_TRAINER_HOST = "3090a.zero";
 
 /** Single-quote for a POSIX shell, only when it needs it. */
 export function shq(s: string): string {
@@ -733,19 +740,34 @@ export function shq(s: string): string {
 }
 
 /**
- * The command a checkpoint row copies. SDXL goes straight into A1111's LoRA folder, in a
- * subfolder per character; LTX lands in the current directory (it is loaded by the engine
- * from S3, so a local copy is only ever for inspection).
- *
- * -f so an expired link fails loudly instead of saving S3's XML error page as a
- * ".safetensors" -- which A1111 would then refuse with an error naming nothing useful.
+ * The file a label names in the run's output directory, exactly as the trainer writes it:
+ * `<character>_v<N>-0000NN` per epoch, no number for the final. LTX's is the `.comfy` variant
+ * -- the one the engine loads; the plain twin beside it is musubi's own format.
  */
-export function curlCommand(
-  job: Pick<TrainingJob, "config" | "character">, filename: string, url: string,
+export function trainerCheckpointPath(
+  job: Pick<TrainingJob, "config" | "character" | "version">, label: string,
 ): string {
+  const sdxl = isSdxlJob(job);
+  const m = /^e(\d+)$/.exec(label);
+  const stem = `${job.character}_v${job.version}` + (m ? `-${m[1].padStart(6, "0")}` : "");
+  const dir = `${TRAINER_RUNS_DIR}/${job.character}/${sdxl ? "sdxl" : "ltx23b"}-v${job.version}/output`;
+  return `${dir}/${stem}${sdxl ? "" : ".comfy"}.safetensors`;
+}
+
+/**
+ * The command a checkpoint row copies. SDXL goes straight into A1111's LoRA folder, in a
+ * subfolder per character, renamed so the epoch and arch are in the name
+ * (Joana_sdxl_v2_e03.safetensors) -- the trainer's own names (Joana_v2-000003) say neither.
+ * LTX lands in the current directory.
+ */
+export function scpCommand(
+  job: Pick<TrainingJob, "config" | "character" | "version" | "worker_name">, label: string,
+): string {
+  const host = job.worker_name || DEFAULT_TRAINER_HOST;
+  const src = `${host}:${shq(trainerCheckpointPath(job, label))}`;
   if (isSdxlJob(job)) {
-    const dir = `"${A1111_LORA_DIR}"/${shq(job.character)}`;
-    return `mkdir -p ${dir} && curl -fL -o ${dir}/${shq(filename)} '${url}'`;
+    const dir = `${A1111_LORA_DIR}/${shq(job.character)}`;
+    return `mkdir -p ${dir} && scp ${src} ${dir}/${shq(`${job.character}_sdxl_v${job.version}_${label}.safetensors`)}`;
   }
-  return `curl -fL -o ${shq(filename)} '${url}'`;
+  return `scp ${src} ${shq(`${job.character}_v${job.version}_${label}.safetensors`)}`;
 }
