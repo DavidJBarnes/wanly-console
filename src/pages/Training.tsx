@@ -287,9 +287,15 @@ function TrainingRow({
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
           <Typography variant="h6">v{job.version}</Typography>
           <StatusChip status={job.status} />
-          {sdxl && (
+          {/* Which model the LoRA is for (#600, #614). A run from before `arch` is LTX. One
+              character can have an LTX v1 and an SDXL v1 side by side (#612), so both say so. */}
+          {sdxl ? (
             <Tooltip title="SDXL start-image LoRA (aio recipe). Download it for A1111; it is not an LTX character.">
               <Chip size="small" color="secondary" variant="outlined" label="SDXL" />
+            </Tooltip>
+          ) : (
+            <Tooltip title="LTX video LoRA. Use points the character at it for renders.">
+              <Chip size="small" color="info" variant="outlined" label="LTX" />
             </Tooltip>
           )}
           <Tooltip
