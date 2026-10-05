@@ -153,7 +153,7 @@ export default function TrainLoraDialog({
     : compositions.length === 1 ? compositions[0].id : null;
 
   const who = runCharacter({ ...form, mode, pairName });
-  const version = versionTouched ? form.version : nextVersion(who, jobs, characters);
+  const version = versionTouched ? form.version : nextVersion(who, jobs, characters, form.arch);
   // The epoch length is the server's once it has answered — regularization and pair groups
   // make it more than images x 10. Before that, the character images at the recipe's repeats.
   const estimateImages = Object.values(chosenDatasets)

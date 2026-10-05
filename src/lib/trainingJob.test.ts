@@ -214,6 +214,21 @@ describe("nextVersion", () => {
   it("matches the character case-insensitively", () => {
     expect(nextVersion("P@Y", [done("p@y", 2)], [])).toBe(3);
   });
+  // console#612: LTX and SDXL are different models with their own version sequences.
+  const sdxl = (ch: string, version: number, status = "completed") =>
+    ({ character: ch, version, status, config: { arch: "sdxl" } }) as unknown as TrainingJob;
+  it("counts each arch separately: an SDXL v1 in training leaves LTX at v1", () => {
+    // KimJule: SDXL v1 running, no LTX yet -> LTX offers v1, SDXL offers v2.
+    expect(nextVersion("KimJule", [sdxl("KimJule", 1, "running")], [], "ltx")).toBe(1);
+    expect(nextVersion("KimJule", [sdxl("KimJule", 1, "running")], [], "sdxl")).toBe(2);
+  });
+  it("a live run of the same arch takes its version", () => {
+    expect(nextVersion("p@y", [done("p@y", 1), done("p@y", 2, "running")], [])).toBe(3);
+    expect(nextVersion("p@y", [done("p@y", 1, "pending")], [])).toBe(2);
+  });
+  it("the character's LTX LoRA does not move SDXL numbering", () => {
+    expect(nextVersion("p@y", [], [character("p@y", "pay_v5_e05")], "sdxl")).toBe(1);
+  });
 });
 
 describe("checkpoint names", () => {
