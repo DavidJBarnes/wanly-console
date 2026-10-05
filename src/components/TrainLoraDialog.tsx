@@ -19,7 +19,7 @@ import NewCharacterDialog from "./NewCharacterDialog";
 import {
   apiErrorText, BASE_CHECKPOINTS, SDXL_EPOCHS, SDXL_REPEATS, characterHasTrained, datasetsOwnedBy, defaultEpochsForSamples,
   defaultPairName, NUM_REPEATS, RECIPE_DEFAULTS,
-  estimatedMinutes, formIncomplete, initialFromDataset, isPairCharacter, nextVersion,
+  estimateRunMinutes, formatMinutes, formIncomplete, initialFromDataset, isPairCharacter, nextVersion,
   problemsFromError, runCharacter, stepsForSamples, stepsPerEpoch, trainingBody,
 } from "../lib/trainingJob";
 import type { TrainForm } from "../lib/trainingJob";
@@ -388,8 +388,10 @@ export default function TrainLoraDialog({
               helperText={`${steps} steps (${samplesPerEpoch} samples an epoch × ${epochsShown}), `
                 + `each image seen ${current?.passes_per_image
                   ?? epochsShown * (sdxl ? SDXL_REPEATS : NUM_REPEATS)}× — `
-                + `about ${estimatedMinutes(steps, form.arch)} min on the 3090, one checkpoint `
-                + `per epoch. `
+                // All-in, from this arch's recent runs (console#602): drain, caching, training
+                // and the upload -- when the LoRA is downloadable, not just the steps.
+                + `about ${formatMinutes(estimateRunMinutes(form.arch, steps, form.publish, jobs))} `
+                + `until downloadable (3090, from recent runs), one checkpoint per epoch. `
                 + (sdxl ? `aio used ${SDXL_EPOCHS} epochs.` : `Kelly-2000 v5 used ~30×.`)}
               slotProps={{ htmlInput: { min: 1 } }}
               sx={{ flex: 1 }}

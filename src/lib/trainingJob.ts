@@ -562,3 +562,157 @@ export function problemsFromError(e: unknown): PreflightItem[] | null {
   return problems.filter(
     (p): p is PreflightItem => typeof p?.code === "string" && typeof p?.message === "string");
 }
+
+// ---- Time estimates for every run (console#602) ---------------------------------------------
+//
+// ALL-IN, FROM HISTORY. What a person wants is "when will the LoRA be downloadable", and a run's
+// training rate alone undersells that: claim -> completed on 3090a also holds the drain wait,
+// latent/text caching and the final upload. Measured over the completed LTX runs it is 3.6-4.6 s
+// a step all-in, median ~4.3, where SECONDS_PER_STEP's 3.7 was the bare training rate -- the
+// dialog was 20-30% short. And the bare rate itself varies 2.2-3.8 s/it with the dataset's
+// image sizes, so a constant is wrong either way. The median of this arch's own recent runs
+// tracks both, and corrects itself as runs land.
+//
+// The constants below are the FALLBACK, for an arch with too little history (SDXL, at first).
+//
+// What it cannot know: how long the render in progress takes to finish before the drain lands.
+// Hence "≈".
+
+/** How many recent completed runs of an arch the median is taken over. */
+export const ETA_HISTORY = 10;
+/** Fewer completed runs than this and the history is not trusted; the fallback applies. */
+export const ETA_MIN_HISTORY = 3;
+/** All-in LTX seconds per step when there is no history: the measured median. */
+export const LTX_ALL_IN_SECONDS_PER_STEP = 4.3;
+/** Minutes per uploaded checkpoint, measured: 650 MB LTX ~18 min on 3090a's uplink; SDXL's
+ *  fp16 rank-128 file is ~0.9 GB. */
+export const UPLOAD_MINUTES: Record<TrainArch, number> = { ltx: 18, sdxl: 25 };
+/** SDXL with no history: tagging and model load before step 1. */
+export const SDXL_OVERHEAD_MINUTES = 3;
+
+export function jobArch(job: Pick<TrainingJob, "config">): TrainArch {
+  return isSdxlJob(job) ? "sdxl" : "ltx";
+}
+
+/**
+ * The median all-in seconds per step over this arch's most recent completed runs, or null
+ * when there are fewer than ETA_MIN_HISTORY. A run more than twice the median is dropped
+ * first: one that sat drained behind a long render (Me v2, 25 s/step) is not what a step costs.
+ */
+export function allInSecondsPerStep(
+  arch: TrainArch,
+  jobs: Pick<TrainingJob, "config" | "status" | "claimed_at" | "completed_at" | "total_steps">[],
+): number | null {
+  const rates = jobs
+    .filter((j) => j.status === "completed" && jobArch(j) === arch
+      && j.claimed_at && j.completed_at && j.total_steps)
+    .sort((a, b) => Date.parse(b.completed_at!) - Date.parse(a.completed_at!))
+    .slice(0, ETA_HISTORY)
+    .map((j) => (Date.parse(j.completed_at!) - Date.parse(j.claimed_at!)) / 1000 / j.total_steps!)
+    .filter((r) => r > 0);
+  if (rates.length < ETA_MIN_HISTORY) return null;
+  const med = median(rates);
+  const kept = rates.filter((r) => r <= 2 * med);
+  return median(kept.length ? kept : rates);
+}
+
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+/**
+ * Minutes for a whole run of `steps`, claim to downloadable.
+ *
+ * "all" adds one more upload: the epochs go up while the next one trains, so most of them
+ * overlap, but the last epoch and the final both land after training ends.
+ */
+export function estimateRunMinutes(
+  arch: TrainArch, steps: number, publish: "final" | "all", history: Parameters<typeof allInSecondsPerStep>[1],
+): number {
+  const extra = publish === "all" ? UPLOAD_MINUTES[arch] : 0;
+  const rate = allInSecondsPerStep(arch, history);
+  if (rate !== null) return Math.round((steps * rate) / 60 + extra);
+  const train = (steps * (arch === "sdxl" ? SDXL_SECONDS_PER_STEP : LTX_ALL_IN_SECONDS_PER_STEP)) / 60;
+  // The LTX constant is already all-in; SDXL's is the bare training rate, measured.
+  const overhead = arch === "sdxl" ? SDXL_OVERHEAD_MINUTES + UPLOAD_MINUTES.sdxl : 0;
+  return Math.round(train + overhead + extra);
+}
+
+/** The trainer's own rate, off its progress line ("step 34/1536 (2%), 1.35s/it, ..."). */
+export function liveSecondsPerIt(progress: string | null | undefined): number | null {
+  const m = /([\d.]+)s\/it/.exec(progress ?? "");
+  const v = m ? parseFloat(m[1]) : NaN;
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/**
+ * Minutes until this run is downloadable, or null when it is not live.
+ *
+ * Training: steps left x the live rate, then the final upload. Before the first step
+ * (staging, draining, caching): the whole-run estimate less what has elapsed since the claim,
+ * never below the upload still to come.
+ */
+export function remainingMinutes(
+  job: TrainingJob, history: TrainingJob[], now: number,
+): number | null {
+  const arch = jobArch(job);
+  const publish = (job.config as { publish?: string }).publish === "all" ? "all" : "final";
+  const steps = job.total_steps ?? Number((job.config as { steps?: number }).steps ?? 0);
+  if (job.status === "pending") return estimateRunMinutes(arch, steps, publish, history);
+  if (job.status !== "claimed" && job.status !== "running") return null;
+  const live = liveSecondsPerIt(job.progress_log);
+  if (job.step && live && job.total_steps) {
+    return Math.round(((job.total_steps - job.step) * live) / 60 + UPLOAD_MINUTES[arch]);
+  }
+  const whole = estimateRunMinutes(arch, steps, publish, history);
+  const elapsed = job.claimed_at ? (now - Date.parse(job.claimed_at)) / 60000 : 0;
+  return Math.round(Math.max(UPLOAD_MINUTES[arch], whole - elapsed));
+}
+
+export interface RunEta {
+  /** When it starts; null for a run that already has. */
+  startsAt: number | null;
+  doneAt: number;
+  minutesLeft: number;
+}
+
+/**
+ * An ETA for every live run, from the queue as a whole. ONE trainer, first in first out (the
+ * claim orders by created_at), so a queued run starts when everything ahead of it is done.
+ */
+export function queueEtas(jobs: TrainingJob[], now: number): Map<string, RunEta> {
+  const out = new Map<string, RunEta>();
+  let free = now;
+  for (const j of jobs.filter((x) => x.status === "claimed" || x.status === "running")) {
+    const left = remainingMinutes(j, jobs, now) ?? 0;
+    out.set(j.id, { startsAt: null, doneAt: now + left * 60000, minutesLeft: left });
+    free = Math.max(free, now + left * 60000);
+  }
+  const pending = jobs.filter((x) => x.status === "pending")
+    .sort((a, b) => Date.parse(a.created_at ?? "") - Date.parse(b.created_at ?? ""));
+  for (const j of pending) {
+    const run = remainingMinutes(j, jobs, now) ?? 0;
+    const doneAt = free + run * 60000;
+    out.set(j.id, { startsAt: free, doneAt, minutesLeft: Math.round((doneAt - now) / 60000) });
+    free = doneAt;
+  }
+  return out;
+}
+
+/** "1 h 25 min" / "35 min". */
+export function formatMinutes(min: number): string {
+  const m = Math.max(0, Math.round(min));
+  return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
+}
+
+/** The one line a live run shows: "≈ 35 min left · done ~6:40 PM", and for a queued run
+ *  "starts ~6:40 PM · done ~8:10 PM". */
+export function etaLabel(eta: RunEta | undefined): string | null {
+  if (!eta) return null;
+  const t = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return eta.startsAt !== null
+    ? `≈ starts ~${t(eta.startsAt)} · done ~${t(eta.doneAt)} (${formatMinutes(eta.minutesLeft)})`
+    : `≈ ${formatMinutes(eta.minutesLeft)} left · done ~${t(eta.doneAt)}`;
+}

@@ -19,7 +19,7 @@ import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import {
   checkpointInUse, epochRows, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
-  trainingPct, trainingSummary,
+  trainingPct, trainingSummary, queueEtas, etaLabel, type RunEta,
 } from "../lib/trainingJob";
 import LossChart from "../components/LossChart";
 import TrainLoraDialog from "../components/TrainLoraDialog";
@@ -39,6 +39,9 @@ import type { TrainingJob } from "../api/types";
  */
 export default function Training() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
+  // When `jobs` was fetched: the ETAs are computed against it (console#602), and taking the
+  // clock here rather than during render keeps render pure.
+  const [fetchedAt, setFetchedAt] = useState(0);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [error, setError] = useState("");
   // The Train dialog without a dataset: pick who to train and it finds their sets (#537).
@@ -53,6 +56,7 @@ export default function Training() {
   const fetchJobs = useCallback(async () => {
     try {
       setJobs(await listTrainingJobs());
+      setFetchedAt(Date.now());
       setError("");
     } catch {
       setError("could not reach the API");
@@ -75,6 +79,7 @@ export default function Training() {
   }, [fetchJobs, fetchCharacters]);
 
   const groups = groupByCharacter(jobs);
+  const etas = queueEtas(jobs, fetchedAt);
 
   // Scroll to the character the segment popover came for, once the runs that could contain
   // it have loaded. Harmless if it never matches.
@@ -143,6 +148,7 @@ export default function Training() {
                 <TrainingRow
                   key={job.id}
                   job={job}
+                  eta={etas.get(job.id)}
                   characters={characters}
                   onChanged={() => { fetchJobs(); fetchCharacters(); }}
                 />
@@ -157,8 +163,8 @@ export default function Training() {
 }
 
 function TrainingRow({
-  job, characters, onChanged,
-}: { job: TrainingJob; characters: Character[]; onChanged: () => void }) {
+  job, eta, characters, onChanged,
+}: { job: TrainingJob; eta?: RunEta; characters: Character[]; onChanged: () => void }) {
   const pct = trainingPct(job);
   const live = job.status === "running" || job.status === "claimed" || job.status === "pending";
   const when = runTimeLabel(job);
@@ -385,6 +391,11 @@ function TrainingRow({
         >
           {trainingSummary(job)}
         </Typography>
+        {eta && (
+          <Typography variant="caption" color="text.secondary" component="div">
+            {etaLabel(eta)}
+          </Typography>
+        )}
 
         {curve.points.length > 0 && (
           <Box sx={{ mt: 1.5 }}>
