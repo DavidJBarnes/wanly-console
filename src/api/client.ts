@@ -529,6 +529,15 @@ export async function retryTrainingJob(id: string): Promise<TrainingJob> {
   return data;
 }
 
+/** The presigned S3 URL behind /files, as JSON (wanly-api#400): for copying a download into a
+ *  shell. Unlike getFileUrl, it carries no login token -- it is the object's own 6-hour link. */
+export async function getPresignedFileUrl(
+  s3Path: string,
+): Promise<{ url: string; expires_in: number; filename: string }> {
+  const { data } = await api.get("/files/presigned", { params: { path: s3Path } });
+  return data;
+}
+
 /** Ask for a checkpoint that stayed on the trainer to be uploaded after all. */
 export async function publishTrainingEpoch(id: string, label: string): Promise<TrainingJob> {
   const { data } = await api.post<TrainingJob>(`/training/${id}/publish`, null, { params: { label } });

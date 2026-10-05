@@ -27,6 +27,7 @@ import {
   isSdxlJob, SDXL_REPEATS,
   allInSecondsPerStep, estimateRunMinutes, liveSecondsPerIt, remainingMinutes, queueEtas,
   etaLabel, formatMinutes, UPLOAD_MINUTES,
+  curlCommand, shq,
 } from "./trainingJob";
 import type { Dataset, TrainingJob } from "../api/types";
 import type { TrainForm } from "./trainingJob";
@@ -622,5 +623,29 @@ describe("time estimates (console#602)", () => {
   it("formats hours", () => {
     expect(formatMinutes(35)).toBe("35 min");
     expect(formatMinutes(125)).toBe("2 h 5 min");
+  });
+});
+
+describe("copy as curl (console#604)", () => {
+  const url = "https://ltx-loras.s3.amazonaws.com/character/sdxl/Joana_sdxl_v2_final.safetensors?X-Amz-Signature=abc&X-Amz-Expires=21600";
+  it("puts an SDXL LoRA straight into A1111's folder on 3090b, per character", () => {
+    expect(curlCommand({ character: "Joana", config: { arch: "sdxl" } },
+      "Joana_sdxl_v2_final.safetensors", url)).toBe(
+      'mkdir -p "$HOME/StabilityMatrix-linux-x64/Data/Models/Lora"/Joana && curl -fL -o '
+      + '"$HOME/StabilityMatrix-linux-x64/Data/Models/Lora"/Joana/Joana_sdxl_v2_final.safetensors '
+      + `'${url}'`);
+  });
+  it("an LTX LoRA lands in the current directory", () => {
+    expect(curlCommand({ character: "p@y", config: {} }, "pay_v2_final.safetensors", url))
+      .toBe(`curl -fL -o pay_v2_final.safetensors '${url}'`);
+  });
+  it("never carries the login token, and fails loudly on an expired link (-f)", () => {
+    const c = curlCommand({ character: "Joana", config: { arch: "sdxl" } }, "f.safetensors", url);
+    expect(c).not.toMatch(/token=/);
+    expect(c).toContain("curl -fL");
+  });
+  it("quotes what a shell would mangle", () => {
+    expect(shq("p@y")).toBe("p@y");
+    expect(shq("it's $x")).toBe(`'it'\\''s $x'`);
   });
 });

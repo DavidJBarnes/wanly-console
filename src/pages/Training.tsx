@@ -6,11 +6,13 @@ import {
 } from "@mui/material";
 
 import {
-  CheckCircle, CloudUpload, Delete, Download, EditNote, ExpandMore, ModelTraining, Refresh,
+  CheckCircle, CloudUpload, ContentCopy, Delete, Download, EditNote, ExpandMore, ModelTraining,
+  Refresh,
 } from "@mui/icons-material";
 
 import {
-  cancelTrainingJob, deleteTrainingJob, getFileUrl, listTrainingJobs, publishTrainingEpoch,
+  cancelTrainingJob, deleteTrainingJob, getFileUrl, getPresignedFileUrl, listTrainingJobs,
+  publishTrainingEpoch,
   retryTrainingJob, updateTrainingNotes,
 } from "../api/client";
 import { createCharacter, listRecipes, updateCharacter } from "../api/ltx";
@@ -18,7 +20,7 @@ import type { Character } from "../api/ltx";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import {
-  checkpointInUse, epochRows, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
+  checkpointInUse, curlCommand, epochRows, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
   trainingPct, trainingSummary, queueEtas, etaLabel, type RunEta,
 } from "../lib/trainingJob";
 import LossChart from "../components/LossChart";
@@ -244,6 +246,20 @@ function TrainingRow({
       setMsg("could not update the character");
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** Copy a curl that pulls this checkpoint from a shell -- onto 3090b for A1111 (#604). */
+  const copyCurl = async (uri: string) => {
+    setMsg("");
+    try {
+      const { url, filename, expires_in } = await getPresignedFileUrl(uri);
+      await navigator.clipboard.writeText(curlCommand(job, filename, url));
+      setMsg(`curl for ${filename} copied — paste it in a shell`
+        + (sdxl ? " on 3090b; it saves into A1111's LoRA folder" : "")
+        + `. The link works for ${Math.round(expires_in / 3600)} h.`);
+    } catch {
+      setMsg("could not copy the download command");
     }
   };
 
@@ -502,6 +518,18 @@ function TrainingRow({
                           >
                             Download
                           </Button>
+                          <Tooltip title={sdxl
+                            ? "Copy a curl command that saves this into A1111's LoRA folder on 3090b"
+                            : "Copy a curl command that downloads this from a shell"}>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<ContentCopy fontSize="small" />}
+                              onClick={() => copyCurl(row.uri as string)}
+                            >
+                              Copy curl
+                            </Button>
+                          </Tooltip>
                           {!sdxl && (
                             <Button
                               size="small"

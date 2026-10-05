@@ -716,3 +716,36 @@ export function etaLabel(eta: RunEta | undefined): string | null {
     ? `≈ starts ~${t(eta.startsAt)} · done ~${t(eta.doneAt)} (${formatMinutes(eta.minutesLeft)})`
     : `≈ ${formatMinutes(eta.minutesLeft)} left · done ~${t(eta.doneAt)}`;
 }
+
+// ---- Copy a checkpoint as a curl command (console#604) --------------------------------------
+//
+// Pulling a LoRA onto 3090b from a shell, where A1111 runs. The URL is the presigned S3 link
+// (GET /files/presigned), never getFileUrl's -- that one carries the login JWT, and pasted into
+// a terminal it would sit in shell history as a working credential.
+
+/** A1111's LoRA folder on 3090b. stable-diffusion-webui/models/Lora symlinks here, and the
+ *  existing hand-trained ones live in per-character subfolders (kelly/). */
+export const A1111_LORA_DIR = "$HOME/StabilityMatrix-linux-x64/Data/Models/Lora";
+
+/** Single-quote for a POSIX shell, only when it needs it. */
+export function shq(s: string): string {
+  return /^[A-Za-z0-9._@%+=:,/-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * The command a checkpoint row copies. SDXL goes straight into A1111's LoRA folder, in a
+ * subfolder per character; LTX lands in the current directory (it is loaded by the engine
+ * from S3, so a local copy is only ever for inspection).
+ *
+ * -f so an expired link fails loudly instead of saving S3's XML error page as a
+ * ".safetensors" -- which A1111 would then refuse with an error naming nothing useful.
+ */
+export function curlCommand(
+  job: Pick<TrainingJob, "config" | "character">, filename: string, url: string,
+): string {
+  if (isSdxlJob(job)) {
+    const dir = `"${A1111_LORA_DIR}"/${shq(job.character)}`;
+    return `mkdir -p ${dir} && curl -fL -o ${dir}/${shq(filename)} '${url}'`;
+  }
+  return `curl -fL -o ${shq(filename)} '${url}'`;
+}
