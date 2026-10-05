@@ -724,10 +724,6 @@ export function etaLabel(eta: RunEta | undefined): string | null {
 // that were never uploaded, with no S3 round trip and nothing that expires. (An S3 curl came
 // first; David wanted a plain scp.)
 
-/** A1111's LoRA folder on 3090b. stable-diffusion-webui/models/Lora symlinks here, and the
- *  existing hand-trained ones live in per-character subfolders (kelly/). `~` so it expands in
- *  the shell the command is pasted into. */
-export const A1111_LORA_DIR = "~/StabilityMatrix-linux-x64/Data/Models/Lora";
 /** Where the trainer box keeps run directories on the HOST: LORA_RUNS_DIR in its worker.env,
  *  mounted into the container as /loras. */
 export const TRAINER_RUNS_DIR = "/home/david/projects/loras";
@@ -755,21 +751,46 @@ export function trainerCheckpointPath(
 }
 
 /**
- * The command a checkpoint row copies. SDXL goes straight into A1111's LoRA folder, in a
- * subfolder per character, renamed so the epoch and arch are in the name
- * (Joana_sdxl_v2_e03.safetensors) -- the trainer's own names (Joana_v2-000003) say neither.
- * LTX lands in the current directory.
+ * The command a checkpoint row copies (console#610): one plain pattern for every run, into the
+ * directory it is pasted in --
+ *
+ *     scp 3090a.zero:/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2.safetensors Joana_sdxl_v2_final.safetensors
+ *
+ * Renamed on arrival so the arch and epoch label are in the name: the trainer's own names
+ * (Joana_v2-000003) carry neither.
  */
 export function scpCommand(
-  job: Pick<TrainingJob, "config" | "character" | "version" | "worker_name">, label: string,
+  job: Pick<TrainingJob, "config" | "character" | "version" | "worker_name"
+    | "thumbnail_uri" | "dataset_images">,
+  label: string,
 ): string {
   const host = job.worker_name || DEFAULT_TRAINER_HOST;
-  const src = `${host}:${shq(trainerCheckpointPath(job, label))}`;
-  if (isSdxlJob(job)) {
-    const dir = `${A1111_LORA_DIR}/${shq(job.character)}`;
-    return `mkdir -p ${dir} && scp ${src} ${dir}/${shq(`${job.character}_sdxl_v${job.version}_${label}.safetensors`)}`;
-  }
-  return `scp ${src} ${shq(`${job.character}_v${job.version}_${label}.safetensors`)}`;
+  const arch = isSdxlJob(job) ? "_sdxl" : "";
+  const dest = `${job.character}${arch}_v${job.version}_${label}`;
+  const lora = `scp ${host}:${shq(trainerCheckpointPath(job, label))} ${shq(`${dest}.safetensors`)}`;
+  // THE PREVIEW TOO (#610): A1111 and StabilityMatrix show <name>.preview.<ext> beside a LoRA
+  // as its card image. The run's thumbnail -- the dataset's anchor face -- is already on the
+  // trainer, staged with the rest.
+  const thumb = trainerThumbnailPath(job);
+  if (!thumb) return lora;
+  return `${lora} && scp ${host}:${shq(thumb.path)} ${shq(`${dest}.preview${thumb.ext}`)}`;
+}
+
+/**
+ * Where the run's thumbnail sits on the trainer, or null when it is not one of group 0's
+ * images. The trainer stages group 0's images in order as data/sel_NNN<ext>, ext lowercased
+ * from the file name, so the anchor's index in dataset_images names its file. (Checked on
+ * Joana v2: its anchor is index 3, and data/sel_003.jpg is byte-identical to it in S3.)
+ */
+export function trainerThumbnailPath(
+  job: Pick<TrainingJob, "config" | "character" | "version" | "thumbnail_uri" | "dataset_images">,
+): { path: string; ext: string } | null {
+  const i = job.thumbnail_uri ? job.dataset_images.indexOf(job.thumbnail_uri) : -1;
+  if (i < 0) return null;
+  const m = /(\.[^./]+)$/.exec(job.thumbnail_uri!);
+  const ext = (m ? m[1] : ".jpg").toLowerCase();
+  const run = trainerCheckpointPath(job, "final").replace(/\/output\/[^/]+$/, "");
+  return { path: `${run}/data/sel_${String(i).padStart(3, "0")}${ext}`, ext };
 }
 
 /**
