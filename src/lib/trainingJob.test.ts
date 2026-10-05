@@ -637,11 +637,13 @@ describe("copy as scp (console#604, #606)", () => {
     expect(trainerCheckpointPath({ ...joana, config: {} }, "e01"))
       .toBe("/home/david/projects/loras/Joana/ltx23b-v2/output/Joana_v2-000001.comfy.safetensors");
   });
-  it("SDXL goes into A1111's folder on 3090b, renamed to say what it is", () => {
+  it("is the one plain pattern David asked for (console#610)", () => {
+    expect(scpCommand(joana, "final")).toBe(
+      "scp 3090a.zero:/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2.safetensors "
+      + "Joana_sdxl_v2_final.safetensors");
     expect(scpCommand(joana, "e03")).toBe(
-      "mkdir -p ~/StabilityMatrix-linux-x64/Data/Models/Lora/Joana && scp "
-      + "3090a.zero:/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2-000003.safetensors "
-      + "~/StabilityMatrix-linux-x64/Data/Models/Lora/Joana/Joana_sdxl_v2_e03.safetensors");
+      "scp 3090a.zero:/home/david/projects/loras/Joana/sdxl-v2/output/Joana_v2-000003.safetensors "
+      + "Joana_sdxl_v2_e03.safetensors");
   });
   it("LTX lands in the current directory; an unknown trainer is 3090a", () => {
     expect(scpCommand({ ...joana, config: {}, worker_name: null }, "final")).toBe(

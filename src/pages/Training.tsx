@@ -257,8 +257,7 @@ function TrainingRow({
     setMsg("");
     try {
       await navigator.clipboard.writeText(scpCommand(job, label));
-      setMsg(`scp for ${label} copied — paste it in a shell`
-        + (sdxl ? " on 3090b; it saves into A1111's LoRA folder." : "."));
+      setMsg(`scp for ${label} copied — paste it in a shell, in the directory you want it in.`);
     } catch {
       setMsg("could not copy the scp command");
     }
@@ -526,9 +525,7 @@ function TrainingRow({
                         {row.loss !== null ? ` · loss ${row.loss.toFixed(3)}` : ""}
                       </Typography>
                       {/* Every epoch, uploaded or not: it is on the trainer's disk (#606). */}
-                      <Tooltip title={sdxl
-                        ? "Copy an scp that pulls this into A1111's LoRA folder on 3090b"
-                        : "Copy an scp that pulls this off the trainer box"}>
+                      <Tooltip title="Copy an scp that pulls this off the trainer box into the current directory">
                         <Button
                           size="small"
                           variant="outlined"
