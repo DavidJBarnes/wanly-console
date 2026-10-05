@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { characterIconUri } from "../lib/characterIcon";
 import { useSearchParams } from "react-router";
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Avatar, Box, Button, Card,
@@ -121,7 +122,8 @@ export default function Training() {
 
       <Stack spacing={3}>
         {groups.map((g) => {
-          const face = characters.find((c) => c.name === g.character)?.image_uri
+          // The character's icon (console#616), the same one every picker shows.
+          const face = characterIconUri(characters.find((c) => c.name === g.character))
             ?? g.runs.find((r) => r.thumbnail_uri)?.thumbnail_uri;
           const askedHere = !!askedCharacter && g.character === askedCharacter;
           return (

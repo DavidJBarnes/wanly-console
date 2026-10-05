@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert, Avatar, Box, Button, Card, Chip, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, Divider, IconButton, MenuItem, Stack, TextField, Tooltip,
-  Typography,
+  Alert, Box, Button, Card, CardActionArea, Chip, CircularProgress, Dialog, DialogActions,
+  DialogContent, DialogTitle, Divider, FormControlLabel, MenuItem, Stack, Switch, TextField,
+  Tooltip, Typography,
 } from "@mui/material";
-import { Add, AutoAwesome, DeleteOutline, Edit } from "@mui/icons-material";
+import { Add, Star } from "@mui/icons-material";
 import { Link } from "react-router";
 
 import {
@@ -14,13 +14,12 @@ import {
 import type { Character } from "../api/ltx";
 import type { Gender } from "../api/types";
 import { getFileUrl } from "../api/client";
-import DefaultStar from "../components/DefaultStar";
+import CharacterCard from "../components/CharacterCard";
 import PickFromRepoDialog from "../components/PickFromRepoDialog";
-import SheetBuilderDialog from "../components/SheetBuilderDialog";
-import { SheetPreview, SheetViewerDialog } from "../components/SheetPreview";
+import { characterIconUri } from "../lib/characterIcon";
 import {
-  draftFor, draftMessage, fillPhrase, formError, formFor, formIsDraft, hasLora, identityBadges,
-  isDraft, referenceMode, sheetSizeWarning, type CharacterForm,
+  draftFor, fillPhrase, formError, formFor, formIsDraft, hasLora, identityBadges,
+  isDraft, sheetSizeWarning, type CharacterForm,
 } from "../lib/characterIdentity";
 import { characterHasTrained } from "../lib/trainingJob";
 import {
@@ -46,8 +45,9 @@ export default function Characters() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Character | "new" | null>(null);
   const [confirm, setConfirm] = useState<Character | null>(null);
-  const [building, setBuilding] = useState<Character | null>(null);
-  const [viewing, setViewing] = useState<Character | null>(null);
+  // The character whose card is open (console#616), by id so a reload shows its new state.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   // Where each character's trigger/gender disagree with how its LoRA trained (console#596).
   const [checks, setChecks] = useState<Record<string, CharacterProvenance>>({});
@@ -87,6 +87,7 @@ export default function Characters() {
     try {
       await deleteCharacter(confirm.id);
       setConfirm(null);
+      setOpenId(null);
       await load();
     } catch (e) {
       setError(ltxError(e));
@@ -94,6 +95,10 @@ export default function Characters() {
       setBusy(false);
     }
   };
+
+  const open = (characters ?? []).find((c) => c.id === openId) ?? null;
+  const hiddenCount = (characters ?? []).filter((c) => c.hidden).length;
+  const shown = (characters ?? []).filter((c) => showHidden || !c.hidden);
 
   if (characters === null && !error) {
     return (
@@ -125,115 +130,75 @@ export default function Characters() {
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>
       )}
 
-      <Stack spacing={1}>
-        {(characters ?? []).map((c) => {
+      <FormControlLabel
+        sx={{ mb: 1 }}
+        control={<Switch size="small" checked={showHidden}
+                         onChange={(e) => setShowHidden(e.target.checked)} />}
+        label={`Show hidden (${hiddenCount})`}
+      />
+
+      {/* A grid of cards, each led by the character's icon (console#616). Everything else --
+          the sheet, Build sheet, versions, hide -- is in the character's own card. */}
+      <Box sx={{ display: "grid", gap: 2,
+                 gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
+        {shown.map((c) => {
           const badges = identityBadges(c);
-          const check = checks[c.id];
-          const ms = check?.mismatches ?? [];
-          const thumb = c.sheet_uri ?? c.image_uri ?? c.face_ref_uri;
+          const ms = checks[c.id]?.mismatches ?? [];
           return (
-            <Card key={c.id} sx={{ p: 1.5 }} variant="outlined">
-              <Stack direction="row" alignItems="center" spacing={2}>
-                {c.sheet_uri ? (
-                  // The sheet is what the character renders with: big enough to recognise,
-                  // and a click opens it (console#598).
-                  <Tooltip title="View sheet">
-                    <Box sx={{ width: 144, flexShrink: 0 }}>
-                      <SheetPreview uri={c.sheet_uri} alt={`${c.name} sheet`} labels={false}
-                                    onClick={() => setViewing(c)} />
-                    </Box>
-                  </Tooltip>
-                ) : (
-                  <Avatar src={thumb ? getFileUrl(thumb) : undefined} variant="rounded"
-                          sx={{ width: 48, height: 48 }}>
-                    {c.name.slice(0, 1).toUpperCase()}
-                  </Avatar>
-                )}
-                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="subtitle2">{c.name}</Typography>
+            <Card key={c.id} variant="outlined" sx={{ opacity: c.hidden ? 0.55 : 1 }}>
+              <CardActionArea onClick={() => setOpenId(c.id)}>
+                <CharacterHero character={c} />
+                <Box sx={{ p: 1.25 }}>
+                  <Stack direction="row" spacing={0.5} alignItems="center">
+                    <Typography variant="subtitle1" noWrap sx={{ flexGrow: 1 }}>{c.name}</Typography>
+                    {c.is_default && (
+                      <Tooltip title="Default character"><Star fontSize="small" color="warning" /></Tooltip>
+                    )}
+                  </Stack>
+                  <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ mt: 0.5 }}>
                     {badges.map((b) => (
                       <Chip key={b} size="small" label={b} variant="outlined"
                             color={b === "LoRA" ? "primary" : "secondary"} />
                     ))}
                     {isDraft(c, characters ?? []) && (
-                      <Tooltip title={draftMessage(c.name)}>
-                        <Chip size="small" label="Draft: needs a LoRA or a sheet"
-                              color="warning" variant="outlined" />
-                      </Tooltip>
+                      <Chip size="small" label="Draft" color="warning" variant="outlined" />
                     )}
-                    {ms.map((m) => (
-                      <Tooltip key={m.field}
-                               title={`Stored: ${m.stored ?? "none"} · ${provenanceHint(check.provenance) ?? ""}. Click to use the trained values.`}>
-                        <Chip size="small" color="warning" label={mismatchLabel(m)}
-                              onClick={() => setFixing({ c, ms })} />
-                      </Tooltip>
-                    ))}
                     {ms.length > 0 && (
-                      <Button size="small" color="warning" onClick={() => setFixing({ c, ms })}>
-                        Use trained values
-                      </Button>
+                      <Chip size="small" label="trigger mismatch" color="warning" />
                     )}
+                    {c.hidden && <Chip size="small" label="Hidden" />}
                   </Stack>
-                  <Typography variant="body2" color="text.secondary" noWrap>
-                    {hasLora(c.char_lora)
-                      ? `${c.char_lora} @ ${c.strength_stage_1}/${c.strength_stage_2} · `
-                      : ""}
-                    {fillPhrase(c)
-                      ? `${TRIGGER_PLACEHOLDER} renders “${fillPhrase(c)}”`
-                      : `${TRIGGER_PLACEHOLDER} is dropped (no trigger or description)`}
-                    {referenceMode(c) === "face" ? " · renders with the face reference" : ""}
-                  </Typography>
-                  {c.trained_from && c.trained_from.length > 0 && (
-                    <Typography variant="caption" color="text.secondary">
-                      Trained from:{" "}
-                      {c.trained_from.map((d, i) => (
-                        <span key={i}>
-                          {i > 0 && " · "}
-                          {d.dataset_id
-                            ? <Link to={`/datasets?dataset=${d.dataset_id}`}
-                                    style={{ color: "inherit" }}>
-                                {d.name ?? "unnamed"} ({d.count})
-                              </Link>
-                            : `${d.name ?? "ad-hoc"} (${d.count})`}
-                        </span>
-                      ))}
-                    </Typography>
-                  )}
                 </Box>
-                <DefaultStar isDefault={!!c.is_default} what="character"
-                             onToggle={() => toggleDefault(c)} />
-                {(c.kind ?? "solo") !== "pair" && (
-                  <Tooltip title={c.sheet_uri
-                    ? "See every sheet saved for her, switch between them, or build a new one"
-                    : "Build a sheet from one photo of her"}>
-                    <Button size="small" startIcon={<AutoAwesome fontSize="small" />}
-                            onClick={() => setBuilding(c)}>
-                      {c.sheet_uri ? "Sheets" : "Build sheet"}
-                    </Button>
-                  </Tooltip>
-                )}
-                <Tooltip title="Edit">
-                  <IconButton size="small" onClick={() => setEditing(c)}>
-                    <Edit fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Delete">
-                  <IconButton size="small" onClick={() => setConfirm(c)}>
-                    <DeleteOutline fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Stack>
+              </CardActionArea>
+              {ms.length > 0 && (
+                <Box sx={{ px: 1.25, pb: 1 }}>
+                  <Button size="small" color="warning" onClick={() => setFixing({ c, ms })}>
+                    Use trained values
+                  </Button>
+                </Box>
+              )}
             </Card>
           );
         })}
-        {characters?.length === 0 && (
-          <Typography variant="body2" color="text.secondary">
-            No characters yet — add one with a LoRA, a character sheet, or both, or just a
-            name and build its sheet.
-          </Typography>
-        )}
-      </Stack>
+      </Box>
+      {characters?.length === 0 && (
+        <Typography variant="body2" color="text.secondary">
+          No characters yet — add one with a LoRA, a character sheet, or both, or just a
+          name and build its sheet from its card.
+        </Typography>
+      )}
+
+      {open && (
+        <CharacterCard
+          character={open}
+          characters={characters ?? []}
+          onClose={() => setOpenId(null)}
+          onChanged={() => void load()}
+          onEdit={() => setEditing(open)}
+          onDelete={() => setConfirm(open)}
+          onToggleDefault={() => toggleDefault(open)}
+        />
+      )}
 
       {editing && (
         <CharacterDialog
@@ -242,47 +207,12 @@ export default function Characters() {
           check={editing === "new" ? undefined : checks[editing.id]}
           onFixed={() => void load()}
           onClose={() => setEditing(null)}
-          onSaved={(c, buildSheet) => {
-            setEditing(null);
-            // "Save & build sheet" on a new draft (console#592): straight on to its first sheet.
-            if (buildSheet) setBuilding(c);
-            void load();
-          }}
-        />
-      )}
-
-      {building && (
-        <SheetBuilderDialog
-          character={building}
-          onClose={() => setBuilding(null)}
           onSaved={(c) => {
-            setBuilding(c);
+            setEditing(null);
+            // A new character opens its card: that is where Build sheet and its icon are.
+            setOpenId(c.id);
             void load();
           }}
-        />
-      )}
-
-      {viewing?.sheet_uri && (
-        <SheetViewerDialog
-          uri={viewing.sheet_uri}
-          title={`${viewing.name} — character sheet`}
-          subtitle={`${viewing.sheet_uri.split("/").pop()}${referenceMode(viewing) === "face"
-            ? " · not used: renders with the face reference" : ""}`}
-          onClose={() => setViewing(null)}
-          actions={
-            <>
-              {(viewing.kind ?? "solo") !== "pair" && (
-                <Button startIcon={<AutoAwesome fontSize="small" />}
-                        onClick={() => { setBuilding(viewing); setViewing(null); }}>
-                  Sheets & build new
-                </Button>
-              )}
-              <Button startIcon={<Edit fontSize="small" />}
-                      onClick={() => { setEditing(viewing); setViewing(null); }}>
-                Edit character
-              </Button>
-            </>
-          }
         />
       )}
 
@@ -408,7 +338,7 @@ function CharacterDialog({
   check?: CharacterProvenance;
   onFixed: () => void;
   onClose: () => void;
-  onSaved: (c: Character, buildSheet: boolean) => void;
+  onSaved: (c: Character) => void;
 }) {
   const isNew = !character;
   // Once a character has trained, its trigger and gender are what the LoRA learned: another
@@ -416,7 +346,6 @@ function CharacterDialog({
   const locked = !isNew && characterHasTrained(character!);
   const [form, setForm] = useState<CharacterForm>(() => formFor(character));
   const [picking, setPicking] = useState<"sheet" | "face" | null>(null);
-  const [building, setBuilding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = (patch: Partial<CharacterForm>) => setForm((f) => ({ ...f, ...patch }));
@@ -467,7 +396,7 @@ function CharacterDialog({
   const draft = formIsDraft(form);
   const canBuild = (character?.kind ?? "solo") !== "pair";
 
-  const save = async (buildSheet = false) => {
+  const save = async () => {
     if (problem) {
       setErr(problem);
       return;
@@ -479,7 +408,7 @@ function CharacterDialog({
       const saved = isNew
         ? await createCharacter({ name: form.name.trim(), ...body })
         : await updateCharacter(character!.id, body);
-      onSaved(saved, buildSheet);
+      onSaved(saved);
     } catch (e) {
       setErr(ltxError(e));
     } finally {
@@ -506,7 +435,7 @@ function CharacterDialog({
             <Alert severity="warning">
               No LoRA and no character sheet: this saves as a <b>draft</b>, which cannot render
               until it has one. {canBuild
-                ? "Save & build sheet makes its first sheet from one photo of her."
+                ? "Save it, then Build sheet in its card makes its first sheet from one photo of her."
                 : "A pair renders with its first member's sheet, or attach a joint LoRA."}
             </Alert>
           )}
@@ -576,17 +505,7 @@ function CharacterDialog({
                               identityMode: form.identityMode === "sheet" ? "" : form.identityMode })} />
           )}
           <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-            {canBuild && (
-              // An existing character builds in place and the approved sheet lands in this
-              // form; a new one has to be saved first, as Build sheet works on a saved
-              // character (console#592, #598).
-              <Button variant={form.sheetUri ? "text" : "contained"}
-                      startIcon={<AutoAwesome fontSize="small" />}
-                      disabled={saving || (isNew && problem !== null)}
-                      onClick={() => (isNew ? void save(true) : setBuilding(true))}>
-                {form.sheetUri ? "Sheets & build new" : isNew ? "Save & build sheet" : "Build sheet"}
-              </Button>
-            )}
+            {/* Build sheet lives in the character's card, and only there (console#616). */}
             <Button variant={form.sheetUri ? "text" : "outlined"} onClick={() => setPicking("sheet")}>
               {form.sheetUri ? "Replace from the Image Repo" : "Choose sheet from the Image Repo"}
             </Button>
@@ -642,12 +561,6 @@ function CharacterDialog({
           </Typography>
         )}
         <Button onClick={onClose}>Cancel</Button>
-        {draft && canBuild && (
-          <Button variant="outlined" startIcon={<AutoAwesome fontSize="small" />}
-                  disabled={saving || problem !== null} onClick={() => void save(true)}>
-            Save & build sheet
-          </Button>
-        )}
         <Button variant="contained" disabled={saving || problem !== null}
                 onClick={() => void save()}>
           {saving ? "Saving…" : draft ? "Save draft" : "Save"}
@@ -667,19 +580,6 @@ function CharacterDialog({
         />
       )}
 
-      {building && character && (
-        <SheetBuilderDialog
-          character={{ ...character, sheet_uri: form.sheetUri || null }}
-          onClose={() => setBuilding(false)}
-          // The API has already saved it as the character's sheet; the form follows, so a
-          // later Save keeps it rather than writing the old one back.
-          onSaved={(c) => {
-            set({ sheetUri: c.sheet_uri ?? "" });
-            onFixed();
-          }}
-        />
-      )}
-
       {picking && (
         <PickFromRepoDialog
           title={picking === "sheet" ? "Choose a character sheet" : "Choose a face reference"}
@@ -691,5 +591,19 @@ function CharacterDialog({
         />
       )}
     </Dialog>
+  );
+}
+
+/** The top of a grid card (console#616): the character's icon, big and square. */
+function CharacterHero({ character }: { character: Character }) {
+  const uri = characterIconUri(character);
+  return uri ? (
+    <Box component="img" src={getFileUrl(uri)} alt={character.name}
+         sx={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" }} />
+  ) : (
+    <Box sx={{ width: "100%", aspectRatio: "1 / 1", display: "flex", alignItems: "center",
+               justifyContent: "center", bgcolor: "action.hover" }}>
+      <Typography variant="h2" color="text.secondary">{character.name.slice(0, 1).toUpperCase()}</Typography>
+    </Box>
   );
 }

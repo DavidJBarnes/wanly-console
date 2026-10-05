@@ -15,7 +15,10 @@ import type { Character, Pose } from "../api/ltx";
 /** The character name to select: `current` if one is, else the default, else the first. */
 export function preselectCharacter(current: string, characters: Character[]): string {
   if (current) return current;
-  return (characters.find((c) => c.is_default) ?? characters[0])?.name ?? "";
+  // Never a HIDDEN one (console#617): hiding means "do not offer", and a preselection is the
+  // strongest offer there is -- even when the hidden one is still the default.
+  const offered = characters.filter((c) => !c.hidden);
+  return (offered.find((c) => c.is_default) ?? offered[0])?.name ?? "";
 }
 
 /** The pose id to select: `current` if one is, else the default, else the first. */
