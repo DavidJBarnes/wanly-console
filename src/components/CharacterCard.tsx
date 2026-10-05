@@ -135,13 +135,19 @@ export default function CharacterCard({
                 : `${TRIGGER_PLACEHOLDER} is dropped (no trigger or description)`}
               {referenceMode(c) === "face" ? " · renders with the face reference" : ""}
             </Typography>
+            {/* ON = OFFERED (console#619). The first version was checked when HIDDEN, with a
+                label that described the current state -- so switching "on" the characters
+                wanted in the pickers hid exactly those. The label now says what ON does. */}
             <FormControlLabel
-              control={<Switch checked={!!c.hidden}
-                               onChange={(e) => void patch({ hidden: e.target.checked })} />}
-              label={c.hidden
-                ? "Hidden — not offered in any character picker"
-                : "Shown in character pickers"}
+              control={<Switch checked={!c.hidden}
+                               onChange={(e) => void patch({ hidden: !e.target.checked })} />}
+              label="Show in character pickers"
             />
+            {c.hidden && (
+              <Typography variant="caption" color="text.secondary">
+                Hidden: not offered in any character picker. Jobs that already use her keep her.
+              </Typography>
+            )}
           </Stack>
         </Stack>
 
