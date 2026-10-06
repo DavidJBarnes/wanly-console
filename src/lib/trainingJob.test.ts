@@ -124,6 +124,10 @@ describe("trainingSummary", () => {
   });
 
   it("counts the checkpoints, because choosing between them is the next job", () => {
+    expect(trainingSummary(job({
+      status: "completed", checkpoints: null,
+      epochs: [{ label: "e01", step: 1, loss: 1 }, { label: "final", step: 2, loss: 1 }],
+    }))).toBe("2 checkpoints, none uploaded");
     expect(trainingSummary(job({ status: "completed", checkpoints: ["a", "b", "c"] })))
       .toBe("3 checkpoints");
   });
@@ -338,6 +342,15 @@ describe("epochRows", () => {
   it("still lists an older run's checkpoints that have no epoch record", () => {
     const rows = epochRows({ epochs: null, checkpoints: ["s3://x/pay_v2_e03.safetensors"], publish_requests: null });
     expect(rows).toEqual([{ label: "e03", step: null, loss: null, uri: "s3://x/pay_v2_e03.safetensors", requested: false }]);
+  });
+  it("never lists a deleted checkpoint, even while the trainer still reports it", () => {
+    const rows = epochRows({
+      epochs: [{ label: "e01", step: 80, loss: 0.7 }, { label: "e02", step: 160, loss: 0.69 }],
+      checkpoints: ["s3://x/pay_v1_e02.safetensors"],
+      publish_requests: ["e02"],
+      delete_requests: ["e02"],
+    });
+    expect(rows.map((r) => r.label)).toEqual(["e01"]);
   });
 });
 
@@ -634,6 +647,14 @@ describe("time estimates (console#602)", () => {
     expect(estimateRunMinutes("sdxl", 1536, "all", []) - 62).toBe(UPLOAD_MINUTES.sdxl);
   });
 
+  it("adds no upload under \"none\": the rates carry the final's, so it comes off", () => {
+    expect(estimateRunMinutes("ltx", 1200, "none", [])).toBe(86 - UPLOAD_MINUTES.ltx);
+    expect(estimateRunMinutes("sdxl", 1536, "none", [])).toBe(62 - UPLOAD_MINUTES.sdxl);
+    const h = [done(1200, 80), done(1200, 90, {}, 1), done(1200, 86, {}, 2)];
+    expect(estimateRunMinutes("ltx", 1200, "final", h) - estimateRunMinutes("ltx", 1200, "none", h))
+      .toBe(UPLOAD_MINUTES.ltx);
+  });
+
   it("reads the trainer's live rate off its progress line", () => {
     expect(liveSecondsPerIt("step 34/1536 (2%), 1.35s/it, ~34 min left")).toBe(1.35);
     expect(liveSecondsPerIt("staging 16 images")).toBeNull();
@@ -643,6 +664,17 @@ describe("time estimates (console#602)", () => {
     const j = job({ status: "running", step: 536, total_steps: 1536, config: { arch: "sdxl" },
                     progress_log: "step 536/1536 (35%), 1.2s/it" });
     expect(remainingMinutes(j, [], T0)).toBe(20 + 25);
+  });
+
+  it("a \"none\" run is done when the steps are: no upload follows", () => {
+    const j = job({ status: "running", step: 536, total_steps: 1536,
+                    config: { arch: "sdxl", publish: "none" },
+                    progress_log: "step 536/1536 (35%), 1.2s/it" });
+    expect(remainingMinutes(j, [], T0)).toBe(20);
+    // Before the first step: never floored at an upload that is not coming.
+    const staging = job({ status: "claimed", total_steps: null, claimed_at: min(-500),
+                          config: { steps: 1200, publish: "none" } });
+    expect(remainingMinutes(staging, [], T0)).toBe(0);
   });
 
   it("queued runs start when everything ahead is done, oldest first", () => {
