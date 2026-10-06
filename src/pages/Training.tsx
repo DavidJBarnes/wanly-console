@@ -21,7 +21,7 @@ import type { Character } from "../api/ltx";
 import StatusChip from "../components/StatusChip";
 import { POLL_INTERVAL_FAST } from "../constants";
 import {
-  checkpointInUse, epochRows, runTriggers, scpCommand, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
+  checkpointInUse, epochRows, runTriggerPhrase, runTriggers, scpCommand, groupByCharacter, isSdxlJob, loraStem, lossPath, runTimeDetail, runTimeLabel,
   trainingPct, trainingSummary, queueEtas, etaLabel, type RunEta,
 } from "../lib/trainingJob";
 import LossChart from "../components/LossChart";
@@ -346,10 +346,11 @@ function TrainingRow({
                 size="small"
                 variant="outlined"
                 color="primary"
-                label={triggerCopied ? "copied" : `trigger: ${runTriggers(job).join(" and ")}`}
+                label={triggerCopied ? "copied" : `trigger: ${runTriggerPhrase(job)}`}
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(runTriggers(job).join(", "));
+                    // Exactly what the badge shows (#629): it used to show "and" and copy ", ".
+                    await navigator.clipboard.writeText(runTriggerPhrase(job));
                     setTriggerCopied(true);
                     setTimeout(() => setTriggerCopied(false), 1500);
                   } catch {

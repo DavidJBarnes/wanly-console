@@ -846,3 +846,16 @@ export function runTriggers(job: Pick<TrainingJob, "trigger" | "identities">): s
   const all = [job.trigger, ...(job.identities ?? []).map((g) => g.trigger)];
   return [...new Set(all.filter((t): t is string => Boolean(t && t.trim())))];
 }
+
+/**
+ * The triggers joined the way the run's captions joined them, so the badge shows -- and copies
+ * -- what to type (console#629). An SDXL run trained on booru tags, a pair's both-in-frame
+ * images as "d@vid, jo@na, 1boy, 1girl", so "and" was never in a caption and is a stray word
+ * in an A1111 prompt. An LTX pair's composition captions read "d@vid, man and k3lly2026,
+ * woman": there " and " is the trained form.
+ */
+export function runTriggerPhrase(
+  job: Pick<TrainingJob, "trigger" | "identities" | "config">,
+): string {
+  return runTriggers(job).join(isSdxlJob(job) ? ", " : " and ");
+}
