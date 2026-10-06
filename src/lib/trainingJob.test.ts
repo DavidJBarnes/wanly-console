@@ -71,6 +71,28 @@ describe("canTrain", () => {
   it("says nothing extra about a sensible set", () => {
     expect(canTrain(keys(50))).toEqual({ ok: true });
   });
+
+  // Clips (console#625) train in a group of their own; the floor is the stills' alone.
+  const clips = (n: number) => Array.from({ length: n }, (_, i) => `s3://b/clip${i}.mp4`);
+
+  it("does not let clips make up for too few stills", () => {
+    const r = canTrain([...keys(3), ...clips(10)]);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/^3 images/);
+  });
+
+  it("does not count clips against the ceiling", () => {
+    expect(canTrain([...keys(MAX_IMAGES), ...clips(5)]).ok).toBe(true);
+  });
+
+  it("allows stills at the floor plus clips", () => {
+    expect(canTrain([...keys(MIN_IMAGES), ...clips(4)])).toEqual({ ok: true });
+  });
+
+  it("still refuses a duplicated clip", () => {
+    const r = canTrain([...keys(10), "s3://b/clip0.mp4", "s3://b/clip0.mp4"]);
+    expect(r.reason).toMatch(/duplicate/);
+  });
 });
 
 describe("trainingPct", () => {

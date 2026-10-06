@@ -667,13 +667,18 @@ export interface PreflightItem {
 /** One training group as the API will build it — including the regularization pools it adds
  *  on its own, which is why the dialog renders these rather than its own idea of the run. */
 export interface PreflightGroup {
-  kind: DatasetKind;
+  /** "clip" (wanly-api#411) is the clip half of a character whose set holds video clips: it
+   *  trains beside the stills group, never as a dataset kind of its own. */
+  kind: DatasetKind | "clip";
   character: string | null;
   trigger: string | null;
   dataset_id: string | null;
   dataset_name: string | null;
   images: number;
   num_repeats: number;
+  /** Clip groups only: frame windows taken from each clip per repeat, so the group's samples
+   *  per epoch are images x windows x num_repeats. */
+  windows?: number;
   /** A few FINAL captions, trigger prefix included — what the trainer will actually read. */
   sample_captions: string[];
 }

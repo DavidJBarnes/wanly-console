@@ -25,6 +25,7 @@ import {
   problemsFromError, runCharacter, stepsForSamples, stepsPerEpoch, trainingBody,
 } from "../lib/trainingJob";
 import type { TrainForm } from "../lib/trainingJob";
+import { itemCountLabel, splitClips } from "../lib/datasets";
 
 /** How long the form must sit still before it is re-checked. Long enough that typing a pair
  *  name is one request, short enough that the checklist feels attached to the form. */
@@ -156,8 +157,10 @@ export default function TrainLoraDialog({
   const version = versionTouched ? form.version : nextVersion(who, jobs, characters, form.arch);
   // The epoch length is the server's once it has answered — regularization and pair groups
   // make it more than images x 10. Before that, the character images at the recipe's repeats.
+  // Stills only: a clip's weight (clips x windows x repeats, #625) is the server's to say, and
+  // an SDXL run drops clips altogether.
   const estimateImages = Object.values(chosenDatasets)
-    .reduce((n, id) => n + (datasets.find((d) => d.id === id)?.images.length ?? 0), 0);
+    .reduce((n, id) => n + splitClips(datasets.find((d) => d.id === id)?.images ?? []).stills.length, 0);
   const samplesPerEpoch = preflight?.samples_per_epoch || stepsPerEpoch(estimateImages, form.arch);
   const epochsShown = epochs ?? (sdxl ? SDXL_EPOCHS : defaultEpochsForSamples(samplesPerEpoch));
   const steps = stepsForSamples(epochsShown, samplesPerEpoch);
@@ -256,7 +259,7 @@ export default function TrainLoraDialog({
   const datasetSelect = (member: string) => {
     const owned = ownedBy(member);
     const id = chosenDatasets[member] ?? "";
-    const images = datasets.find((d) => d.id === id)?.images.length;
+    const chosen = datasets.find((d) => d.id === id);
     return (
       <TextField
         select
@@ -267,7 +270,7 @@ export default function TrainLoraDialog({
         helperText={owned.length === 0
           ? `No dataset is owned by ${member}. On the Datasets page, set one's kind to `
             + `Character and its owner to ${member}.`
-          : images !== undefined ? `${images} images` : "Pick one — more than one set is owned by "
+          : chosen ? itemCountLabel(chosen.images) : "Pick one — more than one set is owned by "
             + member}
         disabled={owned.length === 0}
         fullWidth
@@ -602,7 +605,9 @@ function PreflightPanel({
                   <Chip size="small" color="info" variant="outlined" label="added automatically" />
                 )}
                 <Typography variant="caption" color="text.secondary">
-                  {g.images} images × {g.num_repeats} repeats
+                  {g.kind === "clip"
+                    ? `${g.images} clips × ${g.windows ?? 1} windows × ${g.num_repeats} repeats`
+                    : `${g.images} images × ${g.num_repeats} repeats`}
                 </Typography>
               </Box>
               {g.sample_captions.map((c, j) => (

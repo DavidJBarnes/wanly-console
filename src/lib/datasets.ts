@@ -6,6 +6,33 @@
  */
 import type { CaptionStatus, Dataset, DatasetTrainedBy, RegularizeStatus } from "../api/types";
 
+/**
+ * Whether a dataset item is a video clip (wanly-console#625).
+ *
+ * There is no separate field: a clip sits in `Dataset.images` beside the stills, keyed by URI
+ * like everything else, and the API normalizes every uploaded video to `.mp4`. So the
+ * extension IS the type — the same rule the API and the trainer use.
+ */
+export function isClip(uri: string): boolean {
+  return /\.mp4$/i.test(uri);
+}
+
+/** A set's stills and clips, each in the set's own order. */
+export function splitClips(images: string[]): { stills: string[]; clips: string[] } {
+  const stills: string[] = [];
+  const clips: string[] = [];
+  for (const u of images) (isClip(u) ? clips : stills).push(u);
+  return { stills, clips };
+}
+
+/** "12 images", or "12 images · 3 clips" once the set holds any clips. */
+export function itemCountLabel(images: string[]): string {
+  const { stills, clips } = splitClips(images);
+  return clips.length
+    ? `${stills.length} images · ${clips.length} ${clips.length === 1 ? "clip" : "clips"}`
+    : `${stills.length} images`;
+}
+
 /** Tags are a comma-separated string, matching ImageFile.tags rather than a second convention. */
 export function parseTags(tags: string | null | undefined): string[] {
   return (tags ?? "")
