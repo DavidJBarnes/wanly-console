@@ -485,19 +485,12 @@ export function runCharacter(f: Pick<TrainForm, "mode" | "character" | "pairName
  * was checked is exactly what is sent.
  */
 export function trainingBody(f: TrainForm): TrainingCreate {
-  if (f.arch === "sdxl") {
-    // SDXL: solo, and none of the LTX recipe knobs -- the base, the captions (WD14, by the
-    // trainer) and regularization (none) are the aio recipe's, decided server-side.
-    const ds = Object.fromEntries(
-      [f.character].filter((n) => f.datasets[n]).map((n) => [n, f.datasets[n]]));
-    return {
-      mode: "solo", arch: "sdxl", character: f.character.trim(),
-      ...(Object.keys(ds).length ? { datasets: ds } : {}),
-      version: f.version, steps: f.steps, publish: f.publish,
-      ...(f.allowLowScores ? { allow_low_scores: true } : {}),
-    };
-  }
-  const recipe = {
+  // SDXL: none of the LTX recipe knobs -- the base, the captions (WD14, by the trainer) and
+  // regularization (none) are the aio recipe's, decided server-side. Solo or pair (#621).
+  const recipe = f.arch === "sdxl" ? {
+    arch: "sdxl" as const,
+    ...(f.allowLowScores ? { allow_low_scores: true } : {}),
+  } : {
     caption_mode: f.captionMode, regularization: f.regularization,
     base_checkpoint: f.baseCheckpoint || null,
     // Only when ticked, so a request that never met the question does not carry an answer.
@@ -531,7 +524,7 @@ export function trainingBody(f: TrainForm): TrainingCreate {
  * here means "ask preflight", not "valid".
  */
 export function formIncomplete(f: TrainForm): string | null {
-  if (f.mode === "solo" || f.arch === "sdxl") return f.character.trim() ? null : "pick a character";
+  if (f.mode === "solo") return f.character.trim() ? null : "pick a character";
   if (!f.memberA.trim() || !f.memberB.trim()) return "pick both characters";
   if (sameName(f.memberA, f.memberB)) return "a pair is two different characters";
   const name = f.pairName.trim();

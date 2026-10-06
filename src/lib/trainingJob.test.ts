@@ -550,23 +550,30 @@ describe("problemsFromError", () => {
 
 describe("SDXL start-image LoRAs (console#600)", () => {
   it("sends solo + arch and none of the LTX recipe knobs", () => {
-    // The base, captions and regularization are the aio recipe's, decided server-side. A
-    // stale pair selection must not turn an SDXL run into a pair.
-    const body = trainingBody(form({
-      arch: "sdxl", mode: "pair", memberA: "A", memberB: "B", pairName: "AB",
-      character: "Kelly", datasets: { Kelly: "k" },
-    }));
+    // The base, captions and regularization are the aio recipe's, decided server-side.
+    const body = trainingBody(form({ arch: "sdxl", character: "Kelly", datasets: { Kelly: "k" } }));
     expect(body).toEqual({
       mode: "solo", arch: "sdxl", character: "Kelly", datasets: { Kelly: "k" },
+      version: 1, steps: 1200, publish: "final",
+    });
+  });
+  it("sends a pair with its members and composition set (#621)", () => {
+    const body = trainingBody(form({
+      arch: "sdxl", mode: "pair", memberA: "A", memberB: "B", pairName: "AB",
+      character: "Kelly", datasets: { A: "a", B: "b" }, compositionId: "c",
+    }));
+    expect(body).toEqual({
+      mode: "pair", arch: "sdxl", character: "AB", members: ["A", "B"],
+      datasets: { A: "a", B: "b" }, composition_dataset_id: "c", allow_no_composition: false,
       version: 1, steps: 1200, publish: "final",
     });
   });
   it("an LTX body carries no arch, so an older API still accepts it", () => {
     expect(trainingBody(form({ character: "David" }))).not.toHaveProperty("arch");
   });
-  it("only needs a character, whatever mode the toggle was left on", () => {
-    expect(formIncomplete(form({ arch: "sdxl", mode: "pair" }))).toBe("pick a character");
-    expect(formIncomplete(form({ arch: "sdxl", mode: "pair", character: "Kelly" }))).toBeNull();
+  it("a pair needs both members and a name, as on LTX", () => {
+    expect(formIncomplete(form({ arch: "sdxl", mode: "pair" }))).toBe("pick both characters");
+    expect(formIncomplete(form({ arch: "sdxl", mode: "solo", character: "Kelly" }))).toBeNull();
   });
   it("counts aio's 8 repeats and its measured step time", () => {
     expect(SDXL_REPEATS).toBe(8);

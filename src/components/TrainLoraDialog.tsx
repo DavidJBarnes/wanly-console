@@ -133,9 +133,7 @@ export default function TrainLoraDialog({
     ? form.pairName
     : form.memberA && form.memberB ? defaultPairName(form.memberA, form.memberB) : "";
   const sdxl = form.arch === "sdxl";
-  // SDXL is solo only (the aio recipe is one identity). The pair fields are kept, not cleared,
-  // so flipping back to LTX restores them.
-  const mode = sdxl ? "solo" : form.mode;
+  const mode = form.mode;
   const members = mode === "solo" ? [form.character] : [form.memberA, form.memberB];
   const ownedBy = (name: string) => datasetsOwnedBy(datasets, "character", name);
   // A member with exactly one set gets it without asking; with several, the choice is made
@@ -301,17 +299,15 @@ export default function TrainLoraDialog({
             <ToggleButton value="sdxl">SDXL — start images</ToggleButton>
           </ToggleButtonGroup>
 
-          {!sdxl && (
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              value={form.mode}
-              onChange={(_e, v) => { if (v) patch({ mode: v }); }}
-            >
-              <ToggleButton value="solo">Solo — one person</ToggleButton>
-              <ToggleButton value="pair">Pair — two people together</ToggleButton>
-            </ToggleButtonGroup>
-          )}
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={form.mode}
+            onChange={(_e, v) => { if (v) patch({ mode: v }); }}
+          >
+            <ToggleButton value="solo">Solo — one person</ToggleButton>
+            <ToggleButton value="pair">Pair — two people together</ToggleButton>
+          </ToggleButtonGroup>
 
           {mode === "solo" ? (
             <>
@@ -413,6 +409,11 @@ export default function TrainLoraDialog({
               no regularization. The trainer captions every image with WD14 tags, trigger
               first — the dataset's captions are not used. The LoRA is not published to the
               character; download it from the run for A1111.
+              {mode === "pair" && (
+                <> A pair trains each trigger beside its class tag (<code>d@vid, 1boy</code>,{" "}
+                  <code>k3lly, 1girl</code>) plus the both-in-frame set, so prompt both
+                  triggers with <code>1girl, 1boy</code> in A1111.</>
+              )}
             </Typography>
           </Box>
           ) : (
