@@ -9,6 +9,7 @@
  */
 import type { Dataset, DatasetKind, PreflightItem, TrainingCreate, TrainingJob } from "../api/types";
 import type { Character } from "../api/ltx";
+import { isClip } from "./datasets";
 
 /** Below this a run is not worth the GPU hour. p@y worked on 13, which is the floor anyone has
  *  actually proved; the API refuses under 8 and this must agree with it or the dialog offers a
@@ -26,15 +27,20 @@ export interface Eligibility {
   warning?: string;
 }
 
+/**
+ * Whether a set of items can train. Counts STILLS only (wanly-console#625): the 8-400 floor and
+ * ceiling are the identity group's, and clips go into a group of their own that the floor does
+ * not apply to. A set of 3 photos and 10 clips is refused by the API, so it is refused here.
+ */
 export function canTrain(keys: string[]): Eligibility {
-  const unique = new Set(keys);
+  const unique = new Set(keys.filter((k) => !isClip(k)));
   if (unique.size < MIN_IMAGES) {
     return { ok: false, reason: `${unique.size} images — at least ${MIN_IMAGES} are needed` };
   }
   if (unique.size > MAX_IMAGES) {
     return { ok: false, reason: `${unique.size} images is more than ${MAX_IMAGES}` };
   }
-  if (unique.size !== keys.length) {
+  if (new Set(keys).size !== keys.length) {
     // A duplicate trains the same image twice under two names, silently reweighting the set.
     return { ok: false, reason: "the selection contains duplicates" };
   }

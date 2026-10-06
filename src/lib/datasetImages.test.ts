@@ -1,7 +1,53 @@
 import { describe, it, expect } from "vitest";
 import {
-  cropSelectionProblem, mergeIntoSet, withoutImage, removalWarning, MIN_TRAINABLE,
+  cropSelectionProblem, isClip, itemCountLabel, mergeIntoSet, splitClips, withoutImage,
+  removalWarning, MIN_TRAINABLE,
 } from "./datasets";
+
+/**
+ * A clip is a dataset item whose URI ends in .mp4 (console#625) — no separate field, so the
+ * extension is the whole rule, and it has to agree with the API's and the trainer's.
+ */
+describe("isClip", () => {
+  it("knows an mp4 is a clip, whatever its case", () => {
+    expect(isClip("s3://b/ds/clip.mp4")).toBe(true);
+    expect(isClip("s3://b/ds/CLIP.MP4")).toBe(true);
+  });
+
+  it("calls every still a still", () => {
+    for (const u of ["s3://b/a.png", "s3://b/a.jpg", "s3://b/a.webp", "s3://b/a.jpeg"]) {
+      expect(isClip(u)).toBe(false);
+    }
+  });
+
+  it("goes by the ending, not a .mp4 somewhere in the path", () => {
+    expect(isClip("s3://b/from.mp4/frame.png")).toBe(false);
+    expect(isClip("s3://b/a.mp4.png")).toBe(false);
+  });
+});
+
+describe("splitClips", () => {
+  it("splits a mixed set and keeps each half in the set's order", () => {
+    const set = ["s3://b/a.png", "s3://b/x.mp4", "s3://b/b.jpg", "s3://b/y.mp4"];
+    expect(splitClips(set)).toEqual({
+      stills: ["s3://b/a.png", "s3://b/b.jpg"],
+      clips: ["s3://b/x.mp4", "s3://b/y.mp4"],
+    });
+  });
+});
+
+describe("itemCountLabel", () => {
+  it("says only images for a set with no clips, as before", () => {
+    expect(itemCountLabel(["s3://b/a.png", "s3://b/b.png"])).toBe("2 images");
+    expect(itemCountLabel([])).toBe("0 images");
+  });
+
+  it("counts clips apart from the images, not inside them", () => {
+    expect(itemCountLabel(["s3://b/a.png", "s3://b/x.mp4", "s3://b/y.mp4"]))
+      .toBe("1 images · 2 clips");
+    expect(itemCountLabel(["s3://b/a.png", "s3://b/x.mp4"])).toBe("1 images · 1 clip");
+  });
+});
 
 /**
  * Removing an image is how a crop of a group photo becomes a dataset of one person: take every

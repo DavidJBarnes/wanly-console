@@ -29,7 +29,8 @@ import CaptionStatusChip from "../components/CaptionStatusChip";
 import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
 import {
   byLikeness, byRecent, canLockByHand, canUnlock, captionCoverage, captionProgressLabel,
-  cropSelectionProblem, datasetNameProblem, defaultCloneName, formatCos, isAssigned,
+  cropSelectionProblem, datasetNameProblem, defaultCloneName, formatCos, isAssigned, isClip,
+  itemCountLabel, splitClips,
   lockedReason, lockLabel, lockReasonBody, ownerLabel, parseTags, progressPct, regularizeProgressLabel, removalWarning, scoreFor,
   unlockedLabel, verdictFor,
 } from "../lib/datasets";
@@ -150,6 +151,37 @@ export default function Datasets() {
  *  landed on the wrong one (#464). */
 const TILE = 128;
 
+/**
+ * A clip's tile (#625): its first frame at rest, playing on hover. Muted so the browser lets it
+ * start without a gesture (the stored clips have no audio anyway), and `preload="metadata"` so
+ * a set of twenty clips does not pull twenty videos just to draw the grid.
+ */
+function ClipThumb({ src, ring }: { src: string; ring: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  return (
+    <Box
+      component="video"
+      ref={ref}
+      src={src}
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      onMouseEnter={() => { ref.current?.play().catch(() => {}); }}
+      onMouseLeave={() => {
+        const v = ref.current;
+        if (!v) return;
+        v.pause();
+        v.currentTime = 0;
+      }}
+      sx={{
+        width: TILE, height: TILE, objectFit: "cover", borderRadius: 1,
+        display: "block", border: "3px solid", borderColor: ring, bgcolor: "black",
+      }}
+    />
+  );
+}
+
 function DatasetCard({
   ds, characters, onChanged, onCharactersChanged, onTrain, onCloned, highlighted = false,
 }: {
@@ -179,7 +211,10 @@ function DatasetCard({
   // "Save as new image" writes to the repo and never touches the set; only "Save to" is off.
   const [editUri, setEditUri] = useState<string | null>(null);
   const [generateCount, setGenerateCount] = useState(150);
+  // Clips (#625) sit in `images` beside the stills. The training floor, the removal warning
+  // and the crop are about the stills alone; clips train in a group of their own.
   const eligible = canTrain(ds.images);
+  const { stills } = splitClips(ds.images);
   const isReg = ds.kind === "regularization";
   const assigned = isAssigned(ds);
   const owner = ownerLabel(ds);
@@ -288,7 +323,7 @@ function DatasetCard({
       // No confirm: culling a crop set means doing this a dozen times in a row, and the file
       // stays in the bucket.
       const updated = await removeDatasetImage(ds, uri);
-      setMsg(`${updated.images.length} images in the set`);
+      setMsg(`${itemCountLabel(updated.images)} in the set`);
       onChanged();
     } catch (e: unknown) {
       // A 409 means another tab's run locked it since this page loaded: say so, and re-read
@@ -306,7 +341,7 @@ function DatasetCard({
     setMsg("");
     try {
       const updated = await addDatasetImages(ds.id, Array.from(files));
-      setMsg(`${updated.images.length} images in the set`);
+      setMsg(`${itemCountLabel(updated.images)} in the set`);
       onChanged();
     } catch (e: unknown) {
       setMsg(apiErrorText(e, "upload failed"));
@@ -382,7 +417,7 @@ function DatasetCard({
               </Tooltip>
             </Box>
           )}
-          <Chip size="small" variant="outlined" label={`${ds.images.length} images`} />
+          <Chip size="small" variant="outlined" label={itemCountLabel(ds.images)} />
           {locked && (
             <Tooltip title={locked}>
               <Chip size="small" color="default" icon={<Lock />} label={lockLabel(ds)} />
@@ -551,7 +586,7 @@ function DatasetCard({
               Re-score
             </Button>
           )}
-          <Tooltip title={locked ?? ""}>
+          <Tooltip title={locked ?? "Photos, or short video clips (2-10 s) of the face in motion for an LTX LoRA"}>
             <span>
               <Button
                 size="small"
@@ -559,7 +594,7 @@ function DatasetCard({
                 disabled={busy || Boolean(locked)}
                 onClick={() => fileRef.current?.click()}
               >
-                Add images
+                Add images or clips
               </Button>
             </span>
           </Tooltip>
@@ -591,7 +626,9 @@ function DatasetCard({
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+            // Clips (#625): the API normalizes any of these to a silent 25 fps .mp4, and refuses
+            // one under 2 s with a reason the upload's error path shows as is.
+            accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm"
             multiple
             hidden
             onChange={(e) => upload(e.target.files)}
@@ -641,6 +678,7 @@ function DatasetCard({
               anchor: "primary.main", match: "success.main", below: "error.main",
               "no-face": "warning.main", unscored: "divider",
             }[verdict];
+            const clip = isClip(uri);
             return (
               <Box key={uri} sx={{ width: TILE }}>
                 <Box sx={{ position: "relative", width: TILE, height: TILE }}>
@@ -654,14 +692,16 @@ function DatasetCard({
                     title="Open full size in a new tab"
                     sx={{ display: "block", cursor: "zoom-in" }}
                   >
-                    <Box
-                      component="img"
-                      src={getFileUrl(uri)}
-                      sx={{
-                        width: TILE, height: TILE, objectFit: "cover", borderRadius: 1,
-                        display: "block", border: "3px solid", borderColor: ring,
-                      }}
-                    />
+                    {clip ? <ClipThumb src={getFileUrl(uri)} ring={ring} /> : (
+                      <Box
+                        component="img"
+                        src={getFileUrl(uri)}
+                        sx={{
+                          width: TILE, height: TILE, objectFit: "cover", borderRadius: 1,
+                          display: "block", border: "3px solid", borderColor: ring,
+                        }}
+                      />
+                    )}
                   </Box>
                   {/* The span carries the position so a disabled button still shows its reason. */}
                   <Tooltip title={locked ?? "Remove from the dataset"}>
@@ -681,7 +721,19 @@ function DatasetCard({
                       </IconButton>
                     </Box>
                   </Tooltip>
-                  <Tooltip title="Edit: expression, gaze, small head turns — saves a new image">
+                  {/* Image Edit and the anchor star are for stills: the editor takes one frame,
+                      and the anchor is what every clip's frames are scored against. */}
+                  {clip ? (
+                    <Chip
+                      size="small"
+                      icon={<Movie sx={{ fontSize: 14 }} />}
+                      label="clip"
+                      sx={{
+                        position: "absolute", top: 6, left: 4, height: 22,
+                        bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1, pointerEvents: "none",
+                      }}
+                    />
+                  ) : <Tooltip title="Edit: expression, gaze, small head turns — saves a new image">
                     <IconButton
                       size="small"
                       aria-label={`Edit ${uri.split("/").pop()}`}
@@ -695,11 +747,11 @@ function DatasetCard({
                     >
                       <Face sx={{ fontSize: 18 }} />
                     </IconButton>
-                  </Tooltip>
+                  </Tooltip>}
                   {/* Where this image's caption is (console#564): its description, a held
                       job's, or this set's training caption while it is in line. */}
                   <CaptionStatusChip path={uri} overlay corner="right" includeDatasetCaptions />
-                  {!isReg && <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
+                  {!isReg && !clip && <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
                     <IconButton
                       size="small"
                       aria-label={`Use ${uri.split("/").pop()} as the anchor`}
@@ -749,9 +801,9 @@ function DatasetCard({
             against it, worst first.
           </Typography>
         )}
-        {removalWarning(ds.images.length) && ds.images.length > 0 && (
+        {removalWarning(stills.length) && stills.length > 0 && (
           <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 0.5 }}>
-            {removalWarning(ds.images.length)}
+            {removalWarning(stills.length)}
           </Typography>
         )}
 
@@ -796,7 +848,7 @@ function DatasetCard({
             ds={ds}
             onClose={() => setRepoOpen(false)}
             onAdded={(updated) => {
-              setMsg(`${updated.images.length} images in the set`);
+              setMsg(`${itemCountLabel(updated.images)} in the set`);
               onChanged();
             }}
           />
@@ -872,6 +924,8 @@ function CropDialog({
   };
 
   const problem = cropSelectionProblem(selected);
+  // Clips are skipped by the crop (#625), so they are neither counted nor offered here.
+  const { stills } = splitClips(ds.images);
 
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
@@ -883,15 +937,16 @@ function CropDialog({
             <Box>
               <LinearProgress />
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                Detecting faces in {selected.size || ds.images.length} images — up to a couple of
+                Detecting faces in {selected.size || stills.length} images — up to a couple of
                 minutes.
               </Typography>
             </Box>
           )}
           <Typography variant="body2">
             {selected.size > 0
-              ? `Crops ${selected.size} of ${ds.images.length} — the rest are left alone.`
-              : `Crops every image in “${ds.name}” (${ds.images.length}). Pick images below to crop only those.`}
+              ? `Crops ${selected.size} of ${stills.length} — the rest are left alone.`
+              : `Crops every image in “${ds.name}” (${stills.length}). Pick images below to crop only those.`
+                + (stills.length < ds.images.length ? " Clips are left as they are." : "")}
           </Typography>
           <RadioGroup
             value={framing}
@@ -923,9 +978,9 @@ function CropDialog({
               }
             />
           </RadioGroup>
-          {ds.images.length > 0 && (
+          {stills.length > 0 && (
             <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
-              {ds.images.map((uri) => {
+              {stills.map((uri) => {
                 const picked = selected.has(uri);
                 return (
                   <Box
