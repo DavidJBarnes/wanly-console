@@ -387,9 +387,13 @@ export async function addDatasetImages(id: string, files: File[]): Promise<Datas
  *  the set's photographs and appends the crops instead of replacing them — Save vs Save As,
  *  chosen once for the whole batch. The originals always stay in the bucket. Cull the output
  *  by starring an anchor and removing what scores low. */
+/** How a crop is framed (wanly-api#409): the tight square face crop, or a 4:5 portrait from
+ *  just above the hairline to the upper chest. */
+export type CropFraming = "face" | "head_shoulders";
+
 export async function cropDatasetFaces(
   id: string,
-  opts: { largestOnly?: boolean; uris?: string[]; saveAs?: boolean } = {},
+  opts: { largestOnly?: boolean; uris?: string[]; saveAs?: boolean; framing?: CropFraming } = {},
 ): Promise<Dataset> {
   const { data } = await api.post<Dataset>(`/datasets/${id}/crop`, null, {
     // Defaults to every face. "Largest" in a group shot is only whoever stood closer to the
@@ -398,6 +402,8 @@ export async function cropDatasetFaces(
       largest_only: opts.largestOnly ?? false,
       ...(opts.saveAs !== undefined ? { save_as: opts.saveAs } : {}),
       ...(opts.uris ? { uris: opts.uris } : {}),
+      // Only when it is not the default, so an API from before #409 still accepts a face crop.
+      ...(opts.framing && opts.framing !== "face" ? { framing: opts.framing } : {}),
     },
     ...REPEAT_ARRAY_PARAMS,
   });
