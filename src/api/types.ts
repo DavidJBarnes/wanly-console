@@ -468,6 +468,9 @@ export type TrainingStatus =
   | "failed"
   | "cancelled";
 
+/** What a training run uploads on its own as it writes checkpoints (console#627). */
+export type PublishMode = "none" | "final" | "all";
+
 export interface TrainingJob {
   id: string;
   character: string;
@@ -508,6 +511,9 @@ export interface TrainingJob {
   epochs: TrainingEpoch[] | null;
   /** Labels asked for after the fact; the trainer uploads them on its next poll. */
   publish_requests: string[] | null;
+  /** Labels deleted forever (console#627): gone from `epochs` and `checkpoints` already; the
+   *  trainer removes the files from its disk on its next poll. Optional until api#413 ships. */
+  delete_requests?: string[] | null;
   /** Free-form operator notes, written only by a human (wanly-console#484). The trainer's
    *  reports cannot reach it, so it does not fight the progress log for the field. */
   notes: string | null;
@@ -643,9 +649,9 @@ export interface TrainingCreate {
   allow_low_scores?: boolean;
   version: number;
   steps: number;
-  /** Which checkpoints to upload as they are written. Final only by default: a checkpoint
-   *  takes ~18 minutes to leave the 3090 and most epochs go unused. */
-  publish: "final" | "all";
+  /** Which checkpoints to upload as they are written. None by default (console#627): every
+   *  checkpoint waits on the trainer to be tested, then uploaded or deleted one by one. */
+  publish: PublishMode;
   /** "per_image" trains each image under "<trigger>, <gender>, <its stored caption>" (blank =
    *  bare); "trigger_only" ignores stored captions. */
   caption_mode?: "per_image" | "trigger_only";

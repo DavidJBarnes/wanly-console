@@ -15,7 +15,7 @@ import {
 import { listRecipes, triggerPhrase } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import type {
-  Dataset, PreflightItem, TrainingJob, TrainingPreflight,
+  Dataset, PreflightItem, PublishMode, TrainingJob, TrainingPreflight,
 } from "../api/types";
 import NewCharacterDialog from "./NewCharacterDialog";
 import {
@@ -40,7 +40,8 @@ type NewCharacterSlot = "character" | "memberA" | "memberB";
 const EMPTY: TrainForm = {
   mode: "solo", character: "", memberA: "", memberB: "", pairName: "", datasets: {},
   compositionId: null, allowNoComposition: false, allowLowScores: false, version: 1, steps: 0,
-  publish: "final",
+  // Nothing uploads on its own (console#627): test on the trainer, then upload or delete each.
+  publish: "none",
   ...RECIPE_DEFAULTS,
 };
 
@@ -397,7 +398,8 @@ export default function TrainLoraDialog({
                 // All-in, from this arch's recent runs (console#602): drain, caching, training
                 // and the upload -- when the LoRA is downloadable, not just the steps.
                 + `about ${formatMinutes(estimateRunMinutes(form.arch, steps, form.publish, jobs))} `
-                + `until downloadable (3090, from recent runs), one checkpoint per epoch. `
+                + `until ${form.publish === "none" ? "trained" : "downloadable"} (3090, from `
+                + `recent runs), one checkpoint per epoch. `
                 + (sdxl ? `aio used ${SDXL_EPOCHS} epochs.` : `Kelly-2000 v5 used ~30×.`)}
               slotProps={{ htmlInput: { min: 1 } }}
               sx={{ flex: 1 }}
@@ -468,14 +470,20 @@ export default function TrainLoraDialog({
             <RadioGroup
               row
               value={form.publish}
-              onChange={(e) => patch({ publish: e.target.value as "final" | "all" })}
+              onChange={(e) => patch({ publish: e.target.value as PublishMode })}
             >
+              <FormControlLabel value="none" control={<Radio size="small" />}
+                label="None — test, then upload or delete" />
               <FormControlLabel value="final" control={<Radio size="small" />} label="Final checkpoint only" />
               <FormControlLabel value="all" control={<Radio size="small" />} label="Every epoch" />
             </RadioGroup>
             <Typography variant="caption" color="text.secondary">
-              Every epoch stays on the trainer either way and can be uploaded later from the
-              run. A checkpoint takes about {sdxl ? 25 : 18} minutes to upload.
+              {form.publish === "none"
+                ? "Every checkpoint waits on the trainer until you upload or delete it from the "
+                  + "Training page — test them there first."
+                : "Every checkpoint stays on the trainer either way, to upload or delete later "
+                  + "from the Training page."}{" "}
+              A checkpoint takes about {sdxl ? 25 : 18} minutes to upload.
             </Typography>
           </Box>
 

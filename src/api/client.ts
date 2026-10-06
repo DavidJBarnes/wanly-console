@@ -557,6 +557,16 @@ export async function publishTrainingEpoch(id: string, label: string): Promise<T
   return data;
 }
 
+/** Delete one checkpoint forever (console#627): from S3 if it was uploaded, and from the
+ *  trainer's disk on its next poll. 409 names why it can't (a character renders with it, a
+ *  queued render names it, the run is live). Returns the run without it. */
+export async function deleteTrainingCheckpoint(id: string, label: string): Promise<TrainingJob> {
+  const { data } = await api.delete<TrainingJob>(
+    `/training/${id}/checkpoints/${encodeURIComponent(label)}`,
+  );
+  return data;
+}
+
 /** Operator notes on a run, whole-field replace (wanly-console#484). Blank clears it. */
 export async function updateTrainingNotes(id: string, notes: string | null): Promise<TrainingJob> {
   const { data } = await api.patch<TrainingJob>(`/training/${id}/notes`, { notes });

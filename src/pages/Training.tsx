@@ -7,12 +7,12 @@ import {
 } from "@mui/material";
 
 import {
-  CheckCircle, CloudUpload, ContentCopy, Delete, Download, EditNote, ExpandMore, ModelTraining,
+  CheckCircle, CloudUpload, ContentCopy, Delete, DeleteForever, Download, EditNote, ExpandMore, ModelTraining,
   Refresh,
 } from "@mui/icons-material";
 
 import {
-  cancelTrainingJob, deleteTrainingJob, getFileUrl, listTrainingJobs,
+  cancelTrainingJob, deleteTrainingCheckpoint, deleteTrainingJob, getFileUrl, listTrainingJobs,
   publishTrainingEpoch,
   retryTrainingJob, updateTrainingNotes,
 } from "../api/client";
@@ -155,6 +155,7 @@ export default function Training() {
                   eta={etas.get(job.id)}
                   characters={characters}
                   onChanged={() => { fetchJobs(); fetchCharacters(); }}
+                  onJob={(updated) => setJobs((js) => js.map((j) => (j.id === updated.id ? updated : j)))}
                 />
               ))}
             </Stack>
@@ -167,8 +168,12 @@ export default function Training() {
 }
 
 function TrainingRow({
-  job, eta, characters, onChanged,
-}: { job: TrainingJob; eta?: RunEta; characters: Character[]; onChanged: () => void }) {
+  job, eta, characters, onChanged, onJob,
+}: {
+  job: TrainingJob; eta?: RunEta; characters: Character[]; onChanged: () => void;
+  /** The API's copy of this run after a change made here, ahead of the next poll. */
+  onJob: (job: TrainingJob) => void;
+}) {
   const pct = trainingPct(job);
   const live = job.status === "running" || job.status === "claimed" || job.status === "pending";
   const when = runTimeLabel(job);
@@ -182,6 +187,9 @@ function TrainingRow({
   const [triggerCopied, setTriggerCopied] = useState(false);
   /** The API's reason for refusing to delete this run with its files, while it stands. */
   const [refusal, setRefusal] = useState("");
+  /** Likewise for a refused checkpoint delete (console#627): a character renders with it, a
+   *  queued render names it. */
+  const [checkpointErr, setCheckpointErr] = useState("");
   /** Likewise for a refused retry (a live twin of the same version, a dataset that fell
    *  below the minimum since the run died). */
   const [retryErr, setRetryErr] = useState("");
@@ -275,6 +283,25 @@ function TrainingRow({
     } catch (e: unknown) {
       const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setMsg(typeof d === "string" ? d : "could not request it");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Delete one checkpoint forever (console#627) — the "test, then upload or delete" half of
+   *  the "none" upload mode, and the only way to free trainer disk short of deleting the run. */
+  const deleteCheckpoint = async (label: string, uploaded: boolean) => {
+    if (!confirm(`Delete ${label} forever? It is removed from 3090a`
+                 + (uploaded ? ", and from S3 — it was uploaded" : "")
+                 + ". This can't be undone.")) return;
+    setBusy(true);
+    setCheckpointErr("");
+    try {
+      onJob(await deleteTrainingCheckpoint(job.id, label));
+      setMsg(`${label} deleted`);
+    } catch (e: unknown) {
+      const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setCheckpointErr(typeof d === "string" ? d : `could not delete ${label}`);
     } finally {
       setBusy(false);
     }
@@ -383,6 +410,13 @@ function TrainingRow({
         {retryErr && (
           <Alert severity="warning" sx={{ mb: 1 }} onClose={() => setRetryErr("")}>
             {retryErr}
+          </Alert>
+        )}
+
+        {/* Above the accordion for the same reason: the refusal is the answer to a click. */}
+        {checkpointErr && (
+          <Alert severity="warning" sx={{ mb: 1 }} onClose={() => setCheckpointErr("")}>
+            {checkpointErr}
           </Alert>
         )}
 
@@ -520,7 +554,8 @@ function TrainingRow({
                 {sdxl
                   ? "SDXL checkpoints are for the start-image generator: download one into A1111."
                   : `“Use” points ${job.character} at one.`}{" "}
-                An epoch that stayed on the trainer can be uploaded from here.
+                One that stayed on the trainer can be uploaded from here; any can be deleted
+                for good, which frees the trainer's disk.
               </Typography>
               <Stack spacing={0.5}>
                 {rows.map((row) => {
@@ -585,6 +620,26 @@ function TrainingRow({
                           Upload
                         </Button>
                       )}
+                      {/* Same gate as Upload: a live run is still writing these. The API also
+                          refuses one a character renders with; disabling says so up front. */}
+                      <Tooltip
+                        title={live ? "The run is still going — delete once it has finished"
+                          : current ? `${job.character} renders with this — point it elsewhere first`
+                            : "Delete forever, from the trainer and from S3"}
+                      >
+                        <span>
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="error"
+                            startIcon={<DeleteForever fontSize="small" />}
+                            disabled={busy || live || current}
+                            onClick={() => deleteCheckpoint(row.label, row.uri !== null)}
+                          >
+                            Delete
+                          </Button>
+                        </span>
+                      </Tooltip>
                     </Box>
                   );
                 })}

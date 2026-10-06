@@ -7,7 +7,9 @@
  * a component to be covered at all. These have right answers — an eligibility rule that lets a
  * doomed job through costs a GPU hour to discover.
  */
-import type { Dataset, DatasetKind, PreflightItem, TrainingCreate, TrainingJob } from "../api/types";
+import type {
+  Dataset, DatasetKind, PreflightItem, PublishMode, TrainingCreate, TrainingJob,
+} from "../api/types";
 import type { Character } from "../api/ltx";
 import { isClip } from "./datasets";
 
@@ -96,10 +98,15 @@ export function trainingSummary(job: TrainingJob): string {
         ? job.progress_log || "starting"
         : `${pct}% — step ${job.step} of ${job.total_steps}`;
     }
-    case "completed":
-      return job.checkpoints?.length
-        ? `${job.checkpoints.length} checkpoints`
-        : "completed";
+    case "completed": {
+      // Uploaded is not written (console#627): a "none" run finishes with every checkpoint
+      // still on the trainer, which is a finished run, not an empty one.
+      const uploaded = job.checkpoints?.length ?? 0;
+      const written = Math.max(job.epochs?.length ?? 0, uploaded);
+      if (!written) return "completed";
+      if (written === uploaded) return `${uploaded} checkpoints`;
+      return `${written} checkpoints, ${uploaded || "none"} uploaded`;
+    }
     case "failed":
       return job.error_message || "failed";
     case "cancelled":
@@ -295,12 +302,23 @@ export interface EpochRow {
 /**
  * Merge what the trainer wrote (`epochs`) with what reached the bucket (`checkpoints`).
  * Older runs have no `epochs`; their checkpoints still list, without step or loss.
+ *
+ * A label in `delete_requests` never lists (console#627). The API drops it from `epochs` and
+ * `checkpoints` itself, but the trainer re-reports its epochs on every poll until the files
+ * are gone, and a deleted checkpoint coming back with a Copy scp for a file that no longer
+ * exists is worse than one that is simply absent.
  */
-export function epochRows(job: Pick<TrainingJob, "epochs" | "checkpoints" | "publish_requests">): EpochRow[] {
+export function epochRows(
+  job: Pick<TrainingJob, "epochs" | "checkpoints" | "publish_requests" | "delete_requests">,
+): EpochRow[] {
+  const deleted = new Set(job.delete_requests ?? []);
   const byLabel = new Map<string, string>();
-  for (const u of job.checkpoints ?? []) byLabel.set(checkpointLabel(u), u);
+  for (const u of job.checkpoints ?? []) {
+    const label = checkpointLabel(u);
+    if (!deleted.has(label)) byLabel.set(label, u);
+  }
   const requested = new Set(job.publish_requests ?? []);
-  const rows: EpochRow[] = (job.epochs ?? []).map((e) => ({
+  const rows: EpochRow[] = (job.epochs ?? []).filter((e) => !deleted.has(e.label)).map((e) => ({
     label: e.label, step: e.step, loss: e.loss,
     uri: byLabel.get(e.label) ?? null, requested: requested.has(e.label),
   }));
@@ -451,7 +469,7 @@ export interface TrainForm {
   allowLowScores: boolean;
   version: number;
   steps: number;
-  publish: "final" | "all";
+  publish: PublishMode;
   /** The recipe. Defaults are Kelly-2000 v5's, the run that held her best. */
   baseCheckpoint: string;
   regularization: boolean;
@@ -627,22 +645,39 @@ function median(xs: number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
+/** The upload mode a run was queued with. A run from before console#627 has "final" or "all";
+ *  one with no `publish` at all predates the choice and uploaded its final. */
+export function jobPublish(job: Pick<TrainingJob, "config">): PublishMode {
+  const p = (job.config as { publish?: string }).publish;
+  return p === "none" || p === "all" ? p : "final";
+}
+
+/** Uploads that land after training ends: the final's, and under "all" the last epoch's too
+ *  (the earlier epochs go up while the next one trains). "none" uploads nothing on its own. */
+function trailingUploads(publish: PublishMode): number {
+  return publish === "all" ? 2 : publish === "final" ? 1 : 0;
+}
+
 /**
- * Minutes for a whole run of `steps`, claim to downloadable.
+ * Minutes for a whole run of `steps`, claim to downloadable -- or, under "none", to the last
+ * checkpoint written: nothing is downloadable until it is asked for.
  *
- * "all" adds one more upload: the epochs go up while the next one trains, so most of them
- * overlap, but the last epoch and the final both land after training ends.
+ * The all-in rates (history and the LTX constant) already carry the final's upload, the mode
+ * every run used before console#627, so they are adjusted by the uploads this mode adds or
+ * drops relative to it. "none" history runs make the history rate slightly pessimistic for
+ * the others, never by more than one upload spread over the run.
  */
 export function estimateRunMinutes(
-  arch: TrainArch, steps: number, publish: "final" | "all", history: Parameters<typeof allInSecondsPerStep>[1],
+  arch: TrainArch, steps: number, publish: PublishMode, history: Parameters<typeof allInSecondsPerStep>[1],
 ): number {
-  const extra = publish === "all" ? UPLOAD_MINUTES[arch] : 0;
+  const extra = (trailingUploads(publish) - 1) * UPLOAD_MINUTES[arch];
   const rate = allInSecondsPerStep(arch, history);
-  if (rate !== null) return Math.round((steps * rate) / 60 + extra);
+  // max(1, ...): an "all-in" rate from a short run can carry less than one upload's minutes.
+  if (rate !== null) return Math.max(1, Math.round((steps * rate) / 60 + extra));
   const train = (steps * (arch === "sdxl" ? SDXL_SECONDS_PER_STEP : LTX_ALL_IN_SECONDS_PER_STEP)) / 60;
   // The LTX constant is already all-in; SDXL's is the bare training rate, measured.
   const overhead = arch === "sdxl" ? SDXL_OVERHEAD_MINUTES + UPLOAD_MINUTES.sdxl : 0;
-  return Math.round(train + overhead + extra);
+  return Math.max(1, Math.round(train + overhead + extra));
 }
 
 /** The trainer's own rate, off its progress line ("step 34/1536 (2%), 1.35s/it, ..."). */
@@ -653,27 +688,30 @@ export function liveSecondsPerIt(progress: string | null | undefined): number | 
 }
 
 /**
- * Minutes until this run is downloadable, or null when it is not live.
+ * Minutes until this run is downloadable (under "none": done training), or null when it is
+ * not live.
  *
- * Training: steps left x the live rate, then the final upload. Before the first step
- * (staging, draining, caching): the whole-run estimate less what has elapsed since the claim,
- * never below the upload still to come.
+ * Training: steps left x the live rate, then the final upload -- none under "none". Before
+ * the first step (staging, draining, caching): the whole-run estimate less what has elapsed
+ * since the claim, never below the upload still to come.
  */
 export function remainingMinutes(
   job: TrainingJob, history: TrainingJob[], now: number,
 ): number | null {
   const arch = jobArch(job);
-  const publish = (job.config as { publish?: string }).publish === "all" ? "all" : "final";
+  const publish = jobPublish(job);
+  // The live rate is the bare training rate, so this is the full upload, not a delta.
+  const upload = publish === "none" ? 0 : UPLOAD_MINUTES[arch];
   const steps = job.total_steps ?? Number((job.config as { steps?: number }).steps ?? 0);
   if (job.status === "pending") return estimateRunMinutes(arch, steps, publish, history);
   if (job.status !== "claimed" && job.status !== "running") return null;
   const live = liveSecondsPerIt(job.progress_log);
   if (job.step && live && job.total_steps) {
-    return Math.round(((job.total_steps - job.step) * live) / 60 + UPLOAD_MINUTES[arch]);
+    return Math.round(((job.total_steps - job.step) * live) / 60 + upload);
   }
   const whole = estimateRunMinutes(arch, steps, publish, history);
   const elapsed = job.claimed_at ? (now - Date.parse(job.claimed_at)) / 60000 : 0;
-  return Math.round(Math.max(UPLOAD_MINUTES[arch], whole - elapsed));
+  return Math.round(Math.max(upload, whole - elapsed));
 }
 
 export interface RunEta {
