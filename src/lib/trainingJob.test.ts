@@ -27,7 +27,7 @@ import {
   isSdxlJob, SDXL_REPEATS,
   allInSecondsPerStep, estimateRunMinutes, liveSecondsPerIt, remainingMinutes, queueEtas,
   etaLabel, formatMinutes, UPLOAD_MINUTES,
-  scpCommand, trainerCheckpointPath, shq, runTriggers,
+  scpCommand, trainerCheckpointPath, shq, runTriggers, runTriggerPhrase,
 } from "./trainingJob";
 import type { Dataset, TrainingJob } from "../api/types";
 import type { TrainForm } from "./trainingJob";
@@ -753,5 +753,19 @@ describe("runTriggers (console#608)", () => {
     expect(runTriggers({ trigger: "d@vid", identities: [
       { trigger: "k3lly2026" }, { trigger: null }, { trigger: "" }, { trigger: "d@vid" },
     ] })).toEqual(["d@vid", "k3lly2026"]);
+  });
+});
+
+describe("runTriggerPhrase (console#629)", () => {
+  const pair = { trigger: "d@vid", identities: [{ trigger: "jo@na" }, { trigger: null }] };
+  it("an SDXL pair is comma-separated booru tags, as it trained", () => {
+    expect(runTriggerPhrase({ ...pair, config: { arch: "sdxl" } })).toBe("d@vid, jo@na");
+  });
+  it("an LTX pair keeps the trained \"and\"", () => {
+    expect(runTriggerPhrase({ ...pair, config: {} })).toBe("d@vid and jo@na");
+  });
+  it("a solo run is just its trigger either way", () => {
+    expect(runTriggerPhrase({ trigger: "jo@na", identities: null, config: { arch: "sdxl" } }))
+      .toBe("jo@na");
   });
 });
