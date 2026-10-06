@@ -18,6 +18,7 @@ import {
   removeDatasetImage, scoreDataset, setDatasetAnchor, unlockDataset, updateDataset,
   updateDatasetCaption,
 } from "../api/client";
+import type { CropFraming } from "../api/client";
 import { listRecipes } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import TrainLoraDialog from "../components/TrainLoraDialog";
@@ -850,6 +851,7 @@ function CropDialog({
 }) {
   const [largestOnly, setLargestOnly] = useState(false);
   const [saveAs, setSaveAs] = useState(false);
+  const [framing, setFraming] = useState<CropFraming>("face");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -891,6 +893,36 @@ function CropDialog({
               ? `Crops ${selected.size} of ${ds.images.length} — the rest are left alone.`
               : `Crops every image in “${ds.name}” (${ds.images.length}). Pick images below to crop only those.`}
           </Typography>
+          <RadioGroup
+            value={framing}
+            onChange={(e) => setFraming(e.target.value as CropFraming)}
+          >
+            <FormControlLabel
+              value="face"
+              control={<Radio size="small" />}
+              label={
+                <Box>
+                  <Typography variant="body2">Tight face</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    A square around the face, with a little hair and chin.
+                  </Typography>
+                </Box>
+              }
+            />
+            <FormControlLabel
+              value="head_shoulders"
+              control={<Radio size="small" />}
+              label={
+                <Box>
+                  <Typography variant="body2">Head and shoulders</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    A portrait from just above the hairline down to the collarbone and upper
+                    chest.
+                  </Typography>
+                </Box>
+              }
+            />
+          </RadioGroup>
           {ds.images.length > 0 && (
             <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
               {ds.images.map((uri) => {
@@ -924,7 +956,7 @@ function CropDialog({
           />
           {!saveAs && (
             <Typography variant="caption" color="text.secondary">
-              Otherwise the cropped photographs are replaced by their faces. The originals stay
+              Otherwise the cropped photographs are replaced by their crops. The originals stay
               in the bucket either way.
             </Typography>
           )}
@@ -944,6 +976,7 @@ function CropDialog({
                   const updated = await cropDatasetFaces(ds.id, {
                     largestOnly,
                     saveAs,
+                    framing,
                     // Only send a selection when the user made one: an empty set means every
                     // image, and sending an empty list means none of them.
                     ...(selected.size > 0 ? { uris: [...selected] } : {}),
