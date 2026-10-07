@@ -1,6 +1,6 @@
 import { Alert, Box, Button, Chip, CircularProgress, Tooltip } from "@mui/material";
 import type { CaptionHoldDetail, JobResponse, SegmentResponse } from "../api/types";
-import { holdPlace } from "../lib/captionHold";
+import { holdPlace, modeWaitLabel } from "../lib/captionHold";
 
 /**
  * A segment held until its start image's captions exist (console#562).
@@ -75,6 +75,8 @@ export function CaptionHoldChip({ hold, detail }: {
   if (hold === "awaiting_caption") {
     const label = !detail
       ? "Waiting for caption…"
+      : detail.queue_status === "waiting" && modeWaitLabel(detail.note)
+        ? modeWaitLabel(detail.note)!
       : detail.queue_status === "queued" && detail.queue_position
         ? `In caption queue (#${detail.queue_position})`
         : detail.queue_status === "running"

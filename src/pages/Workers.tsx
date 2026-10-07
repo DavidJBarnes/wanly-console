@@ -56,6 +56,7 @@ import WorkerModeToggle, { canSwitchMode } from "../components/WorkerModeToggle"
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
 import StalledQueueBanner from "../components/StalledQueueBanner";
+import ModeWaitingSummary from "../components/ModeWaitingSummary";
 
 /** Minutes-and-seconds for a pod's age. Local rather than shared because formatDuration is
  *  already duplicated across three pages; consolidating them is its own change. */
@@ -224,6 +225,9 @@ export default function Workers() {
       </Box>
 
       <StalledQueueBanner />
+
+      {/* What waits on which mode, and the mode nobody is in (console#589). */}
+      <ModeWaitingSummary />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -595,7 +599,7 @@ function WorkerCard({
         {/* WHAT IT IS DOING, and it is a CONTROL -- so it gets its own line, above the
             chips that say what the box merely CAN do. Inline with them it read as one more
             label: "Rendering" beside "trainer" was taken to mean the box was in trainer
-            mode. Only where both halves exist to switch between (canSwitchMode). */}
+            mode. Only where there are two or more modes to switch between (canSwitchMode). */}
         {canSwitchMode(worker) && (
           <Box onClick={(e) => e.stopPropagation()}>
             <WorkerModeToggle worker={worker} onChanged={onModeChanged} />
