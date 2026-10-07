@@ -595,7 +595,7 @@ export default function RecipeForm({
   // refuse the submit. Said here the moment it is picked, and the submit waits for a LoRA
   // in the slot below or a sheet on the Characters page.
   const draftProblem = character && character !== NO_CHARACTER
-    ? draftRenderProblem(character, filledSlots[0]?.charLora, book?.characters ?? [])
+    ? draftRenderProblem(character, filledSlots[0]?.charLora)
     : null;
   const submitDisabled = !pose || busy || (!continuing && !start) || draftProblem !== null;
   const submitLabel = busy

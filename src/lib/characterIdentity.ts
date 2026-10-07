@@ -39,19 +39,14 @@ export function referenceMode(c: IdentityFields): "sheet" | "face" | null {
  * sheet has a character to make the first sheet for -- the sheet flow lives on an existing
  * character -- and it cannot render: the API refuses a job for it with draftMessage.
  *
- * A pair has no reference of its own and renders with its FIRST member's, so a pair with no
- * joint LoRA is a draft when that member (looked up in `all`) has no reference either.
- * Mirrors the API's character_registry.is_draft.
+ * A pair is a draft exactly when it has no joint LoRA (wanly-api#417). A sheet or face is
+ * optional and applies only to the character it is set on: a pair never borrows a member's,
+ * because one face conditions every face in frame -- that is how David's face drifted onto
+ * Joana's in DavidJoana renders. Mirrors the API's character_registry.is_draft.
  */
-export function isDraft(
-  c: IdentityFields & Partial<Pick<Character, "kind" | "members">>,
-  all: readonly (IdentityFields & Pick<Character, "name">)[] = [],
-): boolean {
+export function isDraft(c: IdentityFields & Partial<Pick<Character, "kind" | "members">>): boolean {
   if (hasLora(c.char_lora)) return false;
-  if ((c.kind ?? "solo") === "pair") {
-    const first = all.find((m) => m.name === c.members?.[0]);
-    return !first || !referenceMode(first);
-  }
+  if ((c.kind ?? "solo") === "pair") return true;
   return !referenceMode(c);
 }
 
@@ -70,9 +65,8 @@ export function draftRenderProblem(
   c: (IdentityFields & Pick<Character, "name"> & Partial<Pick<Character, "kind" | "members">>)
     | null,
   slotLora: string | null | undefined,
-  all: readonly (IdentityFields & Pick<Character, "name">)[] = [],
 ): string | null {
-  if (!c || hasLora(slotLora) || !isDraft(c, all)) return null;
+  if (!c || hasLora(slotLora) || !isDraft(c)) return null;
   return draftMessage(c.name);
 }
 

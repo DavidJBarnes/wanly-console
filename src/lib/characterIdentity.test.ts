@@ -194,13 +194,10 @@ describe("drafts (console#592)", () => {
     expect(identityBadges(draft)).toEqual([]);
   });
 
-  it("is a pair with no joint LoRA whose first member has no sheet", () => {
-    const a = char({ name: "A", char_lora: null, trigger: "a" });
-    const b = char({ name: "B", char_lora: null, trigger: "b", sheet_uri: SHEET });
+  it("is a pair exactly when it has no joint LoRA -- it never borrows a member's sheet", () => {
     const pair = char({ name: "AB", char_lora: "none", kind: "pair", members: ["A", "B"] });
-    expect(isDraft(pair, [a, b])).toBe(true);
-    expect(isDraft(pair, [{ ...a, sheet_uri: SHEET }, b])).toBe(false);
-    expect(isDraft({ ...pair, char_lora: "ab_v1" }, [a, b])).toBe(false);
+    expect(isDraft(pair)).toBe(true);
+    expect(isDraft({ ...pair, char_lora: "ab_v1" })).toBe(false);
   });
 
   it("says the same thing the API refuses with", () => {
