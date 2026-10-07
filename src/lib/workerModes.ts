@@ -61,9 +61,14 @@ export function modeView(info: WorkerModeResponse): ModeView {
   // An older box reports what it is EQUIPPED with instead; a mode is available when its
   // service is. Never train: before #164 there was no train mode, training rode along in
   // render, and such a box refuses the name.
+  //
+  // A four-mode box's `modes` is ALSO checked against `equipped`: a box can list a mode whose
+  // service it does not run (3090b with SERVICES=image-edit,scene-caption lists motion;
+  // wanly-gpu-docker#198), and a button for it would switch the box into a mode that does
+  // nothing.
   const equipped = info.equipped ?? [];
   const available = fourModes
-    ? MODES.filter((m) => reported.includes(m))
+    ? MODES.filter((m) => reported.includes(m) && equipped.includes(MODE_SERVICE[m]))
     : MODES.filter((m) => m !== "train" && equipped.includes(MODE_SERVICE[m]));
   return {
     current: canonicalMode(info.mode_name) ?? canonicalMode(info.mode),

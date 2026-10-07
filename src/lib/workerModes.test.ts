@@ -21,9 +21,20 @@ describe("reading a box's mode in either spelling", () => {
 
   it("a four-mode box: mode_name wins and its modes are what it can enter", () => {
     const v = modeView(info({ mode: "train", mode_name: "train", pending_mode_name: "motion",
-                              modes: ["render", "train", "motion", "edit"] }));
+                              modes: ["render", "train", "motion", "edit"],
+                              equipped: ["ltx-engine", "lora-trainer", "image-description",
+                                         "image-edit", "face-crop"] }));
     expect(v).toEqual({ current: "train", pending: "motion",
                         available: ["render", "train", "motion", "edit"], fourModes: true });
+  });
+
+  it("a mode the box lists but does not run the service for is not offered", () => {
+    // 3090b live on 2026-10-07: SERVICES=image-edit,scene-caption, modes [render, motion,
+    // edit] (wanly-gpu-docker#198). Only edit is real; one mode is nothing to switch between.
+    const v = modeView(info({ mode: "ltx-engine", mode_name: "render",
+                              modes: ["render", "motion", "edit"],
+                              equipped: ["image-edit", "scene-caption"] }));
+    expect(v.available).toEqual(["edit"]);
   });
 
   it("a box from before #164 is read from its old fields and offered no train mode", () => {
