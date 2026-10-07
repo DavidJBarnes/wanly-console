@@ -7,19 +7,24 @@ const w = (provides: string[] | null): WorkerResponse =>
   ({ id: "w", friendly_name: "3090.zero", provides } as unknown as WorkerResponse);
 
 describe("which boxes can be switched at all", () => {
-  it("a box with both halves can", () => {
+  it("a box with the render stack and a captioner can", () => {
     expect(canSwitchMode(w(["ltx-engine", "lora-trainer", "image-description"]))).toBe(true);
   });
 
+  it("render plus trainer can now: train is a mode of its own (wanly-gpu-docker#164)", () => {
+    // Before the four modes the trainer rode along in render, so this box had one mode and
+    // no toggle. Now render and train are two modes, and the box can switch between them.
+    expect(canSwitchMode(w(["ltx-engine", "lora-trainer"]))).toBe(true);
+  });
+
   it("a pure render pod cannot", () => {
-    // There is nothing to leave running. Offering the toggle there is offering a button
-    // whose only outcome is the box's "leaves nothing to run" refusal.
+    // There is nothing to switch to. Offering the toggle there is offering a button whose
+    // only outcome is the box's "leaves nothing to run" refusal.
     expect(canSwitchMode(w(["ltx-engine"]))).toBe(false);
-    expect(canSwitchMode(w(["ltx-engine", "lora-trainer"]))).toBe(false);
+    expect(canSwitchMode(w(["ltx-engine", "face-crop"]))).toBe(false);
   });
 
   it("a captions-only box cannot", () => {
-    // Already in the only mode it has; there is no render stack to start.
     expect(canSwitchMode(w(["image-description", "face-crop"]))).toBe(false);
   });
 
@@ -28,11 +33,5 @@ describe("which boxes can be switched at all", () => {
     // it would put a toggle on a row we know nothing about.
     expect(canSwitchMode(w(null))).toBe(false);
     expect(canSwitchMode(w([]))).toBe(false);
-  });
-
-  it("the trainer counts as claiming work", () => {
-    // A training run holds the card as surely as a render does, so caption mode has to stop
-    // it too -- and a trainer-plus-captioner box is therefore switchable.
-    expect(canSwitchMode(w(["lora-trainer", "image-description"]))).toBe(true);
   });
 });

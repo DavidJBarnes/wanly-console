@@ -791,7 +791,8 @@ export interface ImageFile {
  *  NOT a column on the worker row: the container is the only thing that knows what is
  *  actually running, and a stored copy would be free to disagree with it. */
 export interface WorkerModeResponse {
-  /** "ltx-engine" (rendering, the default) or "caption". */
+  /** The OLD spelling: "ltx-engine" (rendering, the default), "caption", "edit" or "train".
+   *  Prefer `mode_name`. */
   mode: string;
   /** Everything SERVICES says the box CAN run. A box with no captioner has no caption
    *  mode, and the toggle must not offer one. */
@@ -806,6 +807,56 @@ export interface WorkerModeResponse {
   /** Why the last switch failed. It fails long after the click, so this is the only way to
    *  hear about it. */
   mode_error: string | null;
+  /** The four-mode spelling (render / train / motion / edit, wanly-gpu-docker#164) of `mode`
+   *  and `pending_mode`. Derived by the API for a box that predates the four modes. */
+  mode_name?: string | null;
+  pending_mode_name?: string | null;
+  /** The modes this box can enter. Empty: a box from before #164 (see `equipped`). */
+  modes?: string[];
+  /** What the last switch found on the card and what was left after unloading it. */
+  last_unload?: {
+    from?: string | null; to?: string | null;
+    found_mib?: number | null; after_mib?: number | null; limit_mib?: number | null;
+    seconds?: number | null; ok?: boolean | null;
+  } | null;
+  /** The card right now. */
+  gpu?: {
+    name?: string; vram_total_mib?: number | null; vram_used_mib?: number | null;
+    vram_free_mib?: number | null;
+  } | null;
+}
+
+/** One box in GET /worker-modes (wanly-api#392). */
+export interface ModeBox {
+  worker_id: string;
+  friendly_name: string;
+  status: string;
+  /** False when the box's control API did not answer. */
+  reachable: boolean;
+  mode_name: string | null;
+  pending_mode_name: string | null;
+  modes: string[];
+  mode_error: string | null;
+  last_unload: WorkerModeResponse["last_unload"];
+  gpu: WorkerModeResponse["gpu"];
+}
+
+/** What waits on one mode, and why it is not moving when no box serves the mode. */
+export interface ModeWaiting {
+  mode: string;
+  count: number;
+  /** "segments" | "captions" | "edits" | "runs" */
+  unit: string;
+  reason: string | null;
+}
+
+/** GET /worker-modes: every box's mode and the per-mode waiting summary (console#589). */
+export interface WorkerModesSummary {
+  boxes: ModeBox[];
+  waiting: ModeWaiting[];
+  /** The scene-caption lane, which is never a mode: {depth, up, url, fallback, why}. */
+  scene: { depth?: number | null; up?: boolean | null; url?: string | null;
+           fallback?: string | null; why?: string | null };
 }
 
 /** The captioner's queue, for a view that is not about one image (GET /images/caption-queue).

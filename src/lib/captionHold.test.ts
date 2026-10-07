@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  captionInFlight, holdPlace, holdSummary, isCaptionHeld, joinNote, needsNote,
+  captionInFlight, holdPlace, holdSummary, isCaptionHeld, joinNote, modeWaitLabel, needsNote,
 } from "./captionHold";
 
 describe("isCaptionHeld", () => {
@@ -72,5 +72,14 @@ describe("holdSummary (console#587)", () => {
       .toBe("5 jobs waiting for captions (3 images) · caption queue 28 deep");
     expect(holdSummary({ jobs_waiting: 1, jobs_failed: 2, queue_depth: 0, images: [1] }))
       .toBe("1 job waiting for captions (1 image) · caption queue empty · 2 jobs with a failed caption");
+  });
+});
+
+describe("a hold waiting on a mode nobody is in (wanly-api#392)", () => {
+  it("the chip names the mode", () => {
+    expect(modeWaitLabel("no GPU in motion mode (3090a.zero: render, 3090b: edit); switch one"))
+      .toBe("No GPU in motion mode");
+    expect(modeWaitLabel("3090.zero is rendering")).toBeNull();
+    expect(modeWaitLabel(null)).toBeNull();
   });
 });

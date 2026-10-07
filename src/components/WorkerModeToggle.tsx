@@ -2,53 +2,48 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Box, CircularProgress, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
-import { Movie, PhotoCamera } from "@mui/icons-material";
+import { AutoFixHigh, ModelTraining, Movie, Videocam } from "@mui/icons-material";
 
 import { getWorkerMode, setWorkerMode } from "../api/client";
 import { ltxError } from "../api/ltx";
-import type { WorkerResponse } from "../api/types";
+import type { WorkerModeResponse, WorkerResponse } from "../api/types";
+import {
+  MODE_HELP, MODE_LABEL, MODES, describePending, describeUnload, describeVram, hasSeveralModes,
+  modeToSend, modeView, type ModeName,
+} from "../lib/workerModes";
 
 /**
- * Render or caption, on the worker card (wanly-gpu-docker#131).
+ * The box's mode, on the worker card: render, train, motion or edit (wanly-console#589).
  *
- * THE PROBLEM IT SOLVES. A box that runs both the render stack and the captioner is
- * continuously `online-busy` while a job is queued, and the captioner's busy guard then
- * refuses captions rather than fighting the render for VRAM. So starting a job meant losing
- * captioning until the queue drained. Flipping to caption stops everything that CLAIMS work:
- * queued jobs simply wait, untouched, and the card is the captioner's. Flipping back starts
- * the stack and the backlog goes.
+ * ONE MODE AT A TIME (wanly-gpu-docker#164). Each mode's model fills most of a 24 GB card --
+ * the LTX render stack, the trainer, the 32B motion captioner, Qwen-Image-Edit -- so a box
+ * does one of them, and switching is how the card changes hands. The box unloads the old
+ * mode, checks the card actually emptied, and only then starts the new one.
  *
  * IT ASKS THE BOX, and does not read a column. The container is the only thing that knows
- * what is actually running -- it can be restarted, or flipped by a call that never came
- * through the API -- so a stored copy would be a second answer free to be wrong. The cost is
- * one request per card, which is why it is skipped entirely for workers where the question
- * has no meaning (below).
+ * what is actually running -- it can be restarted, or switched by a call that never came
+ * through the API -- so a stored copy would be a second answer free to be wrong.
  *
  * A BOX THAT DOES NOT ANSWER RENDERS NOTHING. The row still shows, with its status and its
- * services; it just cannot be flipped. An error chip on every offline worker would be noise
- * on exactly the rows where the operator already knows something is wrong.
+ * services; it just cannot be switched.
  *
  * A SWITCH IS NOT INSTANT, and that is the design working rather than a delay to hide.
- * Stopping the render daemon lets the segment in flight FINISH -- up to ~27 minutes -- so a
- * flip made mid-render costs nothing. The box accepts and reports `pending_mode` until it
- * lands, and this polls for that: the chip says what is happening rather than snapping to a
- * mode the box is not in yet. It also means the flip survives a page reload, because the
- * state lives on the box and not in this component.
+ * Leaving render lets the segment in flight FINISH -- up to ~27 minutes -- so a switch made
+ * mid-render costs nothing. The box reports the pending mode until it lands, and this polls
+ * for that: "finishing segment, then motion" rather than snapping to a mode the box is not in
+ * yet. A training run is never interrupted: the box refuses the switch with the run named,
+ * and that text is shown as it is.
  */
 
-/** Can this box be flipped at all?
- *
- * Both halves have to exist: something that claims work to turn off, and something that does
- * not to leave on. A pure render pod has no caption mode and a captions-only box has no
- * render mode -- offering a toggle there is offering a button that can only fail. */
-const CLAIMS_WORK = ["ltx-engine", "lora-trainer"];
-
+/** Can this box be switched at all? Two or more mode services means there is something to
+ *  switch between; the box itself then says exactly which modes it can enter. */
 export function canSwitchMode(worker: WorkerResponse): boolean {
-  const provides = worker.provides ?? [];
-  if (provides.length === 0) return false;          // never reported; nothing to reason from
-  return provides.some((p) => CLAIMS_WORK.includes(p))
-    && provides.some((p) => !CLAIMS_WORK.includes(p));
+  return hasSeveralModes(worker.provides);
 }
+
+const ICONS: Record<ModeName, typeof Movie> = {
+  render: Movie, train: ModelTraining, motion: Videocam, edit: AutoFixHigh,
+};
 
 export default function WorkerModeToggle({
   worker, onChanged,
@@ -56,22 +51,18 @@ export default function WorkerModeToggle({
   worker: WorkerResponse;
   onChanged?: () => void;
 }) {
-  const [mode, setMode] = useState<string | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
+  const [info, setInfo] = useState<WorkerModeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState<ModeName | null>(null);
 
   const load = useCallback(async () => {
     try {
       const m = await getWorkerMode(worker.id);
-      setMode(m.mode);
-      setPending(m.pending_mode);
-      // The box reports why the last switch failed; it failed long after the click, so this
-      // is the only way to hear about it at all.
-      setError(m.mode_error);
-      return m.pending_mode;
+      setInfo(m);
+      return m;
     } catch {
-      // Unreachable box. Stays null, renders nothing -- see the note above.
-      setMode(null);
+      // Unreachable box. Renders nothing -- see the note above.
+      setInfo(null);
       return null;
     }
   }, [worker.id]);
@@ -81,88 +72,106 @@ export default function WorkerModeToggle({
     void load();
   }, [load, worker.status]);
 
+  const view = info ? modeView(info) : null;
+  const pending = view?.pending ?? null;
+
   // While a switch is running, ask again until it lands. 5s: the wait is dominated by a
   // render finishing, so polling faster only adds requests.
   useEffect(() => {
     if (!pending) return;
     const t = setInterval(() => {
-      void load().then((still) => {
-        if (!still) onChanged?.();
+      void load().then((m) => {
+        if (m && !(m.pending_mode_name ?? m.pending_mode)) onChanged?.();
       });
     }, 5000);
     return () => clearInterval(t);
   }, [pending, load, onChanged]);
 
-  if (mode === null) return null;
+  if (!info || !view || view.available.length < 2) return null;
 
-  const busy = pending !== null;
+  const busy = pending !== null || asking !== null;
 
-  const flip = async (next: string) => {
+  const set = async (target: ModeName) => {
+    if (busy || target === view.current || !view.available.includes(target)) return;
     setError(null);
-    // Optimistic only about the REQUEST, never about the mode: the chip goes to "switching"
-    // and the box decides when it is done.
-    setPending(next);
+    // Optimistic only about the REQUEST, never about the mode: the box decides when it lands.
+    setAsking(target);
     try {
-      const m = await setWorkerMode(worker.id, next);
-      setMode(m.mode);
-      setPending(m.pending_mode);
-      if (!m.pending_mode) onChanged?.();
+      const m = await setWorkerMode(worker.id, modeToSend(target, view.fourModes));
+      setInfo((prev) => (prev ? {
+        ...prev, mode: m.mode, pending_mode: m.pending_mode,
+        mode_name: m.mode_name ?? prev.mode_name,
+        pending_mode_name: m.pending_mode_name ?? null, mode_error: null,
+      } : prev));
+      if (!(m.pending_mode_name ?? m.pending_mode)) onChanged?.();
     } catch (e) {
-      // The box's own refusal, passed through by the API verbatim -- "MODE=caption leaves
-      // nothing to run" is text that says what to do about it.
+      // The box's own refusal, passed through by the API verbatim: "training Joana v3 on this
+      // box; switch to motion after it finishes" says exactly what to do about it.
       setError(ltxError(e));
-      setPending(null);
+    } finally {
+      setAsking(null);
     }
   };
 
-  const set = async (target: string) => {
-    if (busy || target === mode) return;
-    await flip(target);
-  };
+  // The box's own report of a switch that failed after the click (the card did not empty,
+  // a service would not start) -- it is the only place that failure can surface.
+  const shownError = error ?? (pending ? null : info.mode_error);
+  const vram = describeVram(info.gpu);
+  const unload = describeUnload(info.last_unload);
+  const rendering = worker.status === "online-busy";
 
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 34 }}>
-        Mode
-      </Typography>
-      <ToggleButtonGroup
-        size="small"
-        exclusive
-        value={pending ?? mode}
-        sx={{ "& .MuiToggleButton-root": { py: 0.15, px: 1, textTransform: "none" } }}
-      >
-        {/* BOTH options are always shown, selected or not. A single chip showing only the
-            current state reads as a label among the capability chips beside it -- which is
-            exactly how "Rendering" next to "trainer" got read as "this box is in trainer
-            mode". Two buttons say, without a tooltip, that this is a choice and what the
-            other choice is. */}
-        <ToggleButton value="ltx-engine" disabled={busy} onClick={() => set("ltx-engine")}>
-          <Movie sx={{ fontSize: 15, mr: 0.5 }} />
-          Render
-        </ToggleButton>
-        <ToggleButton value="caption" disabled={busy} onClick={() => set("caption")}>
-          <PhotoCamera sx={{ fontSize: 15, mr: 0.5 }} />
-          Caption
-        </ToggleButton>
-      </ToggleButtonGroup>
-      {busy && (
-        <Tooltip title={
-          pending === "caption"
-            ? "Switching when the segment in flight finishes — nothing is lost."
-            : "Starting the render stack…"
-        }>
+    <Box sx={{ mb: 1.5 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+        <Typography variant="caption" color="text.secondary" sx={{ minWidth: 34 }}>
+          Mode
+        </Typography>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={pending ?? asking ?? view.current}
+          sx={{ "& .MuiToggleButton-root": { py: 0.15, px: 1, textTransform: "none" } }}
+        >
+          {/* EVERY mode is always shown, selected or not. A single chip showing only the
+              current state reads as a label among the capability chips beside it. All four
+              buttons say, without a tooltip, that this is a choice and what the others are;
+              one this box cannot enter is shown disabled with the reason. */}
+          {MODES.map((m) => {
+            const Icon = ICONS[m];
+            const can = view.available.includes(m);
+            return (
+              <Tooltip key={m} title={can ? MODE_HELP[m] : `${worker.friendly_name} is not equipped for ${m} mode`}>
+                <span>
+                  <ToggleButton value={m} disabled={busy || !can} onClick={() => void set(m)}>
+                    <Icon sx={{ fontSize: 15, mr: 0.5 }} />
+                    {MODE_LABEL[m]}
+                  </ToggleButton>
+                </span>
+              </Tooltip>
+            );
+          })}
+        </ToggleButtonGroup>
+        {(pending || asking) && (
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             <CircularProgress size={12} />
             <Typography variant="caption" color="text.secondary">
-              {pending === "caption" ? "after current job" : "starting"}
+              {pending ? describePending(pending, rendering) : `asking for ${asking}`}
             </Typography>
           </Box>
-        </Tooltip>
+        )}
+        {vram && (
+          <Typography variant="caption" color="text.secondary">{vram}</Typography>
+        )}
+      </Box>
+      {shownError && (
+        <Typography variant="caption" color="error" sx={{ display: "block", mt: 0.5 }}>
+          {shownError}
+        </Typography>
       )}
-      {error && !busy && (
-        <Tooltip title={error}>
-          <Typography variant="caption" color="error">failed</Typography>
-        </Tooltip>
+      {unload && !shownError && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+          {unload}
+        </Typography>
       )}
     </Box>
   );

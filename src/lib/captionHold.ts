@@ -80,3 +80,13 @@ export function holdSummary(s: {
   }
   return parts.join(" · ");
 }
+
+/**
+ * "No GPU in motion mode" when a hold's note says no box is in the mode its caption needs
+ * (wanly-api#392), else null. The chip on the job row says this instead of "Waiting for
+ * caption…", because it is the one wait a person has to end by switching a box.
+ */
+export function modeWaitLabel(note: string | null | undefined): string | null {
+  const m = /no GPU in (\w+) mode/i.exec(note ?? "");
+  return m ? `No GPU in ${m[1].toLowerCase()} mode` : null;
+}

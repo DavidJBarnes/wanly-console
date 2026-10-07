@@ -43,6 +43,7 @@ import type {
   TrainingPreflight,
   TrainingJob,
   WorkerModeResponse,
+  WorkerModesSummary,
   CaptionHoldSummary,
   CaptionQueueStatus,
   CaptionTicket,
@@ -1103,7 +1104,13 @@ export async function getWorkerMode(id: string): Promise<WorkerModeResponse> {
   return data;
 }
 
-/** Flip a box between rendering and captioning, in place -- no container recreate, so it
+/** Every box's mode and what waits on each mode (wanly-api#392, console#589). */
+export async function getWorkerModes(): Promise<WorkerModesSummary> {
+  const { data } = await api.get<WorkerModesSummary>("/worker-modes");
+  return data;
+}
+
+/** Switch a box's mode (render / train / motion / edit), in place -- no container recreate, so it
  *  takes seconds rather than a boot and a model re-stage. */
 export async function setWorkerMode(id: string, mode: string): Promise<WorkerModeResponse> {
   const { data } = await api.post<WorkerModeResponse>(`/workers/${id}/mode`, { mode });
