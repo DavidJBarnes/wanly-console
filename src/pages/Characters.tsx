@@ -160,7 +160,7 @@ export default function Characters() {
                       <Chip key={b} size="small" label={b} variant="outlined"
                             color={b === "LoRA" ? "primary" : "secondary"} />
                     ))}
-                    {isDraft(c, characters ?? []) && (
+                    {isDraft(c) && (
                       <Chip size="small" label="Draft" color="warning" variant="outlined" />
                     )}
                     {ms.length > 0 && (
@@ -436,7 +436,7 @@ function CharacterDialog({
               No LoRA and no character sheet: this saves as a <b>draft</b>, which cannot render
               until it has one. {canBuild
                 ? "Save it, then Build sheet in its card makes its first sheet from one photo of her."
-                : "A pair renders with its first member's sheet, or attach a joint LoRA."}
+                : "A pair renders with its joint LoRA alone (never a member's sheet or face): attach one."}
             </Alert>
           )}
 
