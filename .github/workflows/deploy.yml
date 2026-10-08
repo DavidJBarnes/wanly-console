@@ -3,6 +3,9 @@ name: Deploy wanly-console
 on:
   push:
     branches: [main]
+  # A manual re-run of main, for when GitHub drops a push event: the merge of console#634
+  # (6e29ceb, 2026-10-08) fired no workflow at all, and main must never be pushed to directly.
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-west-2
