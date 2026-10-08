@@ -163,7 +163,7 @@ export default function AddFromRepoDialog({
       onAdded(updated);
       onClose();
     } catch (e: unknown) {
-      // A 409 names the run that locked the set since the dialog opened (wanly-api#356).
+      // A 409 says the set was locked by hand or archived since the dialog opened.
       setError(apiErrorText(e, "could not add them"));
     } finally {
       setBusy(false);

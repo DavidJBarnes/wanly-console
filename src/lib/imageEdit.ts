@@ -18,8 +18,8 @@ import type {
 } from "../api/types";
 import { lockedReason } from "./datasets";
 
-/** Why an edit cannot be saved to this dataset, or null when it can. A locked set (trained
- *  #356, or locked by hand #358) is refused by the API with a 409; the dialog says so first. */
+/** Why an edit cannot be saved to this dataset, or null when it can. A read-only set (locked
+ *  by hand #358, or archived #419) is refused by the API with a 409; the dialog says so first. */
 export function datasetSaveProblem(ds: Dataset | null | undefined): string | null {
   if (!ds) return "Pick a dataset";
   return lockedReason(ds);

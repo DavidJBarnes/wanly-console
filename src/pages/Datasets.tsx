@@ -5,18 +5,19 @@ import { useNavigate, useSearchParams } from "react-router";
 import {
   Alert, Autocomplete, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton,
-  LinearProgress, MenuItem, Radio, RadioGroup, Stack, TextField, Tooltip, Typography,
+  LinearProgress, MenuItem, Radio, RadioGroup, Stack, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
 import {
-  Add, AutoAwesome, Check, Close, ContentCopy, ContentCut, Delete, Edit, Face, Lock, LockOpen,
+  Add, Archive, AutoAwesome, Check, Close, ContentCopy, ContentCut, Delete, Edit, Face, Lock, LockOpen,
+  Unarchive,
   ModelTraining, Movie, PhotoLibrary, Star, StarBorder, Upload, WarningAmber,
 } from "@mui/icons-material";
 
 import {
   addDatasetImages, captionDataset, cloneDataset, createDataset, cropDatasetFaces, deleteDataset,
   getCaptionStatus, getFileUrl, getRegularizeStatus, listDatasets, lockDataset, regularizeDataset,
-  removeDatasetImage, scoreDataset, setDatasetAnchor, unlockDataset, updateDataset,
-  updateDatasetCaption,
+  archiveDataset, removeDatasetImage, scoreDataset, setDatasetAnchor, unarchiveDataset,
+  unlockDataset, updateDataset, updateDatasetCaption,
 } from "../api/client";
 import type { CropFraming } from "../api/client";
 import { listRecipes } from "../api/ltx";
@@ -32,7 +33,7 @@ import {
   cropSelectionProblem, datasetNameProblem, defaultCloneName, formatCos, isAssigned, isClip,
   itemCountLabel, splitClips,
   lockedReason, lockLabel, lockReasonBody, ownerLabel, parseTags, progressPct, regularizeProgressLabel, removalWarning, scoreFor,
-  unlockedLabel, verdictFor,
+  trainedByLabel, trainedLabel, unlockedLabel, usedInLabel, verdictFor,
 } from "../lib/datasets";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
 import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
@@ -60,16 +61,18 @@ export default function Datasets() {
   const askedDataset = searchParams.get("dataset");
   const matchedRef = useRef<HTMLDivElement>(null);
 
+  // Archived version sets (wanly-api#419) are history: hidden unless asked for.
+  const [showArchived, setShowArchived] = useState(false);
   const fetchAll = useCallback(async () => {
     try {
-      setDatasets((await listDatasets()).sort(byRecent));
+      setDatasets((await listDatasets(showArchived)).sort(byRecent));
       setError("");
     } catch {
       setError("could not load datasets");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showArchived]);
 
   const fetchCharacters = useCallback(() => {
     listRecipes().then((b) => setCharacters(b.characters)).catch(() => {});
@@ -91,6 +94,13 @@ export default function Datasets() {
           {datasets.length}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
+        <Tooltip title="Old version sets folded into each subject's living set. Read-only; their runs still link to them.">
+          <FormControlLabel
+            control={<Switch size="small" checked={showArchived}
+                             onChange={(e) => setShowArchived(e.target.checked)} />}
+            label="Show archived"
+          />
+        </Tooltip>
         <Button variant="contained" startIcon={<Add />} onClick={() => setCreateOpen(true)}>
           New dataset
         </Button>
@@ -219,10 +229,12 @@ function DatasetCard({
   const assigned = isAssigned(ds);
   const owner = ownerLabel(ds);
   const coverage = captionCoverage(ds);
-  // Set once it has trained a LoRA (wanly-api#356) or was locked by hand (wanly-api#358):
-  // everything that changes what it trains on is off, with this as the reason. Rename, tags, anchor, scoring and Train stay on.
+  // Read-only only when locked by hand (wanly-api#358) or archived (#419): everything that
+  // changes what it trains on is off, with this as the reason. Training locks nothing any more
+  // (#420) -- each run keeps its own record of what it trained on.
   const locked = lockedReason(ds);
   const unlocked = unlockedLabel(ds);
+  const trained = trainedLabel(ds);
 
   // Background runs on the server (#537). Both re-read the set when they finish, so the
   // captions or frames they wrote show up without a reload.
@@ -368,6 +380,20 @@ function DatasetCard({
     }
   };
 
+  const toggleArchive = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      if (ds.archived_at) await unarchiveDataset(ds.id);
+      else await archiveDataset(ds.id);
+    } catch (e: unknown) {
+      setMsg(apiErrorText(e, ds.archived_at ? "could not unarchive it" : "could not archive it"));
+    } finally {
+      setBusy(false);
+    }
+    onChanged();
+  };
+
   const removeSet = async () => {
     if (!confirm(`Delete dataset "${ds.name}" and its images?`)) return;
     setMsg("");
@@ -420,12 +446,20 @@ function DatasetCard({
           <Chip size="small" variant="outlined" label={itemCountLabel(ds.images)} />
           {locked && (
             <Tooltip title={locked}>
-              <Chip size="small" color="default" icon={<Lock />} label={lockLabel(ds)} />
+              <Chip size="small" color="default" icon={ds.archived_at ? <Archive /> : <Lock />}
+                    label={lockLabel(ds)} />
             </Tooltip>
           )}
-          {/* One-time unlock (wanly-api#363): shown until a new run or a hand lock locks it again. */}
+          {/* Which runs this set fed (wanly-api#419). Information, not a lock: each run keeps
+              its own record of what it trained on -- Training page, "Trained on". */}
+          {trained && (
+            <Tooltip title={`${trained}. Each run keeps its own record of the images it trained on, so this set stays editable.`}>
+              <Chip size="small" variant="outlined" icon={<ModelTraining />}
+                    label={`Trained ${ds.trained_by!.length} run${ds.trained_by!.length === 1 ? "" : "s"}`} />
+            </Tooltip>
+          )}
           {unlocked && (
-            <Tooltip title="Unlocked by hand: editable until the next training run that uses it, which locks it again">
+            <Tooltip title="Unlocked by hand: editable until it is locked again">
               <Chip size="small" variant="outlined" icon={<LockOpen />} label={unlocked} />
             </Tooltip>
           )}
@@ -484,20 +518,17 @@ function DatasetCard({
               </span>
             </Tooltip>
           )}
-          <Tooltip title={locked
-            ? "Make an unlocked copy — same images, captions, scores and owner — to build the next version from"
-            : "Make a copy of this set, with the same images, captions, scores and owner"}>
+          <Tooltip title="Make a separate copy of this set — same images, captions, scores and owner. Not needed to change a trained set: it stays editable, and each run records what it trained on">
             <span>
               <Button size="small" startIcon={<ContentCopy />} disabled={busy} onClick={clone}>
                 Clone
               </Button>
             </span>
           </Tooltip>
-          {/* Hand lock (wanly-api#358): for a set that should stop changing without having
-              trained. Gone once locked — Clone is the way to an editable set, and Unlock
-              (wanly-api#363) the deliberate one-time override. */}
+          {/* Hand lock (wanly-api#358): optional, off by default. Training never locks a set
+              (#420); this is for one to keep exactly as it is. Unlock lifts it. */}
           {canLockByHand(ds) && (
-            <Tooltip title="Freeze this set as it is. Clone it to change it later">
+            <Tooltip title="Optional: freeze this set as it is. Unlock it to change it later">
               <span>
                 <Button size="small" startIcon={<Lock />} disabled={busy} onClick={() => setLockOpen(true)}>
                   Lock
@@ -506,7 +537,7 @@ function DatasetCard({
             </Tooltip>
           )}
           {canUnlock(ds) && (
-            <Tooltip title="One-time override: make this set editable again. The next training run that uses it locks it again">
+            <Tooltip title="Lift the hand lock: make this set editable again">
               <span>
                 <Button size="small" startIcon={<LockOpen />} disabled={busy} onClick={() => setUnlockOpen(true)}>
                   Unlock
@@ -514,6 +545,18 @@ function DatasetCard({
               </span>
             </Tooltip>
           )}
+          {/* Archive (wanly-api#419): hide an old version set without deleting it. Its runs
+              keep linking to it. */}
+          <Tooltip title={ds.archived_at
+            ? "Bring this set back into the lists and pickers, editable again"
+            : "Hide this set from the lists and pickers. Nothing is deleted; runs that trained on it keep their record"}>
+            <span>
+              <Button size="small" startIcon={ds.archived_at ? <Unarchive /> : <Archive />}
+                      disabled={busy} onClick={toggleArchive}>
+                {ds.archived_at ? "Unarchive" : "Archive"}
+              </Button>
+            </span>
+          </Tooltip>
           {isReg ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
               <TextField
@@ -721,6 +764,21 @@ function DatasetCard({
                       </IconButton>
                     </Box>
                   </Tooltip>
+                  {/* Which runs trained on this image (wanly-api#422). Removing it from the set
+                      changes none of them: each run keeps its own record. */}
+                  {usedInLabel(ds.used_in?.[uri]) && (
+                    <Tooltip title={`Used in ${(ds.used_in?.[uri] ?? []).map(trainedByLabel).join(", ")}`}>
+                      <Chip
+                        size="small"
+                        icon={<ModelTraining sx={{ fontSize: 14 }} />}
+                        label={usedInLabel(ds.used_in?.[uri])}
+                        sx={{
+                          position: "absolute", bottom: 6, right: 4, height: 22, maxWidth: TILE - 8,
+                          bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1,
+                        }}
+                      />
+                    </Tooltip>
+                  )}
                   {/* Image Edit and the anchor star are for stills: the editor takes one frame,
                       and the anchor is what every clip's frames are scored against. */}
                   {clip ? (
@@ -1131,7 +1189,7 @@ function CaptionField({
   uri: string;
   caption: string;
   disabled: boolean;
-  /** Why the set cannot be edited (wanly-api#356), or null. Shown instead of the caption on
+  /** Why the set cannot be edited (hand lock or archived), or null. Shown instead of the caption on
    *  hover, since hovering is how you would find out why a click did nothing. */
   locked?: string | null;
   onSaved: () => void;
@@ -1206,8 +1264,8 @@ function CaptionField({
  *
  * The API refuses a change while a running job uses the set; its message is shown as is.
  */
-/** Confirm a hand lock (wanly-api#358). Says it sticks before asking: the way to change the set
- *  afterwards is to clone it, or the deliberate one-time Unlock (wanly-api#363). */
+/** Confirm a hand lock (wanly-api#358): optional, for a set to keep exactly as it is. Unlock
+ *  lifts it. Training never locks a set (wanly-api#420). */
 function LockDialog({
   ds, onClose, onLocked,
 }: {
@@ -1240,8 +1298,8 @@ function LockDialog({
           {error && <Alert severity="error">{error}</Alert>}
           <Typography variant="body2">
             Its images, crops, captions and owner can no longer be changed, and it cannot be
-            deleted. To change it later, clone it and edit the copy — or, as a deliberate
-            one-time override, unlock it.
+            deleted, until you unlock it. Optional: a set that trained stays editable without
+            this, because each run keeps its own record of what it trained on.
           </Typography>
           <TextField
             size="small"
@@ -1265,9 +1323,8 @@ function LockDialog({
   );
 }
 
-/** Confirm the one-time unlock (wanly-api#363). Says what it does and does not do before
- *  asking: the LoRAs already trained keep their own snapshot, and the set locks itself again
- *  at its next training run. */
+/** Confirm lifting a hand lock (wanly-api#358, #363). The runs that trained on the set keep
+ *  their own record of what they trained on, so changing it changes none of them. */
 function UnlockDialog({
   ds, onClose, onUnlocked,
 }: {
@@ -1298,15 +1355,11 @@ function UnlockDialog({
         <Stack spacing={2} sx={{ mt: 0.5 }}>
           {error && <Alert severity="error">{error}</Alert>}
           <Typography variant="body2">
-            <strong>A one-time override.</strong> Its images, crops, captions and owner can be
-            changed again, and it can be deleted.
+            Its images, crops, captions and owner can be changed again, and it can be deleted.
           </Typography>
           <Typography variant="body2">
             The LoRAs already trained from it keep their own snapshot of its images and captions,
             so changing the set does not change what they learned or what a retry trains on.
-          </Typography>
-          <Typography variant="body2">
-            The next training run that uses it locks it again.
           </Typography>
         </Stack>
       </DialogContent>

@@ -225,18 +225,53 @@ export function isAssigned(ds: Pick<Dataset, "kind" | "character" | "reg_class">
 }
 
 /**
- * What a locked set trained (wanly-api#356): "Kelly-2000 v5 (completed)", one per run.
- *
- * Every run is listed, not just the latest — a set that trained v5 and v6 is the record of
- * both, and hiding one would make the lock look like it belongs to a single LoRA.
+ * One run that trained on a set or an image: "Kelly-2000 v5 (completed)", with " SDXL" for an
+ * SDXL run — versions are numbered per arch (wanly-api#402), so "v1" alone is ambiguous.
  */
-export function trainedByLabel(t: Pick<DatasetTrainedBy, "character" | "version" | "status">): string {
-  return `${t.character} v${t.version} (${t.status})`;
+export function trainedByLabel(
+  t: Pick<DatasetTrainedBy, "character" | "version" | "status"> & { arch?: string | null },
+): string {
+  return `${t.character} v${t.version}${t.arch === "sdxl" ? " SDXL" : ""} (${t.status})`;
 }
 
-type LockFacts = Pick<Dataset, "locked" | "trained_by" | "locked_at" | "locked_reason">;
+/**
+ * The "trained" chip (wanly-api#419): which runs a set fed. INFORMATION, not a lock — a set
+ * stays the subject's living set after it trains, and each run keeps its own record of what
+ * it trained on (Training page → Trained on). Null when nothing trained on it.
+ */
+export function trainedLabel(ds: Pick<Dataset, "trained_by">): string | null {
+  const runs = ds.trained_by ?? [];
+  if (!runs.length) return null;
+  return `Trained ${runs.map(trainedByLabel).join(", ")}`;
+}
 
-/** The hand-lock half of the chip (wanly-api#358), or null when it was never locked by hand. */
+/**
+ * An image's "used in" badge (wanly-api#422): "v1, v3" — or "Joana v1 · Me v2 SDXL" when the
+ * runs are not all one character's. Null for an image no run trained on.
+ */
+export function usedInLabel(
+  runs: ReadonlyArray<Pick<DatasetTrainedBy, "character" | "version"> & { arch?: string | null }>
+    | undefined,
+): string | null {
+  if (!runs?.length) return null;
+  const groups = new Map<string, number[]>();
+  for (const r of runs) {
+    const key = `${r.character}\u0000${r.arch === "sdxl" ? " SDXL" : ""}`;
+    const vs = groups.get(key) ?? [];
+    if (!vs.includes(r.version)) vs.push(r.version);
+    groups.set(key, vs);
+  }
+  const oneCharacter = new Set(runs.map((r) => r.character)).size === 1;
+  return [...groups.entries()].map(([key, vs]) => {
+    const [character, arch] = key.split("\u0000");
+    const versions = vs.sort((a, b) => a - b).map((v) => `v${v}`).join(", ");
+    return `${oneCharacter ? "" : `${character} `}${versions}${arch}`;
+  }).join(" · ");
+}
+
+type LockFacts = Pick<Dataset, "locked" | "locked_at" | "locked_reason" | "archived_at">;
+
+/** The hand-lock text (wanly-api#358), or null when it was never locked by hand. */
 export function manualLockLabel(ds: Pick<Dataset, "locked_at" | "locked_reason">): string | null {
   if (!ds.locked_at) return null;
   const reason = ds.locked_reason?.trim();
@@ -244,57 +279,35 @@ export function manualLockLabel(ds: Pick<Dataset, "locked_at" | "locked_reason">
 }
 
 /**
- * The lock chip's text: what trained it, that it was locked by hand, or both — the two reasons
- * are told apart (wanly-api#358), because "trained v5" and "frozen as the final set" mean
- * different things about whether it is safe to build on.
- *
- * A set the API calls locked with neither reason listed still says so — the API is the judge
- * of the lock, and a chip that vanished would re-enable nothing anyway.
+ * The lock chip's text, or null when the set is editable. Training locks nothing any more
+ * (wanly-api#420): only a hand lock — optional — or archiving makes a set read-only.
  */
-export function lockLabel(ds: Pick<Dataset, "trained_by" | "locked_at" | "locked_reason">): string {
-  const runs = (ds.trained_by ?? []).map(trainedByLabel);
-  const manual = manualLockLabel(ds);
-  const parts = [
-    ...(runs.length ? [`Trained ${runs.join(", ")}`] : []),
-    ...(manual ? [manual] : []),
-  ];
-  return parts.length ? parts.join(" · ") : "Trained a LoRA";
+export function lockLabel(ds: LockFacts): string | null {
+  if (ds.archived_at) return "Archived";
+  return manualLockLabel(ds) ?? (ds.locked ? "Locked" : null);
 }
 
 /**
- * Why an edit control is off, or null when the set is editable.
- *
- * One sentence for every refused control, so the tooltip on each says the same thing the
- * API's 409 would: what locked it, and that Clone is the way to change it. Driven by
- * `locked` alone, so a hand lock turns off exactly what a training lock does.
+ * Why an edit control is off, or null when the set is editable. One sentence, the same the
+ * API's 409 says: what makes it read-only, and the way back.
  */
 export function lockedReason(ds: LockFacts): string | null {
-  if (!ds.locked) return null;
-  const runs = (ds.trained_by ?? []).map(trainedByLabel);
-  const manual = Boolean(ds.locked_at);
-  const why: string[] = [];
-  if (runs.length) why.push(`trained ${runs.join(", ")}`);
-  if (manual) {
-    const reason = ds.locked_reason?.trim();
-    why.push(`was locked by hand${reason ? ` (“${reason}”)` : ""}`);
+  if (!ds.locked && !ds.archived_at) return null;
+  if (ds.archived_at) {
+    return "Archived: this version set was folded into its subject's living set. Unarchive it to change it.";
   }
-  // Locked with no reason listed: the #356 wording, since training is the lock that predates
-  // the hand one.
-  const trained = runs.length > 0 || !manual;
-  if (!why.length) why.push("trained a LoRA");
-  return `Locked: this set ${why.join(" and ")}`
-    + (trained ? ", and changing it would make that LoRA's record untrue" : "")
-    + ". Clone it to change it.";
+  const reason = ds.locked_reason?.trim();
+  return `Locked by hand${reason ? ` (“${reason}”)` : ""}. Unlock it to change it.`;
 }
 
-/** Whether to offer the Lock button: only on a set that is not locked for any reason. */
-export function canLockByHand(ds: Pick<Dataset, "locked">): boolean {
-  return !ds.locked;
+/** Whether to offer the Lock button: an editable, unarchived set. */
+export function canLockByHand(ds: Pick<Dataset, "locked" | "archived_at">): boolean {
+  return !ds.locked && !ds.archived_at;
 }
 
-/** Whether to offer the Unlock button (wanly-api#363): on a set locked for either reason. */
-export function canUnlock(ds: Pick<Dataset, "locked">): boolean {
-  return Boolean(ds.locked);
+/** Whether to offer the Unlock button: only on a hand-locked set. */
+export function canUnlock(ds: Pick<Dataset, "locked_at" | "archived_at">): boolean {
+  return Boolean(ds.locked_at) && !ds.archived_at;
 }
 
 /** A timestamp's LOCAL calendar date as YYYY-MM-DD — the same in every locale. */
@@ -307,8 +320,7 @@ export function localDate(iso: string): string {
 
 /**
  * The "unlocked <date>" chip (wanly-api#363), or null. Only while the set is still unlocked:
- * once a new run or a hand lock locks it again, the lock chip says why and this would only
- * confuse it.
+ * once it is locked by hand again, the lock chip says so and this would only confuse it.
  */
 export function unlockedLabel(ds: Pick<Dataset, "locked" | "unlocked_at">): string | null {
   if (ds.locked || !ds.unlocked_at) return null;
