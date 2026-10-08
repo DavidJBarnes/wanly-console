@@ -26,6 +26,7 @@ import {
 } from "../lib/trainingJob";
 import LossChart from "../components/LossChart";
 import TrainLoraDialog from "../components/TrainLoraDialog";
+import TrainedOnDialog from "../components/TrainedOnDialog";
 import type { TrainingJob } from "../api/types";
 
 /**
@@ -185,6 +186,7 @@ function TrainingRow({
   /** The trigger chip says "copied" for a moment: the row's message line is inside the
    *  checkpoints accordion, which is usually collapsed. */
   const [triggerCopied, setTriggerCopied] = useState(false);
+  const [trainedOnOpen, setTrainedOnOpen] = useState(false);
   /** The API's reason for refusing to delete this run with its files, while it stands. */
   const [refusal, setRefusal] = useState("");
   /** Likewise for a refused checkpoint delete (console#627): a character renders with it, a
@@ -226,9 +228,8 @@ function TrainingRow({
     }
   };
 
-  /** Re-queue a failed run. The API re-reads the datasets first (api#342), so a run that
-   *  died on images fixed since trains on the fixed set — which is why this is one call
-   *  rather than a resubmit of the create payload. */
+  /** Re-queue a failed run in place. It trains exactly its own snapshot (wanly-api#423) —
+   *  the images and captions it recorded — never what the dataset holds now. */
   const retry = async () => {
     setRetryErr("");
     try {
@@ -336,10 +337,16 @@ function TrainingRow({
                 .filter(Boolean).join(" · ")
             }
           >
-            <Chip size="small" variant="outlined"
+            {/* Click: what this run trained on, image by image (wanly-api#422). The run is the
+                record now; the dataset may have moved on since. */}
+            <Chip size="small" variant="outlined" onClick={() => setTrainedOnOpen(true)}
               label={`${job.dataset_images.length + (job.identities ?? [])
                 .reduce((n, g) => n + (g.images?.length ?? g.dataset?.count ?? 0), 0)} images`} />
           </Tooltip>
+          {trainedOnOpen && (
+            <TrainedOnDialog jobId={job.id} title={`${job.character} v${job.version}`}
+                             onClose={() => setTrainedOnOpen(false)} />
+          )}
           {runTriggers(job).length > 0 && (
             <Tooltip title="The trigger this LoRA trained under — prompt with it. Click to copy.">
               <Chip
@@ -378,7 +385,7 @@ function TrainingRow({
           ) : (
             <>
               {job.status === "failed" && (
-                <Tooltip title="Retry — re-queues this run with its images re-read from the datasets, so images fixed since the failure are trained on">
+                <Tooltip title="Retry — re-queues this run exactly as it was: the same images and captions it recorded. To train on the dataset as it is now, start a new run">
                   <IconButton
                     size="small"
                     color="primary"

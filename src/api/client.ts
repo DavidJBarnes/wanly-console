@@ -35,6 +35,7 @@ import type {
   CaptionTryBody,
   CaptionTryResult,
   Dataset,
+  TrainedOn,
   DatasetKind,
   DatasetScores,
   RegClass,
@@ -345,8 +346,10 @@ export async function getStats(): Promise<StatsResponse> {
 
 // --- Datasets ---
 
-export async function listDatasets(): Promise<Dataset[]> {
-  const { data } = await api.get<Dataset[]>("/datasets");
+/** The datasets, newest first. Archived version sets (wanly-api#419) only when asked for. */
+export async function listDatasets(includeArchived = false): Promise<Dataset[]> {
+  const { data } = await api.get<Dataset[]>("/datasets",
+    includeArchived ? { params: { include_archived: true } } : undefined);
   return data;
 }
 
@@ -434,29 +437,41 @@ export async function setDatasetAnchor(id: string, uri: string): Promise<Dataset
   return updateDataset(id, { anchor_uri: uri });
 }
 
-/** An unlocked copy of a set — same image URIs, captions, scores, anchor, kind/owner/class
- *  and notes (wanly-api#356). The way to build the next version from a set that has trained
- *  a LoRA and so cannot be edited. The copy shares the objects; neither side's purge-delete
- *  touches the other's. */
+/** A separate copy of a set — same image URIs, captions, scores, anchor, kind/owner/class
+ *  and notes. No longer the way to a v2 (wanly-api#420): a trained set stays editable. The
+ *  copy shares the objects; neither side's purge-delete touches the other's. */
 export async function cloneDataset(id: string, name: string): Promise<Dataset> {
   const { data } = await api.post<Dataset>(`/datasets/${id}/clone`, { name });
   return data;
 }
 
-/** Lock a set by hand (wanly-api#358), for one that should stop changing without having
- *  trained. Clone is the way to change it afterwards, as with the training lock; only the
- *  deliberate one-time unlock lifts it. Locking a set that is already locked returns it
- *  unchanged. */
+/** Lock a set by hand (wanly-api#358): optional, for a set to keep exactly as it is. Training
+ *  never locks a set (#420). /unlock lifts it. */
 export async function lockDataset(id: string, reason?: string): Promise<Dataset> {
   const { data } = await api.post<Dataset>(`/datasets/${id}/lock`, reason ? { reason } : {});
   return data;
 }
 
-/** One-time unlock (wanly-api#363): clears the hand lock and lets go of every run trained so
- *  far, so the set can change once more. Those LoRAs keep their own snapshot of its images
- *  and captions; the next training run that uses the set locks it again. */
+/** Lift a hand lock (wanly-api#358, #363). */
 export async function unlockDataset(id: string): Promise<Dataset> {
   const { data } = await api.post<Dataset>(`/datasets/${id}/unlock`);
+  return data;
+}
+
+/** Archive a set (wanly-api#419): hidden from lists and pickers, read-only, never deleted. */
+export async function archiveDataset(id: string): Promise<Dataset> {
+  const { data } = await api.post<Dataset>(`/datasets/${id}/archive`);
+  return data;
+}
+
+export async function unarchiveDataset(id: string): Promise<Dataset> {
+  const { data } = await api.post<Dataset>(`/datasets/${id}/unarchive`);
+  return data;
+}
+
+/** What a training run trained on, per dataset, and how each set differs now (#422). */
+export async function getTrainedOn(jobId: string): Promise<TrainedOn> {
+  const { data } = await api.get<TrainedOn>(`/training/${jobId}/trained-on`);
   return data;
 }
 

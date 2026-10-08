@@ -561,21 +561,23 @@ export interface Dataset {
   /** Likeness to the anchor per URI, saved when the set is scored, so the ring survives a
    *  reload. Null is "no face detected", an absent score rather than a low one. */
   scores?: Record<string, number | null> | null;
-  /** True once a pending, running or completed training run used this set (wanly-api#356),
-   *  or once somebody locked it by hand (wanly-api#358). The API then refuses every change to
-   *  what it trains on — images, crops, captions, kind, owner, class, delete — with a 409, so
-   *  the record stays true. Clone to change it. */
+  /** Read-only: locked by hand (wanly-api#358, optional) or archived (#419). Training no
+   *  longer locks a set (#420) — each run records what it trained on. */
   locked?: boolean;
-  /** The runs that lock it. A failed or cancelled run is not here: no LoRA came of it. */
+  /** Every run with a LoRA that trained on this set, oldest first. Information, not a lock. */
   trained_by?: DatasetTrainedBy[];
-  /** When it was locked by hand (POST /datasets/{id}/lock), or null if it never was. Only
-   *  the one-time unlock clears it, and a clone starts unlocked (wanly-api#358, #363). */
+  /** Per image URI, the runs that trained on it — the "used in v1, v3" badges (#422).
+   *  Images no run used are absent. */
+  used_in?: Record<string, DatasetTrainedBy[]> | null;
+  /** When it was locked by hand (POST /datasets/{id}/lock), or null. */
   locked_at?: string | null;
   /** The optional note given when it was locked by hand. */
   locked_reason?: string | null;
-  /** When it was last unlocked (POST /datasets/{id}/unlock, wanly-api#363), or null. From
-   *  then on only runs created after it lock the set, so `trained_by` lists only those. */
+  /** When it was last unlocked (POST /datasets/{id}/unlock, wanly-api#363), or null. */
   unlocked_at?: string | null;
+  /** A version set the backfill folded into its subject's living set (#419): hidden from
+   *  lists and pickers, read-only, never deleted. */
+  archived_at?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -585,8 +587,43 @@ export interface DatasetTrainedBy {
   character: string;
   version: number;
   status: string;
-  /** When the run was created — what the set's `unlocked_at` is compared against. */
+  /** ltx | sdxl — versions are numbered per arch (wanly-api#402). */
+  arch?: string | null;
   created_at?: string | null;
+}
+
+/** GET /training/{id}/trained-on (wanly-api#422): what a run trained on, per group. */
+export interface TrainedOnImage {
+  uri: string;
+  /** The final caption as trained, trigger prefix included. */
+  caption?: string | null;
+  /** Whether the dataset still holds it; null when the dataset is gone. */
+  still_in_dataset?: boolean | null;
+}
+
+export interface TrainedOnGroup {
+  group_index: number;
+  kind: string;
+  character?: string | null;
+  dataset_id?: string | null;
+  dataset_name?: string | null;
+  dataset_name_as_trained?: string | null;
+  dataset_exists: boolean;
+  num_repeats?: number | null;
+  windows: number;
+  images: TrainedOnImage[];
+  /** In the dataset now, not in this run. */
+  added_since: string[];
+  /** In this run, not in the dataset now. */
+  removed_since: string[];
+}
+
+export interface TrainedOn {
+  job_id: string;
+  character: string;
+  version: number;
+  arch: string;
+  groups: TrainedOnGroup[];
 }
 
 export type DatasetKind = "character" | "composition" | "regularization";
