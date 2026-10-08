@@ -38,6 +38,7 @@ import type {
   TrainedOn,
   DatasetKind,
   DatasetScores,
+  FixSmallFacesStatus,
   RegClass,
   RegularizeStatus,
   TrainingCreate,
@@ -411,6 +412,27 @@ export async function cropDatasetFaces(
     },
     ...REPEAT_ARRAY_PARAMS,
   });
+  return data;
+}
+
+/** Measure each still's face height at training size (wanly-api#432): the unmeasured ones,
+ *  or all of them with `overwrite`. About a second an image on the face-crop box. */
+export async function measureDatasetFaces(id: string, overwrite = false): Promise<Dataset> {
+  const { data } = await api.post<Dataset>(`/datasets/${id}/faces/measure`, null, {
+    params: overwrite ? { overwrite: true } : {},
+  });
+  return data;
+}
+
+/** "Fix small faces" (wanly-api#432): upscaled head-and-shoulders crops added beside photos
+ *  with small faces, tiny images upscaled in place. Runs in the background; poll the status. */
+export async function fixSmallFaces(id: string): Promise<FixSmallFacesStatus> {
+  const { data } = await api.post<FixSmallFacesStatus>(`/datasets/${id}/fix-small-faces`);
+  return data;
+}
+
+export async function getFixSmallFacesStatus(id: string): Promise<FixSmallFacesStatus> {
+  const { data } = await api.get<FixSmallFacesStatus>(`/datasets/${id}/fix-small-faces/status`);
   return data;
 }
 

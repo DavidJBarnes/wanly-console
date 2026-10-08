@@ -8,14 +8,16 @@ import {
   LinearProgress, MenuItem, Radio, RadioGroup, Stack, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
 import {
-  Add, Archive, AutoAwesome, Check, Close, ContentCopy, ContentCut, Delete, Edit, Face, Lock, LockOpen,
+  Add, Archive, AutoAwesome, AutoFixHigh, Check, Close, ContentCopy, ContentCut, Delete, Edit, Face,
+  Lock, LockOpen,
   Unarchive,
   ModelTraining, Movie, PhotoLibrary, Star, StarBorder, Upload, WarningAmber,
 } from "@mui/icons-material";
 
 import {
   addDatasetImages, captionDataset, cloneDataset, createDataset, cropDatasetFaces, deleteDataset,
-  getCaptionStatus, getFileUrl, getRegularizeStatus, listDatasets, lockDataset, regularizeDataset,
+  fixSmallFaces, getCaptionStatus, getFileUrl, getFixSmallFacesStatus, getRegularizeStatus,
+  measureDatasetFaces, listDatasets, lockDataset, regularizeDataset,
   archiveDataset, removeDatasetImage, scoreDataset, setDatasetAnchor, unarchiveDataset,
   unlockDataset, updateDataset, updateDatasetCaption,
 } from "../api/client";
@@ -35,6 +37,10 @@ import {
   lockedReason, lockLabel, lockReasonBody, ownerLabel, parseTags, progressPct, regularizeProgressLabel, removalWarning, scoreFor,
   trainedByLabel, trainedLabel, unlockedLabel, usedInLabel, verdictFor,
 } from "../lib/datasets";
+import {
+  faceSizeLabel, faceSizeLevel, faceSizeSummary, faceSizeTooltip, fixProgressLabel,
+  smallFacesWarning,
+} from "../lib/faceSize";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
 import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
 
@@ -243,6 +249,38 @@ function DatasetCard({
     () => getRegularizeStatus(ds.id), onChanged, isReg);
   const captionRunning = Boolean(captioning.status?.running);
   const renderRunning = isReg && Boolean(rendering.status?.running);
+  // "Fix small faces" (wanly-api#432) runs on the server too, and re-reads the set when done.
+  const fixing = useBackgroundStatus(() => getFixSmallFacesStatus(ds.id), onChanged, !isReg);
+  const fixRunning = !isReg && Boolean(fixing.status?.running);
+  const faceSizes = faceSizeSummary(ds);
+  const [measureNote, setMeasureNote] = useState("");
+
+  // MEASURE WHAT IS UNMEASURED, ON SIGHT (wanly-api#432). The API keeps no hook in the routes
+  // that add images -- a new still is simply unmeasured -- so the page asks when it sees some.
+  // Once per (set, count): a failure (an older face-crop service, the box down) is said once
+  // under the toolbar rather than retried on every render, and an upload changes the count and
+  // asks again. Regularization pools are generic people; their face size is nobody's concern.
+  const measuredKey = useRef("");
+  useEffect(() => {
+    if (isReg || faceSizes.unmeasured === 0) return;
+    const key = `${ds.id}:${faceSizes.unmeasured}`;
+    if (measuredKey.current === key) return;
+    measuredKey.current = key;
+    measureDatasetFaces(ds.id)
+      .then(() => { setMeasureNote(""); onChanged(); })
+      .catch((e: unknown) => setMeasureNote(
+        `Face size not measured: ${apiErrorText(e, "the face-crop service did not answer")}`));
+  }, [ds.id, faceSizes.unmeasured, isReg, onChanged]);
+
+  const fix = async () => {
+    setMsg("");
+    try {
+      await fixSmallFaces(ds.id);
+      fixing.kick();
+    } catch (e: unknown) {
+      setMsg(apiErrorText(e, "could not start fixing small faces"));
+    }
+  };
 
   const caption = async (overwrite: boolean) => {
     if (overwrite && !confirm(
@@ -597,6 +635,24 @@ function DatasetCard({
               </span>
             </Tooltip>
           )}
+          {/* Offered only when there is something to fix, or a fix is running. */}
+          {!isReg && (faceSizes.small > 0 || fixRunning) && (
+            <Tooltip title={locked ?? ("Faces under 250 px at training size are learned small. "
+              + "Adds an upscaled head-and-shoulders crop beside each such photo, and upscales "
+              + "tiny images in place (the originals stay in S3).")}>
+              <span>
+                <Button
+                  size="small"
+                  color="warning"
+                  startIcon={<AutoFixHigh />}
+                  disabled={busy || fixRunning || Boolean(locked)}
+                  onClick={fix}
+                >
+                  Fix small faces ({faceSizes.small})
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           <Tooltip title={locked ?? ("Describe framing, pose, clothing, light and background for every image "
             + "without a caption. Never the face: the trigger carries identity.")}>
             <span>
@@ -686,13 +742,19 @@ function DatasetCard({
             s: rendering.status,
             done: (rendering.status?.done ?? 0) + (rendering.status?.failed ?? 0),
             total: rendering.status?.requested ?? 0 },
+          // A finished fix's summary is news, not an error (`done`); the other two only have
+          // a label when they stopped short.
+          { label: isReg ? null : fixProgressLabel(fixing.status), s: fixing.status,
+            done: fixing.status?.done ?? 0, total: fixing.status?.total ?? 0,
+            finished: Boolean(fixing.status && !fixing.status.error) },
         ].filter((p) => p.label).map((p) => {
           const pct = p.s?.running ? progressPct(p.done, p.total) : null;
+          const tone = p.s?.running ? "text.secondary"
+            : "finished" in p && p.finished ? "success.main" : "error.main";
           return (
             <Box key={p.label} sx={{ mb: 1 }}>
               {pct !== null && <LinearProgress variant="determinate" value={pct} />}
-              <Typography variant="caption"
-                color={p.s?.running ? "text.secondary" : "error.main"}>
+              <Typography variant="caption" color={tone}>
                 {p.label}
               </Typography>
             </Box>
@@ -707,6 +769,16 @@ function DatasetCard({
         {eligible.warning && (
           <Typography variant="caption" color="warning.main" sx={{ display: "block" }}>
             {eligible.warning}
+          </Typography>
+        )}
+        {!isReg && smallFacesWarning(ds) && (
+          <Typography variant="caption" color="warning.main" sx={{ display: "block" }}>
+            {smallFacesWarning(ds)}
+          </Typography>
+        )}
+        {!isReg && measureNote && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+            {measureNote}
           </Typography>
         )}
 
@@ -806,6 +878,19 @@ function DatasetCard({
                       <Face sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Tooltip>}
+                  {/* FACE SIZE AT TRAINING SIZE (#636): red under 250 px, amber under 400.
+                      Nothing for a comfortable face -- the badge is a flag, not decoration. */}
+                  {!isReg && !clip && ds.faces?.[uri]
+                    && ["small", "amber"].includes(faceSizeLevel(ds.faces[uri])) && (
+                    <Tooltip title={faceSizeTooltip(ds.faces[uri])}>
+                      <Chip
+                        size="small"
+                        color={faceSizeLevel(ds.faces[uri]) === "small" ? "error" : "warning"}
+                        label={faceSizeLabel(ds.faces[uri])}
+                        sx={{ position: "absolute", top: 8, left: 40, height: 22, boxShadow: 1 }}
+                      />
+                    </Tooltip>
+                  )}
                   {/* Where this image's caption is (console#564): its description, a held
                       job's, or this set's training caption while it is in line. */}
                   <CaptionStatusChip path={uri} overlay corner="right" includeDatasetCaptions />
