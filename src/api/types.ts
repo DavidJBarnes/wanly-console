@@ -535,6 +535,38 @@ export interface TrainingEpoch {
  *
  *  `images` is an ORDERED list of s3:// URIs, not a folder listing: it survives an image being
  *  moved, and it fixes the order the trainer stages them in, which the captions pair against. */
+/** One still's face measurement (wanly-api#432). `face_px` is the LARGEST face's height AT
+ *  TRAINING SIZE -- after the trainer's downscale to the 1024^2 area, which never upscales --
+ *  and null when no face was found. */
+export interface DatasetFaceSize {
+  width: number | null;
+  height: number | null;
+  face_px: number | null;
+  face_h?: number | null;
+  yaw?: number | null;
+  pitch?: number | null;
+  roll?: number | null;
+  det_score?: number | null;
+  /** How many faces were found. Above 1, face_px may be somebody else's. */
+  faces: number;
+  /** The head-and-shoulders crop "Fix small faces" made of this photo. */
+  crop_uri?: string | null;
+  /** On an upscaled copy: the original it replaced in the set (still in S3). */
+  upscaled_from?: string | null;
+}
+
+/** POST/GET /datasets/{id}/fix-small-faces (wanly-api#432). */
+export interface FixSmallFacesStatus {
+  running: boolean;
+  /** measuring | upscaling | cropping | measuring results | done */
+  stage: string | null;
+  done: number;
+  total: number;
+  error: string | null;
+  /** The note the finished run added to the set. */
+  summary: string | null;
+}
+
 export interface Dataset {
   id: string;
   name: string;
@@ -561,6 +593,9 @@ export interface Dataset {
   /** Likeness to the anchor per URI, saved when the set is scored, so the ring survives a
    *  reload. Null is "no face detected", an absent score rather than a low one. */
   scores?: Record<string, number | null> | null;
+  /** Face size per still (wanly-api#432), from the face-crop service's /measure. A still with
+   *  no entry has not been measured yet; clips are never measured. */
+  faces?: Record<string, DatasetFaceSize> | null;
   /** Read-only: locked by hand (wanly-api#358, optional) or archived (#419). Training no
    *  longer locks a set (#420) — each run records what it trained on. */
   locked?: boolean;
