@@ -809,7 +809,7 @@ function DatasetCard({
                   >
                     {clip ? <ClipThumb src={getFileUrl(uri)} ring={ring} /> : (
                       <Box
-                        component="img"
+                        component="img" loading="lazy"
                         src={getFileUrl(uri)}
                         sx={{
                           width: TILE, height: TILE, objectFit: "cover", borderRadius: 1,
@@ -1128,7 +1128,7 @@ function CropDialog({
                 return (
                   <Box
                     key={uri}
-                    component="img"
+                    component="img" loading="lazy"
                     src={getFileUrl(uri)}
                     onClick={() => toggled(uri)}
                     sx={{

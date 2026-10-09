@@ -1169,7 +1169,7 @@ export default function ImageRepo() {
                     </>
                   )}
                   <Box
-                    component="img"
+                    component="img" loading="lazy"
                     src={getFileUrl(lightboxImage.path)}
                     alt={lightboxImage.filename}
                     sx={{
@@ -1694,7 +1694,7 @@ export default function ImageRepo() {
               {bulkCheck.failures.map((f) => (
                 <Stack key={f.path} direction="row" spacing={1.5} alignItems="center" sx={{ py: 0.75 }}>
                   <Box
-                    component="img"
+                    component="img" loading="lazy"
                     src={getFileUrl(f.path)}
                     alt={f.filename}
                     sx={{ width: 48, height: 48, objectFit: "cover", borderRadius: 1, flexShrink: 0 }}
@@ -1734,7 +1734,7 @@ export default function ImageRepo() {
                     return (
                       <Stack key={path} direction="row" spacing={1.5} alignItems="flex-start" sx={{ py: 0.75 }}>
                         <Box
-                          component="img"
+                          component="img" loading="lazy"
                           src={getFileUrl(path)}
                           alt={img?.filename ?? ""}
                           sx={{ width: 56, height: 56, objectFit: "cover", borderRadius: 1, flexShrink: 0 }}
@@ -2045,7 +2045,7 @@ export default function ImageRepo() {
         >
           {screensaverPoolRef.current.length > 0 && (
             <Box
-              component="img"
+              component="img" loading="lazy"
               src={getFileUrl(screensaverPoolRef.current[screensaverIndex]?.path ?? "")}
               alt={screensaverPoolRef.current[screensaverIndex]?.filename ?? ""}
               sx={{
@@ -2308,7 +2308,7 @@ export default function ImageRepo() {
                       <Card sx={{ position: "relative" }}>
                         <CardActionArea onClick={() => handleOpenLightbox(image)}>
                           <CardMedia
-                            component="img"
+                            component="img" loading="lazy"
                             image={getFileUrl(image.path)}
                             alt={image.filename}
                             sx={{ height: 200, objectFit: "cover" }}
@@ -2406,7 +2406,7 @@ export default function ImageRepo() {
                       <Card sx={{ position: "relative" }}>
                         <CardActionArea onClick={() => handleOpenLightbox(image)}>
                           <CardMedia
-                            component="img"
+                            component="img" loading="lazy"
                             image={getFileUrl(image.path)}
                             alt={image.filename}
                             sx={{ height: 200, objectFit: "cover" }}
@@ -2468,7 +2468,7 @@ export default function ImageRepo() {
                         }
                       >
                         <CardMedia
-                          component="img"
+                          component="img" loading="lazy"
                           image={getFileUrl(image.path)}
                           alt={image.filename}
                           sx={{ height: 200, objectFit: "cover" }}
@@ -2524,7 +2524,7 @@ export default function ImageRepo() {
                 <CardActionArea onClick={() => handleFolderClick(folder.name)}>
                   {folder.thumbnail ? (
                     <CardMedia
-                      component="img"
+                      component="img" loading="lazy"
                       image={getFileUrl(folder.thumbnail)}
                       alt={folder.name}
                       sx={{ height: 200, objectFit: "cover" }}
@@ -2884,7 +2884,7 @@ export default function ImageRepo() {
                         }
                       >
                         <CardMedia
-                          component="img"
+                          component="img" loading="lazy"
                           image={getFileUrl(image.path)}
                           alt={image.filename}
                           sx={{ height: 200, objectFit: "cover" }}
@@ -3047,7 +3047,7 @@ export default function ImageRepo() {
                 }
               >
                 <CardMedia
-                  component="img"
+                  component="img" loading="lazy"
                   image={getFileUrl(image.path)}
                   alt={image.filename}
                   sx={{ height: 200, objectFit: "cover" }}
