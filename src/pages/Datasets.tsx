@@ -5,7 +5,8 @@ import { useNavigate, useSearchParams } from "react-router";
 import {
   Alert, Autocomplete, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton,
-  LinearProgress, MenuItem, Radio, RadioGroup, Stack, Switch, TextField, Tooltip, Typography,
+  LinearProgress, MenuItem, Radio, RadioGroup, Stack, Switch, TextField, ToggleButton,
+  ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
 import {
   Add, Archive, AutoAwesome, AutoFixHigh, Check, Close, CompareArrows, ContentCopy, ContentCut,
@@ -45,6 +46,8 @@ import {
 } from "../lib/faceSize";
 import type { FaceFix } from "../lib/faceFixes";
 import { faceFixes, fixesByResult } from "../lib/faceFixes";
+import { DATASET_SHOWS, matchesShow, parseShow, showCounts } from "../lib/datasetFilter";
+import type { DatasetShow } from "../lib/datasetFilter";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
 import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
 
@@ -70,6 +73,20 @@ export default function Datasets() {
   const [searchParams, setSearchParams] = useSearchParams();
   const askedDataset = searchParams.get("dataset");
   const matchedRef = useRef<HTMLDivElement>(null);
+  // ALL · SINGLES · PAIRS (wanly-console#643), in the URL so a link or a reload keeps it.
+  // Grouped by `kind`, the field the owner badge reads, so the two cannot disagree. The set a
+  // link asked for (?dataset=) is shown whatever the filter says: the link is the stronger ask.
+  const show = parseShow(searchParams.get("show"));
+  const setShow = (next: DatasetShow) => {
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev);
+      if (next === "all") p.delete("show");
+      else p.set("show", next);
+      return p;
+    }, { replace: true });
+  };
+  const counts = showCounts(datasets);
+  const visible = datasets.filter((ds) => matchesShow(ds, show) || ds.id === askedDataset);
 
   // Archived version sets (wanly-api#419) are history: hidden unless asked for.
   const [showArchived, setShowArchived] = useState(false);
@@ -101,8 +118,24 @@ export default function Datasets() {
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 2, mb: 3 }}>
         <Typography variant="h4">Datasets</Typography>
         <Typography variant="body2" color="text.secondary">
-          {datasets.length}
+          {show === "all" ? datasets.length : `${visible.length} of ${datasets.length}`}
         </Typography>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={show}
+          onChange={(_, v: DatasetShow | null) => { if (v) setShow(v); }}
+          aria-label="Show which datasets"
+          sx={{ alignSelf: "center" }}
+        >
+          {/* Regularization only when there is a pool to show (or the URL asks for it). */}
+          {DATASET_SHOWS.filter((o) => o.value !== "regularization"
+            || counts.regularization > 0 || show === "regularization").map((o) => (
+            <ToggleButton key={o.value} value={o.value} sx={{ py: 0.25, px: 1.25 }}>
+              {o.label}{o.value === "all" ? "" : ` (${counts[o.value]})`}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
         <Box sx={{ flexGrow: 1 }} />
         <Tooltip title="Old version sets folded into each subject's living set. Read-only; their runs still link to them.">
           <FormControlLabel
@@ -126,8 +159,15 @@ export default function Datasets() {
         </Typography>
       )}
 
+      {!loading && datasets.length > 0 && visible.length === 0 && (
+        <Typography variant="body2" color="text.secondary">
+          No {DATASET_SHOWS.find((o) => o.value === show)?.label.toLowerCase()} datasets.{" "}
+          <Button size="small" onClick={() => setShow("all")}>Show all</Button>
+        </Typography>
+      )}
+
       <Stack spacing={2}>
-        {datasets.map((ds) => (
+        {visible.map((ds) => (
           <Box
             key={ds.id}
             ref={ds.id === askedDataset ? matchedRef : undefined}
@@ -142,7 +182,12 @@ export default function Datasets() {
               onCloned={async (copy) => {
                 // Re-read first, so the copy's card exists when the accent lands on it.
                 await fetchAll();
-                setSearchParams({ dataset: copy.id });
+                // The filter (?show=) stays as it was.
+                setSearchParams((prev) => {
+                  const p = new URLSearchParams(prev);
+                  p.set("dataset", copy.id);
+                  return p;
+                });
               }}
               highlighted={ds.id === askedDataset}
             />
