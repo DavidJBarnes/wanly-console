@@ -18,18 +18,34 @@ export const AMBER_FACE_PX = 400;
 
 export type FaceSizeLevel = "small" | "amber" | "ok" | "no-face" | "unmeasured";
 
-export function faceSizeLevel(entry: DatasetFaceSize | null | undefined): FaceSizeLevel {
-  if (!entry) return "unmeasured";
-  if (entry.face_px === null || entry.face_px === undefined) return "no-face";
-  if (entry.face_px < SMALL_FACE_PX) return "small";
-  if (entry.face_px < AMBER_FACE_PX) return "amber";
+/** COMPOSITION SETS (wanly-api#436) are judged by the SMALLER of the two largest faces
+ *  (`pair_px`): both people must be learnable, and Fix makes a two-person crop there. A photo
+ *  with fewer than two faces has no pair size -- "no-face" here, so no badge; the fix reports
+ *  it. An entry from before #436 has no `boxes` and is re-measured by the API, so it is
+ *  "unmeasured" on a pair set -- which is what makes the open card ask for it. */
+export const isPairSet = (ds: Pick<Dataset, "kind">): boolean => ds.kind === "composition";
+
+function sizeOf(entry: DatasetFaceSize, pair: boolean): number | null | undefined {
+  return pair ? entry.pair_px : entry.face_px;
+}
+
+export function faceSizeLevel(
+  entry: DatasetFaceSize | null | undefined, pair = false,
+): FaceSizeLevel {
+  if (!entry || (pair && (entry.boxes === null || entry.boxes === undefined))) {
+    return "unmeasured";
+  }
+  const px = sizeOf(entry, pair);
+  if (px === null || px === undefined) return "no-face";
+  if (px < SMALL_FACE_PX) return "small";
+  if (px < AMBER_FACE_PX) return "amber";
   return "ok";
 }
 
 /** "182 px" for the badge. Rounded: a tenth of a pixel is noise, not information. */
-export function faceSizeLabel(entry: DatasetFaceSize): string {
-  return entry.face_px === null || entry.face_px === undefined
-    ? "no face" : `${Math.round(entry.face_px)} px`;
+export function faceSizeLabel(entry: DatasetFaceSize, pair = false): string {
+  const px = sizeOf(entry, pair);
+  return px === null || px === undefined ? "no face" : `${Math.round(px)} px`;
 }
 
 /** FIXED = the crop "Fix small faces" made of this photo is still in the set (wanly-api#437
@@ -42,9 +58,13 @@ export function isFixed(entry: DatasetFaceSize | null | undefined, images: strin
 
 /** The badge's tooltip: what the number is, and what to do about a small one. `fixed`: its
  *  crop is in the set, so the red badge stays (the photo IS small) but says it is dealt with. */
-export function faceSizeTooltip(entry: DatasetFaceSize, fixed = false): string {
+export function faceSizeTooltip(entry: DatasetFaceSize, fixed = false, pair = false): string {
   const parts: string[] = [];
-  if (entry.face_px !== null && entry.face_px !== undefined) {
+  if (pair && entry.pair_px !== null && entry.pair_px !== undefined) {
+    parts.push(`Smaller of the two faces ${Math.round(entry.pair_px)} px tall at training size`);
+  } else if (pair) {
+    parts.push("Fewer than two faces detected");
+  } else if (entry.face_px !== null && entry.face_px !== undefined) {
     parts.push(`Face ${Math.round(entry.face_px)} px tall at training size`);
   } else {
     parts.push("No face detected");
@@ -52,13 +72,16 @@ export function faceSizeTooltip(entry: DatasetFaceSize, fixed = false): string {
   if (entry.width && entry.height) parts.push(`image ${entry.width}×${entry.height}`);
   if (entry.yaw !== null && entry.yaw !== undefined) parts.push(`yaw ${Math.round(entry.yaw)}°`);
   let text = parts.join(", ") + ".";
-  if ((entry.faces ?? 0) > 1) {
+  if (!pair && (entry.faces ?? 0) > 1) {
     text += ` ${entry.faces} faces found; this is the largest, which may not be the subject.`;
   }
   if (entry.upscaled_from) text += " Upscaled by Fix small faces; the original is still in S3.";
-  const level = faceSizeLevel(entry);
+  const level = faceSizeLevel(entry, pair);
   if (level === "small" && fixed) {
     text += " Fixed: Fix small faces added an upscaled crop of it to the set (crop added).";
+  } else if (level === "small" && pair) {
+    text += ` Under ${SMALL_FACE_PX} px the trainer learns that face small — Fix small faces `
+      + "adds an upscaled two-person crop of both of them.";
   } else if (level === "small") {
     text += ` Under ${SMALL_FACE_PX} px the trainer learns the face small — Fix small faces `
       + "adds an upscaled close-up.";
@@ -71,18 +94,19 @@ export function faceSizeTooltip(entry: DatasetFaceSize, fixed = false): string {
 /** The set's tally over its stills: how many are small, and how many are still unmeasured.
  *  `small` leaves out the FIXED ones (their crop is in the set) -- it is what the button would
  *  still do something about, and what the preflight warning counts; `fixed` counts those. */
-export function faceSizeSummary(ds: Pick<Dataset, "images" | "faces">): {
+export function faceSizeSummary(ds: Pick<Dataset, "images" | "faces" | "kind">): {
   stills: number; measured: number; small: number; amber: number; unmeasured: number;
   fixed: number;
 } {
   const { stills } = splitClips(ds.images);
   const faces = ds.faces ?? {};
+  const pair = isPairSet(ds);
   let small = 0;
   let amber = 0;
   let measured = 0;
   let fixed = 0;
   for (const u of stills) {
-    const level = faceSizeLevel(faces[u]);
+    const level = faceSizeLevel(faces[u], pair);
     if (level === "unmeasured") continue;
     measured += 1;
     if (level === "small" && isFixed(faces[u], ds.images)) fixed += 1;
@@ -95,9 +119,13 @@ export function faceSizeSummary(ds: Pick<Dataset, "images" | "faces">): {
 
 /** The line under the toolbar, or null when there is nothing to say. Mirrors the training
  *  preflight's small_faces warning, so the two read the same. */
-export function smallFacesWarning(ds: Pick<Dataset, "images" | "faces">): string | null {
+export function smallFacesWarning(ds: Pick<Dataset, "images" | "faces" | "kind">): string | null {
   const s = faceSizeSummary(ds);
   if (!s.small) return null;
+  if (isPairSet(ds)) {
+    return `${s.small} of ${s.stills} images show the smaller of the two faces under `
+      + `${SMALL_FACE_PX} px at training size — Fix small faces adds upscaled two-person crops`;
+  }
   return `${s.small} of ${s.stills} images show the face under ${SMALL_FACE_PX} px at training `
     + "size — Fix small faces adds upscaled close-ups";
 }

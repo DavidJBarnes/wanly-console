@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { DatasetFaceSize, FixSmallFacesStatus } from "../api/types";
 import {
   AMBER_FACE_PX, SMALL_FACE_PX, faceSizeLabel, faceSizeLevel, faceSizeSummary, faceSizeTooltip,
-  fixProgressLabel, isFixed, smallFacesWarning,
+  fixProgressLabel, isFixed, isPairSet, smallFacesWarning,
 } from "./faceSize";
 
 /**
@@ -99,5 +99,41 @@ describe("fixProgressLabel", () => {
       .toBe("Fixed small faces: 1 upscaled");
     expect(fixProgressLabel(st({}))).toBeNull();
     expect(fixProgressLabel(null)).toBeNull();
+  });
+});
+
+describe("composition sets (wanly-api#436)", () => {
+  const images = ["s3://b/a.jpg", "s3://b/b.jpg", "s3://b/c.jpg", "s3://b/d.jpg"];
+  const pairFace = (face_px: number, pair_px: number | null) =>
+    face(face_px, { pair_px, faces: pair_px === null ? 1 : 2, boxes: [[0, 0, 1, 1]] });
+
+  it("judges a pair photo by the smaller of the two faces", () => {
+    const e = pairFace(400, 180);
+    expect(faceSizeLevel(e, true)).toBe("small");
+    expect(faceSizeLevel(e)).toBe("ok");
+    expect(faceSizeLabel(e, true)).toBe("180 px");
+    expect(faceSizeTooltip(e, false, true)).toContain("two-person crop");
+  });
+
+  it("reads an entry from before #436 as unmeasured, so the open card re-measures it", () => {
+    expect(faceSizeLevel(face(120), true)).toBe("unmeasured");
+    expect(faceSizeLevel(face(120))).toBe("small");
+  });
+
+  it("does not count a one-face photo as small on a pair set", () => {
+    const s = faceSizeSummary({
+      kind: "composition", images,
+      faces: { "s3://b/a.jpg": pairFace(400, 150), "s3://b/b.jpg": pairFace(120, null),
+               "s3://b/c.jpg": face(120) },
+    });
+    expect(s).toEqual({ stills: 4, measured: 2, small: 1, amber: 0, unmeasured: 2, fixed: 0 });
+    expect(isPairSet({ kind: "composition" })).toBe(true);
+    expect(isPairSet({ kind: "character" })).toBe(false);
+  });
+
+  it("says two-person crops in the warning", () => {
+    expect(smallFacesWarning({ kind: "composition", images,
+                               faces: { "s3://b/a.jpg": pairFace(400, 150) } }))
+      .toContain("adds upscaled two-person crops");
   });
 });
