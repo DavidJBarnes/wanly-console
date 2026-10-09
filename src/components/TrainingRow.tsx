@@ -175,7 +175,7 @@ export default function TrainingRow({
   return (
     <Card>
       <CardContent>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", rowGap: 0.75, mb: 1 }}>
           <Typography variant="h6">v{job.version}</Typography>
           <StatusChip status={job.status} />
           {/* Which model the LoRA is for (#600, #614). A run from before `arch` is LTX. One
