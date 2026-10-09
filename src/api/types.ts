@@ -611,6 +611,9 @@ export interface Dataset {
   /** Per image URI, the runs that trained on it — the "used in v1, v3" badges (#422).
    *  Images no run used are absent. */
   used_in?: Record<string, DatasetTrainedBy[]> | null;
+  /** Lineage (wanly-api#445): which image in the set was made from which, keyed by the derived
+   *  image. A `from` that is no longer in `images` is a source that left the set. */
+  derived?: Record<string, DatasetDerived> | null;
   /** When it was locked by hand (POST /datasets/{id}/lock), or null. */
   locked_at?: string | null;
   /** The optional note given when it was locked by hand. */
@@ -1373,3 +1376,7 @@ export interface ImageEditResult {
   face_index?: number | null;
   face_box?: number[] | null;
 }
+
+/** How a dataset image was made from another (wanly-api#445). */
+export type DerivedHow = "crop" | "upscale" | "edit" | "fix_crop" | "duplicate";
+export interface DatasetDerived { from: string; how: DerivedHow; at?: string }
