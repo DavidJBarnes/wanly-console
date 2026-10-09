@@ -4,15 +4,15 @@ import {
   CardContent, Chip, IconButton, LinearProgress, Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
 import {
-  CheckCircle, CloudUpload, ContentCopy, Delete, DeleteForever, Download, EditNote, ExpandMore,
-  Refresh,
+  CloudUpload, ContentCopy, Delete, DeleteForever, Download, EditNote, ExpandMore,
+  HourglassTop, Refresh, Star, StarBorder,
 } from "@mui/icons-material";
 
 import {
   cancelTrainingJob, deleteTrainingCheckpoint, deleteTrainingJob, getFileUrl,
   publishTrainingEpoch, retryTrainingJob, updateTrainingNotes,
 } from "../api/client";
-import { createCharacter, updateCharacter } from "../api/ltx";
+import { starCheckpoint } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import StatusChip from "./StatusChip";
 import {
@@ -40,6 +40,10 @@ export default function TrainingRow({
   const live = job.status === "running" || job.status === "claimed" || job.status === "pending";
   const when = runTimeLabel(job);
   const inUse = checkpointInUse(job, characters);
+  // The character this run trained: the star is on its row (wanly-api#452).
+  const owner = characters.find((c) => c.name === job.character) ?? null;
+  const pendingLabel = owner?.star_pending?.training_job_id === job.id
+    ? owner.star_pending.label : null;
   // A start-image LoRA (console#600): the LTX engine cannot load it, so it is never "used".
   const sdxl = isSdxlJob(job);
   const [busy, setBusy] = useState(false);
@@ -102,23 +106,24 @@ export default function TrainingRow({
     }
   };
 
-  /** Point the character at this checkpoint. Creates the character if the run is its first. */
-  const use = async (uri: string) => {
+  /** STAR this checkpoint: the one the character renders with (wanly-api#452). One that is
+   *  still on the trainer is uploaded first; the star applies when it lands. */
+  const star = async (label: string) => {
     setBusy(true);
     setMsg("");
     try {
-      const existing = characters.find((c) => c.name === job.character);
-      const stem = loraStem(uri);
-      const face = job.thumbnail_uri ? { image_uri: job.thumbnail_uri } : {};
-      if (existing) {
-        await updateCharacter(existing.id, { char_lora: stem, trigger: job.trigger, ...face });
-      } else {
-        await createCharacter({ name: job.character, char_lora: stem, trigger: job.trigger, ...face });
+      if (!owner) {
+        setMsg(`${job.character} is not registered — create the character first`);
+        return;
       }
-      setMsg(`${job.character} now renders with ${stem}`);
+      const { pending } = await starCheckpoint(owner.id, job.id, label);
+      setMsg(pending
+        ? `${label} is on the trainer: it is uploading now, and ${job.character} renders with it once it lands.`
+        : `${job.character} now renders with ${label}`);
       onChanged();
-    } catch {
-      setMsg("could not update the character");
+    } catch (e: unknown) {
+      const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setMsg(typeof d === "string" ? d : "could not star it");
     } finally {
       setBusy(false);
     }
@@ -181,11 +186,11 @@ export default function TrainingRow({
           {/* Which model the LoRA is for (#600, #614). A run from before `arch` is LTX. One
               character can have an LTX v1 and an SDXL v1 side by side (#612), so both say so. */}
           {sdxl ? (
-            <Tooltip title="SDXL start-image LoRA (aio recipe). Download it for A1111; it is not an LTX character.">
-              <Chip size="small" color="secondary" variant="outlined" label="SDXL" />
+            <Tooltip title="SDXL start-image LoRA (aio recipe). Download it for A1111; renders never use it, so it has no star.">
+              <Chip size="small" color="secondary" variant="outlined" label="SDXL · for A1111" />
             </Tooltip>
           ) : (
-            <Tooltip title="LTX video LoRA. Use points the character at it for renders.">
+            <Tooltip title="LTX video LoRA. Star a checkpoint to make it the one the character renders with.">
               <Chip size="small" color="info" variant="outlined" label="LTX" />
             </Tooltip>
           )}
@@ -422,7 +427,7 @@ export default function TrainingRow({
                 Loss does not rank these — pick by eye at a fixed seed, same start image.{" "}
                 {sdxl
                   ? "SDXL checkpoints are for the start-image generator: download one into A1111."
-                  : `“Use” points ${job.character} at one.`}{" "}
+                  : `The ★ star is the one ${job.character} renders with; starring one still on the trainer uploads it first.`}{" "}
                 One that stayed on the trainer can be uploaded from here; any can be deleted
                 for good, which frees the trainer's disk.
               </Typography>
@@ -461,33 +466,39 @@ export default function TrainingRow({
                             Download
                           </Button>
                           {!sdxl && (
-                            <Button
-                              size="small"
-                              variant={current ? "contained" : "outlined"}
-                              color={current ? "success" : "primary"}
-                              startIcon={current ? <CheckCircle fontSize="small" /> : undefined}
-                              disabled={busy || current}
-                              onClick={() => use(row.uri as string)}
-                            >
-                              {current ? "In use" : "Use"}
-                            </Button>
+                            <StarButton current={current} pending={pendingLabel === row.label}
+                                        uploaded busy={busy} onStar={() => star(row.label)} />
                           )}
                           <Typography variant="caption" color="text.secondary">
                             {loraStem(row.uri)}
                           </Typography>
                         </>
                       ) : row.requested ? (
-                        <Chip size="small" variant="outlined" label="uploading soon" />
+                        <>
+                          <Chip size="small" variant="outlined" label="uploading soon" />
+                          {!sdxl && (
+                            <StarButton current={false} pending={pendingLabel === row.label}
+                                        uploaded={false} busy={busy || live}
+                                        onStar={() => star(row.label)} />
+                          )}
+                        </>
                       ) : (
-                        <Button
-                          size="small"
-                          variant="text"
-                          startIcon={<CloudUpload fontSize="small" />}
-                          disabled={busy || live}
-                          onClick={() => publish(row.label)}
-                        >
-                          Upload
-                        </Button>
+                        <>
+                          <Button
+                            size="small"
+                            variant="text"
+                            startIcon={<CloudUpload fontSize="small" />}
+                            disabled={busy || live}
+                            onClick={() => publish(row.label)}
+                          >
+                            Upload
+                          </Button>
+                          {!sdxl && (
+                            <StarButton current={false} pending={pendingLabel === row.label}
+                                        uploaded={false} busy={busy || live}
+                                        onStar={() => star(row.label)} />
+                          )}
+                        </>
                       )}
                       {/* Same gate as Upload: a live run is still writing these. The API also
                           refuses one a character renders with; disabling says so up front. */}
@@ -523,5 +534,39 @@ export default function TrainingRow({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** The star on one LTX checkpoint (wanly-api#452). Filled: the character renders with it.
+ *  Pending: starred while still on the trainer, uploading now. */
+function StarButton({ current, pending, uploaded, busy, onStar }: {
+  current: boolean; pending: boolean; uploaded: boolean; busy: boolean; onStar: () => void;
+}) {
+  if (current) {
+    return (
+      <Tooltip title="The character renders with this checkpoint">
+        <Chip size="small" color="warning" icon={<Star fontSize="small" />} label="Starred" />
+      </Tooltip>
+    );
+  }
+  if (pending) {
+    return (
+      <Tooltip title="Starred while it was only on the trainer: it is uploading, and becomes the character's LoRA when it lands">
+        <Chip size="small" color="warning" variant="outlined" icon={<HourglassTop fontSize="small" />}
+              label="Starred · uploading" />
+      </Tooltip>
+    );
+  }
+  return (
+    <Tooltip title={uploaded
+      ? "Star: make this the checkpoint the character renders with"
+      : "Star: it is only on the trainer, so it uploads first, then becomes the character's LoRA"}>
+      <span>
+        <Button size="small" variant="outlined" color="warning" disabled={busy}
+                startIcon={<StarBorder fontSize="small" />} onClick={onStar}>
+          Star
+        </Button>
+      </span>
+    </Tooltip>
   );
 }

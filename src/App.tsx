@@ -6,7 +6,6 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import JobQueue from "./pages/JobQueue";
 import JobDetail from "./pages/JobDetail";
-import Datasets from "./pages/Datasets";
 import DatasetDetail from "./pages/DatasetDetail";
 import Training from "./pages/Training";
 import Workers from "./pages/Workers";
@@ -19,6 +18,7 @@ import HologramPlayer from "./pages/HologramPlayer";
 import Wildcards from "./pages/Wildcards";
 import LoraRecipes from "./pages/LoraRecipes";
 import Characters from "./pages/Characters";
+import CharacterPage from "./pages/CharacterPage";
 
 export default function App() {
   return (
@@ -35,7 +35,9 @@ export default function App() {
             <Route path="/jobs/:id" element={<JobDetail />} />
             <Route path="/workers" element={<Workers />} />
             <Route path="/training" element={<Training />} />
-            <Route path="/datasets" element={<Datasets />} />
+            {/* Characters and Datasets collapsed (wanly-api#452): the list is the Characters
+                page; a set without a character is listed there too. */}
+            <Route path="/datasets" element={<Navigate to="/characters" replace />} />
             <Route path="/datasets/:id" element={<DatasetDetail />} />
             <Route path="/workers/:id" element={<WorkerDetail />} />
             <Route path="/videos" element={<Videos />} />
@@ -43,6 +45,7 @@ export default function App() {
             <Route path="/wildcards" element={<Wildcards />} />
             <Route path="/lora-recipes" element={<LoraRecipes />} />
             <Route path="/characters" element={<Characters />} />
+            <Route path="/characters/:name" element={<CharacterPage />} />
             <Route path="/images" element={<ImageRepo />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

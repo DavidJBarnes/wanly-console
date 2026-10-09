@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Box, CircularProgress, Typography } from "@mui/material";
 
-import { getRunHome, listDatasets } from "../api/client";
+import { getRunHome } from "../api/client";
 
 /**
  * /training is gone from the nav (wanly-console#647): training is reached through datasets,
@@ -25,18 +25,13 @@ export default function Training() {
     const go = (to: string) => { if (live) navigate(to, { replace: true }); };
     if (run) {
       getRunHome(run)
-        .then((id) => go(id ? `/datasets/${id}?run=${run}` : "/datasets"))
-        .catch(() => go("/datasets"));
+        .then((id) => go(id ? `/datasets/${id}?run=${run}` : "/characters"))
+        .catch(() => go("/characters"));
     } else if (character) {
-      listDatasets()
-        .then((sets) => {
-          const own = sets.find((d) => d.character === character
-            && (d.kind === "character" || d.kind === "composition"));
-          go(own ? `/datasets/${own.id}` : "/datasets");
-        })
-        .catch(() => go("/datasets"));
+      // A character's runs are on its own page now (wanly-api#452).
+      go(`/characters/${encodeURIComponent(character)}?tab=training`);
     } else {
-      go("/datasets");
+      go("/characters");
     }
     return () => { live = false; };
   }, [run, character, navigate]);
@@ -45,7 +40,7 @@ export default function Training() {
     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
       <CircularProgress size={20} />
       <Typography variant="body2" color="text.secondary">
-        LoRA training lives on each dataset now — taking you there…
+        LoRA training lives on each character's page now — taking you there…
       </Typography>
     </Box>
   );

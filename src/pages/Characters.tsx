@@ -5,18 +5,18 @@ import {
   Tooltip, Typography,
 } from "@mui/material";
 import { Add, Star } from "@mui/icons-material";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import {
   checkCharacterProvenance, createCharacter, deleteCharacter, getLoraProvenance, listLoras,
-  listRecipes, ltxError, setDefaultCharacter, TRIGGER_PLACEHOLDER, updateCharacter,
+  listRecipes, ltxError, TRIGGER_PLACEHOLDER, updateCharacter,
 } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import type { Gender } from "../api/types";
-import { getFileUrl } from "../api/client";
-import CharacterCard from "../components/CharacterCard";
+import { getFileUrl, listDatasets } from "../api/client";
+import type { Dataset } from "../api/types";
 import PickFromRepoDialog from "../components/PickFromRepoDialog";
-import { characterIconUri } from "../lib/characterIcon";
+import { characterPicture } from "../lib/characterPage";
 import {
   draftFor, fillPhrase, formError, formFor, formIsDraft, hasLora, identityBadges,
   isDraft, sheetSizeWarning, type CharacterForm,
@@ -45,13 +45,15 @@ export default function Characters() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Character | "new" | null>(null);
   const [confirm, setConfirm] = useState<Character | null>(null);
-  // The character whose card is open (console#616), by id so a reload shows its new state.
-  const [openId, setOpenId] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   // Where each character's trigger/gender disagree with how its LoRA trained (console#596).
   const [checks, setChecks] = useState<Record<string, CharacterProvenance>>({});
   const [fixing, setFixing] = useState<{ c: Character; ms: ProvenanceMismatch[] } | null>(null);
+  // Every set, once (wanly-api#452): a character's anchor is its card picture, and sets with
+  // no character are listed under the grid so nothing is unreachable.
+  const [sets, setSets] = useState<Dataset[]>([]);
+  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     try {
@@ -70,16 +72,8 @@ export default function Characters() {
 
   useEffect(() => {
     void load();
+    listDatasets().then(setSets).catch(() => setSets([]));
   }, [load]);
-
-  const toggleDefault = async (c: Character) => {
-    try {
-      await setDefaultCharacter(c.id, !c.is_default);
-      await load();
-    } catch (e) {
-      setError(ltxError(e));
-    }
-  };
 
   const remove = async () => {
     if (!confirm) return;
@@ -87,7 +81,6 @@ export default function Characters() {
     try {
       await deleteCharacter(confirm.id);
       setConfirm(null);
-      setOpenId(null);
       await load();
     } catch (e) {
       setError(ltxError(e));
@@ -96,7 +89,11 @@ export default function Characters() {
     }
   };
 
-  const open = (characters ?? []).find((c) => c.id === openId) ?? null;
+  const own = (d: Dataset) => d.kind === "character" || d.kind === "composition";
+  const anchorOf = new Map(sets.filter((d) => own(d) && d.anchor_uri && d.character)
+    .map((d) => [d.character as string, d.anchor_uri as string]));
+  const registered = new Set((characters ?? []).map((c) => c.name));
+  const loose = sets.filter((d) => !own(d) || !d.character || !registered.has(d.character));
   const hiddenCount = (characters ?? []).filter((c) => c.hidden).length;
   const shown = (characters ?? []).filter((c) => showHidden || !c.hidden);
 
@@ -146,8 +143,8 @@ export default function Characters() {
           const ms = checks[c.id]?.mismatches ?? [];
           return (
             <Card key={c.id} variant="outlined" sx={{ opacity: c.hidden ? 0.55 : 1 }}>
-              <CardActionArea onClick={() => setOpenId(c.id)}>
-                <CharacterHero character={c} />
+              <CardActionArea onClick={() => navigate(`/characters/${encodeURIComponent(c.name)}`)}>
+                <CharacterHero character={c} anchor={anchorOf.get(c.name) ?? null} />
                 <Box sx={{ p: 1.25 }}>
                   <Stack direction="row" spacing={0.5} alignItems="center">
                     <Typography variant="subtitle1" noWrap sx={{ flexGrow: 1 }}>{c.name}</Typography>
@@ -181,6 +178,21 @@ export default function Characters() {
           );
         })}
       </Box>
+      {loose.length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="subtitle1">Datasets without a character ({loose.length})</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Unassigned sets and regularization pools. Give one an owner on its page to make it
+            that character's dataset.
+          </Typography>
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            {loose.map((d) => (
+              <Chip key={d.id} clickable component={Link} to={`/datasets/${d.id}`}
+                    label={`${d.name} · ${d.images.length}`} variant="outlined" />
+            ))}
+          </Stack>
+        </Box>
+      )}
       {characters?.length === 0 && (
         <Typography variant="body2" color="text.secondary">
           No characters yet — add one with a LoRA, a character sheet, or both, or just a
@@ -188,17 +200,6 @@ export default function Characters() {
         </Typography>
       )}
 
-      {open && (
-        <CharacterCard
-          character={open}
-          characters={characters ?? []}
-          onClose={() => setOpenId(null)}
-          onChanged={() => void load()}
-          onEdit={() => setEditing(open)}
-          onDelete={() => setConfirm(open)}
-          onToggleDefault={() => toggleDefault(open)}
-        />
-      )}
 
       {editing && (
         <CharacterDialog
@@ -209,9 +210,8 @@ export default function Characters() {
           onClose={() => setEditing(null)}
           onSaved={(c) => {
             setEditing(null);
-            // A new character opens its card: that is where Build sheet and its icon are.
-            setOpenId(c.id);
-            void load();
+            // A new character opens its page: its dataset, Build sheet and icon are there.
+            navigate(`/characters/${encodeURIComponent(c.name)}`);
           }}
         />
       )}
@@ -329,7 +329,7 @@ function ReferenceImage({
   );
 }
 
-function CharacterDialog({
+export function CharacterDialog({
   character, loras, check, onFixed, onClose, onSaved,
 }: {
   character: Character | null;
@@ -595,8 +595,10 @@ function CharacterDialog({
 }
 
 /** The top of a grid card (console#616): the character's icon, big and square. */
-function CharacterHero({ character }: { character: Character }) {
-  const uri = characterIconUri(character);
+function CharacterHero({ character, anchor = null }: { character: Character; anchor?: string | null }) {
+  // A hand-chosen icon wins; then the anchor of the character's dataset (wanly-api#452: the
+  // anchor stands for the set, and the set is the character's); then the old fallbacks.
+  const uri = characterPicture(character, anchor);
   return uri ? (
     <Box component="img" loading="lazy" src={getFileUrl(uri)} alt={character.name}
          sx={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" }} />

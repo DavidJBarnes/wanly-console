@@ -36,8 +36,12 @@ import { checkpointInUse, scpCommand } from "../lib/trainingJob";
  *     visible at a glance
  */
 export default function CharacterCard({
-  character, characters, onClose, onChanged, onEdit, onDelete, onToggleDefault,
+  character, characters, onClose, onChanged, onEdit, onDelete, onToggleDefault, embedded = false,
 }: {
+  /** On the character's own page (wanly-api#452): the identity and sheet sections only, no
+   *  dialog chrome -- the page's header has Edit/Delete/default, and its Training tab has
+   *  the versions. */
+  embedded?: boolean;
   character: Character;
   /** Every character, for "is this checkpoint the one in use". */
   characters: Character[];
@@ -91,16 +95,8 @@ export default function CharacterCard({
   const latest = latestVersions(runs ?? []);
   const badges = identityBadges(c);
 
-  return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <Typography variant="h6" component="span" sx={{ flexGrow: 1 }}>{c.name}</Typography>
-        <DefaultStar isDefault={!!c.is_default} what="character" onToggle={onToggleDefault} />
-        <Tooltip title="Edit"><IconButton onClick={onEdit}><Edit /></IconButton></Tooltip>
-        <Tooltip title="Delete"><IconButton onClick={onDelete}><DeleteOutline /></IconButton></Tooltip>
-        <IconButton onClick={onClose} aria-label="Close"><Close /></IconButton>
-      </DialogTitle>
-      <DialogContent dividers>
+  const identity = (
+    <>
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
         {/* ---- who: icon, identity, visibility */}
@@ -180,6 +176,10 @@ export default function CharacterCard({
           </>
         )}
 
+    </>
+  );
+  const versions = (
+    <>
         {/* ---- versions, LTX and SDXL side by side */}
         <Divider textAlign="left" sx={{ my: 2 }}>
           <Typography variant="overline">Versions</Typography>
@@ -234,11 +234,10 @@ export default function CharacterCard({
             {msg}
           </Typography>
         )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-
+    </>
+  );
+  const dialogs = (
+    <>
       {choosingIcon && (
         <IconChooser
           character={c} runs={runs ?? []}
@@ -262,6 +261,41 @@ export default function CharacterCard({
           onClose={() => setViewing(false)}
         />
       )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <Box>
+        {identity}
+        {msg && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+            {msg}
+          </Typography>
+        )}
+        {dialogs}
+      </Box>
+    );
+  }
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Typography variant="h6" component="span" sx={{ flexGrow: 1 }}>{c.name}</Typography>
+        <DefaultStar isDefault={!!c.is_default} what="character" onToggle={onToggleDefault} />
+        <Tooltip title="Edit"><IconButton onClick={onEdit}><Edit /></IconButton></Tooltip>
+        <Tooltip title="Delete"><IconButton onClick={onDelete}><DeleteOutline /></IconButton></Tooltip>
+        <IconButton onClick={onClose} aria-label="Close"><Close /></IconButton>
+      </DialogTitle>
+      <DialogContent dividers>
+        {identity}
+        {versions}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+
+      {dialogs}
     </Dialog>
   );
 }

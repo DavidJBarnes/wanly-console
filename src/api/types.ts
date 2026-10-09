@@ -1390,3 +1390,21 @@ export interface DatasetRun {
   pair?: { character: string; dataset_id: string | null } | null;
   groups?: { kind: string; dataset_name?: string | null; here?: boolean }[];
 }
+
+/** A pair's member, or a pair a character is in (wanly-api#452). */
+export interface CharacterRef {
+  id: string;
+  name: string;
+  kind: string;
+  hidden: boolean;
+}
+
+/** GET /ltx/characters/{key}/full (wanly-api#452). `character` is the registry row. */
+export interface CharacterFull {
+  character: import("./ltx").Character;
+  dataset: Dataset | null;
+  archived: Dataset[];
+  runs: DatasetRun[];
+  members: CharacterRef[];
+  pairs: CharacterRef[];
+}

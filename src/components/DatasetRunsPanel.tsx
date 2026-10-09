@@ -23,8 +23,21 @@ import TrainingRow from "./TrainingRow";
  * ETAs need every queued run, not just this set's.
  */
 export default function DatasetRunsPanel({
-  ds, refreshKey, focusRun,
-}: { ds: Dataset; refreshKey: number; focusRun?: string | null }) {
+  ds, refreshKey, focusRun, loadRuns, title = "Training runs",
+}: {
+  /** The set whose runs these are. Null on a character with no living set (wanly-api#452):
+   *  then `loadRuns` supplies them. */
+  ds: Dataset | null;
+  refreshKey: number;
+  focusRun?: string | null;
+  /** Where the runs come from; the set's own list by default. */
+  loadRuns?: () => Promise<DatasetRun[]>;
+  title?: string;
+}) {
+  const fetchRuns = loadRuns ?? (() => (ds ? getDatasetRuns(ds.id) : Promise.resolve([])));
+  const fetchRef = useRef(fetchRuns);
+  useEffect(() => { fetchRef.current = fetchRuns; });
+  const key = ds?.id ?? "none";
   const [runs, setRuns] = useState<DatasetRun[] | null>(null);
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [fetchedAt, setFetchedAt] = useState(0);
@@ -34,7 +47,7 @@ export default function DatasetRunsPanel({
 
   const load = useCallback(async () => {
     try {
-      const [r, all] = await Promise.all([getDatasetRuns(ds.id), listTrainingJobs({ limit: 500 })]);
+      const [r, all] = await Promise.all([fetchRef.current(), listTrainingJobs({ limit: 500 })]);
       setRuns(r);
       setJobs(all);
       setFetchedAt(Date.now());
@@ -42,11 +55,11 @@ export default function DatasetRunsPanel({
     } catch {
       setError("could not load this set's training runs");
     }
-  }, [ds.id]);
+  }, []);
 
   useEffect(() => {
     let live = true;
-    Promise.all([getDatasetRuns(ds.id), listTrainingJobs({ limit: 500 })])
+    Promise.all([fetchRef.current(), listTrainingJobs({ limit: 500 })])
       .then(([r, all]) => {
         if (!live) return;
         setRuns(r); setJobs(all); setFetchedAt(Date.now()); setError("");
@@ -54,7 +67,7 @@ export default function DatasetRunsPanel({
       .catch(() => { if (live) setError("could not load this set's training runs"); });
     listRecipes().then((b) => { if (live) setCharacters(b.characters); }).catch(() => {});
     return () => { live = false; };
-  }, [ds.id, refreshKey]);
+  }, [key, refreshKey]);
 
   const byId = new Map(jobs.map((j) => [j.id, j]));
   const shown = (runs ?? []).map((r) => ({ r, job: byId.get(r.job_id) }))
@@ -77,11 +90,11 @@ export default function DatasetRunsPanel({
 
   return (
     <Box>
-      <Typography variant="h6" sx={{ mb: 1 }}>Training runs</Typography>
+      <Typography variant="h6" sx={{ mb: 1 }}>{title}</Typography>
       {error && <Alert severity="warning" sx={{ mb: 1 }}>{error}</Alert>}
       {runs && shown.length === 0 && !error && (
         <Typography variant="body2" color="text.secondary">
-          No runs yet. “Train” on this set starts one, and it shows here.
+          No runs yet. “Train” starts one, and it shows here.
         </Typography>
       )}
       <Stack spacing={1.5}>

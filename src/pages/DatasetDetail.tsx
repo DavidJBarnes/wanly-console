@@ -10,6 +10,7 @@ import type { Dataset } from "../api/types";
 import { DatasetCard } from "../components/DatasetCard";
 import TrainLoraDialog from "../components/TrainLoraDialog";
 import DatasetRunsPanel from "../components/DatasetRunsPanel";
+import { characterSetHome, ownerOf } from "../lib/characterPage";
 
 /**
  * One dataset, on its own page (wanly-console#647).
@@ -62,11 +63,19 @@ export default function DatasetDetail() {
   // After a clone the URL moves to the copy before its read lands: show nothing stale meanwhile.
   const shown = ds && ds.id === id ? ds : null;
 
+  // A CHARACTER'S OWN SET LIVES ON ITS CHARACTER'S PAGE (wanly-api#452): an old link to it
+  // lands on the Images tab (or Training, with the run, from an old /training?run= link).
+  // Archived version sets, unassigned sets and regularization pools still show here.
+  const owner = shown ? ownerOf(shown, characters) : null;
+  useEffect(() => {
+    if (owner) navigate(characterSetHome(owner, focusRun), { replace: true });
+  }, [owner, focusRun, navigate]);
+
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
-        <Button component={RouterLink} to="/datasets" startIcon={<ArrowBack />} size="small">
-          Datasets
+        <Button component={RouterLink} to="/characters" startIcon={<ArrowBack />} size="small">
+          Characters
         </Button>
         {shown && <Typography variant="h4" noWrap>{shown.name}</Typography>}
       </Box>
@@ -87,7 +96,7 @@ export default function DatasetDetail() {
               onCharactersChanged={fetchCharacters}
               onTrain={() => setTraining(true)}
               onCloned={(copy) => navigate(`/datasets/${copy.id}`)}
-              onDeleted={() => navigate("/datasets", { replace: true })}
+              onDeleted={() => navigate("/characters", { replace: true })}
             />
           </Box>
           <DatasetRunsPanel ds={shown} refreshKey={runsKey} focusRun={focusRun} />

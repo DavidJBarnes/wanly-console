@@ -130,6 +130,9 @@ export interface Character {
   icon_uri?: string | null;
   /** Left out of every picker (console#617). Still listed here, renders, keeps its runs. */
   hidden?: boolean;
+  /** A STARRED checkpoint still on the trainer (wanly-api#452): its upload was requested and
+   *  the star applies when it lands. */
+  star_pending?: { training_job_id: string; label: string } | null;
 }
 
 /** What fills a placeholder: the trigger AND the word its LoRA bound it to, exactly as
@@ -635,4 +638,15 @@ export function poseWarnings(template: string, characters: Character[]): string[
     );
   }
   return out;
+}
+
+/** Star one LTX checkpoint as the character's render LoRA (wanly-api#452). In the bucket:
+ *  applied at once. Still on the trainer: its upload is requested and the answer carries
+ *  `star_pending` until it lands. */
+export async function starCheckpoint(
+  characterId: string, trainingJobId: string, label: string,
+): Promise<{ character: Character; pending: boolean }> {
+  const r = await api.post<Character>(`/ltx/characters/${characterId}/star`,
+    { training_job_id: trainingJobId, label });
+  return { character: r.data, pending: r.status === 202 };
 }
