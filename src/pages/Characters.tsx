@@ -598,7 +598,7 @@ function CharacterDialog({
 function CharacterHero({ character }: { character: Character }) {
   const uri = characterIconUri(character);
   return uri ? (
-    <Box component="img" src={getFileUrl(uri)} alt={character.name}
+    <Box component="img" loading="lazy" src={getFileUrl(uri)} alt={character.name}
          sx={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" }} />
   ) : (
     <Box sx={{ width: "100%", aspectRatio: "1 / 1", display: "flex", alignItems: "center",

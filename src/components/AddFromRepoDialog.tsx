@@ -267,7 +267,7 @@ export default function AddFromRepoDialog({
                   }}
                 >
                   <Box
-                    component="img"
+                    component="img" loading="lazy"
                     src={getFileUrl(img.path)}
                     sx={{
                       width: 96, height: 96, objectFit: "cover", borderRadius: 1,

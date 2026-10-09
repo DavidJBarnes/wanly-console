@@ -334,7 +334,7 @@ function IconChooser({
         )}
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
           {candidates.map((uri) => (
-            <Box key={uri} component="img" src={getFileUrl(uri)} alt=""
+            <Box key={uri} component="img" loading="lazy" src={getFileUrl(uri)} alt=""
                  onClick={() => onChoose(uri)}
                  sx={{
                    width: 112, height: 112, objectFit: "cover", borderRadius: 1,

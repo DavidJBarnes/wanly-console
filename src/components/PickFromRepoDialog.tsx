@@ -108,7 +108,7 @@ export default function PickFromRepoDialog({
                    sx={{ width: 144, cursor: "pointer", textAlign: "center" }}>
                 {/* contain, not cover: a sheet is a wide 3:2 turnaround and cropping it to a
                     square hides exactly what is being chosen. */}
-                <Box component="img" src={getFileUrl(img.path)} alt={img.filename}
+                <Box component="img" loading="lazy" src={getFileUrl(img.path)} alt={img.filename}
                      sx={{ width: 144, height: 96, objectFit: "contain", borderRadius: 1,
                            bgcolor: "action.hover", display: "block" }} />
                 <Typography variant="caption" color="text.secondary"
