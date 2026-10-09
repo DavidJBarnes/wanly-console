@@ -425,6 +425,8 @@ export interface CharacterDraft {
    *  the API allows only while a character sheet or face reference remains (console#581). */
   char_lora?: string | null;
   kind?: "solo" | "pair";
+  /** A pair's two people, by name (the API derives the pair's trigger from them). */
+  members?: string[] | null;
   /** Optional on create only — the API defaults it to the name. */
   trigger?: string | null;
   /** Null clears it: a LoRA that trained on a bare caption should not render one. */
