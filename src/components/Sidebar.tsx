@@ -15,7 +15,6 @@ import {
   Dns,
   Face,
   Image,
-  ModelTraining,
   Movie,
   PhotoLibrary,
   QueueMusic,
@@ -34,8 +33,9 @@ const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }
   { label: "Dashboard", icon: <DashboardIcon />, path: "/" },
   { label: "Job Queue", icon: <QueueMusic />, path: "/jobs" },
   { label: "Workers", icon: <Dns />, path: "/workers" },
-  { label: "LoRA Training", icon: <ModelTraining />, path: "/training" },
-  { label: "Datasets", icon: <PhotoLibrary />, path: "/datasets", sub: true },
+  // Datasets is where training happens (wanly-console#647): each set trains, and shows its
+  // run history. The LoRA Training page left the nav; /training redirects to the right set.
+  { label: "Datasets", icon: <PhotoLibrary />, path: "/datasets" },
   // LoRA Recipes was indented under Storyboard. That page is gone (recipe renders go through
   // the New Job dialog and the queue like anything else), so this is top level rather than
   // orphaned: with `sub` still set it would have indented under Workers, which means nothing.

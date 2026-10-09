@@ -56,6 +56,7 @@ import type {
   ImageEditFaces,
   ImageEditPreview,
   ImageEditResult,
+  DatasetRun,
 } from "./types";
 import { REPEAT_ARRAY_PARAMS } from "../lib/repeatArrayParams";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
@@ -556,6 +557,18 @@ export async function listTrainingJobs(
     : opts.limit ? { limit: opts.limit } : undefined;
   const { data } = await api.get<TrainingJob[]>("/training", { params });
   return data;
+}
+
+/** The runs a dataset's page lists, with their role there (wanly-console#647). */
+export async function getDatasetRuns(datasetId: string): Promise<DatasetRun[]> {
+  const { data } = await api.get<DatasetRun[]>(`/datasets/${datasetId}/runs`);
+  return data;
+}
+
+/** The dataset page a run lives on, for old /training links (wanly-console#647). */
+export async function getRunHome(jobId: string): Promise<string | null> {
+  const { data } = await api.get<{ dataset_id: string | null }>(`/training/${jobId}/home`);
+  return data.dataset_id;
 }
 
 export async function getTrainingJob(id: string): Promise<TrainingJob> {

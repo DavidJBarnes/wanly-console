@@ -121,7 +121,7 @@ export function describeUnload(u: WorkerModeResponse["last_unload"]): string | n
 }
 
 const LINKS: Record<string, string> = {
-  render: "/jobs", motion: "/images", edit: "/images", train: "/training",
+  render: "/jobs", motion: "/images", edit: "/images", train: "/datasets",
 };
 
 export interface SummaryPart {
