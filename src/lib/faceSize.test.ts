@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { DatasetFaceSize, FixSmallFacesStatus } from "../api/types";
 import {
-  AMBER_FACE_PX, SMALL_FACE_PX, faceSizeLabel, faceSizeLevel, faceSizeSummary, faceSizeTooltip,
+  AMBER_FACE_PX, SMALL_FACE_PX, derivedUris, faceSizeLabel, faceSizeLevel, faceSizeSummary, faceSizeTooltip,
   fixProgressLabel, isFixed, isPairSet, smallFacesWarning,
 } from "./faceSize";
 
@@ -135,5 +135,29 @@ describe("composition sets (wanly-api#436)", () => {
     expect(smallFacesWarning({ kind: "composition", images,
                                faces: { "s3://b/a.jpg": pairFace(400, 150) } }))
       .toContain("adds upscaled two-person crops");
+  });
+});
+
+
+describe("Fix's own results are never open small faces (2026-10-09, DavidJoana crop loop)", () => {
+  it("does not count a still-small crop, so the button is not re-offered", () => {
+    const orig = "s3://b/p.jpg";
+    const crop = "s3://b/pairs-x/p_crop.jpg";
+    const ds = {
+      kind: "composition",
+      images: [orig, crop],
+      faces: {
+        [orig]: { width: 3000, height: 4000, face_px: 90, pair_px: 90, boxes: [], crop_uri: crop },
+        [crop]: { width: 1024, height: 683, face_px: 180, pair_px: 180, boxes: [] },
+      },
+    } as unknown as Parameters<typeof faceSizeSummary>[0];
+    const s = faceSizeSummary(ds);
+    expect(s.small).toBe(0);
+    expect(s.fixed).toBe(1);
+  });
+
+  it("derivedUris lists crops and in-place upscales", () => {
+    const d = derivedUris({ a: { crop_uri: "c" }, u: { upscaled_from: "o" }, c: {} } as never);
+    expect([...d].sort()).toEqual(["c", "u"]);
   });
 });

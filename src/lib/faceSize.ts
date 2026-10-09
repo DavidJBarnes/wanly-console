@@ -56,6 +56,19 @@ export function isFixed(entry: DatasetFaceSize | null | undefined, images: strin
   return Boolean(entry?.crop_uri && images.includes(entry.crop_uri));
 }
 
+/** Every image "Fix small faces" MADE -- the crops it recorded (`crop_uri`) and the in-place
+ *  upscales (`upscaled_from`). Mirrors wanly-api's face_size.derived: a result is never an open
+ *  small face. A two-person crop can still be under the line (19 of DavidJoana's 24 were), and
+ *  counting it re-offered the fix, which then cropped its own crops (52 -> 71 -> 90 images). */
+export function derivedUris(faces: Record<string, DatasetFaceSize | null | undefined>): Set<string> {
+  const out = new Set<string>();
+  for (const [u, e] of Object.entries(faces)) {
+    if (e?.crop_uri) out.add(e.crop_uri);
+    if (e?.upscaled_from) out.add(u);
+  }
+  return out;
+}
+
 /** The badge's tooltip: what the number is, and what to do about a small one. `fixed`: its
  *  crop is in the set, so the red badge stays (the photo IS small) but says it is dealt with. */
 export function faceSizeTooltip(entry: DatasetFaceSize, fixed = false, pair = false): string {
@@ -105,10 +118,12 @@ export function faceSizeSummary(ds: Pick<Dataset, "images" | "faces" | "kind">):
   let amber = 0;
   let measured = 0;
   let fixed = 0;
+  const made = derivedUris(faces);
   for (const u of stills) {
     const level = faceSizeLevel(faces[u], pair);
     if (level === "unmeasured") continue;
     measured += 1;
+    if (level === "small" && made.has(u)) continue; // Fix's own result: a framing limit, not open
     if (level === "small" && isFixed(faces[u], ds.images)) fixed += 1;
     else if (level === "small") small += 1;
     if (level === "amber") amber += 1;
