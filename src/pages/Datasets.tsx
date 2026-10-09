@@ -139,7 +139,11 @@ export default function Datasets() {
 
 /** One set on the grid: its picture and what you would want to know before opening it. */
 function DatasetSummaryCard({ ds, onOpen }: { ds: Dataset; onOpen: () => void }) {
+  // The card's picture IS the anchor (David, 2026-10-09); the first still only when there is
+  // none -- and the card says so, since an anchor is what likeness scoring checks against.
   const cover = datasetCover(ds);
+  const noAnchor = ds.kind !== "regularization" && cover !== null
+    && !(ds.anchor_uri && ds.images.includes(ds.anchor_uri));
   const owner = ownerLabel(ds);
   const { clips } = splitClips(ds.images);
   const sizes = ds.kind === "regularization" ? null : faceSizeSummary(ds);
@@ -169,6 +173,13 @@ function DatasetSummaryCard({ ds, onOpen }: { ds: Dataset; onOpen: () => void })
           </Stack>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
             {itemCountLabel(ds.images)}
+            {noAnchor && (
+              <Tooltip title="No anchor: open the set and star the photo that is most clearly them">
+                <Box component="span" sx={{ ml: 0.75, fontStyle: "italic", opacity: 0.8 }}>
+                  · no anchor
+                </Box>
+              </Tooltip>
+            )}
           </Typography>
           <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ mt: 0.75 }}>
             {owner ? <Chip size="small" variant="outlined" label={owner} />

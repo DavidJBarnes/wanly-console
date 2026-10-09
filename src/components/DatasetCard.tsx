@@ -4,7 +4,7 @@ import { offeredCharacters } from "../lib/characterIcon";
 import {
   Alert, Autocomplete, Box, Button, Card, CardContent, Checkbox, Chip, Dialog,
   DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton,
-  LinearProgress, MenuItem, Radio, RadioGroup, Stack, TextField,
+  LinearProgress, MenuItem, Radio, RadioGroup, Stack, Switch, TextField,
   Tooltip, Typography,
 } from "@mui/material";
 import {
@@ -30,6 +30,8 @@ import ImageEditDialog from "./ImageEditDialog";
 import CaptionStatusChip from "./CaptionStatusChip";
 import FaceFixesView from "./FaceFixesView";
 import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
+import { ROLE_LABEL, anchorFirst, groupDerived, keepOnly, removedSource } from "../lib/lineage";
+import type { ImageGroup, Role } from "../lib/lineage";
 import {
   byLikeness, canLockByHand, canUnlock, captionCoverage, captionProgressLabel,
   cropSelectionProblem, datasetNameProblem, defaultCloneName, formatCos, isAssigned, isClip,
@@ -175,7 +177,11 @@ export function DatasetCard({
   }, [flashUri]);
   const goToOriginal = (fix: FaceFix) => {
     setShowFixes(false);
-    if (ordered.indexOf(fix.original) >= 12) setShowAll(true);
+    setShowAll(true);
+    // Grouped (#445), the original may be inside a closed group: open it so the tile exists.
+    const g = items.find((it) => typeof it !== "string"
+      && it.members.length > 1 && it.members.some((m) => m.uri === fix.original));
+    if (g && typeof g !== "string") setOpenGroups((prev) => new Set(prev).add(g.head));
     setFlashUri(fix.original);
   };
 
@@ -297,6 +303,15 @@ export function DatasetCard({
         byLikeness(scoreOf(a) ?? { cos: null, is_anchor: false },
                    scoreOf(b) ?? { cos: null, is_anchor: false }))
     : ds.images;
+  // The anchor, when it is still in the set (an anchor that left is no anchor).
+  const anchor = ds.anchor_uri && ds.images.includes(ds.anchor_uri) ? ds.anchor_uri : null;
+  const [grouping, setGrouping] = useState(true);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const inSet = new Set(ds.images);
+  const items: (string | ImageGroup)[] = grouping
+    ? anchorFirst(groupDerived(ordered, ds.derived), anchor,
+                  (g, u) => g.members.some((m) => m.uri === u))
+    : anchorFirst(ordered, anchor, (u, a) => u === a);
 
   const remove = async (uri: string) => {
     setBusy(true);
@@ -311,6 +326,291 @@ export function DatasetCard({
       // A 409 means another tab's run locked it since this page loaded: say so, and re-read
       // so the lock shows.
       setMsg(apiErrorText(e, "could not remove that image"));
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ONE TILE (wanly-api#445): the grid draws these flat, or inside a group of an image and what
+  // was made from it. `role` labels a member of an open group; `group` adds "keep only this".
+  const renderTile = (uri: string, role?: Role, group?: ImageGroup) => {
+    const sc = scoreOf(uri);
+    const verdict = verdictFor(sc);
+    const ring = {
+      anchor: "primary.main", match: "success.main", below: "error.main",
+      "no-face": "warning.main", unscored: "divider",
+    }[verdict];
+    const clip = isClip(uri);
+    const fixedFrom = fixOf[uri];
+    const isAnchor = uri === anchor;
+    // A derived image whose source left the set (#445); Fix's own results say so below already.
+    const leftFrom = fixedFrom ? null : removedSource(uri, ds.derived, inSet);
+    return (
+      <Box
+        key={uri}
+        ref={(el: HTMLElement | null) => {
+          if (el) tileRefs.current.set(uri, el);
+          else tileRefs.current.delete(uri);
+        }}
+        sx={{
+          width: TILE, borderRadius: 1,
+          // "From original" landed here: a ring for a moment, so the eye finds it.
+          outline: flashUri === uri ? "3px solid" : "none",
+          outlineColor: "secondary.main", outlineOffset: 3,
+        }}
+      >
+        {/* THE ANCHOR, CALLED OUT (David, 2026-10-09): first in the grid, labelled, ringed. */}
+        {isAnchor && (
+          <Chip size="small" color="primary" icon={<Star sx={{ fontSize: 14 }} />} label="Anchor"
+                sx={{ display: "flex", width: "fit-content", mx: "auto", mb: 0.5, height: 22 }} />
+        )}
+        <Box sx={{ position: "relative", width: TILE, height: TILE,
+                   ...(isAnchor ? { outline: "3px solid", outlineColor: "primary.main",
+                                    outlineOffset: 2, borderRadius: 1 } : {}) }}>
+          {/* A link, not an onClick: middle-click and "open in new tab" work too, and the
+              tile's own buttons (remove, anchor) sit above it and keep their clicks. */}
+          <Box
+            component="a"
+            href={getFileUrl(uri)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open full size in a new tab"
+            sx={{ display: "block", cursor: "zoom-in" }}
+          >
+            {clip ? <ClipThumb src={getFileUrl(uri)} ring={ring} /> : (
+              <Box
+                component="img" loading="lazy"
+                src={getFileUrl(uri)}
+                sx={{
+                  width: TILE, height: TILE, objectFit: "cover", borderRadius: 1,
+                  display: "block", border: "3px solid", borderColor: ring,
+                }}
+              />
+            )}
+          </Box>
+          {/* The span carries the position so a disabled button still shows its reason. */}
+          <Tooltip title={locked ?? "Remove from the dataset"}>
+            <Box component="span" sx={{ position: "absolute", top: 4, right: 4 }}>
+              <IconButton
+                size="small"
+                aria-label={`Remove ${uri.split("/").pop()}`}
+                disabled={busy || Boolean(locked)}
+                onClick={() => remove(uri)}
+                sx={{
+                  bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1,
+                  "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
+                  "&.Mui-disabled": { bgcolor: "rgba(255,255,255,0.6)" },
+                }}
+              >
+                <Close sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Box>
+          </Tooltip>
+          {/* Which runs trained on this image (wanly-api#422). Removing it from the set
+              changes none of them: each run keeps its own record. */}
+          {usedInLabel(ds.used_in?.[uri]) && (
+            <Tooltip title={`Used in ${(ds.used_in?.[uri] ?? []).map(trainedByLabel).join(", ")}`}>
+              <Chip
+                size="small"
+                icon={<ModelTraining sx={{ fontSize: 14 }} />}
+                label={usedInLabel(ds.used_in?.[uri])}
+                sx={{
+                  position: "absolute", bottom: 6, right: 4, height: 22, maxWidth: TILE - 8,
+                  bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1,
+                }}
+              />
+            </Tooltip>
+          )}
+          {/* Image Edit and the anchor star are for stills: the editor takes one frame,
+              and the anchor is what every clip's frames are scored against. */}
+          {clip ? (
+            <Chip
+              size="small"
+              icon={<Movie sx={{ fontSize: 14 }} />}
+              label="clip"
+              sx={{
+                position: "absolute", top: 6, left: 4, height: 22,
+                bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1, pointerEvents: "none",
+              }}
+            />
+          ) : <Tooltip title="Edit: expression, gaze, small head turns — saves a new image">
+            <IconButton
+              size="small"
+              aria-label={`Edit ${uri.split("/").pop()}`}
+              disabled={busy}
+              onClick={() => setEditUri(uri)}
+              sx={{
+                position: "absolute", top: 4, left: 4,
+                bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1, color: "text.secondary",
+                "&:hover": { bgcolor: "primary.main", color: "primary.contrastText" },
+              }}
+            >
+              <Face sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>}
+          {/* FACE SIZE AT TRAINING SIZE (#636): red under 250 px, amber under 400.
+              Nothing for a comfortable face -- the badge is a flag, not decoration. */}
+          {!isReg && !clip && ds.faces?.[uri]
+            && ["small", "amber"].includes(faceSizeLevel(ds.faces[uri], pairSet)) && (
+            <Tooltip title={faceSizeTooltip(
+              ds.faces[uri], isFixed(ds.faces[uri], ds.images), pairSet)}>
+              <Chip
+                size="small"
+                color={faceSizeLevel(ds.faces[uri], pairSet) === "small"
+                  ? "error" : "warning"}
+                label={faceSizeLabel(ds.faces[uri], pairSet)}
+                sx={{ position: "absolute", top: 8, left: 40, height: 22, boxShadow: 1 }}
+              />
+            </Tooltip>
+          )}
+          {/* Where this image's caption is (console#564): its description, a held
+              job's, or this set's training caption while it is in line. */}
+          <CaptionStatusChip path={uri} overlay corner="right" includeDatasetCaptions />
+          {!isReg && !clip && <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
+            <IconButton
+              size="small"
+              aria-label={`Use ${uri.split("/").pop()} as the anchor`}
+              disabled={busy}
+              onClick={() => pickAnchor(uri)}
+              sx={{
+                position: "absolute", bottom: 4, left: 4,
+                bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1,
+                color: verdict === "anchor" ? "primary.main" : "text.secondary",
+              }}
+            >
+              {verdict === "anchor"
+                ? <Star sx={{ fontSize: 18 }} />
+                : <StarBorder sx={{ fontSize: 18 }} />}
+            </IconButton>
+          </Tooltip>}
+        </Box>
+        {(sc || verdict === "anchor") && (
+          <Typography
+            variant="caption"
+            align="center"
+            sx={{ display: "block", lineHeight: 1.6, color: ring, fontSize: 12 }}
+          >
+            {verdict === "anchor" ? "anchor" : formatCos(sc?.cos ?? null)}
+          </Typography>
+        )}
+        {/* A Fix small faces result (#642): back to the photo it was made from. */}
+        {fixedFrom && (fixedFrom.originalInSet ? (
+          <Tooltip title="Made by Fix small faces from a photo in this set — show it">
+            <Button size="small" startIcon={<CompareArrows sx={{ fontSize: 14 }} />}
+                    onClick={() => goToOriginal(fixedFrom)}
+                    sx={{ display: "flex", mx: "auto", py: 0, fontSize: 11 }}>
+              from original
+            </Button>
+          </Tooltip>
+        ) : (
+          <Tooltip title={fixedFrom.kind === "upscale"
+            ? "Upscaled in place by Fix small faces; the original is no longer in the set (kept in S3) — open it"
+            : "Made by Fix small faces from a photo no longer in the set (kept in S3) — open it"}>
+            <Button size="small" component="a" href={getFileUrl(fixedFrom.original)}
+                    target="_blank" rel="noopener noreferrer"
+                    endIcon={<OpenInNew sx={{ fontSize: 12 }} />}
+                    sx={{ display: "flex", mx: "auto", py: 0, fontSize: 11 }}>
+              from original
+            </Button>
+          </Tooltip>
+        ))}
+        {role && (
+          <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 0.5,
+                     mt: 0.25 }}>
+            <Chip size="small" variant={role === "original" ? "filled" : "outlined"}
+                  label={ROLE_LABEL[role]} sx={{ height: 20, fontSize: 11 }} />
+            {group && (
+              <Tooltip title={locked ?? `Keep only this one: the group's other ${group.members.length - 1} leave the set (their files stay)`}>
+                <span>
+                  <Button size="small" disabled={busy || Boolean(locked)}
+                          onClick={() => keepOnlyThis(group, uri)}
+                          sx={{ py: 0, minWidth: 0, fontSize: 11 }}>
+                    keep only this
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
+          </Box>
+        )}
+        {leftFrom && (
+          <Tooltip title={`${ROLE_LABEL[ds.derived?.[uri]?.how ?? "crop"]} of an image no longer in the set (its file is kept) — open it`}>
+            <Button size="small" component="a" href={getFileUrl(leftFrom)} target="_blank"
+                    rel="noopener noreferrer" endIcon={<OpenInNew sx={{ fontSize: 12 }} />}
+                    sx={{ display: "flex", mx: "auto", py: 0, fontSize: 11 }}>
+              from {leftFrom.split("/").pop()?.slice(0, 14)}… (removed)
+            </Button>
+          </Tooltip>
+        )}
+        <CaptionField
+          datasetId={ds.id}
+          uri={uri}
+          caption={ds.captions?.[uri] ?? ""}
+          disabled={captionRunning}
+          locked={locked}
+          onSaved={onChanged}
+        />
+      </Box>
+    );
+  };
+
+  // GROUPED WITH THEIR SOURCE (wanly-api#445): a crop, an upscale, an edit or a duplicate sits
+  // with the photo it was made from, as one stacked tile that opens to show each with its role.
+  // The anchor -- or its group -- always comes first, called out (David, 2026-10-09).
+  const groupOne = (g: ImageGroup) => {
+    const open = openGroups.has(g.head);
+    const anchorInside = anchor && g.members.some((m) => m.uri === anchor);
+    const toggle = () => setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(g.head)) next.delete(g.head); else next.add(g.head);
+      return next;
+    });
+    const kinds = Array.from(new Set(g.members.slice(1).map((m) => ROLE_LABEL[m.role])));
+    if (!open) {
+      return (
+        <Box key={`g:${g.head}`} sx={{ position: "relative", pt: 0.75, pl: 0.75 }}>
+          {/* The stack: two offset cards behind the lead tile. */}
+          <Box sx={{ position: "absolute", top: 0, left: 0, width: TILE, height: TILE,
+                     borderRadius: 1, bgcolor: "action.selected", boxShadow: 1 }} />
+          <Box sx={{ position: "absolute", top: 3, left: 3, width: TILE, height: TILE,
+                     borderRadius: 1, bgcolor: "action.hover", boxShadow: 1 }} />
+          <Box sx={{ position: "relative" }}>
+            {renderTile(anchorInside && anchor !== g.head ? anchor! : g.head)}
+          </Box>
+          <Button size="small" onClick={toggle} startIcon={<CompareArrows sx={{ fontSize: 14 }} />}
+                  sx={{ display: "flex", mx: "auto", py: 0, fontSize: 11 }}>
+            {g.members.length} versions{kinds.length ? ` · ${kinds.join(", ")}` : ""}
+          </Button>
+        </Box>
+      );
+    }
+    return (
+      <Box key={`g:${g.head}`} sx={{ display: "flex", gap: 2, flexWrap: "wrap", p: 1,
+                                      border: 1, borderColor: "divider", borderRadius: 1.5,
+                                      bgcolor: "action.hover", flexBasis: "100%" }}>
+        <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
+          <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+            {g.members.length} versions of one photo — keep the ones you want to train on.
+          </Typography>
+          <Button size="small" onClick={toggle}>close</Button>
+        </Box>
+        {g.members.map((m) => renderTile(m.uri, m.role, g))}
+      </Box>
+    );
+  };
+  const renderItem = (item: string | ImageGroup) => typeof item === "string"
+    ? renderTile(item)
+    : item.members.length === 1 ? renderTile(item.head) : groupOne(item);
+
+  const keepOnlyThis = async (group: ImageGroup, keep: string) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const updated = await updateDataset(ds.id, { images: keepOnly(ds.images, group, keep) });
+      setMsg(`kept 1 of ${group.members.length} — ${itemCountLabel(updated.images)} in the set`);
+      onChanged();
+    } catch (e: unknown) {
+      setMsg(apiErrorText(e, "could not change the set"));
       onChanged();
     } finally {
       setBusy(false);
@@ -376,7 +676,6 @@ export function DatasetCard({
     onDeleted();
   };
 
-  const shown = ordered.slice(0, showAll ? undefined : 12);
 
   return (
     <Card variant="outlined">
@@ -749,196 +1048,23 @@ export function DatasetCard({
             what you cannot see. Each tile owns its two controls: remove top-right, anchor
             bottom-left, both INSIDE the tile, with a gap between tiles wider than a button.
             Hidden, not unmounted, under the Fixes view: "+N more" and the order survive it. */}
+        {!isReg && Object.keys(ds.derived ?? {}).length > 0 && (
+          <FormControlLabel
+            sx={{ mt: 1 }}
+            control={<Switch size="small" checked={grouping}
+                             onChange={(e) => setGrouping(e.target.checked)} />}
+            label={<Typography variant="body2">Group derived images with their source</Typography>}
+          />
+        )}
         {showingFixes && (
           <FaceFixesView fixes={fixes} pair={pairSet} tile={TILE} busy={busy} locked={locked}
                          onRemove={remove} />
         )}
         <Box sx={{ display: showingFixes ? "none" : "flex", gap: 2, flexWrap: "wrap", mt: 2 }}>
-          {shown.map((uri) => {
-            const sc = scoreOf(uri);
-            const verdict = verdictFor(sc);
-            const ring = {
-              anchor: "primary.main", match: "success.main", below: "error.main",
-              "no-face": "warning.main", unscored: "divider",
-            }[verdict];
-            const clip = isClip(uri);
-            const fixedFrom = fixOf[uri];
-            return (
-              <Box
-                key={uri}
-                ref={(el: HTMLElement | null) => {
-                  if (el) tileRefs.current.set(uri, el);
-                  else tileRefs.current.delete(uri);
-                }}
-                sx={{
-                  width: TILE, borderRadius: 1,
-                  // "From original" landed here: a ring for a moment, so the eye finds it.
-                  outline: flashUri === uri ? "3px solid" : "none",
-                  outlineColor: "secondary.main", outlineOffset: 3,
-                }}
-              >
-                <Box sx={{ position: "relative", width: TILE, height: TILE }}>
-                  {/* A link, not an onClick: middle-click and "open in new tab" work too, and the
-                      tile's own buttons (remove, anchor) sit above it and keep their clicks. */}
-                  <Box
-                    component="a"
-                    href={getFileUrl(uri)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open full size in a new tab"
-                    sx={{ display: "block", cursor: "zoom-in" }}
-                  >
-                    {clip ? <ClipThumb src={getFileUrl(uri)} ring={ring} /> : (
-                      <Box
-                        component="img" loading="lazy"
-                        src={getFileUrl(uri)}
-                        sx={{
-                          width: TILE, height: TILE, objectFit: "cover", borderRadius: 1,
-                          display: "block", border: "3px solid", borderColor: ring,
-                        }}
-                      />
-                    )}
-                  </Box>
-                  {/* The span carries the position so a disabled button still shows its reason. */}
-                  <Tooltip title={locked ?? "Remove from the dataset"}>
-                    <Box component="span" sx={{ position: "absolute", top: 4, right: 4 }}>
-                      <IconButton
-                        size="small"
-                        aria-label={`Remove ${uri.split("/").pop()}`}
-                        disabled={busy || Boolean(locked)}
-                        onClick={() => remove(uri)}
-                        sx={{
-                          bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1,
-                          "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
-                          "&.Mui-disabled": { bgcolor: "rgba(255,255,255,0.6)" },
-                        }}
-                      >
-                        <Close sx={{ fontSize: 18 }} />
-                      </IconButton>
-                    </Box>
-                  </Tooltip>
-                  {/* Which runs trained on this image (wanly-api#422). Removing it from the set
-                      changes none of them: each run keeps its own record. */}
-                  {usedInLabel(ds.used_in?.[uri]) && (
-                    <Tooltip title={`Used in ${(ds.used_in?.[uri] ?? []).map(trainedByLabel).join(", ")}`}>
-                      <Chip
-                        size="small"
-                        icon={<ModelTraining sx={{ fontSize: 14 }} />}
-                        label={usedInLabel(ds.used_in?.[uri])}
-                        sx={{
-                          position: "absolute", bottom: 6, right: 4, height: 22, maxWidth: TILE - 8,
-                          bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1,
-                        }}
-                      />
-                    </Tooltip>
-                  )}
-                  {/* Image Edit and the anchor star are for stills: the editor takes one frame,
-                      and the anchor is what every clip's frames are scored against. */}
-                  {clip ? (
-                    <Chip
-                      size="small"
-                      icon={<Movie sx={{ fontSize: 14 }} />}
-                      label="clip"
-                      sx={{
-                        position: "absolute", top: 6, left: 4, height: 22,
-                        bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1, pointerEvents: "none",
-                      }}
-                    />
-                  ) : <Tooltip title="Edit: expression, gaze, small head turns — saves a new image">
-                    <IconButton
-                      size="small"
-                      aria-label={`Edit ${uri.split("/").pop()}`}
-                      disabled={busy}
-                      onClick={() => setEditUri(uri)}
-                      sx={{
-                        position: "absolute", top: 4, left: 4,
-                        bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1, color: "text.secondary",
-                        "&:hover": { bgcolor: "primary.main", color: "primary.contrastText" },
-                      }}
-                    >
-                      <Face sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Tooltip>}
-                  {/* FACE SIZE AT TRAINING SIZE (#636): red under 250 px, amber under 400.
-                      Nothing for a comfortable face -- the badge is a flag, not decoration. */}
-                  {!isReg && !clip && ds.faces?.[uri]
-                    && ["small", "amber"].includes(faceSizeLevel(ds.faces[uri], pairSet)) && (
-                    <Tooltip title={faceSizeTooltip(
-                      ds.faces[uri], isFixed(ds.faces[uri], ds.images), pairSet)}>
-                      <Chip
-                        size="small"
-                        color={faceSizeLevel(ds.faces[uri], pairSet) === "small"
-                          ? "error" : "warning"}
-                        label={faceSizeLabel(ds.faces[uri], pairSet)}
-                        sx={{ position: "absolute", top: 8, left: 40, height: 22, boxShadow: 1 }}
-                      />
-                    </Tooltip>
-                  )}
-                  {/* Where this image's caption is (console#564): its description, a held
-                      job's, or this set's training caption while it is in line. */}
-                  <CaptionStatusChip path={uri} overlay corner="right" includeDatasetCaptions />
-                  {!isReg && !clip && <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
-                    <IconButton
-                      size="small"
-                      aria-label={`Use ${uri.split("/").pop()} as the anchor`}
-                      disabled={busy}
-                      onClick={() => pickAnchor(uri)}
-                      sx={{
-                        position: "absolute", bottom: 4, left: 4,
-                        bgcolor: "rgba(255,255,255,0.9)", boxShadow: 1,
-                        color: verdict === "anchor" ? "primary.main" : "text.secondary",
-                      }}
-                    >
-                      {verdict === "anchor"
-                        ? <Star sx={{ fontSize: 18 }} />
-                        : <StarBorder sx={{ fontSize: 18 }} />}
-                    </IconButton>
-                  </Tooltip>}
-                </Box>
-                {(sc || verdict === "anchor") && (
-                  <Typography
-                    variant="caption"
-                    align="center"
-                    sx={{ display: "block", lineHeight: 1.6, color: ring, fontSize: 12 }}
-                  >
-                    {verdict === "anchor" ? "anchor" : formatCos(sc?.cos ?? null)}
-                  </Typography>
-                )}
-                {/* A Fix small faces result (#642): back to the photo it was made from. */}
-                {fixedFrom && (fixedFrom.originalInSet ? (
-                  <Tooltip title="Made by Fix small faces from a photo in this set — show it">
-                    <Button size="small" startIcon={<CompareArrows sx={{ fontSize: 14 }} />}
-                            onClick={() => goToOriginal(fixedFrom)}
-                            sx={{ display: "flex", mx: "auto", py: 0, fontSize: 11 }}>
-                      from original
-                    </Button>
-                  </Tooltip>
-                ) : (
-                  <Tooltip title={fixedFrom.kind === "upscale"
-                    ? "Upscaled in place by Fix small faces; the original is no longer in the set (kept in S3) — open it"
-                    : "Made by Fix small faces from a photo no longer in the set (kept in S3) — open it"}>
-                    <Button size="small" component="a" href={getFileUrl(fixedFrom.original)}
-                            target="_blank" rel="noopener noreferrer"
-                            endIcon={<OpenInNew sx={{ fontSize: 12 }} />}
-                            sx={{ display: "flex", mx: "auto", py: 0, fontSize: 11 }}>
-                      from original
-                    </Button>
-                  </Tooltip>
-                ))}
-                <CaptionField
-                  datasetId={ds.id}
-                  uri={uri}
-                  caption={ds.captions?.[uri] ?? ""}
-                  disabled={captionRunning}
-                  locked={locked}
-                  onSaved={onChanged}
-                />
-              </Box>
-            );
-          })}
-          {ds.images.length > 12 && (
+          {items.slice(0, showAll ? undefined : 12).map((item) => renderItem(item))}
+          {items.length > 12 && (
             <Button size="small" onClick={() => setShowAll((v) => !v)} sx={{ alignSelf: "center" }}>
-              {showAll ? "show fewer" : `+${ds.images.length - 12} more`}
+              {showAll ? "show fewer" : `+${items.length - 12} more`}
             </Button>
           )}
         </Box>
