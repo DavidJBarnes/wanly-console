@@ -32,8 +32,17 @@ export function faceSizeLabel(entry: DatasetFaceSize): string {
     ? "no face" : `${Math.round(entry.face_px)} px`;
 }
 
-/** The badge's tooltip: what the number is, and what to do about a small one. */
-export function faceSizeTooltip(entry: DatasetFaceSize): string {
+/** FIXED = the crop "Fix small faces" made of this photo is still in the set (wanly-api#437
+ *  follow-up). The photo itself never changes -- its face stays small forever -- so without
+ *  this, a set that had just been fixed still said "12 of 45 small" and offered the button
+ *  again. Its crop removed, it counts as small again, the same rule plan_fix uses to offer it. */
+export function isFixed(entry: DatasetFaceSize | null | undefined, images: string[]): boolean {
+  return Boolean(entry?.crop_uri && images.includes(entry.crop_uri));
+}
+
+/** The badge's tooltip: what the number is, and what to do about a small one. `fixed`: its
+ *  crop is in the set, so the red badge stays (the photo IS small) but says it is dealt with. */
+export function faceSizeTooltip(entry: DatasetFaceSize, fixed = false): string {
   const parts: string[] = [];
   if (entry.face_px !== null && entry.face_px !== undefined) {
     parts.push(`Face ${Math.round(entry.face_px)} px tall at training size`);
@@ -48,7 +57,9 @@ export function faceSizeTooltip(entry: DatasetFaceSize): string {
   }
   if (entry.upscaled_from) text += " Upscaled by Fix small faces; the original is still in S3.";
   const level = faceSizeLevel(entry);
-  if (level === "small") {
+  if (level === "small" && fixed) {
+    text += " Fixed: Fix small faces added an upscaled crop of it to the set (crop added).";
+  } else if (level === "small") {
     text += ` Under ${SMALL_FACE_PX} px the trainer learns the face small — Fix small faces `
       + "adds an upscaled close-up.";
   } else if (level === "amber") {
@@ -57,23 +68,29 @@ export function faceSizeTooltip(entry: DatasetFaceSize): string {
   return text;
 }
 
-/** The set's tally over its stills: how many are small, and how many are still unmeasured. */
+/** The set's tally over its stills: how many are small, and how many are still unmeasured.
+ *  `small` leaves out the FIXED ones (their crop is in the set) -- it is what the button would
+ *  still do something about, and what the preflight warning counts; `fixed` counts those. */
 export function faceSizeSummary(ds: Pick<Dataset, "images" | "faces">): {
   stills: number; measured: number; small: number; amber: number; unmeasured: number;
+  fixed: number;
 } {
   const { stills } = splitClips(ds.images);
   const faces = ds.faces ?? {};
   let small = 0;
   let amber = 0;
   let measured = 0;
+  let fixed = 0;
   for (const u of stills) {
     const level = faceSizeLevel(faces[u]);
     if (level === "unmeasured") continue;
     measured += 1;
-    if (level === "small") small += 1;
+    if (level === "small" && isFixed(faces[u], ds.images)) fixed += 1;
+    else if (level === "small") small += 1;
     if (level === "amber") amber += 1;
   }
-  return { stills: stills.length, measured, small, amber, unmeasured: stills.length - measured };
+  return { stills: stills.length, measured, small, amber, unmeasured: stills.length - measured,
+    fixed };
 }
 
 /** The line under the toolbar, or null when there is nothing to say. Mirrors the training

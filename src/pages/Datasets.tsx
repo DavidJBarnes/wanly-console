@@ -39,7 +39,7 @@ import {
 } from "../lib/datasets";
 import {
   faceSizeLabel, faceSizeLevel, faceSizeSummary, faceSizeTooltip, fixProgressLabel,
-  smallFacesWarning,
+  isFixed, smallFacesWarning,
 } from "../lib/faceSize";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
 import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
@@ -255,22 +255,32 @@ function DatasetCard({
   const faceSizes = faceSizeSummary(ds);
   const [measureNote, setMeasureNote] = useState("");
 
-  // MEASURE WHAT IS UNMEASURED, ON SIGHT (wanly-api#432). The API keeps no hook in the routes
-  // that add images -- a new still is simply unmeasured -- so the page asks when it sees some.
+  // MEASURE WHAT IS UNMEASURED -- FOR THE SET THAT IS OPEN (wanly-api#432, #437). The API keeps
+  // no hook in the routes that add images -- a new still is simply unmeasured -- so the page asks
+  // when it sees some. But only for the set you are looking at: the one linked to
+  // (?dataset=<id>) or expanded with "+N more". Asking for every card on the list fired one
+  // measure per dataset at once after #433 deployed, each downloading its whole set, and that
+  // fed the 2 GB API box's hang (wanly-api#434). Any other card offers a "Measure" button.
   // Once per (set, count): a failure (an older face-crop service, the box down) is said once
   // under the toolbar rather than retried on every render, and an upload changes the count and
   // asks again. Regularization pools are generic people; their face size is nobody's concern.
+  const isOpen = highlighted || showAll;
+  const [measuring, setMeasuring] = useState(false);
   const measuredKey = useRef("");
-  useEffect(() => {
-    if (isReg || faceSizes.unmeasured === 0) return;
-    const key = `${ds.id}:${faceSizes.unmeasured}`;
-    if (measuredKey.current === key) return;
-    measuredKey.current = key;
+  const measure = useCallback(() => {
+    measuredKey.current = `${ds.id}:${faceSizes.unmeasured}`;
+    setMeasuring(true);
     measureDatasetFaces(ds.id)
       .then(() => { setMeasureNote(""); onChanged(); })
       .catch((e: unknown) => setMeasureNote(
-        `Face size not measured: ${apiErrorText(e, "the face-crop service did not answer")}`));
-  }, [ds.id, faceSizes.unmeasured, isReg, onChanged]);
+        `Face size not measured: ${apiErrorText(e, "the face-crop service did not answer")}`))
+      .finally(() => setMeasuring(false));
+  }, [ds.id, faceSizes.unmeasured, onChanged]);
+  useEffect(() => {
+    if (!isOpen || isReg || faceSizes.unmeasured === 0) return;
+    if (measuredKey.current === `${ds.id}:${faceSizes.unmeasured}`) return;
+    measure();
+  }, [ds.id, faceSizes.unmeasured, isOpen, isReg, measure]);
 
   const fix = async () => {
     setMsg("");
@@ -781,6 +791,16 @@ function DatasetCard({
             {measureNote}
           </Typography>
         )}
+        {!isReg && faceSizes.unmeasured > 0 && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+            {measuring
+              ? `Measuring face size of ${faceSizes.unmeasured} image(s)…`
+              : `Face size not measured for ${faceSizes.unmeasured} image(s).`}
+            {!measuring && !isOpen && (
+              <Button size="small" sx={{ ml: 1, py: 0 }} onClick={measure}>Measure</Button>
+            )}
+          </Typography>
+        )}
 
         {/* Twelve by default; it expands, because culling is the point and you cannot remove
             what you cannot see. Each tile owns its two controls: remove top-right, anchor
@@ -882,7 +902,7 @@ function DatasetCard({
                       Nothing for a comfortable face -- the badge is a flag, not decoration. */}
                   {!isReg && !clip && ds.faces?.[uri]
                     && ["small", "amber"].includes(faceSizeLevel(ds.faces[uri])) && (
-                    <Tooltip title={faceSizeTooltip(ds.faces[uri])}>
+                    <Tooltip title={faceSizeTooltip(ds.faces[uri], isFixed(ds.faces[uri], ds.images))}>
                       <Chip
                         size="small"
                         color={faceSizeLevel(ds.faces[uri]) === "small" ? "error" : "warning"}

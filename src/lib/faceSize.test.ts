@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { DatasetFaceSize, FixSmallFacesStatus } from "../api/types";
 import {
   AMBER_FACE_PX, SMALL_FACE_PX, faceSizeLabel, faceSizeLevel, faceSizeSummary, faceSizeTooltip,
-  fixProgressLabel, smallFacesWarning,
+  fixProgressLabel, isFixed, smallFacesWarning,
 } from "./faceSize";
 
 /**
@@ -38,6 +38,8 @@ describe("faceSizeLabel and tooltip", () => {
   it("says what to do about a small face", () => {
     expect(faceSizeTooltip(face(120))).toContain("Fix small faces");
     expect(faceSizeTooltip(face(500))).not.toContain("Fix small faces");
+    expect(faceSizeTooltip(face(120), true)).toContain("crop added");
+    expect(faceSizeTooltip(face(120), true)).not.toContain("adds an upscaled close-up");
   });
 
   it("warns that the largest of several faces may be the wrong person", () => {
@@ -54,13 +56,28 @@ describe("faceSizeSummary", () => {
       faces: { "s3://b/a.jpg": face(120), "s3://b/b.jpg": face(300), "s3://b/c.jpg": face(null),
                "s3://b/m.mp4": face(10) },
     });
-    expect(s).toEqual({ stills: 4, measured: 3, small: 1, amber: 1, unmeasured: 1 });
+    expect(s).toEqual({ stills: 4, measured: 3, small: 1, amber: 1, unmeasured: 1, fixed: 0 });
   });
 
   it("mirrors the preflight warning, and is silent with nothing small", () => {
     expect(smallFacesWarning({ images, faces: { "s3://b/a.jpg": face(120) } }))
       .toBe("1 of 4 images show the face under 250 px at training size — Fix small faces adds upscaled close-ups");
     expect(smallFacesWarning({ images, faces: null })).toBeNull();
+  });
+
+  it("counts a small photo whose crop is in the set as fixed, not small", () => {
+    // Live on "Me" after a Fix: 12 originals with their crops in the set still read
+    // "12 of 45 small" and offered the button again, because the photo itself never changes.
+    const crop = "s3://b/portraits-x/000_a.jpg";
+    const fixedFace = face(120, { crop_uri: crop });
+    const s = faceSizeSummary({ images: [...images, crop], faces: { "s3://b/a.jpg": fixedFace } });
+    expect([s.small, s.fixed]).toEqual([0, 1]);
+    expect(smallFacesWarning({ images: [...images, crop], faces: { "s3://b/a.jpg": fixedFace } }))
+      .toBeNull();
+    expect(isFixed(fixedFace, [...images, crop])).toBe(true);
+    // The crop removed since: small again, and Fix would offer it again.
+    expect(faceSizeSummary({ images, faces: { "s3://b/a.jpg": fixedFace } }).small).toBe(1);
+    expect(isFixed(fixedFace, images)).toBe(false);
   });
 });
 
