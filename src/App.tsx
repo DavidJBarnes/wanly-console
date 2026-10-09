@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import JobQueue from "./pages/JobQueue";
 import JobDetail from "./pages/JobDetail";
 import Datasets from "./pages/Datasets";
+import DatasetDetail from "./pages/DatasetDetail";
 import Training from "./pages/Training";
 import Workers from "./pages/Workers";
 import WorkerDetail from "./pages/WorkerDetail";
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/workers" element={<Workers />} />
             <Route path="/training" element={<Training />} />
             <Route path="/datasets" element={<Datasets />} />
+            <Route path="/datasets/:id" element={<DatasetDetail />} />
             <Route path="/workers/:id" element={<WorkerDetail />} />
             <Route path="/videos" element={<Videos />} />
             <Route path="/smashcut" element={<SmashcutBuilder />} />
