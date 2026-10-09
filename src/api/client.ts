@@ -1,6 +1,7 @@
 import axios from "axios";
 import { parseInUseResponse, type InUseMap } from "../lib/bulkDelete";
 import type {
+  CharacterFull,
   TokenResponse,
   JobResponse,
   JobListResponse,
@@ -362,6 +363,8 @@ export async function getDataset(id: string): Promise<Dataset> {
 
 export async function createDataset(body: {
   name: string; tags?: string | null; notes?: string | null;
+  /** Owner (wanly-api#452): a character's own set is created with it. */
+  kind?: "character" | "composition" | null; character?: string | null;
 }): Promise<Dataset> {
   const { data } = await api.post<Dataset>("/datasets", body);
   return data;
@@ -1244,5 +1247,12 @@ export async function getQueueHealth(): Promise<QueueHealth> {
  *  row keeps its index, so a regenerated segment takes the same position. */
 export async function discardSegment(segmentId: string): Promise<SegmentResponse> {
   const { data } = await api.post<SegmentResponse>(`/segments/${segmentId}/discard`);
+  return data;
+}
+
+/** A character with everything that belongs to it (wanly-api#452): its living set, archived
+ *  version sets, every run its page lists, and its members or pairs. One call per page. */
+export async function getCharacterFull(key: string): Promise<CharacterFull> {
+  const { data } = await api.get<CharacterFull>(`/ltx/characters/${encodeURIComponent(key)}/full`);
   return data;
 }
