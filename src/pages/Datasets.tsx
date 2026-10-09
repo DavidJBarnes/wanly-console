@@ -8,7 +8,8 @@ import {
   LinearProgress, MenuItem, Radio, RadioGroup, Stack, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
 import {
-  Add, Archive, AutoAwesome, AutoFixHigh, Check, Close, ContentCopy, ContentCut, Delete, Edit, Face,
+  Add, Archive, AutoAwesome, AutoFixHigh, Check, Close, CompareArrows, ContentCopy, ContentCut,
+  Delete, Edit, Face, OpenInNew,
   Lock, LockOpen,
   Unarchive,
   ModelTraining, Movie, PhotoLibrary, Star, StarBorder, Upload, WarningAmber,
@@ -29,6 +30,7 @@ import AddFromRepoDialog from "../components/AddFromRepoDialog";
 import NewCharacterDialog from "../components/NewCharacterDialog";
 import ImageEditDialog from "../components/ImageEditDialog";
 import CaptionStatusChip from "../components/CaptionStatusChip";
+import FaceFixesView from "../components/FaceFixesView";
 import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
 import {
   byLikeness, byRecent, canLockByHand, canUnlock, captionCoverage, captionProgressLabel,
@@ -41,6 +43,8 @@ import {
   faceSizeLabel, faceSizeLevel, faceSizeSummary, faceSizeTooltip, fixProgressLabel,
   isFixed, isPairSet, smallFacesWarning,
 } from "../lib/faceSize";
+import type { FaceFix } from "../lib/faceFixes";
+import { faceFixes, fixesByResult } from "../lib/faceFixes";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
 import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
 
@@ -256,6 +260,35 @@ function DatasetCard({
   // A composition set's photos are judged, and cropped, as PAIRS (wanly-api#436).
   const pairSet = isPairSet(ds);
   const [measureNote, setMeasureNote] = useState("");
+
+  // WHAT "FIX SMALL FACES" DID, ORIGINAL -> RESULT (wanly-console#642). The crops are checked
+  // by eye -- right person, both people in a pair, nobody cut off -- and that needs the photo
+  // beside the crop, which the grid scatters (crops are appended at the end). "Fixes (N)"
+  // swaps the grid for the pairs; display only, nothing is written to the set. Each result
+  // tile in the normal grid also links back to its original: highlighted in place when it is
+  // in the set, opened from S3 when it is not (an in-place upscale replaced it).
+  const fixes = isReg ? [] : faceFixes(ds);
+  const fixOf = fixesByResult(fixes);
+  const [showFixes, setShowFixes] = useState(false);
+  // Turns itself off when the last fix is removed, rather than leaving an empty view.
+  const showingFixes = showFixes && fixes.length > 0;
+  const [flashUri, setFlashUri] = useState<string | null>(null);
+  const tileRefs = useRef(new Map<string, HTMLElement>());
+  useEffect(() => {
+    if (!flashUri) return;
+    // After the render that un-hid the grid (and expanded it, if the original was past the
+    // first twelve), so the tile exists to scroll to.
+    const raf = requestAnimationFrame(() => {
+      tileRefs.current.get(flashUri)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const t = setTimeout(() => setFlashUri(null), 2500);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+  }, [flashUri]);
+  const goToOriginal = (fix: FaceFix) => {
+    setShowFixes(false);
+    if (ordered.indexOf(fix.original) >= 12) setShowAll(true);
+    setFlashUri(fix.original);
+  };
 
   // MEASURE WHAT IS UNMEASURED -- FOR THE SET THAT IS OPEN (wanly-api#432, #437). The API keeps
   // no hook in the routes that add images -- a new still is simply unmeasured -- so the page asks
@@ -547,6 +580,20 @@ function DatasetCard({
               />
             </Tooltip>
           )}
+          {fixes.length > 0 && (
+            <Tooltip title={showingFixes
+              ? "Back to the grid"
+              : "Show each Fix small faces result beside the photo it was made from, face size before → after"}>
+              <Chip
+                size="small"
+                icon={<CompareArrows />}
+                color={showingFixes ? "primary" : "default"}
+                variant={showingFixes ? "filled" : "outlined"}
+                label={`Fixes (${fixes.length})`}
+                onClick={() => setShowFixes((v) => !v)}
+              />
+            </Tooltip>
+          )}
           {parseTags(ds.tags).map((t) => (
             <Chip key={t} size="small" label={t} />
           ))}
@@ -813,8 +860,13 @@ function DatasetCard({
 
         {/* Twelve by default; it expands, because culling is the point and you cannot remove
             what you cannot see. Each tile owns its two controls: remove top-right, anchor
-            bottom-left, both INSIDE the tile, with a gap between tiles wider than a button. */}
-        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mt: 2 }}>
+            bottom-left, both INSIDE the tile, with a gap between tiles wider than a button.
+            Hidden, not unmounted, under the Fixes view: "+N more" and the order survive it. */}
+        {showingFixes && (
+          <FaceFixesView fixes={fixes} pair={pairSet} tile={TILE} busy={busy} locked={locked}
+                         onRemove={remove} />
+        )}
+        <Box sx={{ display: showingFixes ? "none" : "flex", gap: 2, flexWrap: "wrap", mt: 2 }}>
           {shown.map((uri) => {
             const sc = scoreOf(uri);
             const verdict = verdictFor(sc);
@@ -823,8 +875,21 @@ function DatasetCard({
               "no-face": "warning.main", unscored: "divider",
             }[verdict];
             const clip = isClip(uri);
+            const fixedFrom = fixOf[uri];
             return (
-              <Box key={uri} sx={{ width: TILE }}>
+              <Box
+                key={uri}
+                ref={(el: HTMLElement | null) => {
+                  if (el) tileRefs.current.set(uri, el);
+                  else tileRefs.current.delete(uri);
+                }}
+                sx={{
+                  width: TILE, borderRadius: 1,
+                  // "From original" landed here: a ring for a moment, so the eye finds it.
+                  outline: flashUri === uri ? "3px solid" : "none",
+                  outlineColor: "secondary.main", outlineOffset: 3,
+                }}
+              >
                 <Box sx={{ position: "relative", width: TILE, height: TILE }}>
                   {/* A link, not an onClick: middle-click and "open in new tab" work too, and the
                       tile's own buttons (remove, anchor) sit above it and keep their clicks. */}
@@ -952,6 +1017,27 @@ function DatasetCard({
                     {verdict === "anchor" ? "anchor" : formatCos(sc?.cos ?? null)}
                   </Typography>
                 )}
+                {/* A Fix small faces result (#642): back to the photo it was made from. */}
+                {fixedFrom && (fixedFrom.originalInSet ? (
+                  <Tooltip title="Made by Fix small faces from a photo in this set — show it">
+                    <Button size="small" startIcon={<CompareArrows sx={{ fontSize: 14 }} />}
+                            onClick={() => goToOriginal(fixedFrom)}
+                            sx={{ display: "flex", mx: "auto", py: 0, fontSize: 11 }}>
+                      from original
+                    </Button>
+                  </Tooltip>
+                ) : (
+                  <Tooltip title={fixedFrom.kind === "upscale"
+                    ? "Upscaled in place by Fix small faces; the original is no longer in the set (kept in S3) — open it"
+                    : "Made by Fix small faces from a photo no longer in the set (kept in S3) — open it"}>
+                    <Button size="small" component="a" href={getFileUrl(fixedFrom.original)}
+                            target="_blank" rel="noopener noreferrer"
+                            endIcon={<OpenInNew sx={{ fontSize: 12 }} />}
+                            sx={{ display: "flex", mx: "auto", py: 0, fontSize: 11 }}>
+                      from original
+                    </Button>
+                  </Tooltip>
+                ))}
                 <CaptionField
                   datasetId={ds.id}
                   uri={uri}
