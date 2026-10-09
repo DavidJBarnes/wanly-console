@@ -340,3 +340,14 @@ export function defaultCloneName(name: string): string {
   const suffix = " copy";
   return name.trim().slice(0, 100 - suffix.length).trimEnd() + suffix;
 }
+
+/**
+ * The picture on a set's card in the Datasets grid (wanly-console#647): its anchor -- the one
+ * image starred as "this is her" -- when it is still a still in the set, else the first still.
+ * Null for a set with no stills (empty, or clips only); the card shows its initial instead.
+ */
+export function datasetCover(ds: Pick<Dataset, "images" | "anchor_uri">): string | null {
+  const { stills } = splitClips(ds.images);
+  if (ds.anchor_uri && stills.includes(ds.anchor_uri)) return ds.anchor_uri;
+  return stills[0] ?? null;
+}

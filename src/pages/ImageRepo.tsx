@@ -1753,7 +1753,7 @@ export default function ImageRepo() {
                                 size="small"
                                 variant="outlined"
                                 label={`dataset: ${d.name}`}
-                                onClick={() => navigate(`/datasets?dataset=${d.id}`)}
+                                onClick={() => navigate(`/datasets/${d.id}`)}
                               />
                             ))}
                             {h.jobs.map((j) => (

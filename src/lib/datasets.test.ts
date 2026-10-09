@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  datasetCover,
   byRecent, canLockByHand, canUnlock, captionCoverage, captionProgressLabel, datasetNameProblem,
   defaultCloneName, isAssigned, lockedReason, lockLabel, lockReasonBody, manualLockLabel,
   localDate, ownerLabel, parseTags, progressPct, regularizeProgressLabel, scoreFor,
@@ -234,5 +235,20 @@ describe("unlock (wanly-api#363)", () => {
     for (const d of [ds(), ds({ locked: true, locked_at: at }), ds({ locked: false, unlocked_at: at })]) {
       expect(canLockByHand(d)).toBe(!canUnlock(d));
     }
+  });
+});
+
+describe("datasetCover (wanly-console#647)", () => {
+  it("is the anchor when it is still in the set", () => {
+    expect(datasetCover({ images: ["s3://b/a.png", "s3://b/b.png"], anchor_uri: "s3://b/b.png" }))
+      .toBe("s3://b/b.png");
+  });
+  it("falls back to the first still when the anchor is gone or unset", () => {
+    expect(datasetCover({ images: ["s3://b/a.png"], anchor_uri: "s3://b/gone.png" })).toBe("s3://b/a.png");
+    expect(datasetCover({ images: ["s3://b/c.mp4", "s3://b/a.png"], anchor_uri: null })).toBe("s3://b/a.png");
+  });
+  it("is null for a set with no stills", () => {
+    expect(datasetCover({ images: [], anchor_uri: null })).toBeNull();
+    expect(datasetCover({ images: ["s3://b/c.mp4"], anchor_uri: null })).toBeNull();
   });
 });
