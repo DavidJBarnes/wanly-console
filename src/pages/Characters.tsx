@@ -8,13 +8,14 @@ import { Add, Star } from "@mui/icons-material";
 import { Link, useNavigate } from "react-router";
 
 import {
-  checkCharacterProvenance, createCharacter, deleteCharacter, getLoraProvenance, listLoras,
+  checkCharacterProvenance, createCharacter, getLoraProvenance,
   listRecipes, ltxError, TRIGGER_PLACEHOLDER, updateCharacter,
 } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import type { Gender } from "../api/types";
 import { getFileUrl, listDatasets } from "../api/client";
 import type { Dataset } from "../api/types";
+import NewCharacterDialog from "../components/NewCharacterDialog";
 import PickFromRepoDialog from "../components/PickFromRepoDialog";
 import { characterPicture } from "../lib/characterPage";
 import {
@@ -41,12 +42,8 @@ import {
  */
 export default function Characters() {
   const [characters, setCharacters] = useState<Character[] | null>(null);
-  const [loras, setLoras] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Character | "new" | null>(null);
-  const [confirm, setConfirm] = useState<Character | null>(null);
   const [showHidden, setShowHidden] = useState(false);
-  const [busy, setBusy] = useState(false);
   // Where each character's trigger/gender disagree with how its LoRA trained (console#596).
   const [checks, setChecks] = useState<Record<string, CharacterProvenance>>({});
   const [fixing, setFixing] = useState<{ c: Character; ms: ProvenanceMismatch[] } | null>(null);
@@ -54,12 +51,13 @@ export default function Characters() {
   // no character are listed under the grid so nothing is unreachable.
   const [sets, setSets] = useState<Dataset[]>([]);
   const navigate = useNavigate();
+  // New character = the character AND its (empty) dataset, one step (wanly-api#452).
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const b = await listRecipes();
       setCharacters(b.characters ?? []);
-      setLoras(await listLoras(b, "character"));
       setError(null);
       // Advisory, so a failure here never hides the list: no badges is the fallback.
       checkCharacterProvenance()
@@ -70,24 +68,19 @@ export default function Characters() {
     }
   }, []);
 
+  // The first read: the same as load(), with every state change after an await.
   useEffect(() => {
-    void load();
-    listDatasets().then(setSets).catch(() => setSets([]));
-  }, [load]);
+    let live = true;
+    listRecipes()
+      .then((b) => { if (live) { setCharacters(b.characters ?? []); setError(null); } })
+      .catch((e) => { if (live) setError(ltxError(e)); });
+    checkCharacterProvenance()
+      .then((rows) => { if (live) setChecks(Object.fromEntries(rows.map((r) => [r.id, r]))); })
+      .catch(() => { if (live) setChecks({}); });
+    listDatasets().then((d) => { if (live) setSets(d); }).catch(() => { if (live) setSets([]); });
+    return () => { live = false; };
+  }, []);
 
-  const remove = async () => {
-    if (!confirm) return;
-    setBusy(true);
-    try {
-      await deleteCharacter(confirm.id);
-      setConfirm(null);
-      await load();
-    } catch (e) {
-      setError(ltxError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const own = (d: Dataset) => d.kind === "character" || d.kind === "composition";
   const anchorOf = new Map(sets.filter((d) => own(d) && d.anchor_uri && d.character)
@@ -111,8 +104,8 @@ export default function Characters() {
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
           Characters ({characters?.length ?? 0})
         </Typography>
-        <Button startIcon={<Add />} variant="outlined" onClick={() => setEditing("new")}>
-          Add character
+        <Button startIcon={<Add />} variant="contained" onClick={() => setCreating(true)}>
+          New character
         </Button>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
@@ -201,18 +194,13 @@ export default function Characters() {
       )}
 
 
-      {editing && (
-        <CharacterDialog
-          character={editing === "new" ? null : editing}
-          loras={loras}
-          check={editing === "new" ? undefined : checks[editing.id]}
-          onFixed={() => void load()}
-          onClose={() => setEditing(null)}
-          onSaved={(c) => {
-            setEditing(null);
-            // A new character opens its page: its dataset, Build sheet and icon are there.
-            navigate(`/characters/${encodeURIComponent(c.name)}`);
-          }}
+
+      {creating && (
+        <NewCharacterDialog
+          createSet
+          allowPair
+          onClose={() => setCreating(false)}
+          onCreated={(c) => navigate(`/characters/${encodeURIComponent(c.name)}?tab=images`)}
         />
       )}
 
@@ -227,19 +215,6 @@ export default function Characters() {
         />
       )}
 
-      <Dialog open={!!confirm} onClose={() => setConfirm(null)}>
-        <DialogTitle>Delete {confirm?.name}?</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2">
-            Poses are not affected — they belong to every character. Renders already produced
-            keep working, and the LoRA and the sheet stay where they are.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirm(null)}>Cancel</Button>
-          <Button color="error" disabled={busy} onClick={remove}>Delete</Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }

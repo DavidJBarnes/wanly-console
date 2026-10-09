@@ -16,7 +16,6 @@ import {
   Face,
   Image,
   Movie,
-  PhotoLibrary,
   QueueMusic,
   Settings,
   VideoLibrary,
@@ -33,17 +32,14 @@ const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }
   { label: "Dashboard", icon: <DashboardIcon />, path: "/" },
   { label: "Job Queue", icon: <QueueMusic />, path: "/jobs" },
   { label: "Workers", icon: <Dns />, path: "/workers" },
-  // Datasets is where training happens (wanly-console#647): each set trains, and shows its
-  // run history. The LoRA Training page left the nav; /training redirects to the right set.
-  { label: "Datasets", icon: <PhotoLibrary />, path: "/datasets" },
+  // Characters own their dataset (wanly-api#452): a character's page has its images, its
+  // training and its history, so Datasets is no longer a nav item of its own (/datasets
+  // redirects here). It sits where Datasets did -- the top-level place training starts.
+  { label: "Characters", icon: <Face />, path: "/characters" },
   // LoRA Recipes was indented under Storyboard. That page is gone (recipe renders go through
   // the New Job dialog and the queue like anything else), so this is top level rather than
   // orphaned: with `sub` still set it would have indented under Workers, which means nothing.
   { label: "LoRA Recipes", icon: <AutoAwesomeMotion />, path: "/lora-recipes" },
-  // A character is a LoRA, a character sheet, or both (console#579/#581) -- no longer a
-  // section at the bottom of LoRA Recipes, and the only way to add one for a newly trained
-  // LoRA or a new sheet, so it earns a top-level row.
-  { label: "Characters", icon: <Face />, path: "/characters" },
   { label: "Videos", icon: <VideoLibrary />, path: "/videos" },
   { label: "Smashcut", icon: <Movie />, path: "/smashcut", sub: true },
   { label: "Image Repo", icon: <Image />, path: "/images" },
@@ -62,6 +58,8 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
+    // A dataset's own page (archived or unassigned sets) belongs under Characters (#452).
+    if (path === "/characters" && location.pathname.startsWith("/datasets")) return true;
     return location.pathname.startsWith(path);
   };
 
