@@ -549,7 +549,14 @@ export interface DatasetFaceSize {
   det_score?: number | null;
   /** How many faces were found. Above 1, face_px may be somebody else's. */
   faces: number;
-  /** The head-and-shoulders crop "Fix small faces" made of this photo. */
+  /** The smaller of the two largest faces at training size (wanly-api#436): what a
+   *  COMPOSITION set's photo is judged by. Null with fewer than two faces. */
+  pair_px?: number | null;
+  /** The two largest faces' boxes. Absent on an entry measured before #436 -- which a
+   *  composition set re-measures, so it reads as unmeasured there. */
+  boxes?: number[][] | null;
+  /** The crop "Fix small faces" made of this photo: head-and-shoulders, or two-person on a
+   *  composition set. */
   crop_uri?: string | null;
   /** On an upscaled copy: the original it replaced in the set (still in S3). */
   upscaled_from?: string | null;

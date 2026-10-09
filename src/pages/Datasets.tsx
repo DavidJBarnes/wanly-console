@@ -39,7 +39,7 @@ import {
 } from "../lib/datasets";
 import {
   faceSizeLabel, faceSizeLevel, faceSizeSummary, faceSizeTooltip, fixProgressLabel,
-  isFixed, smallFacesWarning,
+  isFixed, isPairSet, smallFacesWarning,
 } from "../lib/faceSize";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
 import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
@@ -253,6 +253,8 @@ function DatasetCard({
   const fixing = useBackgroundStatus(() => getFixSmallFacesStatus(ds.id), onChanged, !isReg);
   const fixRunning = !isReg && Boolean(fixing.status?.running);
   const faceSizes = faceSizeSummary(ds);
+  // A composition set's photos are judged, and cropped, as PAIRS (wanly-api#436).
+  const pairSet = isPairSet(ds);
   const [measureNote, setMeasureNote] = useState("");
 
   // MEASURE WHAT IS UNMEASURED -- FOR THE SET THAT IS OPEN (wanly-api#432, #437). The API keeps
@@ -647,9 +649,15 @@ function DatasetCard({
           )}
           {/* Offered only when there is something to fix, or a fix is running. */}
           {!isReg && (faceSizes.small > 0 || fixRunning) && (
-            <Tooltip title={locked ?? ("Faces under 250 px at training size are learned small. "
-              + "Adds an upscaled head-and-shoulders crop beside each such photo, and upscales "
-              + "tiny images in place (the originals stay in S3).")}>
+            <Tooltip title={locked ?? (pairSet
+              ? ("A composition set: makes TWO-PERSON crops. Where the smaller of the two faces "
+                + "is under 250 px at training size, adds an upscaled crop of both people beside "
+                + "the photo — never a one-person crop, which would train under the two-person "
+                + "caption. Photos with fewer than two faces are left alone (tiny ones upscaled "
+                + "in place); the summary counts them. Originals stay in S3.")
+              : ("Faces under 250 px at training size are learned small. "
+                + "Adds an upscaled head-and-shoulders crop beside each such photo, and upscales "
+                + "tiny images in place (the originals stay in S3)."))}>
               <span>
                 <Button
                   size="small"
@@ -658,7 +666,8 @@ function DatasetCard({
                   disabled={busy || fixRunning || Boolean(locked)}
                   onClick={fix}
                 >
-                  Fix small faces ({faceSizes.small})
+                  {pairSet ? "Fix small faces — two-person crops" : "Fix small faces"}
+                  {` (${faceSizes.small})`}
                 </Button>
               </span>
             </Tooltip>
@@ -901,12 +910,14 @@ function DatasetCard({
                   {/* FACE SIZE AT TRAINING SIZE (#636): red under 250 px, amber under 400.
                       Nothing for a comfortable face -- the badge is a flag, not decoration. */}
                   {!isReg && !clip && ds.faces?.[uri]
-                    && ["small", "amber"].includes(faceSizeLevel(ds.faces[uri])) && (
-                    <Tooltip title={faceSizeTooltip(ds.faces[uri], isFixed(ds.faces[uri], ds.images))}>
+                    && ["small", "amber"].includes(faceSizeLevel(ds.faces[uri], pairSet)) && (
+                    <Tooltip title={faceSizeTooltip(
+                      ds.faces[uri], isFixed(ds.faces[uri], ds.images), pairSet)}>
                       <Chip
                         size="small"
-                        color={faceSizeLevel(ds.faces[uri]) === "small" ? "error" : "warning"}
-                        label={faceSizeLabel(ds.faces[uri])}
+                        color={faceSizeLevel(ds.faces[uri], pairSet) === "small"
+                          ? "error" : "warning"}
+                        label={faceSizeLabel(ds.faces[uri], pairSet)}
                         sx={{ position: "absolute", top: 8, left: 40, height: 22, boxShadow: 1 }}
                       />
                     </Tooltip>
