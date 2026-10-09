@@ -88,7 +88,7 @@ describe("the per-mode summary", () => {
       ["render: 4 segments", "motion: 12 captions", "train: 1 run"]);
     expect(parts[0].to).toBe("/jobs");
     expect(parts[1].reason).toBe("no GPU in motion mode");
-    expect(parts[2].to).toBe("/training");
+    expect(parts[2].to).toBe("/datasets"); // training lives on datasets (console#647)
   });
 
   it("scene captions are labelled apart, and a down scene service says fallback", () => {

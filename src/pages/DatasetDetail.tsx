@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link as RouterLink, useNavigate, useParams } from "react-router";
+import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router";
 import { Alert, Box, Button, CircularProgress, Typography } from "@mui/material";
 import { ArrowBack } from "@mui/icons-material";
 
@@ -9,6 +9,7 @@ import type { Character } from "../api/ltx";
 import type { Dataset } from "../api/types";
 import { DatasetCard } from "../components/DatasetCard";
 import TrainLoraDialog from "../components/TrainLoraDialog";
+import DatasetRunsPanel from "../components/DatasetRunsPanel";
 
 /**
  * One dataset, on its own page (wanly-console#647).
@@ -24,6 +25,11 @@ export default function DatasetDetail() {
   const [error, setError] = useState("");
   const [characters, setCharacters] = useState<Character[]>([]);
   const [training, setTraining] = useState(false);
+  // Bumped after a run is queued so the run panel re-reads at once.
+  const [runsKey, setRunsKey] = useState(0);
+  // An old /training?run=<id> link lands here with that run (wanly-console#647).
+  const [searchParams] = useSearchParams();
+  const focusRun = searchParams.get("run");
 
   const fetchOne = useCallback(async () => {
     try {
@@ -68,22 +74,30 @@ export default function DatasetDetail() {
       {error && <Alert severity="warning" sx={{ mb: 2 }}>{error}</Alert>}
       {!shown && !error && <CircularProgress size={22} />}
       {shown && (
-        <DatasetCard
-          key={shown.id}
-          ds={shown}
-          characters={characters}
-          onChanged={fetchOne}
-          onCharactersChanged={fetchCharacters}
-          onTrain={() => setTraining(true)}
-          onCloned={(copy) => navigate(`/datasets/${copy.id}`)}
-          onDeleted={() => navigate("/datasets", { replace: true })}
-        />
+        // The set on the left, its run history on the right (wanly-console#647); one column,
+        // runs below, when the screen is narrow.
+        <Box sx={{ display: "grid", gap: 2, alignItems: "start",
+                   gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 420px" } }}>
+          <Box sx={{ minWidth: 0 }}>
+            <DatasetCard
+              key={shown.id}
+              ds={shown}
+              characters={characters}
+              onChanged={fetchOne}
+              onCharactersChanged={fetchCharacters}
+              onTrain={() => setTraining(true)}
+              onCloned={(copy) => navigate(`/datasets/${copy.id}`)}
+              onDeleted={() => navigate("/datasets", { replace: true })}
+            />
+          </Box>
+          <DatasetRunsPanel ds={shown} refreshKey={runsKey} focusRun={focusRun} />
+        </Box>
       )}
       {shown && training && (
         <TrainLoraDialog
           dataset={shown}
           onClose={() => setTraining(false)}
-          onQueued={() => { setTraining(false); navigate("/training"); }}
+          onQueued={() => { setTraining(false); setRunsKey((k) => k + 1); }}
         />
       )}
     </Box>

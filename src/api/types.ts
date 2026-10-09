@@ -1380,3 +1380,13 @@ export interface ImageEditResult {
 /** How a dataset image was made from another (wanly-api#445). */
 export type DerivedHow = "crop" | "upscale" | "edit" | "fix_crop" | "duplicate";
 export interface DatasetDerived { from: string; how: DerivedHow; at?: string }
+
+/** GET /datasets/{id}/runs (wanly-console#647): a run on a dataset page, with its role there. */
+export interface DatasetRun {
+  job_id: string;
+  /** home: it belongs here. pair_member: a pair run that also trained on this member's set
+   *  (its home is `pair.dataset_id`). orphan: every set it trained on is gone. */
+  role: "home" | "pair_member" | "orphan";
+  pair?: { character: string; dataset_id: string | null } | null;
+  groups?: { kind: string; dataset_name?: string | null; here?: boolean }[];
+}
