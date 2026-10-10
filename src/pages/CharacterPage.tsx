@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import LatestLoraStatus from "../components/LatestLoraStatus";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router";
 import {
   Alert, Box, Button, Card, CardActionArea, Chip, CircularProgress, Dialog, DialogActions,
@@ -175,6 +176,7 @@ export default function CharacterPage() {
                         to={`/characters/${encodeURIComponent(p.name)}`} label={`pair: ${p.name}`} />
                 ))}
               </Stack>
+              <LatestLoraStatus c={c} />
             </Box>
             <Stack direction="row" spacing={0.5} alignItems="center">
               <DefaultStar isDefault={!!c.is_default} what="character"

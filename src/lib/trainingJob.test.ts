@@ -170,8 +170,9 @@ describe("runTimeLabel", () => {
   });
 
   it("says started for a live run", () => {
+    // A date as well as a time: "started Sep 23, 4:07 AM" (or the local equivalent).
     expect(runTimeLabel({ claimed_at: "2026-09-23T04:07:28Z", completed_at: null }))
-      .toMatch(/^started \d/);
+      .toMatch(/^started [A-Z][a-z]{2} \d/);
   });
 
   it("gives a finished run its window and its length", () => {
@@ -180,6 +181,7 @@ describe("runTimeLabel", () => {
       completed_at: "2026-09-23T04:49:28Z",
     });
     expect(label).toMatch(/–/);
+    expect(label).toMatch(/^[A-Z][a-z]{2} \d/);
     expect(label).toContain("42m");
   });
 
