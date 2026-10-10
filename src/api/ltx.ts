@@ -105,6 +105,23 @@ export interface LatestLora {
                  last_rendered_at: string | null }[];
 }
 
+/** The newest completed SDXL run's checkpoint (wanly-api#458). SDXL LoRAs are used by hand
+ *  in A1111, so "tested" counts A1111's saved images that named any of the run's checkpoints,
+ *  as reported from the A1111 box (wanly-gpu-docker#211) -- not Wanly renders. */
+export interface LatestSdxlLora {
+  run_id: string;
+  run_version: number;
+  at: string | null;
+  name: string | null;
+  label: string | null;
+  uploaded: boolean;
+  a1111_images: number;
+  tested: boolean;
+  a1111_last_used_at: string | null;
+  checkpoints: { label: string; name: string; uploaded: boolean; a1111_images: number;
+                 a1111_last_used_at: string | null }[];
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -155,6 +172,8 @@ export interface Character {
   latest_lora?: LatestLora | null;
   /** The starred (render) LoRA's own use. */
   starred_lora_renders?: { name: string; renders: number; last_rendered_at: string | null } | null;
+  /** Has the newest SDXL LoRA been tried in A1111? None: no completed SDXL run (#458). */
+  latest_sdxl_lora?: LatestSdxlLora | null;
 }
 
 /** What fills a placeholder: the trigger AND the word its LoRA bound it to, exactly as
