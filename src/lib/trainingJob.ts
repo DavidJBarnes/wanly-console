@@ -7,6 +7,7 @@
  * a component to be covered at all. These have right answers — an eligibility rule that lets a
  * doomed job through costs a GPU hour to discover.
  */
+import { dateTimeLabel, sameDay, spanLabel, timeLabel } from "./dateTime";
 import type {
   Dataset, DatasetKind, PreflightItem, PublishMode, TrainingCreate, TrainingJob,
 } from "../api/types";
@@ -152,10 +153,9 @@ export function runTimeLabel(
   job: Pick<TrainingJob, "claimed_at" | "completed_at">,
 ): string | null {
   if (!job.claimed_at) return null;
-  const t = (iso: string) =>
-    new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  if (!job.completed_at) return `started ${t(job.claimed_at)}`;
-  return `${t(job.claimed_at)}–${t(job.completed_at)}`
+  // Date AND time: a page of runs spans weeks, and "2:14 PM" alone named no day.
+  if (!job.completed_at) return `started ${dateTimeLabel(job.claimed_at)}`;
+  return `${spanLabel(job.claimed_at, job.completed_at)}`
     + ` · ${formatRunDuration(Date.parse(job.completed_at) - Date.parse(job.claimed_at))}`;
 }
 
@@ -754,7 +754,8 @@ export function formatMinutes(min: number): string {
  *  "starts ~6:40 PM · done ~8:10 PM". */
 export function etaLabel(eta: RunEta | undefined): string | null {
   if (!eta) return null;
-  const t = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  // Today: just the time. Another day (a long queue): the date too.
+  const t = (ms: number) => (sameDay(ms, Date.now()) ? timeLabel(ms) : dateTimeLabel(ms));
   return eta.startsAt !== null
     ? `≈ starts ~${t(eta.startsAt)} · done ~${t(eta.doneAt)} (${formatMinutes(eta.minutesLeft)})`
     : `≈ ${formatMinutes(eta.minutesLeft)} left · done ~${t(eta.doneAt)}`;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import LatestLoraStatus from "../components/LatestLoraStatus";
 import {
   Alert, Box, Button, Card, CardActionArea, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControlLabel, MenuItem, Stack, Switch, TextField,
@@ -158,6 +159,7 @@ export default function Characters() {
                     )}
                     {c.hidden && <Chip size="small" label="Hidden" />}
                   </Stack>
+                  <LatestLoraStatus c={c} dense />
                 </Box>
               </CardActionArea>
               {ms.length > 0 && (

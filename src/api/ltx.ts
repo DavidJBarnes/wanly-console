@@ -87,6 +87,24 @@ export interface Pose {
   is_default?: boolean;
 }
 
+/** The newest completed LTX run's checkpoint shown on the Characters grid (wanly-api#456).
+ *  `at` is the run's completion (no per-checkpoint time is recorded). `renders`/`tested`
+ *  count completed renders of ANY of the run's checkpoints. */
+export interface LatestLora {
+  run_id: string;
+  run_version: number;
+  at: string | null;
+  name: string | null;
+  label: string | null;
+  uploaded: boolean;
+  is_starred: boolean;
+  renders: number;
+  tested: boolean;
+  last_rendered_at: string | null;
+  checkpoints: { label: string; name: string; uploaded: boolean; renders: number;
+                 last_rendered_at: string | null }[];
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -133,6 +151,10 @@ export interface Character {
   /** A STARRED checkpoint still on the trainer (wanly-api#452): its upload was requested and
    *  the star applies when it lands. */
   star_pending?: { training_job_id: string; label: string } | null;
+  /** Has the newest LTX LoRA been rendered? (wanly-api#456). Null: no completed LTX run. */
+  latest_lora?: LatestLora | null;
+  /** The starred (render) LoRA's own use. */
+  starred_lora_renders?: { name: string; renders: number; last_rendered_at: string | null } | null;
 }
 
 /** What fills a placeholder: the trigger AND the word its LoRA bound it to, exactly as
