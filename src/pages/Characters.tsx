@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import LatestLoraStatus from "../components/LatestLoraStatus";
+import TrainingHistoryPanel from "../components/TrainingHistoryPanel";
 import {
   Alert, Box, Button, Card, CardActionArea, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControlLabel, MenuItem, Stack, Switch, TextField,
@@ -100,7 +101,9 @@ export default function Characters() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3, display: "flex", gap: 3, alignItems: "flex-start",
+               flexDirection: { xs: "column", lg: "row" } }}>
+    <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
       <Stack direction="row" alignItems="center" sx={{ mb: 0.5 }}>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
           Characters ({characters?.length ?? 0})
@@ -217,6 +220,16 @@ export default function Characters() {
         />
       )}
 
+    </Box>
+    {/* Every run, SDXL and LTX, newest first (console#664). Beside the grid on a wide
+        screen, under it on a narrow one. */}
+    <Box component="aside" sx={{ width: { xs: "100%", lg: 300 }, flexShrink: 0,
+                                 position: { lg: "sticky" }, top: { lg: 80 },
+                                 maxHeight: { lg: "calc(100vh - 100px)" }, overflowY: "auto",
+                                 borderLeft: { lg: 1 }, borderColor: { lg: "divider" },
+                                 pl: { lg: 2 } }}>
+      <TrainingHistoryPanel />
+    </Box>
     </Box>
   );
 }
