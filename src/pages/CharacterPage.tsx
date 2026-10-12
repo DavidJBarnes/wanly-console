@@ -19,6 +19,7 @@ import DatasetRunsPanel from "../components/DatasetRunsPanel";
 import DefaultStar from "../components/DefaultStar";
 import TrainLoraDialog from "../components/TrainLoraDialog";
 import { characterPicture, tabFromParams, type CharacterTab } from "../lib/characterPage";
+import CharacterPrompts from "../components/CharacterPrompts";
 import { hasLora } from "../lib/characterIdentity";
 import { CharacterDialog } from "./Characters";
 
@@ -182,6 +183,7 @@ export default function CharacterPage() {
           <Tabs value={tab} onChange={(_, v: CharacterTab) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}>
             <Tab value="settings" label="Settings" />
             <Tab value="images" label={`Images${ds ? ` (${ds.images.length})` : ""}`} />
+            <Tab value="prompts" label="Prompts" />
             {!pair && <Tab value="sheet" label="Character sheet" />}
             <Tab value="training" label={`Training (${full.runs.length})`} />
             <Tab value="history" label={`History (${full.archived.length})`} />
@@ -208,6 +210,8 @@ export default function CharacterPage() {
               {full.archived.length > 0 ? " Its old version sets are under History." : ""}
             </Alert>
           ))}
+
+          {tab === "prompts" && <CharacterPrompts key={c.id} character={c.name} />}
 
           {tab === "training" && (
             <Box>

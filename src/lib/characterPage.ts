@@ -1,6 +1,7 @@
 import type { Character } from "../api/ltx";
 import type { Dataset } from "../api/types";
 import { characterIconUri } from "./characterIcon";
+import { dateTimeLabel } from "./dateTime";
 
 /** Characters and Datasets collapsed (wanly-api#452): small rules shared by the pages. */
 
@@ -30,8 +31,17 @@ export function characterSetHome(owner: string, run: string | null): string {
   return `/characters/${encodeURIComponent(owner)}${q}`;
 }
 
-export type CharacterTab = "settings" | "images" | "sheet" | "training" | "history";
-export const CHARACTER_TABS: CharacterTab[] = ["settings", "images", "sheet", "training", "history"];
+export type CharacterTab = "settings" | "images" | "prompts" | "sheet" | "training" | "history";
+export const CHARACTER_TABS: CharacterTab[] = ["settings", "images", "prompts", "sheet", "training", "history"];
+
+/** "Added Oct 12, 2:41 PM", plus when it was last edited (console#675). The date added is
+ *  the point: an edit never moves it. */
+export function promptDateLabel(
+  p: { created_at: string; updated_at: string | null }, now: Date = new Date(),
+): string {
+  const added = `Added ${dateTimeLabel(p.created_at, now)}`;
+  return p.updated_at ? `${added} · edited ${dateTimeLabel(p.updated_at, now)}` : added;
+}
 
 /** Which tab a URL opens (console#666). Settings is first and the default; the old
  *  `?tab=identity` is Settings now; a `?run=<id>` link (the Characters page's training
