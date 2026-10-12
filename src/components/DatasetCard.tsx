@@ -12,7 +12,7 @@ import {
   Delete, Edit, Face, OpenInNew,
   Lock, LockOpen,
   Unarchive,
-  ModelTraining, Movie, PhotoLibrary, Star, StarBorder, Upload, WarningAmber,
+  ModelTraining, Movie, PhotoLibrary, Star, StarBorder, Upload, WarningAmber, ZoomOutMap,
 } from "@mui/icons-material";
 
 import {
@@ -20,7 +20,7 @@ import {
   fixSmallFaces, getCaptionStatus, getFileUrl, getFixSmallFacesStatus, getRegularizeStatus,
   measureDatasetFaces, lockDataset, regularizeDataset,
   archiveDataset, removeDatasetImage, scoreDataset, setDatasetAnchor, unarchiveDataset,
-  unlockDataset, updateDataset, updateDatasetCaption,
+  unlockDataset, updateDataset, updateDatasetCaption, getUpscaleStatus, upscaleDatasetImages,
 } from "../api/client";
 import type { CropFraming } from "../api/client";
 import type { Character } from "../api/ltx";
@@ -45,6 +45,10 @@ import {
 } from "../lib/faceSize";
 import type { FaceFix } from "../lib/faceFixes";
 import { faceFixes, fixesByResult } from "../lib/faceFixes";
+import {
+  UPSCALE_FACTORS, UPSCALE_MAX_EDGE, upscaleProgressLabel, upscaleSelectionProblem,
+  upscaleTarget, type UpscaleFactor,
+} from "../lib/upscale";
 import { apiErrorText, canTrain, isPairCharacter } from "../lib/trainingJob";
 import type { Dataset, DatasetKind, DatasetScore, RegClass } from "../api/types";
 
@@ -108,6 +112,7 @@ export function DatasetCard({
   const [tags, setTags] = useState(ds.tags ?? "");
   const [msg, setMsg] = useState("");
   const [cropOpen, setCropOpen] = useState(false);
+  const [upscaleOpen, setUpscaleOpen] = useState(false);
   const [repoOpen, setRepoOpen] = useState(false);
   // Its own page (wanly-console#647): every image, no "+N more".
   const [showAll, setShowAll] = useState(true);
@@ -147,6 +152,9 @@ export function DatasetCard({
   // "Fix small faces" (wanly-api#432) runs on the server too, and re-reads the set when done.
   const fixing = useBackgroundStatus(() => getFixSmallFacesStatus(ds.id), onChanged, !isReg);
   const fixRunning = !isReg && Boolean(fixing.status?.running);
+  // "Upscale" (wanly-console#668): high-res copies beside the chosen stills, on the server.
+  const upscaling = useBackgroundStatus(() => getUpscaleStatus(ds.id), onChanged, !isReg);
+  const upscaleRunning = !isReg && Boolean(upscaling.status?.running);
   const faceSizes = faceSizeSummary(ds);
   // A composition set's photos are judged, and cropped, as PAIRS (wanly-api#436).
   const pairSet = isPairSet(ds);
@@ -880,6 +888,21 @@ export function DatasetCard({
               </span>
             </Tooltip>
           )}
+          {!isReg && (
+            <Tooltip title={locked ?? ("A high-res 2× or 4× copy of the images you pick, added "
+              + "beside each one. The originals stay.")}>
+              <span>
+                <Button
+                  size="small"
+                  startIcon={<ZoomOutMap />}
+                  disabled={busy || upscaleRunning || stills.length === 0 || Boolean(locked)}
+                  onClick={() => setUpscaleOpen(true)}
+                >
+                  Upscale
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           {/* Offered only when there is something to fix, or a fix is running. */}
           {!isReg && (faceSizes.small > 0 || fixRunning) && (
             <Tooltip title={locked ?? (pairSet
@@ -999,6 +1022,9 @@ export function DatasetCard({
           { label: isReg ? null : fixProgressLabel(fixing.status), s: fixing.status,
             done: fixing.status?.done ?? 0, total: fixing.status?.total ?? 0,
             finished: Boolean(fixing.status && !fixing.status.error) },
+          { label: isReg ? null : upscaleProgressLabel(upscaling.status), s: upscaling.status,
+            done: upscaling.status?.done ?? 0, total: upscaling.status?.total ?? 0,
+            finished: Boolean(upscaling.status && !upscaling.status.error) },
         ].filter((p) => p.label).map((p) => {
           const pct = p.s?.running ? progressPct(p.done, p.total) : null;
           const tone = p.s?.running ? "text.secondary"
@@ -1138,6 +1164,14 @@ export function DatasetCard({
             onChanged();
           }}
         />
+
+        {upscaleOpen && (
+          <UpscaleDialog
+            ds={ds}
+            onClose={() => setUpscaleOpen(false)}
+            onStarted={() => { setUpscaleOpen(false); upscaling.kick(); }}
+          />
+        )}
 
         <TextField
           size="small"
@@ -1724,6 +1758,116 @@ function AssignDialog({
           onCreated={(c) => { setCreated(c); setOwner(c.name); onCharactersChanged(); }}
         />
       )}
+    </Dialog>
+  );
+}
+
+
+/** "Upscale" (wanly-console#668): pick stills and a factor; the API makes a high-res copy of
+ *  each and adds it beside its source. The run is on the server -- this only starts it; the
+ *  card's toolbar shows the progress and the summary. */
+function UpscaleDialog({
+  ds, onClose, onStarted,
+}: {
+  ds: Dataset;
+  onClose: () => void;
+  onStarted: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [factor, setFactor] = useState<UpscaleFactor>(2);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  // Clips are never upscaled; only stills are offered.
+  const { stills } = splitClips(ds.images);
+  const problem = upscaleSelectionProblem(selected);
+  const toggled = (uri: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(uri)) next.delete(uri);
+    else next.add(uri);
+    return next;
+  });
+  const size = (uri: string) => {
+    const f = ds.faces?.[uri];
+    const t = upscaleTarget(f?.width, f?.height, factor);
+    return f?.width && f?.height
+      ? `${Math.max(f.width, f.height)} → ${t} px${t !== null && t <= Math.max(f.width, f.height) ? " (skipped)" : ""}`
+      : "size not measured yet";
+  };
+
+  return (
+    <Dialog open onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Upscale</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Typography variant="body2">
+            A high-res copy of each image you pick is added to “{ds.name}” right after it, with
+            its caption. The originals stay. Real-ESRGAN, the same texture-keeping setting as
+            Fix small faces; seconds to a couple of minutes per image.
+          </Typography>
+          <RadioGroup row value={String(factor)}
+                      onChange={(e) => setFactor(Number(e.target.value) as UpscaleFactor)}>
+            {UPSCALE_FACTORS.map((f) => (
+              <FormControlLabel key={f} value={String(f)} control={<Radio size="small" />}
+                                label={`${f}×`} />
+            ))}
+          </RadioGroup>
+          <Typography variant="caption" color="text.secondary">
+            The long edge is multiplied by {factor}, up to {UPSCALE_MAX_EDGE} px. An image already
+            at {UPSCALE_MAX_EDGE} px is skipped.
+          </Typography>
+          {stills.length > 0 && (
+            <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+              {stills.map((uri) => {
+                const picked = selected.has(uri);
+                return (
+                  <Tooltip key={uri} title={size(uri)}>
+                    <Box
+                      component="img" loading="lazy"
+                      src={getFileUrl(uri)}
+                      onClick={() => toggled(uri)}
+                      sx={{
+                        width: 72, height: 72, objectFit: "cover", borderRadius: 1,
+                        cursor: "pointer", display: "block",
+                        border: "3px solid", borderColor: picked ? "secondary.main" : "divider",
+                        opacity: picked ? 1 : 0.55,
+                      }}
+                    />
+                  </Tooltip>
+                );
+              })}
+            </Box>
+          )}
+          <Typography variant="body2" color="text.secondary">
+            {selected.size > 0 ? `${selected.size} picked.` : "Pick the images to upscale."}
+          </Typography>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Tooltip title={problem ?? ""}>
+          <span>
+            <Button
+              variant="contained"
+              disabled={busy || problem !== null}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  await upscaleDatasetImages(ds.id, [...selected], factor);
+                  onStarted();
+                } catch (e: unknown) {
+                  setError(apiErrorText(e, "could not start the upscale"));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Starting…" : `Upscale ${selected.size || ""} ${factor}×`.replace("  ", " ")}
+            </Button>
+          </span>
+        </Tooltip>
+      </DialogActions>
     </Dialog>
   );
 }
