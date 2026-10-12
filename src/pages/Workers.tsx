@@ -58,6 +58,8 @@ import { POLL_INTERVAL_SLOW } from "../constants";
 import { listTrainingJobs } from "../api/client";
 import type { TrainingJob } from "../api/types";
 import { TRAINING_STATUS, trainingLabel, trainingRun } from "../lib/workerTraining";
+import { phaseStatus } from "../lib/workerPhase";
+import WorkerPhaseLine from "../components/WorkerPhaseLine";
 import StalledQueueBanner from "../components/StalledQueueBanner";
 import ModeWaitingSummary from "../components/ModeWaitingSummary";
 
@@ -494,7 +496,9 @@ function WorkerCard({
   onRenamed: () => void;
   onClick: () => void;
 }) {
-  const cfg = training ? TRAINING_STATUS : STATUS_CONFIG[worker.status];
+  // A worker mid-phase (syncing LoRAs, switching modes, booting) says so in place of
+  // Idle / Busy -- wanly-gpu-daemon#189. Training still wins: it is the bigger activity.
+  const cfg = training ? TRAINING_STATUS : (phaseStatus(worker) ?? STATUS_CONFIG[worker.status]);
   const isService = isServiceWorker(worker);
   const canDrain = canDrainWorker(worker);
   const hasPendingDrain = worker.drain_after_jobs !== null && worker.drain_after_jobs > 0;
@@ -622,6 +626,8 @@ function WorkerCard({
             chips that say what the box merely CAN do. Inline with them it read as one more
             label: "Rendering" beside "trainer" was taken to mean the box was in trainer
             mode. Only where there are two or more modes to switch between (canSwitchMode). */}
+        <WorkerPhaseLine worker={worker} />
+
         {canSwitchMode(worker) && (
           <Box onClick={(e) => e.stopPropagation()}>
             <WorkerModeToggle worker={worker} onChanged={onModeChanged} />

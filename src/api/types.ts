@@ -387,9 +387,35 @@ export interface WorkerResponse {
    *  daemon today, since none of them sends it yet — and is NOT the same as "runs nothing". */
   provides: string[] | null;
   drain_after_jobs: number | null;
+  /** What the worker is doing RIGHT NOW (wanly-gpu-daemon#189): syncing LoRAs, booting,
+   *  switching modes, ready. Optional and nullable: absent from an API that predates it,
+   *  null from a worker that never reported one. See lib/workerPhase.ts. */
+  phase?: WorkerPhase | null;
   last_heartbeat: string;
   registered_at: string;
   updated_at: string;
+}
+
+/**
+ * wanly-gpu-daemon#189. `detail` is always a whole sentence ("Downloading Payton_v2_final
+ * (358 / 650 MB, 0.4 MB/s, ETA 12m 03s), 1 file left"), so an unknown phase still renders
+ * something true; the numeric fields drive the progress bar.
+ */
+export interface WorkerPhase {
+  phase: "booting" | "switching_mode" | "syncing_loras" | "fetching_lora" | "ready" | string;
+  detail?: string | null;
+  since?: string | null;
+  from_mode?: string | null;
+  to_mode?: string | null;
+  service?: string | null;
+  file?: string | null;
+  done_bytes?: number | null;
+  total_bytes?: number | null;
+  rate_bps?: number | null;
+  eta_s?: number | null;
+  files_done?: number | null;
+  files_total?: number | null;
+  files_remaining?: number | null;
 }
 
 

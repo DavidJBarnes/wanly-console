@@ -22,6 +22,8 @@ import { useParams, Link as RouterLink } from "react-router";
 import { useGoBack } from "../hooks/useGoBack";
 import { getWorker, getWorkerSegments, listTrainingJobs } from "../api/client";
 import { TRAINING_STATUS, trainingLabel, trainingRun } from "../lib/workerTraining";
+import { phaseStatus } from "../lib/workerPhase";
+import WorkerPhaseLine from "../components/WorkerPhaseLine";
 import { orderForDisplay, severityOf, summarise } from "../lib/loraInventory";
 import { isService, kindsOf } from "../lib/workerKind";
 import StatusChip from "../components/StatusChip";
@@ -142,7 +144,8 @@ export default function WorkerDetail() {
   }
 
   const training = trainingRun(worker, trainingJobs);
-  const cfg = training ? TRAINING_STATUS : STATUS_CONFIG[worker.status];
+  // wanly-gpu-daemon#189: mid-phase (syncing LoRAs, switching, booting) reads as that.
+  const cfg = training ? TRAINING_STATUS : (phaseStatus(worker) ?? STATUS_CONFIG[worker.status]);
 
   return (
     <Box>
@@ -165,6 +168,8 @@ export default function WorkerDetail() {
           )}
         </Box>
       </Box>
+
+      <WorkerPhaseLine worker={worker} />
 
       <Card>
         <CardContent>
