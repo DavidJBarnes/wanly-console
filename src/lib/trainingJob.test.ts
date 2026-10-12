@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  estimatedMinutes, stepsPerEpoch,
+  estimatedMinutes, stepsPerEpoch, uploadPending, uploadText,
   apiErrorText, defaultEpochsForSamples, stepsForSamples,
   epochRows, lossPath,
   groupByCharacter,
@@ -343,7 +343,7 @@ describe("epochRows", () => {
   });
   it("still lists an older run's checkpoints that have no epoch record", () => {
     const rows = epochRows({ epochs: null, checkpoints: ["s3://x/pay_v2_e03.safetensors"], publish_requests: null });
-    expect(rows).toEqual([{ label: "e03", step: null, loss: null, uri: "s3://x/pay_v2_e03.safetensors", requested: false }]);
+    expect(rows).toEqual([{ label: "e03", step: null, loss: null, uri: "s3://x/pay_v2_e03.safetensors", requested: false, upload: null }]);
   });
   it("never lists a deleted checkpoint, even while the trainer still reports it", () => {
     const rows = epochRows({
@@ -769,5 +769,38 @@ describe("runTriggerPhrase (console#629)", () => {
   it("a solo run is just its trigger either way", () => {
     expect(runTriggerPhrase({ trigger: "jo@na", identities: null, config: { arch: "sdxl" } }))
       .toBe("jo@na");
+  });
+});
+
+describe("checkpoint upload progress (console#673)", () => {
+  const base = { checkpoints: null, publish_requests: ["final"], delete_requests: null };
+
+  it("says how far an upload has got", () => {
+    const rows = epochRows({ ...base, epochs: [
+      { label: "e01", step: 380, loss: 0.5, upload: { queued: true } },
+      { label: "final", step: 1140, loss: 0.5, upload: { sent: 300 * 1024 ** 2, size: 650 * 1024 ** 2 } },
+    ] });
+    expect(uploadText(rows[1])).toBe("uploading 46% · 300 of 650 MB");
+    expect(uploadText(rows[0])).toBe("queued behind another upload");
+  });
+
+  it("waits for the trainer before it reports anything", () => {
+    const [row] = epochRows({ ...base, epochs: [{ label: "final", step: 1, loss: null }] });
+    expect(uploadText(row)).toBe("waiting for the trainer");
+  });
+
+  it("is quiet once it is in the bucket, or when nobody asked", () => {
+    const rows = epochRows({ ...base, checkpoints: ["s3://x/pay_v2_final.safetensors"], epochs: [
+      { label: "e01", step: 1, loss: null },
+      { label: "final", step: 2, loss: null, upload: { sent: 650, size: 650 } },
+    ] });
+    expect(rows.map(uploadText)).toEqual([null, null]);
+  });
+
+  it("keeps a finished run polled while a request is outstanding", () => {
+    expect(uploadPending(base)).toBe(true);
+    expect(uploadPending({ ...base, checkpoints: ["s3://x/pay_v2_final.safetensors"] })).toBe(false);
+    expect(uploadPending({ ...base, delete_requests: ["final"] })).toBe(false);
+    expect(uploadPending({ ...base, publish_requests: null })).toBe(false);
   });
 });

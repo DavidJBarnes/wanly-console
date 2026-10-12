@@ -17,6 +17,7 @@ import type { Character } from "../api/ltx";
 import StatusChip from "./StatusChip";
 import {
   checkpointInUse, epochRows, runTriggerPhrase, runTriggers, scpCommand, isSdxlJob, loraStem,
+  uploadPct, uploadText,
   lossPath, runTimeDetail, runTimeLabel, trainingPct, trainingSummary, etaLabel, type RunEta,
 } from "../lib/trainingJob";
 import LossChart from "./LossChart";
@@ -477,9 +478,16 @@ export default function TrainingRow({
                             {loraStem(row.uri)}
                           </Typography>
                         </>
-                      ) : row.requested ? (
+                      ) : row.requested || row.upload ? (
                         <>
-                          <Chip size="small" variant="outlined" label="uploading soon" />
+                          {/* How far it has got (console#673), not "uploading soon" for 18 min. */}
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                            {row.upload && row.upload !== "queued" && (
+                              <LinearProgress variant="determinate" value={uploadPct(row.upload)}
+                                              sx={{ width: 100, height: 6, borderRadius: 1 }} />
+                            )}
+                            <Chip size="small" variant="outlined" label={uploadText(row)} />
+                          </Box>
                           {!sdxl && (
                             <StarButton current={false} pending={pendingLabel === row.label}
                                         uploaded={false} busy={busy || live}
