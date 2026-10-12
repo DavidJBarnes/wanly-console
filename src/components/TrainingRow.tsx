@@ -20,6 +20,7 @@ import {
   lossPath, runTimeDetail, runTimeLabel, trainingPct, trainingSummary, etaLabel, type RunEta,
 } from "../lib/trainingJob";
 import LossChart from "./LossChart";
+import CaptionTagsPanel from "./CaptionTagsPanel";
 import TrainedOnDialog from "./TrainedOnDialog";
 import type { TrainingJob } from "../api/types";
 
@@ -358,6 +359,9 @@ export default function TrainingRow({
             />
           </Box>
         )}
+
+        {/* What WD14 named in an SDXL run's captions (wanly-api#462); nothing for LTX. */}
+        <CaptionTagsPanel job={job} />
 
         {/* NOTES. The judgements a run earns that no machine field fits -- loss does not rank
             checkpoints, tags are vocabulary, and progress_log is the trainer's channel that is

@@ -511,6 +511,9 @@ export interface TrainingJob {
   epochs: TrainingEpoch[] | null;
   /** Labels asked for after the fact; the trainer uploads them on its next poll. */
   publish_requests: string[] | null;
+  /** SDXL only (wanly-api#462): the WD14 tags that landed in the captions, per group.
+   *  Absent/null for LTX runs and for an API that predates it. */
+  caption_tags?: CaptionTags | null;
   /** Labels deleted forever (console#627): gone from `epochs` and `checkpoints` already; the
    *  trainer removes the files from its disk on its next poll. Optional until api#413 ships. */
   delete_requests?: string[] | null;
@@ -522,6 +525,25 @@ export interface TrainingJob {
   created_at: string | null;
   claimed_at: string | null;
   completed_at: string | null;
+}
+
+/** One group's tag tally (wanly-api#462): [tag, images carrying it], most frequent first. */
+export interface CaptionTagGroup {
+  /** The caption prefix the group trained under: the trigger, or "k3lly, 1girl" for a pair. */
+  label: string;
+  kind?: string;
+  images: number;
+  kept: [string, number][];
+  /** null when unknowable: a run backfilled from its caption files, where a stripped tag
+   *  left no trace. */
+  stripped: [string, number][] | null;
+}
+
+export interface CaptionTags {
+  images: number;
+  groups: CaptionTagGroup[];
+  /** "backfill" for a run tallied after the fact from its caption files. */
+  source?: string;
 }
 
 export interface TrainingEpoch {
