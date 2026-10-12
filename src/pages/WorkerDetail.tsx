@@ -20,11 +20,12 @@ import {
 import { ArrowBack, Circle, LinearScale } from "@mui/icons-material";
 import { useParams, Link as RouterLink } from "react-router";
 import { useGoBack } from "../hooks/useGoBack";
-import { getWorker, getWorkerSegments } from "../api/client";
+import { getWorker, getWorkerSegments, listTrainingJobs } from "../api/client";
+import { TRAINING_STATUS, trainingLabel, trainingRun } from "../lib/workerTraining";
 import { orderForDisplay, severityOf, summarise } from "../lib/loraInventory";
 import { isService, kindsOf } from "../lib/workerKind";
 import StatusChip from "../components/StatusChip";
-import type { WorkerResponse, WorkerStatus, WorkerSegmentResponse } from "../api/types";
+import type { TrainingJob, WorkerResponse, WorkerStatus, WorkerSegmentResponse } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
 
 const STATUS_CONFIG: Record<WorkerStatus, { color: string; label: string }> = {
@@ -79,6 +80,7 @@ export default function WorkerDetail() {
   const [segments, setSegments] = useState<WorkerSegmentResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [trainingJobs, setTrainingJobs] = useState<TrainingJob[]>([]);
 
   const fetchWorker = useCallback(async () => {
     if (!id) return;
@@ -91,6 +93,8 @@ export default function WorkerDetail() {
     } finally {
       setLoading(false);
     }
+    // A training box's row says "draining" (console#671); show what it is doing instead.
+    listTrainingJobs({ limit: 20 }).then(setTrainingJobs).catch(() => setTrainingJobs([]));
   }, [id]);
 
   const fetchSegments = useCallback(async () => {
@@ -137,7 +141,8 @@ export default function WorkerDetail() {
     );
   }
 
-  const cfg = STATUS_CONFIG[worker.status];
+  const training = trainingRun(worker, trainingJobs);
+  const cfg = training ? TRAINING_STATUS : STATUS_CONFIG[worker.status];
 
   return (
     <Box>
@@ -153,6 +158,11 @@ export default function WorkerDetail() {
           <Typography variant="body1" sx={{ fontWeight: 600, color: cfg.color }}>
             {cfg.label}
           </Typography>
+          {training && (
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 0.5 }}>
+              {trainingLabel(training)}
+            </Typography>
+          )}
         </Box>
       </Box>
 

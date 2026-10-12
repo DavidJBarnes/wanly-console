@@ -55,6 +55,9 @@ import { byStatus, canDrain as canDrainWorker, fleetCounts, isService as isServi
 import WorkerModeToggle, { canSwitchMode } from "../components/WorkerModeToggle";
 import type { WorkerResponse, WorkerStatus } from "../api/types";
 import { POLL_INTERVAL_SLOW } from "../constants";
+import { listTrainingJobs } from "../api/client";
+import type { TrainingJob } from "../api/types";
+import { TRAINING_STATUS, trainingLabel, trainingRun } from "../lib/workerTraining";
 import StalledQueueBanner from "../components/StalledQueueBanner";
 import ModeWaitingSummary from "../components/ModeWaitingSummary";
 
@@ -111,6 +114,7 @@ export default function Workers() {
   const [pods, setPods] = useState<RunPodWorker[]>([]);
   const [reservations, setReservations] = useState<GpuReservation[]>([]);
   const [draining, setDraining] = useState(false);
+  const [trainingJobs, setTrainingJobs] = useState<TrainingJob[]>([]);
   const [drainMode, setDrainMode] = useState<"immediate" | "after">("immediate");
   const [drainCount, setDrainCount] = useState(3);
 
@@ -135,6 +139,13 @@ export default function Workers() {
       setReservations(await getReservations());
     } catch {
       setReservations([]);
+    }
+    // Which box is training (console#671): its row says "draining", which is how the trainer
+    // parks the render side, not what the box is doing. Non-fatal like the two above.
+    try {
+      setTrainingJobs(await listTrainingJobs({ limit: 20 }));
+    } catch {
+      setTrainingJobs([]);
     }
   }, []);
 
@@ -344,6 +355,7 @@ export default function Workers() {
           <Grid key={worker.id} size={{ xs: 12, sm: 6, md: 4 }}>
             <WorkerCard
               worker={worker}
+              training={trainingRun(worker, trainingJobs)}
               costPerHr={costForWorker(worker, pods)}
               onDelete={setDeleteConfirm}
               onDrain={setDrainConfirm}
@@ -464,8 +476,11 @@ function WorkerCard({
   onRenamed,
   onClick,
   drifting,
+  training = null,
 }: {
   worker: WorkerResponse;
+  /** The training run this box is busy with, if any (console#671). */
+  training?: TrainingJob | null;
   /** This worker's build disagrees with the rest of the fleet (wanly-gpu-docker#72).
    *  Computed across all workers, so the card cannot work it out for itself. */
   drifting: boolean;
@@ -479,11 +494,13 @@ function WorkerCard({
   onRenamed: () => void;
   onClick: () => void;
 }) {
-  const cfg = STATUS_CONFIG[worker.status];
+  const cfg = training ? TRAINING_STATUS : STATUS_CONFIG[worker.status];
   const isService = isServiceWorker(worker);
   const canDrain = canDrainWorker(worker);
   const hasPendingDrain = worker.drain_after_jobs !== null && worker.drain_after_jobs > 0;
-  const canCancelDrain = hasPendingDrain || worker.status === "draining";
+  // Not while training: the trainer drained the render side itself and undrains it when the
+  // run ends; cancelling mid-run lets a render claim the card beside it.
+  const canCancelDrain = !training && (hasPendingDrain || worker.status === "draining");
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(worker.friendly_name);
 
@@ -560,6 +577,11 @@ function WorkerCard({
             >
               {cfg.label}
             </Typography>
+            {training && (
+              <Typography variant="caption" color="text.secondary" noWrap sx={{ ml: 0.5 }}>
+                {trainingLabel(training)}
+              </Typography>
+            )}
             {canCancelDrain && (
               <Tooltip title="Cancel drain">
                 <IconButton
