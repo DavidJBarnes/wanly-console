@@ -29,3 +29,16 @@ export function characterSetHome(owner: string, run: string | null): string {
   const q = run ? `?tab=training&run=${encodeURIComponent(run)}` : "?tab=images";
   return `/characters/${encodeURIComponent(owner)}${q}`;
 }
+
+export type CharacterTab = "settings" | "images" | "sheet" | "training" | "history";
+export const CHARACTER_TABS: CharacterTab[] = ["settings", "images", "sheet", "training", "history"];
+
+/** Which tab a URL opens (console#666). Settings is first and the default; the old
+ *  `?tab=identity` is Settings now; a `?run=<id>` link (the Characters page's training
+ *  history) opens Training, where that run's card is. */
+export function tabFromParams(p: URLSearchParams): CharacterTab {
+  const t = p.get("tab");
+  if (t === "identity") return "settings";
+  if (CHARACTER_TABS.includes(t as CharacterTab)) return t as CharacterTab;
+  return p.get("run") ? "training" : "settings";
+}

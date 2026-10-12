@@ -320,8 +320,12 @@ function ReferenceImage({
 }
 
 export function CharacterDialog({
-  character, loras, check, onFixed, onClose, onSaved,
+  character, loras, check, onFixed, onClose, onSaved, inline = false,
 }: {
+  /** In place on the character's Settings tab (console#666) rather than in a dialog. The
+   *  character sheet has its own tab there, so this form leaves it out; the saved body still
+   *  carries the sheet the character has. */
+  inline?: boolean;
   character: Character | null;
   loras: string[];
   /** This character's provenance check, if its LoRA has one (console#596). */
@@ -338,7 +342,11 @@ export function CharacterDialog({
   const [picking, setPicking] = useState<"sheet" | "face" | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const set = (patch: Partial<CharacterForm>) => setForm((f) => ({ ...f, ...patch }));
+  const [savedNote, setSavedNote] = useState(false);
+  const set = (patch: Partial<CharacterForm>) => {
+    setSavedNote(false);
+    setForm((f) => ({ ...f, ...patch }));
+  };
   // How the picked LoRA trained (console#596), and what the last auto-fill wrote, so a
   // later pick replaces only its own values and never something typed.
   const [prov, setProv] = useState<LoraProvenance | null>(null);
@@ -399,6 +407,7 @@ export function CharacterDialog({
         ? await createCharacter({ name: form.name.trim(), ...body })
         : await updateCharacter(character!.id, body);
       onSaved(saved);
+      if (inline) setSavedNote(true);
     } catch (e) {
       setErr(ltxError(e));
     } finally {
@@ -413,19 +422,16 @@ export function CharacterDialog({
     description: form.description,
   });
 
-  return (
-    <Dialog open fullWidth maxWidth="lg" onClose={onClose}>
-      <DialogTitle>{isNew ? "New character" : `Edit ${character?.name}`}</DialogTitle>
-      <DialogContent>
+  const fields = (
         <Stack spacing={2} sx={{ mt: 1 }}>
           {err && <Alert severity="error">{err}</Alert>}
-          <TextField label="Name" value={form.name} autoFocus fullWidth
+          <TextField label="Name" value={form.name} autoFocus={!inline} fullWidth
                      onChange={(e) => set({ name: e.target.value })} />
           {draft && (
             <Alert severity="warning">
               No LoRA and no character sheet: this saves as a <b>draft</b>, which cannot render
               until it has one. {canBuild
-                ? "Save it, then Build sheet in its card makes its first sheet from one photo of her."
+                ? "Save it, then Build sheet (its Character sheet tab) makes its first sheet from one photo of her."
                 : "A pair renders with its joint LoRA alone (never a member's sheet or face): attach one."}
             </Alert>
           )}
@@ -488,6 +494,7 @@ export function CharacterDialog({
             </Stack>
           )}
 
+          {!inline && (<>
           <Divider textAlign="left"><Typography variant="overline">Character sheet (optional)</Typography></Divider>
           {form.sheetUri && (
             <ReferenceImage uri={form.sheetUri} sheet
@@ -506,6 +513,7 @@ export function CharacterDialog({
               </Typography>
             )}
           </Stack>
+          </>)}
 
           <Divider textAlign="left"><Typography variant="overline">Face reference (optional)</Typography></Divider>
           {form.faceRefUri ? (
@@ -543,19 +551,28 @@ export function CharacterDialog({
             {preview ? `“${preview}”` : "nothing (it is dropped)"}.
           </Typography>
         </Stack>
-      </DialogContent>
-      <DialogActions>
+  );
+  const actions = (
+    <>
         {problem && !err && (
-          <Typography variant="caption" color="text.secondary" sx={{ mr: "auto", ml: 2 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ mr: "auto", ml: inline ? 0 : 2 }}>
             {problem}
           </Typography>
         )}
-        <Button onClick={onClose}>Cancel</Button>
+        {savedNote && !err && (
+          <Typography variant="caption" color="success.main" sx={{ mr: "auto" }}>Saved</Typography>
+        )}
+        <Button onClick={inline ? () => { setForm(formFor(character)); setErr(null); } : onClose}>
+          {inline ? "Reset" : "Cancel"}
+        </Button>
         <Button variant="contained" disabled={saving || problem !== null}
                 onClick={() => void save()}>
           {saving ? "Saving…" : draft ? "Save draft" : "Save"}
         </Button>
-      </DialogActions>
+    </>
+  );
+  const dialogs = (
+    <>
 
       {fixOpen && character && (
         <UseTrainedDialog
@@ -580,6 +597,27 @@ export function CharacterDialog({
           }}
         />
       )}
+    </>
+  );
+
+  if (inline) {
+    return (
+      <Box>
+        {fields}
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end" sx={{ mt: 2 }}>
+          {actions}
+        </Stack>
+        {dialogs}
+      </Box>
+    );
+  }
+
+  return (
+    <Dialog open fullWidth maxWidth="lg" onClose={onClose}>
+      <DialogTitle>{isNew ? "New character" : `Edit ${character?.name}`}</DialogTitle>
+      <DialogContent>{fields}</DialogContent>
+      <DialogActions>{actions}</DialogActions>
+      {dialogs}
     </Dialog>
   );
 }

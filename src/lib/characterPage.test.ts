@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { characterPicture, characterSetHome, ownerOf } from "./characterPage";
+import { characterPicture, characterSetHome, ownerOf, tabFromParams } from "./characterPage";
 
 const chars = [{ name: "Joana" }, { name: "DavidJoana" }];
 
@@ -28,5 +28,25 @@ describe("characterSetHome", () => {
   it("lands on Images, or on Training with the run from an old /training?run= link", () => {
     expect(characterSetHome("Joana", null)).toBe("/characters/Joana?tab=images");
     expect(characterSetHome("Kelly-2000", "r1")).toBe("/characters/Kelly-2000?tab=training&run=r1");
+  });
+});
+
+describe("tabFromParams (console#666)", () => {
+  const p = (q: string) => new URLSearchParams(q);
+  it("opens Settings by default", () => {
+    expect(tabFromParams(p(""))).toBe("settings");
+  });
+  it("reads the old Identity tab as Settings", () => {
+    expect(tabFromParams(p("tab=identity"))).toBe("settings");
+  });
+  it("keeps a named tab", () => {
+    expect(tabFromParams(p("tab=sheet"))).toBe("sheet");
+    expect(tabFromParams(p("tab=images&run=r1"))).toBe("images");
+  });
+  it("opens Training for a run link with no tab", () => {
+    expect(tabFromParams(p("run=r1"))).toBe("training");
+  });
+  it("ignores an unknown tab", () => {
+    expect(tabFromParams(p("tab=nope"))).toBe("settings");
   });
 });
