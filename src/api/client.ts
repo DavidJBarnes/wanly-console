@@ -440,6 +440,20 @@ export async function getFixSmallFacesStatus(id: string): Promise<FixSmallFacesS
   return data;
 }
 
+/** "Upscale" (wanly-api#460): a 2x/4x high-res copy of each chosen still, added beside it
+ *  (the source stays). Runs in the background; poll getUpscaleStatus. */
+export async function upscaleDatasetImages(
+  id: string, uris: string[], factor: 2 | 4,
+): Promise<FixSmallFacesStatus> {
+  const { data } = await api.post<FixSmallFacesStatus>(`/datasets/${id}/upscale`, { uris, factor });
+  return data;
+}
+
+export async function getUpscaleStatus(id: string): Promise<FixSmallFacesStatus> {
+  const { data } = await api.get<FixSmallFacesStatus>(`/datasets/${id}/upscale/status`);
+  return data;
+}
+
 /** Remove one image from a dataset. PATCH replaces the list wholesale, so this sends the
  *  remaining URIs — see withoutImage in lib/datasets.ts. The object stays in S3; it is still
  *  in the Image Repo and may be in another dataset. */
