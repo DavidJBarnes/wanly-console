@@ -551,6 +551,9 @@ export interface TrainingEpoch {
   label: string;
   step: number;
   loss: number | null;
+  /** How far its upload has got (console#673): bytes while it goes up, `queued` while it
+   *  waits behind another. Absent when it is not going up, and from older trainers. */
+  upload?: { sent?: number; size?: number; queued?: boolean } | null;
 }
 
 /** A named, taggable set of images kept for training (wanly-api#277).

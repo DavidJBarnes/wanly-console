@@ -9,7 +9,7 @@
  */
 import { dateTimeLabel, sameDay, spanLabel, timeLabel } from "./dateTime";
 import type {
-  Dataset, DatasetKind, PreflightItem, PublishMode, TrainingCreate, TrainingJob,
+  Dataset, DatasetKind, PreflightItem, PublishMode, TrainingCreate, TrainingEpoch, TrainingJob,
 } from "../api/types";
 import type { Character } from "../api/ltx";
 import { isClip } from "./datasets";
@@ -297,6 +297,47 @@ export interface EpochRow {
   uri: string | null;
   /** Asked for, not yet uploaded. */
   requested: boolean;
+  /** Bytes sent while it goes up, "queued" behind another upload, null otherwise. */
+  upload: { sent: number; size: number } | "queued" | null;
+}
+
+function uploadOf(e: TrainingEpoch): EpochRow["upload"] {
+  const u = e.upload;
+  if (!u) return null;
+  if (u.queued) return "queued";
+  return typeof u.sent === "number" && typeof u.size === "number" && u.size > 0
+    ? { sent: u.sent, size: u.size } : null;
+}
+
+/**
+ * What a checkpoint's upload is doing, in words (console#673). Null once it is in the bucket
+ * or when nobody asked for it. Before the trainer picks a request up -- it polls once a minute
+ * -- there is nothing to measure yet, which is what "waiting for the trainer" means.
+ */
+export function uploadText(row: Pick<EpochRow, "uri" | "requested" | "upload">): string | null {
+  if (row.uri) return null;
+  if (row.upload === "queued") return "queued behind another upload";
+  if (row.upload) {
+    const mb = (n: number) => Math.round(n / 1024 ** 2);
+    return `uploading ${uploadPct(row.upload)}% · ${mb(row.upload.sent)} of ${mb(row.upload.size)} MB`;
+  }
+  return row.requested ? "waiting for the trainer" : null;
+}
+
+export function uploadPct(u: { sent: number; size: number }): number {
+  return Math.min(100, Math.floor((100 * u.sent) / u.size));
+}
+
+/**
+ * Is a checkpoint asked for and not in the bucket yet? A finished run is otherwise not polled,
+ * so the progress would never move on screen.
+ */
+export function uploadPending(
+  job: Pick<TrainingJob, "checkpoints" | "publish_requests" | "delete_requests">,
+): boolean {
+  const have = new Set((job.checkpoints ?? []).map(checkpointLabel));
+  const gone = new Set(job.delete_requests ?? []);
+  return (job.publish_requests ?? []).some((l) => !have.has(l) && !gone.has(l));
 }
 
 /**
@@ -321,10 +362,11 @@ export function epochRows(
   const rows: EpochRow[] = (job.epochs ?? []).filter((e) => !deleted.has(e.label)).map((e) => ({
     label: e.label, step: e.step, loss: e.loss,
     uri: byLabel.get(e.label) ?? null, requested: requested.has(e.label),
+    upload: byLabel.has(e.label) ? null : uploadOf(e),
   }));
   const seen = new Set(rows.map((r) => r.label));
   for (const [label, uri] of byLabel) {
-    if (!seen.has(label)) rows.push({ label, step: null, loss: null, uri, requested: false });
+    if (!seen.has(label)) rows.push({ label, step: null, loss: null, uri, requested: false, upload: null });
   }
   const order = (l: string) => (l === "final" ? Number.MAX_SAFE_INTEGER : parseInt(l.slice(1), 10));
   return rows.sort((a, b) => order(a.label) - order(b.label));

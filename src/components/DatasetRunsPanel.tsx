@@ -7,7 +7,7 @@ import { listRecipes } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import type { Dataset, DatasetRun, TrainingJob } from "../api/types";
 import { POLL_INTERVAL_FAST } from "../constants";
-import { queueEtas } from "../lib/trainingJob";
+import { queueEtas, uploadPending } from "../lib/trainingJob";
 import TrainingRow from "./TrainingRow";
 
 /**
@@ -72,8 +72,11 @@ export default function DatasetRunsPanel({
   const byId = new Map(jobs.map((j) => [j.id, j]));
   const shown = (runs ?? []).map((r) => ({ r, job: byId.get(r.job_id) }))
     .filter((x): x is { r: DatasetRun; job: TrainingJob } => Boolean(x.job));
+  // A finished run with a checkpoint still going up counts too, or its progress never moves
+  // on screen (console#673).
   const anyLive = shown.some(({ job }) =>
-    job.status === "running" || job.status === "claimed" || job.status === "pending");
+    job.status === "running" || job.status === "claimed" || job.status === "pending"
+    || uploadPending(job));
 
   useEffect(() => {
     if (!anyLive) return;
