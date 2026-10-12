@@ -37,7 +37,11 @@ import { checkpointInUse, scpCommand } from "../lib/trainingJob";
  */
 export default function CharacterCard({
   character, characters, onClose, onChanged, onEdit, onDelete, onToggleDefault, embedded = false,
+  section = "identity",
 }: {
+  /** Embedded only: which part the page's tab shows (console#666) -- Settings has the icon
+   *  and visibility, the Character sheet tab has the sheet. */
+  section?: "identity" | "sheet";
   /** On the character's own page (wanly-api#452): the identity and sheet sections only, no
    *  dialog chrome -- the page's header has Edit/Delete/default, and its Training tab has
    *  the versions. */
@@ -59,6 +63,7 @@ export default function CharacterCard({
   const [choosingIcon, setChoosingIcon] = useState(false);
   const [building, setBuilding] = useState(false);
   const [viewing, setViewing] = useState(false);
+  const [pickingSheet, setPickingSheet] = useState(false);
   const solo = (c.kind ?? "solo") !== "pair";
 
   useEffect(() => {
@@ -146,13 +151,19 @@ export default function CharacterCard({
             )}
           </Stack>
         </Stack>
-
-        {/* ---- the sheet, and Build sheet: only here (console#616) */}
-        {solo && (
+    </>
+  );
+  // ---- the sheet, and Build sheet: only here (console#616). Its own tab on the page (#666).
+  const sheet = solo ? (
           <>
-            <Divider textAlign="left" sx={{ my: 2 }}>
-              <Typography variant="overline">Character sheet</Typography>
-            </Divider>
+            {!embedded && (
+              <Divider textAlign="left" sx={{ my: 2 }}>
+                <Typography variant="overline">Character sheet</Typography>
+              </Divider>
+            )}
+            {embedded && error && (
+              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>
+            )}
             <Stack direction="row" spacing={2} alignItems="center">
               {c.sheet_uri && (
                 <Box sx={{ width: 220, flexShrink: 0 }}>
@@ -171,12 +182,36 @@ export default function CharacterCard({
                     ? "See every sheet saved for her, switch between them, or build a new one."
                     : "Build a 1536×1024 sheet from one photo of her."}
                 </Typography>
+                {embedded && (
+                  <Stack direction="row" spacing={1}>
+                    <Button size="small" onClick={() => setPickingSheet(true)}>
+                      {c.sheet_uri ? "Replace from the Image Repo" : "Choose from the Image Repo"}
+                    </Button>
+                    {c.sheet_uri && (
+                      <Button size="small" color="error"
+                              onClick={() => void patch({
+                                sheet_uri: null,
+                                identity_mode: c.identity_mode === "sheet" ? null : c.identity_mode,
+                              })}>
+                        Remove sheet
+                      </Button>
+                    )}
+                  </Stack>
+                )}
               </Stack>
             </Stack>
+            {embedded && !c.sheet_uri && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+                Optional. A 1536×1024 turnaround, conditioned into every render. Dress it in the
+                start frame's outfit: in wide shots the body the model invents takes the sheet's
+                clothes.
+              </Typography>
+            )}
           </>
-        )}
-
-    </>
+  ) : (
+    <Typography variant="body2" color="text.secondary">
+      A pair renders with its joint LoRA alone, never a member's sheet.
+    </Typography>
   );
   const versions = (
     <>
@@ -261,13 +296,20 @@ export default function CharacterCard({
           onClose={() => setViewing(false)}
         />
       )}
+      {pickingSheet && (
+        <PickFromRepoDialog
+          title="Choose a character sheet"
+          onClose={() => setPickingSheet(false)}
+          onPick={(path) => { setPickingSheet(false); void patch({ sheet_uri: path }); }}
+        />
+      )}
     </>
   );
 
   if (embedded) {
     return (
       <Box>
-        {identity}
+        {section === "sheet" ? sheet : identity}
         {msg && (
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
             {msg}
@@ -289,6 +331,7 @@ export default function CharacterCard({
       </DialogTitle>
       <DialogContent dividers>
         {identity}
+        {sheet}
         {versions}
       </DialogContent>
       <DialogActions>

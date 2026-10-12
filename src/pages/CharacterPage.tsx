@@ -3,9 +3,9 @@ import LatestLoraStatus from "../components/LatestLoraStatus";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router";
 import {
   Alert, Box, Button, Card, CardActionArea, Chip, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, IconButton, Stack, Tab, Tabs, Tooltip, Typography,
+  DialogContent, DialogTitle, Divider, IconButton, Stack, Tab, Tabs, Tooltip, Typography,
 } from "@mui/material";
-import { Add, ArrowBack, DeleteOutline, Edit, Star } from "@mui/icons-material";
+import { Add, ArrowBack, DeleteOutline, Star } from "@mui/icons-material";
 
 import { createDataset, getCharacterFull, getFileUrl } from "../api/client";
 import {
@@ -18,18 +18,17 @@ import { DatasetCard } from "../components/DatasetCard";
 import DatasetRunsPanel from "../components/DatasetRunsPanel";
 import DefaultStar from "../components/DefaultStar";
 import TrainLoraDialog from "../components/TrainLoraDialog";
-import { characterPicture } from "../lib/characterPage";
+import { characterPicture, tabFromParams, type CharacterTab } from "../lib/characterPage";
 import { hasLora } from "../lib/characterIdentity";
 import { CharacterDialog } from "./Characters";
 
-type TabKey = "images" | "training" | "identity" | "history";
-const TABS: TabKey[] = ["images", "training", "identity", "history"];
 
 /**
  * One character, with everything that belongs to it (wanly-api#452): Characters and Datasets
  * collapsed. A character HAS its dataset (Images), its runs for both arches (Training, where
- * the ★ star picks the LTX checkpoint it renders with), its sheet/face reference (Identity)
- * and its archived version sets (History). A pair's page links its members; its Images are the
+ * the ★ star picks the LTX checkpoint it renders with), its Settings (name, LoRA, trigger,
+ * strengths, face reference, icon -- edited in place, console#666), its Character sheet and
+ * its archived version sets (History). A pair's page links its members; its Images are the
  * together set.
  *
  * One read per change: GET /ltx/characters/{name}/full.
@@ -38,15 +37,13 @@ export default function CharacterPage() {
   const { name = "" } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = (TABS.includes(searchParams.get("tab") as TabKey)
-    ? searchParams.get("tab") : "images") as TabKey;
+  const tab = tabFromParams(searchParams);
   const focusRun = searchParams.get("run");
   const [full, setFull] = useState<CharacterFull | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [error, setError] = useState("");
   const [training, setTraining] = useState(false);
   const [runsKey, setRunsKey] = useState(0);
-  const [editing, setEditing] = useState(false);
   const [loras, setLoras] = useState<string[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -57,6 +54,7 @@ export default function CharacterPage() {
       setFull(f);
       setCharacters(b.characters ?? []);
       setError("");
+      listLoras(b, "character").then(setLoras).catch(() => setLoras([]));
     } catch (e: unknown) {
       const status = (e as { response?: { status?: number } })?.response?.status;
       setError(status === 404 ? `No character ${name}.` : ltxError(e));
@@ -66,7 +64,11 @@ export default function CharacterPage() {
   useEffect(() => {
     let live = true;
     Promise.all([getCharacterFull(name), listRecipes()])
-      .then(([f, b]) => { if (live) { setFull(f); setCharacters(b.characters ?? []); setError(""); } })
+      .then(([f, b]) => {
+        if (!live) return;
+        setFull(f); setCharacters(b.characters ?? []); setError("");
+        listLoras(b, "character").then((l) => { if (live) setLoras(l); }).catch(() => {});
+      })
       .catch((e: unknown) => {
         if (!live) return;
         const status = (e as { response?: { status?: number } })?.response?.status;
@@ -75,7 +77,7 @@ export default function CharacterPage() {
     return () => { live = false; };
   }, [name]);
 
-  const setTab = (t: TabKey) => {
+  const setTab = (t: CharacterTab) => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", t);
     next.delete("run");
@@ -112,14 +114,6 @@ export default function CharacterPage() {
       setError(ltxError(e));
       setBusy(false);
     }
-  };
-
-  const openEditor = async () => {
-    try {
-      const b = await listRecipes();
-      setLoras(await listLoras(b, "character"));
-    } catch { setLoras([]); }
-    setEditing(true);
   };
 
   if (!full && !error) return <Box sx={{ p: 6, display: "flex", justifyContent: "center" }}><CircularProgress /></Box>;
@@ -181,15 +175,15 @@ export default function CharacterPage() {
             <Stack direction="row" spacing={0.5} alignItems="center">
               <DefaultStar isDefault={!!c.is_default} what="character"
                            onToggle={async () => { await setDefaultCharacter(c.id, !c.is_default); await load(); }} />
-              <Tooltip title="Edit name, trigger, strengths…"><IconButton onClick={() => void openEditor()}><Edit /></IconButton></Tooltip>
               <Tooltip title="Delete the character"><IconButton onClick={() => setConfirmDelete(true)}><DeleteOutline /></IconButton></Tooltip>
             </Stack>
           </Stack>
 
-          <Tabs value={tab} onChange={(_, v: TabKey) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}>
+          <Tabs value={tab} onChange={(_, v: CharacterTab) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}>
+            <Tab value="settings" label="Settings" />
             <Tab value="images" label={`Images${ds ? ` (${ds.images.length})` : ""}`} />
+            {!pair && <Tab value="sheet" label="Character sheet" />}
             <Tab value="training" label={`Training (${full.runs.length})`} />
-            <Tab value="identity" label="Identity" />
             <Tab value="history" label={`History (${full.archived.length})`} />
           </Tabs>
 
@@ -229,17 +223,46 @@ export default function CharacterPage() {
             </Box>
           )}
 
-          {tab === "identity" && (
+          {(tab === "settings" || (tab === "sheet" && !pair)) && (
             <CharacterCard
               embedded
+              section={tab === "sheet" ? "sheet" : "identity"}
               character={c}
               characters={characters}
-              onClose={() => setTab("images")}
+              onClose={() => setTab("settings")}
               onChanged={() => void load()}
-              onEdit={() => void openEditor()}
+              onEdit={() => setTab("settings")}
               onDelete={() => setConfirmDelete(true)}
               onToggleDefault={async () => { await setDefaultCharacter(c.id, !c.is_default); await load(); }}
             />
+          )}
+          {tab === "settings" && (
+            <Box sx={{ mt: 3, maxWidth: 900 }}>
+              {/* The form the pencil used to open, in place (console#666). Keyed by the
+                  character so a rename or another character starts from its own values. */}
+              <CharacterDialog
+                key={c.id}
+                inline
+                character={c}
+                loras={loras}
+                onFixed={() => void load()}
+                onClose={() => {}}
+                onSaved={(saved) => {
+                  if (saved.name !== c.name) navigate(`/characters/${encodeURIComponent(saved.name)}?tab=settings`, { replace: true });
+                  else void load();
+                }}
+              />
+              <Divider sx={{ my: 3 }} />
+              <Button color="error" variant="outlined" startIcon={<DeleteOutline />}
+                      onClick={() => setConfirmDelete(true)}>
+                Delete character
+              </Button>
+            </Box>
+          )}
+          {tab === "sheet" && pair && (
+            <Typography variant="body2" color="text.secondary">
+              A pair renders with its joint LoRA alone, never a member's sheet.
+            </Typography>
           )}
 
           {tab === "history" && (
@@ -273,19 +296,6 @@ export default function CharacterPage() {
               dataset={ds}
               onClose={() => setTraining(false)}
               onQueued={() => { setTraining(false); setRunsKey((k) => k + 1); void load(); setTab("training"); }}
-            />
-          )}
-          {editing && (
-            <CharacterDialog
-              character={c}
-              loras={loras}
-              onFixed={() => void load()}
-              onClose={() => setEditing(false)}
-              onSaved={(saved) => {
-                setEditing(false);
-                if (saved.name !== c.name) navigate(`/characters/${encodeURIComponent(saved.name)}`, { replace: true });
-                else void load();
-              }}
             />
           )}
           <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
