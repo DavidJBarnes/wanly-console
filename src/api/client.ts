@@ -2,6 +2,7 @@ import axios from "axios";
 import { parseInUseResponse, type InUseMap } from "../lib/bulkDelete";
 import type {
   CharacterFull,
+  CharacterPrompt,
   TokenResponse,
   JobResponse,
   JobListResponse,
@@ -1269,4 +1270,25 @@ export async function discardSegment(segmentId: string): Promise<SegmentResponse
 export async function getCharacterFull(key: string): Promise<CharacterFull> {
   const { data } = await api.get<CharacterFull>(`/ltx/characters/${encodeURIComponent(key)}/full`);
   return data;
+}
+
+/** A character's good working prompts, newest first (console#675). `key` is its id or name. */
+export async function listCharacterPrompts(key: string): Promise<CharacterPrompt[]> {
+  const { data } = await api.get<CharacterPrompt[]>(`/ltx/characters/${encodeURIComponent(key)}/prompts`);
+  return data;
+}
+
+export async function addCharacterPrompt(key: string, text: string): Promise<CharacterPrompt> {
+  const { data } = await api.post<CharacterPrompt>(
+    `/ltx/characters/${encodeURIComponent(key)}/prompts`, { text });
+  return data;
+}
+
+export async function editCharacterPrompt(id: string, text: string): Promise<CharacterPrompt> {
+  const { data } = await api.patch<CharacterPrompt>(`/ltx/character-prompts/${id}`, { text });
+  return data;
+}
+
+export async function deleteCharacterPrompt(id: string): Promise<void> {
+  await api.delete(`/ltx/character-prompts/${id}`);
 }

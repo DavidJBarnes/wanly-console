@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { characterPicture, characterSetHome, ownerOf, tabFromParams } from "./characterPage";
+import { characterPicture, characterSetHome, ownerOf, promptDateLabel, tabFromParams } from "./characterPage";
 
 const chars = [{ name: "Joana" }, { name: "DavidJoana" }];
 
@@ -48,5 +48,26 @@ describe("tabFromParams (console#666)", () => {
   });
   it("ignores an unknown tab", () => {
     expect(tabFromParams(p("tab=nope"))).toBe("settings");
+  });
+});
+
+describe("prompts tab (console#675)", () => {
+  it("opens from the URL", () => {
+    expect(tabFromParams(new URLSearchParams("tab=prompts"))).toBe("prompts");
+  });
+
+  it("says when a prompt was added, and when it was edited", () => {
+    const now = new Date("2026-10-12T20:00:00");
+    const added = new Date("2026-10-12T14:41:00").toISOString();
+    expect(promptDateLabel({ created_at: added, updated_at: null }, now)).toMatch(/^Added Oct 12, 2:41\sPM$/);
+    const edited = new Date("2026-10-12T15:05:00").toISOString();
+    expect(promptDateLabel({ created_at: added, updated_at: edited }, now))
+      .toMatch(/^Added Oct 12, 2:41\sPM · edited Oct 12, 3:05\sPM$/);
+  });
+
+  it("gives the year when it is not this year", () => {
+    const now = new Date("2026-10-12T20:00:00");
+    expect(promptDateLabel({ created_at: new Date("2025-12-31T09:00:00").toISOString(), updated_at: null }, now))
+      .toContain("2025");
   });
 });

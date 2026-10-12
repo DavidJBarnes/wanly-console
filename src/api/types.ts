@@ -1425,6 +1425,15 @@ export interface CharacterRef {
 }
 
 /** GET /ltx/characters/{key}/full (wanly-api#452). `character` is the registry row. */
+/** A prompt that works well for a character (console#675): one of many, with its date added. */
+export interface CharacterPrompt {
+  id: string;
+  character_id: string;
+  text: string;
+  created_at: string;
+  updated_at: string | null;
+}
+
 export interface CharacterFull {
   character: import("./ltx").Character;
   dataset: Dataset | null;
