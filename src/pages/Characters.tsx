@@ -25,6 +25,7 @@ import {
   isDraft, sheetSizeWarning, type CharacterForm,
 } from "../lib/characterIdentity";
 import { characterHasTrained } from "../lib/trainingJob";
+import { lorasForCharacter, SHOW_ALL_LORAS } from "../lib/loraOptions";
 import {
   applyProvenance, autoFillOf, describeFix, fixPatch, mismatchLabel, NO_AUTOFILL,
   provenanceHint, type AutoFill, type CharacterProvenance, type LoraProvenance,
@@ -343,6 +344,13 @@ export function CharacterDialog({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [savedNote, setSavedNote] = useState(false);
+  // Only this character's LoRAs unless asked for all (console#680). A saved character is
+  // matched by its saved name, so renaming it half way does not empty the list; a new one by
+  // what has been typed.
+  const [allLoras, setAllLoras] = useState(false);
+  const ownLoras = allLoras ? null
+    : lorasForCharacter(character?.name ?? form.name, loras, [character?.char_lora, form.lora]);
+  const loraOptions = ownLoras ?? loras;
   const set = (patch: Partial<CharacterForm>) => {
     setSavedNote(false);
     setForm((f) => ({ ...f, ...patch }));
@@ -439,13 +447,21 @@ export function CharacterDialog({
           <Divider textAlign="left"><Typography variant="overline">LoRA (optional)</Typography></Divider>
           <TextField
             select={loras.length > 0} label="Character LoRA" value={form.lora} fullWidth
-            onChange={(e) => void pickLora(e.target.value)}
+            onChange={(e) => {
+              if (e.target.value === SHOW_ALL_LORAS) setAllLoras(true);
+              else void pickLora(e.target.value);
+            }}
             helperText={hint
               ? (hint.startsWith("from") ? `Trigger and gender ${hint}.` : hint)
               : "The LoRA file name, without .safetensors. None: the character sheet carries the identity alone."}
           >
             <MenuItem value=""><em>None — no LoRA</em></MenuItem>
-            {loras.map((l) => <MenuItem key={l} value={l}>{l}</MenuItem>)}
+            {loraOptions.map((l) => <MenuItem key={l} value={l}>{l}</MenuItem>)}
+            {ownLoras && (
+              <MenuItem value={SHOW_ALL_LORAS}>
+                <em>Show all {loras.length} LoRAs…</em>
+              </MenuItem>
+            )}
           </TextField>
           {mismatches.length > 0 && (
             <Alert severity="warning" action={
