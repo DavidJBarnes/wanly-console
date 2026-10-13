@@ -515,7 +515,6 @@ export interface TrainForm {
   /** The recipe. Defaults are Kelly-2000 v5's, the run that held her best. */
   baseCheckpoint: string;
   regularization: boolean;
-  captionMode: "per_image" | "trigger_only";
   /** Which model the LoRA is for (console#600). */
   arch: TrainArch;
 }
@@ -532,13 +531,13 @@ export const BASE_CHECKPOINTS: { value: string; label: string }[] = [
 ];
 
 /**
- * v5's recipe: dev base, no regularization pool, stored captions (blank = the bare trigger;
- * type only props). Regularization is opt-in because the run that used it (Kelly-2000 v2, with
- * long captions) came out a generic woman, and the pools were deleted after.
+ * v5's recipe: dev base, no regularization pool. Regularization is opt-in because the run that
+ * used it (Kelly-2000 v2, with long captions) came out a generic woman, and the pools were
+ * deleted after. Captions are not part of the recipe (console#678): the API trains every LTX
+ * image under the bare "<trigger>, <gender>" (or the pair phrase), always.
  */
-export const RECIPE_DEFAULTS: Pick<TrainForm, "baseCheckpoint" | "regularization" | "captionMode" | "arch"> = {
-  baseCheckpoint: BASE_CHECKPOINTS[0].value, regularization: false, captionMode: "per_image",
-  arch: "ltx",
+export const RECIPE_DEFAULTS: Pick<TrainForm, "baseCheckpoint" | "regularization" | "arch"> = {
+  baseCheckpoint: BASE_CHECKPOINTS[0].value, regularization: false, arch: "ltx",
 };
 
 /** Who this run trains as — the row it publishes to. */
@@ -557,7 +556,7 @@ export function trainingBody(f: TrainForm): TrainingCreate {
     arch: "sdxl" as const,
     ...(f.allowLowScores ? { allow_low_scores: true } : {}),
   } : {
-    caption_mode: f.captionMode, regularization: f.regularization,
+    regularization: f.regularization,
     base_checkpoint: f.baseCheckpoint || null,
     // Only when ticked, so a request that never met the question does not carry an answer.
     ...(f.allowLowScores ? { allow_low_scores: true } : {}),

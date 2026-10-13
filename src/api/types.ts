@@ -725,14 +725,6 @@ export interface TrainedOn {
 export type DatasetKind = "character" | "composition" | "regularization";
 export type RegClass = "woman" | "man";
 
-/** GET /datasets/{id}/captions/status. */
-export interface CaptionStatus {
-  total: number;
-  captioned: number;
-  running: boolean;
-  error: string | null;
-}
-
 /** GET /datasets/{id}/regularize/status: text-to-video renders whose frames land in the set. */
 export interface RegularizeStatus {
   requested: number;
@@ -785,9 +777,6 @@ export interface TrainingCreate {
   /** Which checkpoints to upload as they are written. None by default (console#627): every
    *  checkpoint waits on the trainer to be tested, then uploaded or deleted one by one. */
   publish: PublishMode;
-  /** "per_image" trains each image under "<trigger>, <gender>, <its stored caption>" (blank =
-   *  bare); "trigger_only" ignores stored captions. */
-  caption_mode?: "per_image" | "trigger_only";
   /** Add a regularization pool per gender (the API's default is true). */
   regularization?: boolean;
   /** Bare checkpoint name under ltx-2.3/diffusion_models; null = the render stack's. */

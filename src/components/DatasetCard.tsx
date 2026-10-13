@@ -8,7 +8,7 @@ import {
   Tooltip, Typography,
 } from "@mui/material";
 import {
-  Archive, AutoAwesome, AutoFixHigh, Check, Close, CompareArrows, ContentCopy, ContentCut,
+  Archive, AutoFixHigh, Check, Close, CompareArrows, ContentCopy, ContentCut,
   Delete, Edit, Face, OpenInNew,
   Lock, LockOpen,
   Unarchive,
@@ -16,11 +16,11 @@ import {
 } from "@mui/icons-material";
 
 import {
-  addDatasetImages, captionDataset, cloneDataset, createDataset, cropDatasetFaces, deleteDataset,
-  fixSmallFaces, getCaptionStatus, getFileUrl, getFixSmallFacesStatus, getRegularizeStatus,
+  addDatasetImages, cloneDataset, createDataset, cropDatasetFaces, deleteDataset,
+  fixSmallFaces, getFileUrl, getFixSmallFacesStatus, getRegularizeStatus,
   measureDatasetFaces, lockDataset, regularizeDataset,
   archiveDataset, removeDatasetImage, scoreDataset, setDatasetAnchor, unarchiveDataset,
-  unlockDataset, updateDataset, updateDatasetCaption, getUpscaleStatus, upscaleDatasetImages,
+  unlockDataset, updateDataset, getUpscaleStatus, upscaleDatasetImages,
 } from "../api/client";
 import type { CropFraming } from "../api/client";
 import type { Character } from "../api/ltx";
@@ -33,7 +33,7 @@ import { useBackgroundStatus } from "../hooks/useBackgroundStatus";
 import { ROLE_LABEL, anchorFirst, groupDerived, keepOnly, removedSource } from "../lib/lineage";
 import type { ImageGroup, Role } from "../lib/lineage";
 import {
-  byLikeness, canLockByHand, canUnlock, captionCoverage, captionProgressLabel,
+  byLikeness, canLockByHand, canUnlock,
   cropSelectionProblem, datasetNameProblem, defaultCloneName, formatCos, isAssigned, isClip,
   itemCountLabel, splitClips,
   lockedReason, lockLabel, lockReasonBody, ownerLabel, parseTags, progressPct, regularizeProgressLabel, removalWarning, scoreFor,
@@ -134,7 +134,6 @@ export function DatasetCard({
   const isReg = ds.kind === "regularization";
   const assigned = isAssigned(ds);
   const owner = ownerLabel(ds);
-  const coverage = captionCoverage(ds);
   // Read-only only when locked by hand (wanly-api#358) or archived (#419): everything that
   // changes what it trains on is off, with this as the reason. Training locks nothing any more
   // (#420) -- each run keeps its own record of what it trained on.
@@ -142,12 +141,11 @@ export function DatasetCard({
   const unlocked = unlockedLabel(ds);
   const trained = trainedLabel(ds);
 
-  // Background runs on the server (#537). Both re-read the set when they finish, so the
-  // captions or frames they wrote show up without a reload.
-  const captioning = useBackgroundStatus(() => getCaptionStatus(ds.id), onChanged);
+  // Background runs on the server (#537). They re-read the set when they finish, so the
+  // frames they wrote show up without a reload. (No dataset captioning since console#678:
+  // LTX trains every image under the bare trigger, so captions fed nothing.)
   const rendering = useBackgroundStatus(
     () => getRegularizeStatus(ds.id), onChanged, isReg);
-  const captionRunning = Boolean(captioning.status?.running);
   const renderRunning = isReg && Boolean(rendering.status?.running);
   // "Fix small faces" (wanly-api#432) runs on the server too, and re-reads the set when done.
   const fixing = useBackgroundStatus(() => getFixSmallFacesStatus(ds.id), onChanged, !isReg);
@@ -225,19 +223,6 @@ export function DatasetCard({
       fixing.kick();
     } catch (e: unknown) {
       setMsg(apiErrorText(e, "could not start fixing small faces"));
-    }
-  };
-
-  const caption = async (overwrite: boolean) => {
-    if (overwrite && !confirm(
-      `Recaption every image in "${ds.name}"? This replaces all ${coverage.captioned} `
-      + "existing captions, including any you edited by hand.")) return;
-    setMsg("");
-    try {
-      await captionDataset(ds.id, overwrite);
-      captioning.kick();
-    } catch (e: unknown) {
-      setMsg(apiErrorText(e, "could not start captioning"));
     }
   };
 
@@ -472,9 +457,8 @@ export function DatasetCard({
               />
             </Tooltip>
           )}
-          {/* Where this image's caption is (console#564): its description, a held
-              job's, or this set's training caption while it is in line. */}
-          <CaptionStatusChip path={uri} overlay corner="right" includeDatasetCaptions />
+          {/* Where this image's description is (console#564): its own or a held job's. */}
+          <CaptionStatusChip path={uri} overlay corner="right" />
           {!isReg && !clip && <Tooltip title={verdict === "anchor" ? "The anchor" : "Use as the anchor"}>
             <IconButton
               size="small"
@@ -550,14 +534,6 @@ export function DatasetCard({
             </Button>
           </Tooltip>
         )}
-        <CaptionField
-          datasetId={ds.id}
-          uri={uri}
-          caption={ds.captions?.[uri] ?? ""}
-          disabled={captionRunning}
-          locked={locked}
-          onSaved={onChanged}
-        />
       </Box>
     );
   };
@@ -761,19 +737,6 @@ export function DatasetCard({
               />
             )}
           </Tooltip>
-          {ds.images.length > 0 && (
-            // A blank caption is the standard, not a gap (wanly-api#365): it trains as the bare
-            // "<trigger>, <gender>". Typed captions are for props only, so "bare" is neutral.
-            <Tooltip title="Blank captions train as the bare trigger + class — the standard. Type a caption only for props (wearing glasses, holding a phone); never describe the person.">
-              <Chip
-                size="small"
-                variant="outlined"
-                label={coverage.missing === ds.images.length
-                  ? "bare captions"
-                  : `${ds.images.length - coverage.missing} with props · ${coverage.missing} bare`}
-              />
-            </Tooltip>
-          )}
           {fixes.length > 0 && (
             <Tooltip title={showingFixes
               ? "Back to the grid"
@@ -928,33 +891,6 @@ export function DatasetCard({
               </span>
             </Tooltip>
           )}
-          <Tooltip title={locked ?? ("Describe framing, pose, clothing, light and background for every image "
-            + "without a caption. Never the face: the trigger carries identity.")}>
-            <span>
-              <Button
-                size="small"
-                startIcon={<AutoAwesome />}
-                disabled={busy || captionRunning || ds.images.length === 0 || Boolean(locked)}
-                onClick={() => caption(false)}
-              >
-                Caption all
-              </Button>
-            </span>
-          </Tooltip>
-          {coverage.captioned > 0 && (
-            <Tooltip title={locked ?? ""}>
-              <span>
-                <Button
-                  size="small"
-                  color="inherit"
-                  disabled={busy || captionRunning || Boolean(locked)}
-                  onClick={() => caption(true)}
-                >
-                  Recaption…
-                </Button>
-              </span>
-            </Tooltip>
-          )}
           {!isReg && ds.anchor_uri && (
             <Button size="small" startIcon={<Star />} disabled={busy} onClick={() => score()}>
               Re-score
@@ -1011,8 +947,6 @@ export function DatasetCard({
 
         {busy && <LinearProgress sx={{ mb: 1 }} />}
         {[
-          { label: captionProgressLabel(captioning.status), s: captioning.status,
-            done: captioning.status?.captioned ?? 0, total: captioning.status?.total ?? 0 },
           { label: isReg ? regularizeProgressLabel(rendering.status) : null,
             s: rendering.status,
             done: (rendering.status?.done ?? 0) + (rendering.status?.failed ?? 0),
@@ -1420,86 +1354,6 @@ export function NewDatasetDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
-}
-
-/**
- * One image's caption BODY, under its tile, edited in place (#537). Saved on blur.
- *
- * No trigger in it, ever: the run adds "<trigger>, <gender>, " itself, so the caption says
- * only what is in the frame — framing, pose, clothing, light — and the face is left to the
- * trigger. That is the difference between a LoRA that learns the person and one that learns
- * the person in that jacket against that wall.
- */
-function CaptionField({
-  datasetId, uri, caption, disabled, locked = null, onSaved,
-}: {
-  datasetId: string;
-  uri: string;
-  caption: string;
-  disabled: boolean;
-  /** Why the set cannot be edited (hand lock or archived), or null. Shown instead of the caption on
-   *  hover, since hovering is how you would find out why a click did nothing. */
-  locked?: string | null;
-  onSaved: () => void;
-}) {
-  const readOnly = disabled || Boolean(locked);
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(caption);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const save = async () => {
-    setEditing(false);
-    if (text.trim() === caption.trim()) return;
-    setSaving(true);
-    setError("");
-    try {
-      await updateDatasetCaption(datasetId, uri, text.trim());
-      onSaved();
-    } catch (e: unknown) {
-      setError(apiErrorText(e, "not saved"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (editing) {
-    return (
-      <TextField
-        size="small"
-        multiline
-        minRows={3}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") { setText(caption); setEditing(false); }
-        }}
-        autoFocus
-        fullWidth
-        slotProps={{ htmlInput: { style: { fontSize: 11, lineHeight: 1.35 } } }}
-        sx={{ mt: 0.5 }}
-      />
-    );
-  }
-  return (
-    <Tooltip title={locked ? `${caption ? caption + " — " : ""}${locked}` : caption || ""}
-      placement="bottom-start">
-      <Typography
-        variant="caption"
-        component="div"
-        onClick={() => { if (!readOnly) { setText(caption); setEditing(true); } }}
-        sx={{
-          mt: 0.5, fontSize: 11, lineHeight: 1.35, cursor: readOnly ? "default" : "text",
-          color: error ? "error.main" : caption ? "text.secondary" : "text.disabled",
-          display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
-          overflow: "hidden", opacity: saving ? 0.5 : 1,
-        }}
-      >
-        {error || caption || (locked ? "bare (trigger + class)" : "bare — click to add a prop")}
-      </Typography>
-    </Tooltip>
   );
 }
 
