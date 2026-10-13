@@ -452,16 +452,10 @@ export default function TrainLoraDialog({
               Off in Kelly-2000 v5's recipe. Off keeps identity strongest; "man"/"woman" in
               prompts may drift toward these people.
             </Typography>
-            <RadioGroup
-              row
-              value={form.captionMode}
-              onChange={(e) => patch({ captionMode: e.target.value as TrainForm["captionMode"] })}
-            >
-              <FormControlLabel value="per_image" control={<Radio size="small" />}
-                label="Dataset captions (blank = bare trigger)" />
-              <FormControlLabel value="trigger_only" control={<Radio size="small" />}
-                label="Bare trigger only" />
-            </RadioGroup>
+            <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
+              Every image trains under the bare trigger + class (the pair phrase for a pair) —
+              dataset captions are not used.
+            </Typography>
           </Box>
           )}
 

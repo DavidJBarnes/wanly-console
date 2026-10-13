@@ -33,7 +33,6 @@ import type {
   FavoriteListResponse,
   AppSettingsResponse,
   AppSettingsUpdate,
-  CaptionStatus,
   CaptionTryBody,
   CaptionTryResult,
   Dataset,
@@ -518,24 +517,6 @@ export async function getTrainedOn(jobId: string): Promise<TrainedOn> {
 
 export async function deleteDataset(id: string, purge = false): Promise<void> {
   await api.delete(`/datasets/${id}`, { params: { purge } });
-}
-
-/** Caption every image in the set in the background (#537). Only the missing ones unless
- *  `overwrite`. Returns at once; progress is GET .../captions/status. */
-export async function captionDataset(id: string, overwrite = false): Promise<CaptionStatus> {
-  const { data } = await api.post<CaptionStatus>(`/datasets/${id}/captions`, { overwrite });
-  return data;
-}
-
-export async function getCaptionStatus(id: string): Promise<CaptionStatus> {
-  const { data } = await api.get<CaptionStatus>(`/datasets/${id}/captions/status`);
-  return data;
-}
-
-/** Replace one image's caption BODY — no trigger; the run adds it. */
-export async function updateDatasetCaption(id: string, uri: string, caption: string): Promise<Dataset> {
-  const { data } = await api.patch<Dataset>(`/datasets/${id}/captions`, { uri, caption });
-  return data;
 }
 
 /** Render `count` generic people into a regularization pool (kind=regularization only). */

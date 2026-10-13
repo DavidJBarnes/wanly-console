@@ -4,7 +4,7 @@
  * Extracted for the reason vite.config.ts gives — tests here are node-env and pure-logic only,
  * so a rule with a right answer has to live outside a component to be covered.
  */
-import type { CaptionStatus, Dataset, DatasetTrainedBy, RegularizeStatus } from "../api/types";
+import type { Dataset, DatasetTrainedBy, RegularizeStatus } from "../api/types";
 
 /**
  * Whether a dataset item is a video clip (wanly-console#625).
@@ -174,23 +174,6 @@ export function scoreFor(
   const saved = ds.scores ?? {};
   if (uri in saved) return { cos: saved[uri] ?? null, is_anchor: false };
   return undefined;
-}
-
-/** How many of the set's images have a caption body. An empty string is not a caption. */
-export function captionCoverage(ds: Pick<Dataset, "images" | "captions">): {
-  captioned: number; missing: number;
-} {
-  const caps = ds.captions ?? {};
-  const captioned = ds.images.filter((u) => (caps[u] ?? "").trim() !== "").length;
-  return { captioned, missing: ds.images.length - captioned };
-}
-
-/** "Captioning 12 of 40", or the failure, or null when there is nothing to report. */
-export function captionProgressLabel(s: CaptionStatus | null): string | null {
-  if (!s) return null;
-  if (s.error) return `captioning stopped: ${s.error}`;
-  if (s.running) return `captioning ${s.captioned} of ${s.total}`;
-  return null;
 }
 
 /** "Rendering 12 of 150 (1 failed)", or null when nothing is running. Failures are said

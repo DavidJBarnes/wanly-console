@@ -468,16 +468,17 @@ describe("trainingBody", () => {
     expect(body).toEqual({
       mode: "solo", character: "David", datasets: { David: "a" },
       version: 1, steps: 1200, publish: "final",
-      caption_mode: "per_image", regularization: false, base_checkpoint: "ltx-2.3-22b-dev",
+      regularization: false, base_checkpoint: "ltx-2.3-22b-dev",
     });
   });
-  it("defaults to Kelly-2000 v5's recipe: dev base, no regularization, stored captions", () => {
+  it("defaults to Kelly-2000 v5's recipe: dev base, no regularization, no caption choice", () => {
     // The API's own defaults are 10Eros and regularization on; the dialog must send v5's
     // explicitly or a run silently trains a different recipe from the one that held her.
     const body = trainingBody(form({ mode: "pair", memberA: "A", memberB: "B", pairName: "AB" }));
     expect(body.base_checkpoint).toBe("ltx-2.3-22b-dev");
     expect(body.regularization).toBe(false);
-    expect(body.caption_mode).toBe("per_image");
+    // console#678: the API trains every LTX image trigger-only; the dialog sends no choice.
+    expect(body).not.toHaveProperty("caption_mode");
   });
   it("sends the low-score acknowledgement only when ticked", () => {
     expect(trainingBody(form({ character: "David" }))).not.toHaveProperty("allow_low_scores");
@@ -489,11 +490,8 @@ describe("trainingBody", () => {
   it("sends the recipe the user picked", () => {
     const body = trainingBody(form({
       character: "David", baseCheckpoint: "10Eros_v1.5_bf16", regularization: true,
-      captionMode: "trigger_only",
     }));
-    expect(body).toMatchObject({
-      base_checkpoint: "10Eros_v1.5_bf16", regularization: true, caption_mode: "trigger_only",
-    });
+    expect(body).toMatchObject({ base_checkpoint: "10Eros_v1.5_bf16", regularization: true });
   });
   it("omits the dataset map when nothing is chosen, so the API picks the only one", () => {
     expect(trainingBody(form({ character: "David" }))).not.toHaveProperty("datasets");

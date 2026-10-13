@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   datasetCover,
-  byRecent, canLockByHand, canUnlock, captionCoverage, captionProgressLabel, datasetNameProblem,
+  byRecent, canLockByHand, canUnlock, datasetNameProblem,
   defaultCloneName, isAssigned, lockedReason, lockLabel, lockReasonBody, manualLockLabel,
   localDate, ownerLabel, parseTags, progressPct, regularizeProgressLabel, scoreFor,
   trainedByLabel, trainedLabel, unlockedLabel, usedInLabel,
@@ -65,25 +65,7 @@ describe("scoreFor", () => {
   });
 });
 
-describe("captionCoverage", () => {
-  it("counts blank captions as missing", () => {
-    const set = ds({ images: ["a", "b", "c"], captions: { a: "close-up, smiling", b: "  " } });
-    expect(captionCoverage(set)).toEqual({ captioned: 1, missing: 2 });
-  });
-  it("treats a set from before captions as all missing", () => {
-    expect(captionCoverage(ds({ images: ["a"] }))).toEqual({ captioned: 0, missing: 1 });
-  });
-});
-
 describe("progress labels", () => {
-  it("says how far captioning has got, and why it stopped", () => {
-    expect(captionProgressLabel({ total: 40, captioned: 12, running: true, error: null }))
-      .toBe("captioning 12 of 40");
-    expect(captionProgressLabel({ total: 40, captioned: 12, running: false, error: "ollama down" }))
-      .toMatch(/ollama down/);
-    expect(captionProgressLabel({ total: 40, captioned: 40, running: false, error: null }))
-      .toBeNull();
-  });
   it("says failures while a pool renders", () => {
     expect(regularizeProgressLabel({ requested: 150, done: 12, failed: 1, running: true }))
       .toBe("rendering 12 of 150 (1 failed)");
