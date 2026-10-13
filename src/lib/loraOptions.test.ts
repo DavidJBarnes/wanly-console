@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeLoraOptions } from "./loraOptions";
+import { lorasForCharacter, mergeLoraOptions } from "./loraOptions";
 
 describe("mergeLoraOptions", () => {
   it("offers bucket LoRAs that no character uses yet", () => {
@@ -28,5 +28,46 @@ describe("mergeLoraOptions", () => {
 
   it("sorts, so the list does not reorder itself between loads", () => {
     expect(mergeLoraOptions([], ["b.safetensors", "a.safetensors"])).toEqual(["a", "b"]);
+  });
+});
+
+describe("lorasForCharacter (console#680)", () => {
+  const all = [
+    "DavidJoana_v2_final", "Joana_v1_final", "Joana_v3_e03", "Kelly-2000_v1_final",
+    "Payton-Synthetic_v1_final", "Payton_v2_final", "Payton_v3_final", "k3llydw_v2",
+    "karoline_v1_final", "Karoline_v3_final",
+  ];
+
+  it("lists the character's own runs, synthetic ones included", () => {
+    expect(lorasForCharacter("Payton", all))
+      .toEqual(["Payton-Synthetic_v1_final", "Payton_v2_final", "Payton_v3_final"]);
+  });
+
+  it("anchors at the start: a pair's LoRA is not a member's", () => {
+    expect(lorasForCharacter("Joana", all)).toEqual(["Joana_v1_final", "Joana_v3_e03"]);
+    expect(lorasForCharacter("DavidJoana", all)).toEqual(["DavidJoana_v2_final"]);
+  });
+
+  it("ignores case", () => {
+    expect(lorasForCharacter("Karoline", all)).toEqual(["karoline_v1_final", "Karoline_v3_final"]);
+  });
+
+  it("does not treat another suffix as the same character", () => {
+    expect(lorasForCharacter("Kelly", all)).toBeNull();
+  });
+
+  it("always keeps the current LoRA and the selected value", () => {
+    expect(lorasForCharacter("Kelly-2000", all, ["k3llydw_v2", "none", null]))
+      .toEqual(["k3llydw_v2", "Kelly-2000_v1_final"]);
+  });
+
+  it("gives up (null) when nothing matches or there is no name", () => {
+    expect(lorasForCharacter("Newbie", all)).toBeNull();
+    expect(lorasForCharacter("", all)).toBeNull();
+    expect(lorasForCharacter(undefined, all)).toBeNull();
+  });
+
+  it("escapes the name", () => {
+    expect(lorasForCharacter("Pay.on", all)).toBeNull();
   });
 });

@@ -27,6 +27,7 @@ import {
 } from "../lib/recipeBlob";
 import type { CharacterSlot } from "../lib/recipeBlob";
 import { groupPosesByBook } from "../lib/poseGroups";
+import { lorasForCharacter, SHOW_ALL_LORAS } from "../lib/loraOptions";
 import {
   captionPending, halfActions, halvesInFlight, REGROUND_HINT, requestedByNote,
 } from "../lib/captionStatus";
@@ -149,6 +150,9 @@ export default function RecipeForm({
 
   const [book, setBook] = useState<RecipeCatalog | null>(null);
   const [loras, setLoras] = useState<string[]>([]);
+  // Slots whose Char LoRA dropdown was asked to show every LoRA, not just that
+  // character's own (console#680).
+  const [allLorasAt, setAllLorasAt] = useState<number[]>([]);
   // ONE character per render (console#473, post-#102): a joint LoRA carries every
   // identity in its trigger phrase. The array shape stays (a list of one) so nothing
   // downstream has to learn a second shape.
@@ -919,22 +923,34 @@ export default function RecipeForm({
               )}
             </Stack>
           )}
-          {filledSlots.map((slot, i) => slot && (
+          {filledSlots.map((slot, i) => {
+            if (!slot) return null;
+            // That character's own LoRAs first and only, unless asked for all (console#680).
+            const own = allLorasAt.includes(i) ? null
+              : lorasForCharacter(slot.character.name, loras, [slot.charLora]);
+            const options = (own ?? loras).filter((l) => l !== slot.character.char_lora);
+            return (
             <Stack key={i} direction="row" spacing={2} useFlexGap flexWrap="wrap">
               <TextField
                 select label={i === 0 ? "Char LoRA" : `${slot.character.name} LoRA`}
                 value={slot.charLora}
                 sx={{ flex: "2 1 220px", minWidth: 180 }} size={compact ? "small" : "medium"}
-                onChange={(e) => setEditAt(i, { charLora: e.target.value })}
+                onChange={(e) => {
+                  if (e.target.value === SHOW_ALL_LORAS) setAllLorasAt((a) => [...a, i]);
+                  else setEditAt(i, { charLora: e.target.value });
+                }}
               >
                 {/* the recipe's own first, so it is never buried under the rest. A
                     sheet-only character has none (console#581) and starts on "none". */}
                 {hasLora(slot.character.char_lora) && (
                   <MenuItem value={slot.character.char_lora!}>{slot.character.char_lora}</MenuItem>
                 )}
-                {loras.filter((l) => l !== slot.character.char_lora).map((l) => (
+                {options.map((l) => (
                   <MenuItem key={l} value={l}>{l}</MenuItem>
                 ))}
+                {own && (
+                  <MenuItem value={SHOW_ALL_LORAS}><em>Show all {loras.length} LoRAs…</em></MenuItem>
+                )}
                 {/* Renders on the checkpoint alone — useful for judging what the LoRA is
                     actually contributing, and for a shot whose start frame already carries
                     the identity. The engine has always understood "none"; it simply was
@@ -949,7 +965,8 @@ export default function RecipeForm({
                          sx={{ flex: "1 1 100px", minWidth: 90 }}
                          onChange={(e) => setEditAt(i, { s2: e.target.value })} />
             </Stack>
-          ))}
+            );
+          })}
           <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
             <TextField label="Frames" value={frames} size={compact ? "small" : "medium"}
                        sx={{ flex: "1 1 100px", minWidth: 90 }}
