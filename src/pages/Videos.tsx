@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef, type SyntheticEvent } from "react";
 import {
-  Avatar,
   Box,
   Typography,
   Card,
@@ -26,7 +25,7 @@ import type { JobDetailResponse, JobResponse, TagCount } from "../api/types";
 import { DEFAULT_JOB_FETCH_LIMIT, POLL_INTERVAL_FAST } from "../constants";
 import FavoriteHeart from "../components/FavoriteHeart";
 import TagFilterBar from "../components/TagFilterBar";
-import { useCharacterIcons } from "../hooks/useCharacterIcons";
+import TagChip from "../components/TagChip";
 import { describeFilter, parseTagParam, serializeTagParam, toggleTag } from "../lib/tagFilter";
 import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
 
@@ -49,8 +48,6 @@ function formatDate(iso: string) {
 }
 
 export default function Videos() {
-  // A tag that is a character's name shows that character's icon beside it.
-  const characterIcons = useCharacterIcons();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobResponse[]>([]);
@@ -334,7 +331,6 @@ export default function Videos() {
         selected={selectedTags}
         onToggle={(tag) => setSelectedTags(toggleTag(selectedTags, tag))}
         onClear={() => setSelectedTags([])}
-        icons={characterIcons}
       />
 
       {loading && finalizedJobs.length === 0 && (
@@ -482,11 +478,7 @@ export default function Videos() {
                           const trimmed = tag.trim();
                           if (!trimmed) return null;
                           return (
-                            <Chip key={i} label={trimmed} size="small" sx={{ height: 20, fontSize: 11 }}
-                              avatar={characterIcons.get(trimmed.toLowerCase())
-                                ? <Avatar src={characterIcons.get(trimmed.toLowerCase())} alt={trimmed}
-                                          imgProps={{ loading: "lazy" }} sx={{ width: 16, height: 16 }} />
-                                : undefined} />
+                            <TagChip key={i} label={trimmed} size="small" dense />
                           );
                         })}
                       </Box>

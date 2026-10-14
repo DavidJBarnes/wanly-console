@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { TrainingJob } from "../api/types";
 import { latestVersions, runDatasetName, versionRows } from "./characterVersions";
-import { characterIconUri, offeredCharacters } from "./characterIcon";
+import { characterIconUri, iconForName, offeredCharacters } from "./characterIcon";
 import { preselectCharacter } from "./defaultSelection";
 import type { Character } from "../api/ltx";
 
@@ -43,6 +43,15 @@ describe("character icon and hidden (console#616, #617)", () => {
     expect(characterIconUri(ch({ face_ref_uri: "s3://r", sheet_uri: "s3://s" }))).toBe("s3://r");
     expect(characterIconUri(ch({ sheet_uri: "s3://s" }))).toBe("s3://s");
     expect(characterIconUri(ch({}))).toBeNull();
+  });
+  it("a badge finds its character's icon by name, any case, trimmed (console#684)", () => {
+    const icons = new Map([["joana", "/f/joana.png"], ["davidjoana", "/f/pair.png"]]);
+    expect(iconForName(icons, "Joana")).toBe("/f/joana.png");
+    expect(iconForName(icons, " JOANA ")).toBe("/f/joana.png");
+    expect(iconForName(icons, "DavidJoana")).toBe("/f/pair.png");   // a pair: X chip
+    expect(iconForName(icons, "doggystyle")).toBeUndefined();        // a tag, not a character
+    expect(iconForName(icons, "")).toBeUndefined();
+    expect(iconForName(icons, null)).toBeUndefined();
   });
   it("pickers leave hidden characters out -- except the one already selected", () => {
     const list = [ch({ name: "A" }), ch({ name: "B", hidden: true })];

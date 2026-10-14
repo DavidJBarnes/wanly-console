@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import CharacterAvatar from "./CharacterAvatar";
+import TagChip from "./TagChip";
 import { offeredCharacters } from "../lib/characterIcon";
 import {
   Alert, Autocomplete, Box, Button, Card, CardContent, Checkbox, Chip, Dialog,
@@ -752,7 +753,7 @@ export function DatasetCard({
             </Tooltip>
           )}
           {parseTags(ds.tags).map((t) => (
-            <Chip key={t} size="small" label={t} />
+            <TagChip key={t} size="small" label={t} />
           ))}
           <Box sx={{ flexGrow: 1 }} />
           {/* A regularization pool is never trained on its own: the API adds it to runs. */}

@@ -1,15 +1,13 @@
-import { Avatar, Box, Button, Chip, Typography } from "@mui/material";
+import { Box, Button, Typography } from "@mui/material";
 import type { TagCount } from "../api/types";
 import { isTagSelected } from "../lib/tagFilter";
+import TagChip from "./TagChip";
 
 interface Props {
   counts: TagCount[];
   selected: string[];
   onToggle: (tag: string) => void;
   onClear: () => void;
-  /** Optional: lower-cased tag -> image URL. A tag that is a character's name shows the
-   *  character's icon beside it (the Videos page passes useCharacterIcons()). */
-  icons?: Map<string, string>;
 }
 
 /**
@@ -30,7 +28,7 @@ interface Props {
  * Presentational on purpose: the caller owns where the counts come from and where the selection
  * is stored, so the same row serves images (/images/tag-counts) and videos (/jobs/tag-counts).
  */
-export default function TagFilterBar({ counts, selected, onToggle, onClear, icons }: Props) {
+export default function TagFilterBar({ counts, selected, onToggle, onClear }: Props) {
   if (counts.length === 0 && selected.length === 0) return null;
 
   return (
@@ -38,12 +36,11 @@ export default function TagFilterBar({ counts, selected, onToggle, onClear, icon
       {counts.map(({ tag, count }) => {
         const on = isTagSelected(selected, tag);
         return (
-          <Chip
+          // A tag that is a character's name shows the character's icon (console#658, #684).
+          <TagChip
             key={tag}
             size="small"
-            avatar={icons?.get(tag.toLowerCase())
-              ? <Avatar src={icons.get(tag.toLowerCase())} alt={tag} imgProps={{ loading: "lazy" }} />
-              : undefined}
+            character={tag}
             label={
               <Box component="span" sx={{ display: "inline-flex", gap: 0.5 }}>
                 <span>{tag}</span>

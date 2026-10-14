@@ -13,6 +13,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import TagChip from "../components/TagChip";
 import { useTagStore } from "../stores/tagStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { CaptionStyle, MotionStyle } from "../api/types";
@@ -162,7 +163,7 @@ export default function SettingsPage() {
               </Box>
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                 {titleTags1.map((tag) => (
-                  <Chip
+                  <TagChip
                     key={tag.id}
                     label={tag.name}
                     onDelete={() => removeTag(tag.id)}
@@ -202,7 +203,7 @@ export default function SettingsPage() {
               </Box>
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                 {titleTags2.map((tag) => (
-                  <Chip
+                  <TagChip
                     key={tag.id}
                     label={tag.name}
                     onDelete={() => removeTag(tag.id)}

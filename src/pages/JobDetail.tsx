@@ -69,6 +69,7 @@ import {
 } from "../api/client";
 import { apiError } from "../lib/apiError";
 import NextSegmentDialog from "../components/NextSegmentDialog";
+import TagChip from "../components/TagChip";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import { useSettingsStore } from "../stores/settingsStore";
 import type {
@@ -1041,7 +1042,7 @@ export default function JobDetail() {
                 const trimmed = tag.trim();
                 if (!trimmed) return null;
                 return (
-                  <Chip
+                  <TagChip
                     key={i}
                     label={trimmed}
                     size="small"

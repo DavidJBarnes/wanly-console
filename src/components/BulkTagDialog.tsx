@@ -3,6 +3,7 @@ import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from "@mui/material";
+import TagChip from "./TagChip";
 
 import { ltxError } from "../api/ltx";
 import { bulkUpdateImageTags, type BulkTagResult } from "../api/client";
@@ -108,7 +109,7 @@ export default function BulkTagDialog({
             <Typography variant="caption" color="text.secondary">Vocabulary</Typography>
             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
               {[...titleTags1, ...titleTags2].map((tag) => (
-                <Chip key={tag.id} label={tag.name} size="small" variant="outlined"
+                <TagChip key={tag.id} label={tag.name} size="small" variant="outlined"
                   disabled={busy} onClick={() => appendTag(tag.name)} />
               ))}
             </Box>
@@ -119,7 +120,7 @@ export default function BulkTagDialog({
             <Typography variant="caption" color="text.secondary">In use</Typography>
             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
               {tagCounts.slice(0, 30).map((tc) => (
-                <Chip key={tc.tag} label={tc.tag} size="small"
+                <TagChip key={tc.tag} label={tc.tag} size="small"
                   disabled={busy} onClick={() => appendTag(tc.tag)} />
               ))}
             </Box>
