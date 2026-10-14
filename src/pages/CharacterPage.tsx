@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import LatestLoraStatus from "../components/LatestLoraStatus";
+import TagChip from "../components/TagChip";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router";
 import {
   Alert, Box, Button, Card, CardActionArea, Chip, CircularProgress, Dialog, DialogActions,
@@ -163,11 +164,12 @@ export default function CharacterPage() {
                 )}
                 {c.base_checkpoint && <Chip size="small" variant="outlined" label={`base: ${c.base_checkpoint}`} />}
                 {full.members.map((m) => (
-                  <Chip key={m.id} size="small" clickable component={RouterLink}
+                  <TagChip key={m.id} size="small" clickable component={RouterLink} character={m.name}
                         to={`/characters/${encodeURIComponent(m.name)}`} label={`member: ${m.name}`} />
                 ))}
                 {full.pairs.map((p) => (
-                  <Chip key={p.id} size="small" clickable variant="outlined" component={RouterLink}
+                  <TagChip key={p.id} size="small" clickable variant="outlined" component={RouterLink}
+                        character={p.name}
                         to={`/characters/${encodeURIComponent(p.name)}`} label={`pair: ${p.name}`} />
                 ))}
               </Stack>

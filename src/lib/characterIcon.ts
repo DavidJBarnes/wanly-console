@@ -17,6 +17,15 @@ export function characterIconUri(c: IconSource | null | undefined): string | nul
   return c.icon_uri || c.image_uri || c.face_ref_uri || c.sheet_uri || null;
 }
 
+/** The icon URL for a name shown as a badge (console#684): a tag, or the character a
+ *  `pair: X` chip names. Matched on the trimmed name, case-insensitively, against the map
+ *  useCharacterIcons() builds (keys lower-cased). Undefined: not a character, or one with no
+ *  image -- the chip shows the plain text. */
+export function iconForName(icons: Map<string, string>, name: string | null | undefined): string | undefined {
+  const key = name?.trim().toLowerCase();
+  return key ? icons.get(key) : undefined;
+}
+
 /**
  * What a picker offers: every character that is not hidden -- plus the one currently
  * selected, hidden or not. A job made before its character was hidden must still show who it

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link as RouterLink } from "react-router";
 import { Alert, Box, Chip, Stack, Tooltip, Typography } from "@mui/material";
+import TagChip from "./TagChip";
 
 import { getDatasetRuns, listTrainingJobs } from "../api/client";
 import { listRecipes } from "../api/ltx";
@@ -107,7 +108,8 @@ export default function DatasetRunsPanel({
                                            outlineColor: "primary.main", borderRadius: 1 } : undefined}>
             {r.role === "pair_member" && r.pair && (
               <Tooltip title="A pair run that also trained on this set. It lives on the pair's own dataset.">
-                <Chip size="small" variant="outlined" sx={{ mb: 0.5 }}
+                <TagChip size="small" variant="outlined" sx={{ mb: 0.5 }}
+                      character={r.pair.character}
                       label={`pair: ${r.pair.character}`}
                       clickable={Boolean(r.pair.dataset_id)}
                       component={r.pair.dataset_id ? RouterLink : "div"}

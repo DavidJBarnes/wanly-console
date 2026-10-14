@@ -111,6 +111,7 @@ import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
 import AddToDatasetDialog from "../components/AddToDatasetDialog";
 import BulkTagDialog from "../components/BulkTagDialog";
+import TagChip from "../components/TagChip";
 import TagFilterBar from "../components/TagFilterBar";
 import {
   describeFilter,
@@ -1247,7 +1248,7 @@ export default function ImageRepo() {
                           const trimmed = tag.trim();
                           if (!trimmed) return null;
                           return (
-                            <Chip
+                            <TagChip
                               key={i}
                               label={trimmed}
                               size="small"
@@ -1265,7 +1266,7 @@ export default function ImageRepo() {
                     {(titleTags1.length > 0 || titleTags2.length > 0) && (
                       <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
                         {titleTags1.map((tag) => (
-                          <Chip
+                          <TagChip
                             key={tag.id}
                             label={tag.name}
                             size="small"
@@ -1282,7 +1283,7 @@ export default function ImageRepo() {
                           />
                         ))}
                         {titleTags2.map((tag) => (
-                          <Chip
+                          <TagChip
                             key={tag.id}
                             label={tag.name}
                             size="small"
@@ -1777,11 +1778,12 @@ export default function ImageRepo() {
                               />
                             ))}
                             {h.trainings.map((t) => (
-                              <Chip
+                              <TagChip
                                 key={`t-${t.id}`}
                                 size="small"
                                 variant="outlined"
                                 color={t.state === "idle" ? "default" : "warning"}
+                                character={t.character}
                                 label={`training: ${t.character}${t.version != null ? ` v${t.version}` : ""} (${t.status})`}
                                 onClick={() => navigate("/training")}
                               />
@@ -2326,7 +2328,7 @@ export default function ImageRepo() {
                                   const trimmed = tag.trim();
                                   if (!trimmed) return null;
                                   return (
-                                    <Chip key={i} label={trimmed} size="small" sx={{ height: 20, fontSize: 11 }} />
+                                    <TagChip key={i} label={trimmed} size="small" dense />
                                   );
                                 })}
                               </Box>
@@ -2913,7 +2915,7 @@ export default function ImageRepo() {
                               const trimmed = tag.trim();
                               if (!trimmed) return null;
                               return (
-                                <Chip key={i} label={trimmed} size="small" sx={{ height: 20, fontSize: 11 }} />
+                                <TagChip key={i} label={trimmed} size="small" dense />
                               );
                             })}
                           </Box>
@@ -3079,7 +3081,7 @@ export default function ImageRepo() {
                       const trimmed = tag.trim();
                       if (!trimmed) return null;
                       return (
-                        <Chip key={i} label={trimmed} size="small" sx={{ height: 20, fontSize: 11 }} />
+                        <TagChip key={i} label={trimmed} size="small" dense />
                       );
                     })}
                   </Box>
