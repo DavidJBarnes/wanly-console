@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type SyntheticEvent } from "react";
 import {
   Avatar,
   Box,
@@ -62,6 +62,9 @@ export default function Videos() {
   const [playlistIndex, setPlaylistIndex] = useState(0);
   const [loadingRandom, setLoadingRandom] = useState(false);
   const [loopVideo, setLoopVideo] = useState(false);
+  // console#682: every player starts muted. The playlist remounts per item, so the
+  // viewer's unmute is carried to the next one instead of being reset each time.
+  const [playlistMuted, setPlaylistMuted] = useState(true);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
 
@@ -564,6 +567,7 @@ export default function Videos() {
               component="video"
               controls
               autoPlay
+              muted
               loop={loopVideo}
               src={getFileUrl(modalVideo.output_path)}
               sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
@@ -640,6 +644,8 @@ export default function Videos() {
               key={playlistIndex}
               controls
               autoPlay
+              muted={playlistMuted}
+              onVolumeChange={(e: SyntheticEvent<HTMLVideoElement>) => setPlaylistMuted(e.currentTarget.muted)}
               loop={loopVideo}
               src={getFileUrl(currentPlaylistItem.videoPath)}
               onEnded={() => {

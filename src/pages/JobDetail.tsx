@@ -949,6 +949,7 @@ export default function JobDetail() {
                   component="video"
                   src={getFileUrl(finalVideo.output_path, finalVideo.completed_at ?? undefined)}
                   controls
+                  muted
                   loop={loopVideo}
                   sx={{ width: "100%", borderRadius: 1, display: "block" }}
                 />
@@ -2084,6 +2085,7 @@ export default function JobDetail() {
               component="video"
               controls
               autoPlay
+              muted
               loop={loopVideo}
               src={getFileUrl(videoModal.path, videoModal.v)}
               sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
