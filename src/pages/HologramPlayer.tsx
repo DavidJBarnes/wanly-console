@@ -153,7 +153,7 @@ function buildHologramMesh(
   });
   video.src = videoUrl;
   video.loop = true;
-  video.muted = audio?.muted ?? false;
+  video.muted = audio?.muted ?? true;
   video.playsInline = true;
   audio?.onVideo?.(video);
   const videoTex = new THREE.VideoTexture(video);
@@ -816,11 +816,12 @@ export default function HologramPlayer() {
   // imperative builders), audioMuted mirrors element state for the toggle, and
   // tapForSound shows the gesture button when unmuted autoplay lost the race.
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [audioMuted, setAudioMuted] = useState(false);
+  const [audioMuted, setAudioMuted] = useState(true);
   const [tapForSound, setTapForSound] = useState(false);
   // What the element CREATES with, read at session start — not reactive, so toggling never
-  // re-enters (and re-creates) a running preview or session.
-  const audioMutedRef = useRef(false);
+  // re-enters (and re-creates) a running preview or session. Muted, like every player in the
+  // console (console#682): the Unmute button gives the sound back.
+  const audioMutedRef = useRef(true);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ArSettings>({
     ...DEFAULT_AR_SETTINGS,
@@ -1319,11 +1320,10 @@ export default function HologramPlayer() {
                 // HTTP cache for the same URL, and a cached no-CORS response (no
                 // Access-Control-Allow-Origin stored) poisons the later CORS-mode texture
                 // fetch — the mesh then renders invisible in preview AND emulated AR.
-                // NOT muted: native controls own playback here, and with LTX audio in the
-                // artifact (console#475) there is no reason to hard-mute a fallback that
-                // the user starts by hand.
+                // Muted like every player (console#682); the native controls unmute it.
                 <video
                   src={videoUrl}
+                  muted
                   crossOrigin="anonymous"
                   controls
                   loop
