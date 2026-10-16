@@ -9,7 +9,7 @@ import {
 } from "@mui/icons-material";
 import { Link } from "react-router";
 
-import { getFileUrl, listTrainingJobs } from "../api/client";
+import { getFileUrl, getPresignedFileUrl, listTrainingJobs } from "../api/client";
 import { ltxError, TRIGGER_PLACEHOLDER, updateCharacter } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import type { TrainingJob } from "../api/types";
@@ -24,7 +24,7 @@ import {
   fillPhrase, hasLora, identityBadges, referenceMode,
 } from "../lib/characterIdentity";
 import { latestVersions, runDatasetName, versionRows } from "../lib/characterVersions";
-import { checkpointInUse, scpCommand } from "../lib/trainingJob";
+import { checkpointInUse, scpCommandWithPreview } from "../lib/trainingJob";
 
 /**
  * A character's own card (console#616): everything about one character in one place.
@@ -87,9 +87,9 @@ export default function CharacterCard({
     }
   };
 
-  const copy = async (text: string, what: string) => {
+  const copy = async (text: string | (() => Promise<string>), what: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(typeof text === "string" ? text : await text());
       setMsg(`${what} copied`);
     } catch {
       setMsg(`could not copy the ${what}`);
@@ -250,12 +250,12 @@ export default function CharacterCard({
                   <TableRow key={r.version}>
                     <TableCell sx={{ fontFamily: "monospace" }}>v{r.version}</TableCell>
                     <TableCell>
-                      <RunCell run={r.ltx} latest={r.version === latest.ltx}
+                      <RunCell run={r.ltx} character={c} latest={r.version === latest.ltx}
                                inUse={!!r.ltx && checkpointInUse(r.ltx, characters) !== null}
                                onCopy={copy} />
                     </TableCell>
                     <TableCell>
-                      <RunCell run={r.sdxl} latest={r.version === latest.sdxl}
+                      <RunCell run={r.sdxl} character={c} latest={r.version === latest.sdxl}
                                inUse={false} onCopy={copy} />
                     </TableCell>
                   </TableRow>
@@ -345,12 +345,14 @@ export default function CharacterCard({
 
 /** One arch's run at one version: status, dataset, date, and the final checkpoint. */
 function RunCell({
-  run, latest, inUse, onCopy,
+  run, character, latest, inUse, onCopy,
 }: {
   run: TrainingJob | null;
+  /** Whose run it is: its image is the checkpoint's A1111 preview (console#686). */
+  character: Character;
   latest: boolean;
   inUse: boolean;
-  onCopy: (text: string, what: string) => void;
+  onCopy: (text: string | (() => Promise<string>), what: string) => void;
 }) {
   if (!run) return <Typography variant="body2" color="text.disabled">—</Typography>;
   const when = run.completed_at ?? run.created_at;
@@ -372,7 +374,8 @@ function RunCell({
       {run.status === "completed" && (
         <Box>
           <Button size="small" startIcon={<ContentCopy fontSize="small" />}
-                  onClick={() => onCopy(scpCommand(run, "final"), "scp for the final checkpoint")}>
+                  onClick={() => onCopy(() => scpCommandWithPreview(run, "final", character, getPresignedFileUrl),
+                                           "scp for the final checkpoint")}>
             Copy scp
           </Button>
         </Box>

@@ -13,6 +13,7 @@ import type {
 } from "../api/types";
 import type { Character } from "../api/ltx";
 import { isClip } from "./datasets";
+import { characterIconUri } from "./characterIcon";
 
 /** Below this a run is not worth the GPU hour. p@y worked on 13, which is the floor anyone has
  *  actually proved; the API refuses under 8 and this must agree with it or the dialog offers a
@@ -848,17 +849,42 @@ export function scpCommand(
   job: Pick<TrainingJob, "config" | "character" | "version" | "worker_name"
     | "thumbnail_uri" | "dataset_images">,
   label: string,
+  /** The character's own image, downloadable (console#686). Wins over the run's thumbnail. */
+  preview?: { url: string; ext: string } | null,
 ): string {
   const host = job.worker_name || DEFAULT_TRAINER_HOST;
   const arch = isSdxlJob(job) ? "_sdxl" : "";
   const dest = `${job.character}${arch}_v${job.version}_${label}`;
   const lora = `scp ${host}:${shq(trainerCheckpointPath(job, label))} ${shq(`${dest}.safetensors`)}`;
   // THE PREVIEW TOO (#610): A1111 and StabilityMatrix show <name>.preview.<ext> beside a LoRA
-  // as its card image. The run's thumbnail -- the dataset's anchor face -- is already on the
-  // trainer, staged with the rest.
+  // as its card image. It is the character's image (console#686) -- the one the Characters page
+  // and every badge show -- fetched from S3. Only a character with no image at all falls back
+  // to the run's thumbnail, which is already on the trainer, staged with the rest.
+  if (preview) {
+    return `${lora} && curl -fsSL ${shq(preview.url)} -o ${shq(`${dest}.preview${preview.ext}`)}`;
+  }
   const thumb = trainerThumbnailPath(job);
   if (!thumb) return lora;
   return `${lora} && scp ${host}:${shq(thumb.path)} ${shq(`${dest}.preview${thumb.ext}`)}`;
+}
+
+/**
+ * scpCommand with the character's image as the preview (console#686): `character` is the run's
+ * character row, its image resolved by the one icon rule (characterIconUri) and presigned at
+ * copy time -- a 6-hour link with no login in it, since the command lands in shell history.
+ * A presign failure throws: a command quietly carrying the wrong preview is the bug this fixes.
+ */
+export async function scpCommandWithPreview(
+  job: Parameters<typeof scpCommand>[0],
+  label: string,
+  character: Pick<Character, "icon_uri" | "image_uri" | "face_ref_uri" | "sheet_uri"> | null | undefined,
+  presign: (s3Uri: string) => Promise<{ url: string }>,
+): Promise<string> {
+  const uri = characterIconUri(character);
+  if (!uri) return scpCommand(job, label);
+  const { url } = await presign(uri);
+  const m = /(\.[^./]+)$/.exec(uri);
+  return scpCommand(job, label, { url, ext: (m ? m[1] : ".jpg").toLowerCase() });
 }
 
 /**

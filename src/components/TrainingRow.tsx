@@ -9,14 +9,14 @@ import {
 } from "@mui/icons-material";
 
 import {
-  cancelTrainingJob, deleteTrainingCheckpoint, deleteTrainingJob, getFileUrl,
+  cancelTrainingJob, deleteTrainingCheckpoint, deleteTrainingJob, getFileUrl, getPresignedFileUrl,
   publishTrainingEpoch, retryTrainingJob, updateTrainingNotes,
 } from "../api/client";
 import { starCheckpoint } from "../api/ltx";
 import type { Character } from "../api/ltx";
 import StatusChip from "./StatusChip";
 import {
-  checkpointInUse, epochRows, runTriggerPhrase, runTriggers, scpCommand, isSdxlJob, loraStem,
+  checkpointInUse, epochRows, runTriggerPhrase, runTriggers, scpCommandWithPreview, isSdxlJob, loraStem,
   uploadPct, uploadText,
   lossPath, runTimeDetail, runTimeLabel, trainingPct, trainingSummary, etaLabel, type RunEta,
 } from "../lib/trainingJob";
@@ -135,7 +135,8 @@ export default function TrainingRow({
   const copyScp = async (label: string) => {
     setMsg("");
     try {
-      await navigator.clipboard.writeText(scpCommand(job, label));
+      await navigator.clipboard.writeText(
+        await scpCommandWithPreview(job, label, owner, getPresignedFileUrl));
       setMsg(`scp for ${label} copied — paste it in a shell, in the directory you want it in.`);
     } catch {
       setMsg("could not copy the scp command");
