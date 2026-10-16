@@ -27,7 +27,7 @@ import {
   isSdxlJob, SDXL_REPEATS,
   allInSecondsPerStep, estimateRunMinutes, liveSecondsPerIt, remainingMinutes, queueEtas,
   etaLabel, formatMinutes, UPLOAD_MINUTES,
-  scpCommand, trainerCheckpointPath, shq, runTriggers, runTriggerPhrase,
+  scpCommand, scpCommandWithPreview, trainerCheckpointPath, shq, runTriggers, runTriggerPhrase,
 } from "./trainingJob";
 import type { Dataset, TrainingJob } from "../api/types";
 import type { TrainForm } from "./trainingJob";
@@ -733,6 +733,37 @@ describe("copy as scp (console#604, #606)", () => {
     // A thumbnail that is not one of group 0's images has no staged copy: LoRA only.
     expect(scpCommand({ ...j, thumbnail_uri: "s3://b/elsewhere.png" }, "final"))
       .not.toContain("preview");
+  });
+  it("uses the character's own image as the preview, not the run's thumbnail (console#686)", async () => {
+    const imgs = ["s3://b/a.jpg", "s3://b/Anchor.JPG"];
+    const j = { ...joana, character: "DavidJoana", version: 3, dataset_images: imgs,
+                thumbnail_uri: "s3://b/Anchor.JPG" };
+    const asked: string[] = [];
+    const presign = async (u: string) => { asked.push(u); return { url: `https://s3.example/x.png?X-Amz-Signature=a&b=c` }; };
+    const icon = { icon_uri: "s3://wanly-images/DavidJoana.PNG", image_uri: "s3://b/lora-face.jpg",
+                   face_ref_uri: null, sheet_uri: null };
+    expect(await scpCommandWithPreview(j, "e11", icon, presign)).toBe(
+      "scp 3090a.zero:/home/david/projects/loras/DavidJoana/sdxl-v3/output/DavidJoana_v3-000011.safetensors "
+      + "DavidJoana_sdxl_v3_e11.safetensors && "
+      + "curl -fsSL 'https://s3.example/x.png?X-Amz-Signature=a&b=c' -o DavidJoana_sdxl_v3_e11.preview.png");
+    // The icon rule picks icon_uri over the LoRA face; that is the one presigned.
+    expect(asked).toEqual(["s3://wanly-images/DavidJoana.PNG"]);
+    // No picked icon: the next image in the rule, still the character's, still not the thumbnail.
+    expect(await scpCommandWithPreview(j, "e11", { ...icon, icon_uri: null }, presign))
+      .toContain("-o DavidJoana_sdxl_v3_e11.preview.jpg");
+    expect(asked[1]).toBe("s3://b/lora-face.jpg");
+  });
+  it("falls back to the trainer's staged thumbnail only when the character has no image", async () => {
+    const j = { ...joana, dataset_images: ["s3://b/Anchor.JPG"], thumbnail_uri: "s3://b/Anchor.JPG" };
+    const none = { icon_uri: null, image_uri: null, face_ref_uri: null, sheet_uri: null };
+    const presign = async () => { throw new Error("must not presign"); };
+    expect(await scpCommandWithPreview(j, "final", none, presign)).toBe(scpCommand(j, "final"));
+    expect(await scpCommandWithPreview(j, "final", null, presign)).toContain("data/sel_000.jpg");
+  });
+  it("fails loudly rather than copy a command with the wrong preview", async () => {
+    const icon = { icon_uri: "s3://b/i.jpg", image_uri: null, face_ref_uri: null, sheet_uri: null };
+    await expect(scpCommandWithPreview(joana, "final", icon, async () => { throw new Error("403"); }))
+      .rejects.toThrow("403");
   });
   it("LTX lands in the current directory; an unknown trainer is 3090a", () => {
     expect(scpCommand({ ...joana, config: {}, worker_name: null }, "final")).toBe(
