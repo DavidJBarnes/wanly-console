@@ -48,6 +48,8 @@ import {
   Lock,
   ViewInAr,
   WarningAmber,
+  Favorite,
+  FavoriteBorder,
 } from "@mui/icons-material";
 import { useParams, useNavigate, Link as RouterLink } from "react-router";
 import {
@@ -66,6 +68,8 @@ import {
   updateSegmentTransition,
   updateSegmentTrim,
   getSegmentFrames,
+  getFavorites,
+  toggleFavorite,
 } from "../api/client";
 import { apiError } from "../lib/apiError";
 import NextSegmentDialog from "../components/NextSegmentDialog";
@@ -258,6 +262,34 @@ export default function JobDetail() {
   // it does not chain from the last frame, it starts from the same start image.
   const [cloneOpen, setCloneOpen] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
+  /** Whether this video is hearted (console#688) -- the same favorite the Videos grid shows.
+   *  Null until the favorites list answers, so the heart never flashes the wrong state. */
+  const [favorited, setFavorited] = useState<boolean | null>(null);
+  const [togglingFavorite, setTogglingFavorite] = useState(false);
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    setFavorited(null);
+    getFavorites("video")
+      .then((r) => { if (!cancelled) setFavorited(r.item_refs.includes(id)); })
+      .catch(() => { if (!cancelled) setFavorited(false); });
+    return () => { cancelled = true; };
+  }, [id]);
+  const handleToggleFavorite = async () => {
+    if (!id || favorited === null) return;
+    const was = favorited;
+    setFavorited(!was);
+    setTogglingFavorite(true);
+    try {
+      const r = await toggleFavorite({ item_type: "video", item_ref: id });
+      setFavorited(r.favorited);
+    } catch (e) {
+      setFavorited(was);
+      setError(apiError(e, "Could not update the favorite"));
+    } finally {
+      setTogglingFavorite(false);
+    }
+  };
   const [reopening, setReopening] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
   const [rerollConfirm, setRerollConfirm] = useState(false);
@@ -879,6 +911,20 @@ export default function JobDetail() {
             {job.name}
           </Typography>
         )}
+        <Tooltip title={favorited ? "Remove from favorites" : "Add to favorites"}>
+          <span>
+            <IconButton
+              onClick={handleToggleFavorite}
+              disabled={favorited === null || togglingFavorite}
+              size={isMobile ? "small" : "medium"}
+              aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
+              aria-pressed={!!favorited}
+              sx={{ color: favorited ? "#e91e63" : "text.secondary" }}
+            >
+              {favorited ? <Favorite /> : <FavoriteBorder />}
+            </IconButton>
+          </span>
+        </Tooltip>
         <Tooltip title="Delete job">
           <IconButton
             color="error"
