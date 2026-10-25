@@ -1520,11 +1520,14 @@ export default function ImageRepo() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancel</Button>
+          {/* Focused on open, so Enter confirms (console#692): Del → Enter deletes from the
+              lightbox without the mouse. The in-use "Delete anyway" below stays click-only. */}
           <Button
             color="error"
             variant="contained"
             onClick={() => handleDeleteConfirm()}
             disabled={deleting}
+            autoFocus
           >
             {deleting ? <CircularProgress size={20} /> : "Delete"}
           </Button>
