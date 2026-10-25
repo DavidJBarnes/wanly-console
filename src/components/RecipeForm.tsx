@@ -40,6 +40,7 @@ import {
 class CaptionTicketFailed extends Error {}
 import { seedRecipePrefill } from "../lib/recipePrefill";
 import { preselectCharacter, preselectPose } from "../lib/defaultSelection";
+import { guessPoseFromTags, type PoseGuess } from "../lib/poseFromTags";
 import {
   draftRenderProblem, fillPhrase, hasLora, identityRefToSend, identityStatus, referenceMode,
 } from "../lib/characterIdentity";
@@ -164,6 +165,9 @@ export default function RecipeForm({
   // so two books can each hold "Missionary" and a name-keyed selection would silently pick
   // whichever came first.
   const [poseId, setPoseId] = useState("");
+  // The pose picked from the start image's tags (console#694), kept so the picker can say
+  // why it opened where it did. Only while that pose is still the selection.
+  const [poseGuess, setPoseGuess] = useState<PoseGuess | null>(null);
   const [start, setStart] = useState<StartFrame | null>(null);
   // <SCENE> preview (console#405). Only for a start frame already in S3: a freshly picked
   // file has not been uploaded yet, so there is nothing for the captioner to fetch. That
@@ -277,8 +281,13 @@ export default function RecipeForm({
 
   useEffect(() => {
     // Also where an unresolvable carried-over pose lands (see seedRecipePrefill).
-    if (book && !poseId) setPoseId(preselectPose(poseId, poses));
-  }, [book, poseId, poses]);
+    if (!book || poseId) return;
+    // The image's tags beat the starred default (console#694), but only for a fresh job: a
+    // clone or continuation carries the pose it ran with, which the prefill below applies.
+    const guess = initialFrom ? null : guessPoseFromTags(initialTags, poses);
+    setPoseGuess(guess);
+    setPoseId(guess?.poseId ?? preselectPose(poseId, poses));
+  }, [book, poseId, poses, initialTags, initialFrom]);
 
   // The prompt shown is the RENDERED one, not the template. It is editable, so
   // showing "<TRIGGER>, a woman..." would mean editing around a placeholder and
@@ -773,7 +782,11 @@ export default function RecipeForm({
           select label="Pose" value={poseId}
           sx={{ flex: "2 1 240px", minWidth: 200 }} size={compact ? "small" : "medium"}
           onChange={(e) => setPoseId(e.target.value)}
-          helperText={compact ? undefined : "Fields below are this recipe's defaults."}
+          helperText={
+            poseGuess?.poseId === poseId
+              ? `Picked from tag${poseGuess.matched.length > 1 ? "s" : ""}: ${poseGuess.matched.join(", ")}`
+              : compact ? undefined : "Fields below are this recipe's defaults."
+          }
         >
           {groupPosesByBook(poses).map(([bookName, group]) => [
             <ListSubheader key={`h-${bookName}`} disableSticky>{bookName}</ListSubheader>,
