@@ -48,6 +48,7 @@ import {
   Face,
   Favorite,
   LabelOff,
+  VideocamOff,
   LocalOffer,
   NavigateNext,
   PhotoLibrary,
@@ -273,8 +274,13 @@ export default function ImageRepo() {
   const selectedTags = useMemo(() => parseTagParam(tagsParam), [tagsParam]);
   // "Is anything filtering?" — the page shows results when it is true and the folder listing
   // when it is not. Previously this was just "is the search box non-empty".
-  const filterActive = hasFilter(debouncedSearch, selectedTags);
-  const filterLabel = describeFilter(debouncedSearch, selectedTags);
+  // No video (console#690) is a filter, not a view like Untagged: it ANDs with the pills and
+  // the search box, so "Kelly + No video" is every Kelly image never used as a start image.
+  const noVideo = params.get("novideo") === "1";
+  const filterActive = hasFilter(debouncedSearch, selectedTags) || noVideo;
+  const filterLabel = [describeFilter(debouncedSearch, selectedTags), noVideo ? "no video" : ""]
+    .filter(Boolean)
+    .join(" + ");
   const setSelectedTags = useCallback(
     (next: string[]) => setQuery({ tags: serializeTagParam(next), spage: null }),
     [setQuery],
@@ -436,6 +442,7 @@ export default function ImageRepo() {
       const res = await searchImages({
         q: debouncedSearch || undefined,
         tags: selectedTags.length ? selectedTags : undefined,
+        no_video: noVideo || undefined,
         limit: searchRowsPerPage,
         offset: searchPage * searchRowsPerPage,
       });
@@ -446,7 +453,7 @@ export default function ImageRepo() {
     } finally {
       setSearchLoading(false);
     }
-  }, [filterActive, debouncedSearch, selectedTags, searchPage, searchRowsPerPage]);
+  }, [filterActive, debouncedSearch, selectedTags, noVideo, searchPage, searchRowsPerPage]);
 
   // Counts are re-fetched with the filter, not once on mount: they are scoped to the current
   // result set, which is the whole point — after clicking Kelly the remaining pills show what
@@ -457,12 +464,13 @@ export default function ImageRepo() {
         await getImageTagCounts({
           q: debouncedSearch || undefined,
           tags: selectedTags.length ? selectedTags : undefined,
+          no_video: noVideo || undefined,
         }),
       );
     } catch {
       // A failed census leaves the previous pills up rather than emptying the bar.
     }
-  }, [debouncedSearch, selectedTags]);
+  }, [debouncedSearch, selectedTags, noVideo]);
 
   useEffect(() => {
     fetchSearchResults();
@@ -2168,6 +2176,8 @@ export default function ImageRepo() {
               }
               setUntaggedView(false);
               setFavoritesView(true);
+              // No video's results would otherwise cover this view.
+              if (noVideo) setQuery({ novideo: null });
               setLoadingFavImages(true);
               try {
                 const imgs = await getFavoriteImages();
@@ -2193,6 +2203,8 @@ export default function ImageRepo() {
               }
               setFavoritesView(false);
               setUntaggedView(true);
+              // No video's results would otherwise cover this view.
+              if (noVideo) setQuery({ novideo: null });
               setLoadingUntagged(true);
               try {
                 const imgs = await getUntaggedImages();
@@ -2205,6 +2217,23 @@ export default function ImageRepo() {
             }}
           >
             {isMobile ? "Untag" : "Untagged"}
+          </Button>
+          <Button
+            variant={noVideo ? "contained" : "outlined"}
+            color={noVideo ? "secondary" : "inherit"}
+            startIcon={isMobile ? undefined : <VideocamOff />}
+            size={isMobile ? "small" : "medium"}
+            onClick={() => {
+              // The filter results replace the grid, so a view left on underneath would keep
+              // its button lit for a list that is not on screen.
+              if (!noVideo) {
+                setFavoritesView(false);
+                setUntaggedView(false);
+              }
+              setQuery({ novideo: noVideo ? null : "1", spage: null });
+            }}
+          >
+            {isMobile ? "No vid" : "No video"}
           </Button>
           {(favoritesView && favImages.length > 0) || (filterActive && searchResults.length > 0) ? (
             <Button

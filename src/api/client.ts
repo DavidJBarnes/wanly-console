@@ -806,6 +806,8 @@ export async function searchImages(params: {
   q?: string;
   tags?: string[];
   exclude?: string[];
+  /** Only images no job has used as its start image (console#690). */
+  no_video?: boolean;
   limit?: number;
   offset?: number;
 }): Promise<ImageSearchResponse> {
@@ -822,6 +824,8 @@ export async function getImageTagCounts(params: {
   q?: string;
   tags?: string[];
   exclude?: string[];
+  /** Only images no job has used as its start image (console#690). */
+  no_video?: boolean;
 }): Promise<TagCount[]> {
   const { data } = await api.get<{ items: TagCount[] }>("/images/tag-counts", {
     params,
