@@ -1170,7 +1170,12 @@ export interface AppSettingsResponse {
   motion_placeholders: Record<string, string>;
   /** The API's cap on either prompt, in characters. */
   prompt_max_length: number;
+  /** Where a newly queued segment lands (wanly-api#471). "top" keeps its job's place;
+   *  "bottom" moves the job behind every other job. */
+  segment_queue_position: QueuePosition;
 }
+
+export type QueuePosition = "top" | "bottom";
 
 /** POST /images/scene/try (console#555). Each field: omitted = the SAVED value, "" = the
  *  built-in default, text = exactly this unsaved text. Stores nothing. */
@@ -1238,6 +1243,7 @@ export interface AppSettingsUpdate {
   caption_instruction?: string;
   motion_style?: MotionStyle;
   motion_instruction?: string;
+  segment_queue_position?: QueuePosition;
 }
 
 /** Body for POST /jobs/{id}/reroll.

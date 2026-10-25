@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { getAppSettings, updateAppSettings } from "../api/client";
 import type {
-  AppSettingsResponse, AppSettingsUpdate, CaptionStyle, MotionStyle,
+  AppSettingsResponse, AppSettingsUpdate, CaptionStyle, MotionStyle, QueuePosition,
 } from "../api/types";
 import { draftAfterStyleChange, effectiveText } from "../lib/captionPrompts";
 
@@ -49,6 +49,8 @@ interface SettingsState {
   motionTemplateDefault: string;
   motionPlaceholders: Record<string, string>;
   promptMaxLength: number;
+  /** Where a newly queued segment lands (wanly-api#471). Saved the moment it is switched. */
+  segmentQueuePosition: QueuePosition;
   loaded: boolean;
   fetchSettings: () => Promise<void>;
   saveSettings: (updates: AppSettingsUpdate) => Promise<void>;
@@ -57,6 +59,7 @@ interface SettingsState {
   setCaptionDraft: (value: string) => void;
   setMotionStyle: (value: MotionStyle) => void;
   setMotionDraft: (value: string) => void;
+  saveQueuePosition: (value: QueuePosition) => Promise<void>;
 }
 
 /** Everything a settings response determines, drafts included. */
@@ -77,6 +80,7 @@ function fromResponse(s: AppSettingsResponse): Partial<SettingsState> {
     motionTemplateDefault: s.motion_template_default,
     motionPlaceholders: s.motion_placeholders,
     promptMaxLength: s.prompt_max_length,
+    segmentQueuePosition: s.segment_queue_position,
   };
 }
 
@@ -95,6 +99,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   motionTemplateDefault: "",
   motionPlaceholders: {},
   promptMaxLength: 4000,
+  segmentQueuePosition: "top",
   loaded: false,
   fetchSettings: async () => {
     try {
@@ -123,4 +128,10 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   setCaptionDraft: (value) => set({ captionDraft: value }),
   setMotionStyle: (value) => set({ motionStyle: value }),
   setMotionDraft: (value) => set({ motionDraft: value }),
+  // Takes only the queue field from the response: a switch saves on its own, and taking the
+  // whole response would throw away unsaved edits in the prompt editors on the same page.
+  saveQueuePosition: async (value) => {
+    const s = await updateAppSettings({ segment_queue_position: value });
+    set({ segmentQueuePosition: s.segment_queue_position });
+  },
 }));
