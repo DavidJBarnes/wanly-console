@@ -7,7 +7,9 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  FormControlLabel,
   MenuItem,
+  Switch,
   TextField,
   Typography,
   useMediaQuery,
@@ -51,6 +53,8 @@ export default function SettingsPage() {
     setCaptionDraft,
     setMotionStyle,
     setMotionDraft,
+    segmentQueuePosition,
+    saveQueuePosition,
   } = useSettingsStore();
 
   // The prompt editors (console#555). Defaults come from the API; see lib/captionPrompts.
@@ -69,6 +73,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [queueSaving, setQueueSaving] = useState(false);
+  const [queueError, setQueueError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTags();
@@ -111,11 +117,52 @@ export default function SettingsPage() {
     }
   };
 
+  const handleQueueToggle = async (bottom: boolean) => {
+    setQueueSaving(true);
+    setQueueError(null);
+    try {
+      await saveQueuePosition(bottom ? "bottom" : "top");
+    } catch (err) {
+      setQueueError(err instanceof Error ? err.message : "Failed to save. Please try again.");
+    } finally {
+      setQueueSaving(false);
+    }
+  };
+
   return (
     <Box>
       <Typography variant="h4" sx={{ mb: 3 }}>
         Settings
       </Typography>
+      {/* wanly-api#471. Saves on toggle rather than with the page's Save button: it is a
+          switch, not a draft, and it changes what the workers do next. */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
+            Queue
+          </Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={segmentQueuePosition === "bottom"}
+                onChange={(e) => handleQueueToggle(e.target.checked)}
+                disabled={!loaded || queueSaving}
+              />
+            }
+            label="Send newly queued segments to the bottom of the queue"
+          />
+          <Typography variant="body2" color="text.secondary">
+            {segmentQueuePosition === "bottom"
+              ? "On: queuing a segment (next segment, re-roll, retry) moves its job behind every other job, so other jobs run first."
+              : "Off: a queued segment keeps its job's place, so a job already under way runs ahead of jobs queued after it."}
+          </Typography>
+          {queueError && (
+            <Alert severity="error" sx={{ mt: 1 }} onClose={() => setQueueError(null)}>
+              {queueError}
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
       <Card>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 2 }}>
