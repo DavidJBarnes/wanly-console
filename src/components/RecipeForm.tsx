@@ -41,6 +41,7 @@ class CaptionTicketFailed extends Error {}
 import { seedRecipePrefill } from "../lib/recipePrefill";
 import { preselectCharacter, preselectPose } from "../lib/defaultSelection";
 import { guessPoseFromTags, type PoseGuess } from "../lib/poseFromTags";
+import { guessCharacterFromTags, type CharacterGuess } from "../lib/characterFromTags";
 import {
   draftRenderProblem, fillPhrase, hasLora, identityRefToSend, identityStatus, referenceMode,
 } from "../lib/characterIdentity";
@@ -161,6 +162,11 @@ export default function RecipeForm({
   const characterName = characterNames[0] ?? "";
   const setCharacterName = (name: string) =>
     setCharacterNames((prev) => [name, ...prev.slice(1)]);
+  // The character picked from the start image's tags (console#696), so the picker can say
+  // why it opened where it did. Only while that character is still the selection.
+  const [characterGuess, setCharacterGuess] = useState<CharacterGuess | null>(null);
+  // What the form opened with, for the once-only catalogue load below.
+  const openedWith = useRef({ initialTags, initialFrom });
   // The pose is tracked by ID, not name: names are unique only WITHIN a book (wanly-api#320),
   // so two books can each hold "Missionary" and a name-keyed selection would silently pick
   // whichever came first.
@@ -236,8 +242,14 @@ export default function RecipeForm({
         setBook(b);
         // The starred default, or the first (console#543). A clone's or continuation's
         // character is seeded over this by the prefill below, so it still wins.
+        // With nothing starred, a fresh job opens on the character the start image is tagged
+        // with (console#696). A star wins over the tags, unlike the pose's (console#694).
+        const starred = b.characters.some((c) => c.is_default && !c.hidden);
+        const { initialTags: tags, initialFrom: from } = openedWith.current;
+        const guess = starred || from ? null : guessCharacterFromTags(tags, b.characters);
+        setCharacterGuess(guess);
         setCharacterNames((prev) =>
-          [preselectCharacter(prev[0] ?? "", b.characters), ...prev.slice(1)]);
+          [preselectCharacter(prev[0] || guess?.name || "", b.characters), ...prev.slice(1)]);
         listLoras(b).then(setLoras).catch(() => {});
       })
       .catch((e) => setError(ltxError(e)));
@@ -763,6 +775,11 @@ export default function RecipeForm({
           select label="Character" value={characterName}
           sx={{ flex: "1 1 180px", minWidth: 160 }} size={compact ? "small" : "medium"}
           onChange={(e) => setCharacterName(e.target.value)}
+          helperText={
+            characterGuess?.name === characterName
+              ? `Picked from tag${characterGuess.matched.length > 1 ? "s" : ""}: ${characterGuess.matched.join(", ")}`
+              : undefined
+          }
         >
           {/* Hidden characters are not offered (console#617) -- except the one already
               picked, so a job made before it was hidden still says who it is of. */}
