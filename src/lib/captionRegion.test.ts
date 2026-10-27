@@ -145,12 +145,15 @@ describe("legacy motion markers are stripped at submit", () => {
     expect(submitPrompt(LEGACY)).toBe("k3llydw, <SCENE>, she grips the edge of the sofa");
   });
 
-  it("unwraps a filled motion region to the words that were shown", () => {
+  it("drops a filled motion region WITH its words, as the API does (wanly-api#482)", () => {
+    // The words came from the retired motion half; the API drops them too, so the console
+    // must not send what the API would have removed.
     const filled = fill(LEGACY, "scene", DESC).replace(
       "<MOTION>", "<motion>she leans forward</motion>");
     expect(submitPrompt(filled)).toBe(
-      "k3llydw, a woman in a red dress on a sofa, she grips the edge of the sofa, "
-      + "she leans forward");
+      "k3llydw, a woman in a red dress on a sofa, she grips the edge of the sofa");
+    expect(submitPrompt("a, <MOTION>x</motion>, b")).toBe("a, b");
+    expect(submitPrompt("<motion>\nmulti\nline\n</motion>, k")).toBe("k");
   });
 
   it("strips any spelling and stray closer", () => {
@@ -161,7 +164,7 @@ describe("legacy motion markers are stripped at submit", () => {
     // An unclosed <scene> must not reach past a motion closer and eat the words between.
     const odd = "<scene>unclosed <motion>she reaches</motion>";
     expect(hasRegion(odd, "scene")).toBe(false);
-    expect(submitPrompt(odd)).toBe("unclosed she reaches");
+    expect(submitPrompt(odd)).toBe("unclosed");
   });
 
   it("is idempotent", () => {

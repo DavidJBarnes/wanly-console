@@ -34,9 +34,9 @@
  * placeholder, and a prompt filled before the removal can carry a `<motion>…</motion>`
  * region. Nothing will ever fill `<MOTION>` again, so submitting it would either hold the
  * render forever or put the literal token in front of the text encoder. Both spellings are
- * scrubbed at submit: a bare/stray motion tag is removed (with the separator it leaves
- * behind), and a filled motion region is unwrapped to its words -- they are visible in the
- * prompt box, so what is sent stays what was shown.
+ * scrubbed at submit: a bare/stray motion tag is removed, and a filled motion region is
+ * removed WORDS AND ALL -- they came from the retired half, and wanly-api#482 drops them the
+ * same way. The separator either leaves behind is tidied.
  */
 
 /** Which half of the description. Only the scene half remains (wanly-api#481). */
@@ -112,18 +112,20 @@ export function regionText(prompt: string, half: CaptionHalf): string | null {
 }
 
 /**
- * Every scene marker in one pattern: a filled region or a bare/stray tag, any case. A motion
- * tag is matched too, as a legacy marker to scrub (wanly-api#481).
+ * Every scene marker in one pattern: a filled region or a bare/stray tag, any case. Motion
+ * markers are matched too, as legacy markers to drop (wanly-api#481): a filled motion region
+ * as a whole (group 2), else a bare/stray motion tag (group 3).
  */
-const ANY_MARKER = /<scene>([\s\S]*?)<\/scene>|<\/?scene>|(<\/?motion>)/gi;
+const ANY_MARKER =
+  /<scene>([\s\S]*?)<\/scene>|(<motion>[\s\S]*?<\/motion>)|<\/?scene>|(<\/?motion>)/gi;
 
 /** A marker of either name, any spelling -- for scrubbing the words inside a region. */
 const ANY_TAG = /<\/?(?:scene|motion)>/gi;
 
 /**
- * Tidy what removing a legacy motion tag leaves behind: the comma that introduced it, a
+ * Tidy what removing a legacy motion marker leaves behind: the comma that introduced it, a
  * doubled comma, doubled spaces, a separator dangling at either end. Only run when a motion
- * tag was actually removed, so a prompt without one is never reformatted.
+ * marker was actually removed, so a prompt without one is never reformatted.
  */
 function tidy(prompt: string): string {
   return prompt
@@ -140,6 +142,7 @@ function tidy(prompt: string): string {
  *   placeholder      `<SCENE>`                 ->  KEPT, exactly as written
  *   stray spelling   `<scene>` alone, `<Scene>` ->  removed
  *   legacy motion    `<MOTION>`, `</motion>`    ->  removed, separators tidied (wanly-api#481)
+ *   motion region    `<motion>she leans</motion>` -> removed WITH its words (wanly-api#482)
  *
  * The placeholder is kept because the API needs to see it: it is what makes the caption hold
  * fire and fill the saved words in at release.
@@ -149,8 +152,10 @@ function tidy(prompt: string): string {
  */
 export function submitPrompt(prompt: string): string {
   let sawMotion = false;
-  const out = prompt.replace(ANY_MARKER, (match, words?: string, motionTag?: string) => {
-    if (motionTag !== undefined) {
+  const out = prompt.replace(ANY_MARKER, (
+    match, words?: string, motionRegion?: string, motionTag?: string,
+  ) => {
+    if (motionRegion !== undefined || motionTag !== undefined) {
       sawMotion = true;
       return "";
     }
