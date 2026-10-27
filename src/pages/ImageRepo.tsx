@@ -40,6 +40,7 @@ import {
   ChevronRight,
   Close,
   CloudUpload,
+  ContentCopy,
   ContentCut,
   CreateNewFolder,
   Delete,
@@ -80,6 +81,7 @@ import {
   updateImageTags,
   getImageScene,
   requestImageDescribe,
+  enhanceImagePrompt,
   searchImages,
   getImageTagCounts,
 } from "../api/client";
@@ -217,6 +219,10 @@ export default function ImageRepo() {
   // modal may be showing a different image, and an error pinned to the wrong picture reads
   // as that picture having failed.
   const [sceneError, setSceneError] = useState<{ path: string; message: string } | null>(null);
+  // The prompt enhancer (wanly-api#480). Both carry their path for the reason sceneError does:
+  // a cold enhance is ~30 s, and the modal may have moved to another image by the end.
+  const [enhancingPath, setEnhancingPath] = useState<string | null>(null);
+  const [enhanceError, setEnhanceError] = useState<{ path: string; message: string } | null>(null);
   // The scene caption's own ticket, chip, button and retry (console#590).
   const lightboxScene = useCaptionStatus(lightboxImage?.path, "scene");
   const [refreshing, setRefreshing] = useState(false);
@@ -707,6 +713,27 @@ export default function ImageRepo() {
     }
   }, []);
   useCaptionDone(onCaptionDone);
+
+  /** Send the image and its scene description to the prompt enhancer; keep what it writes. */
+  const runEnhance = (path: string) => {
+    if (enhancingPath) return;
+    setEnhancingPath(path);
+    setEnhanceError(null);
+    enhanceImagePrompt(path)
+      .then((r) => {
+        const patch = (img: ImageFile) =>
+          img.path === path
+            ? { ...img, enhanced_prompt: r.enhanced_prompt, enhanced_prompt_at: r.enhanced_prompt_at }
+            : img;
+        setImages((prev) => prev.map(patch));
+        setFavImages((prev) => prev.map(patch));
+        setUntaggedImages((prev) => prev.map(patch));
+        setSearchResults((prev) => prev.map(patch));
+        setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
+      })
+      .catch((err) => setEnhanceError({ path, message: apiError(err, "The enhancer failed") }))
+      .finally(() => setEnhancingPath(null));
+  };
 
   /**
    * Write the pending tag edit now, whatever it was and whichever image it belongs to.
@@ -1378,6 +1405,80 @@ export default function ImageRepo() {
                         {sceneError.message}
                       </Alert>
                     )}
+                  </Box>
+
+                  {/* Enhanced prompt (wanly-api#480): the image and its scene description,
+                      expanded by the Sulphur-2 prompt enhancer into the long scene script LTX
+                      needs. Kept on the image; "Use enhanced prompt" in the New Job dialog
+                      puts it in a job. */}
+                  <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
+                  <Box>
+                    {(() => {
+                      const busy = enhancingPath === lightboxImage.path;
+                      const noScene = !lightboxImage.scene_description;
+                      const enhanced = lightboxImage.enhanced_prompt;
+                      return (
+                        <>
+                          <Stack direction="row" alignItems="center" spacing={1}
+                                 useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
+                              Enhanced prompt
+                            </Typography>
+                            {enhanced && (
+                              <IconButton
+                                size="small"
+                                aria-label="Copy enhanced prompt"
+                                title="Copy"
+                                onClick={() => { void navigator.clipboard?.writeText(enhanced); }}
+                              >
+                                <ContentCopy fontSize="small" />
+                              </IconButton>
+                            )}
+                            <span title={noScene ? "Describe the scene first -- the enhancer expands it." : undefined}>
+                              <Button
+                                size="small"
+                                onClick={() => runEnhance(lightboxImage.path)}
+                                disabled={noScene || enhancingPath !== null}
+                                startIcon={busy ? <CircularProgress size={14} /> : undefined}
+                              >
+                                {busy ? "Enhancing\u2026" : enhanced ? "Redo" : "Enhance prompt"}
+                              </Button>
+                            </span>
+                          </Stack>
+                          {busy && (
+                            <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
+                              Sending the image and its scene description to the enhancer. The
+                              first one loads the model (it takes turns with the scene captioner),
+                              so allow ~30 s.
+                            </Typography>
+                          )}
+                          {enhanced ? (
+                            <>
+                              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                                {enhanced}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {enhanced.trim().split(/\s+/).length} words
+                                {lightboxImage.enhanced_prompt_at
+                                  ? ` \u2014 ${new Date(lightboxImage.enhanced_prompt_at).toLocaleString()}`
+                                  : ""}
+                              </Typography>
+                            </>
+                          ) : !busy && (
+                            <Typography variant="body2" color="text.secondary">
+                              {noScene
+                                ? "Needs a scene description first."
+                                : "Not enhanced yet."}
+                            </Typography>
+                          )}
+                          {enhanceError?.path === lightboxImage.path && (
+                            <Alert severity="warning" sx={{ mt: 1 }} onClose={() => setEnhanceError(null)}>
+                              {enhanceError.message}
+                            </Alert>
+                          )}
+                        </>
+                      );
+                    })()}
                   </Box>
                 </Box>
               </Box>
