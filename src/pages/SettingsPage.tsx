@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -18,11 +18,10 @@ import {
 import TagChip from "../components/TagChip";
 import { useTagStore } from "../stores/tagStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import type { CaptionStyle, MotionStyle } from "../api/types";
+import type { CaptionStyle } from "../api/types";
 import PromptTryPanel from "../components/PromptTryPanel";
 import {
-  hasUnsavedChange, isModified, keepsGrounding, lengthProblem, motionTemplateProblem,
-  overrideToSave,
+  hasUnsavedChange, isModified, lengthProblem, overrideToSave,
 } from "../lib/captionPrompts";
 
 export default function SettingsPage() {
@@ -38,12 +37,6 @@ export default function SettingsPage() {
     captionInstruction,
     captionDraft,
     captionStylePrompts,
-    motionStyle,
-    motionInstruction,
-    motionDraft,
-    motionStylePrompts,
-    motionTemplateDefault,
-    motionPlaceholders,
     promptMaxLength,
     loaded,
     fetchSettings,
@@ -51,25 +44,16 @@ export default function SettingsPage() {
     setNegativePrompt,
     setCaptionStyle,
     setCaptionDraft,
-    setMotionStyle,
-    setMotionDraft,
     segmentQueuePosition,
     saveQueuePosition,
   } = useSettingsStore();
 
-  // The prompt editors (console#555). Defaults come from the API; see lib/captionPrompts.
+  // The prompt editor (console#555). Defaults come from the API; see lib/captionPrompts.
   const captionDefault = captionStylePrompts[captionStyle] ?? "";
   const captionModified = isModified(captionDraft, captionDefault);
   const captionUnsaved = hasUnsavedChange(captionDraft, captionDefault, captionInstruction);
   const captionProblem = lengthProblem(captionDraft, promptMaxLength);
-  const motionModified = isModified(motionDraft, motionTemplateDefault);
-  const motionUnsaved = hasUnsavedChange(motionDraft, motionTemplateDefault, motionInstruction);
-  const motionProblem =
-    lengthProblem(motionDraft, promptMaxLength) ?? motionTemplateProblem(motionDraft);
-  // An empty editor means the default template, which has {style}.
-  const motionUsesStyle = !motionModified || motionDraft.includes("{style}");
-  const promptsProblem = captionProblem || motionProblem
-    ? "Fix the prompt errors above first." : null;
+  const promptsProblem = captionProblem ? "Fix the prompt errors above first." : null;
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -103,8 +87,6 @@ export default function SettingsPage() {
         // distinguishes that from undefined, which means "leave it alone". An editor still
         // holding the default sends "" too, so the default keeps tracking the API's.
         caption_instruction: overrideToSave(captionDraft, captionDefault),
-        motion_style: motionStyle,
-        motion_instruction: overrideToSave(motionDraft, motionTemplateDefault),
       });
       setSaved(true);
     } catch (err) {
@@ -324,101 +306,8 @@ export default function SettingsPage() {
                   : "The preset for this detail level. Edit it to write your own; empty means the preset.")
             }
           />
-        </CardContent>
-      </Card>
-
-      {/* The motion half of a description (wanly-api#326): the frame read as the first
-          frame of a 10-second clip, for what the video model should generate. */}
-      <Card sx={{ mt: 3 }}>
-        <CardContent>
-          <Typography variant="h6" sx={{ mb: 0.5 }}>
-            Motion descriptions
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Describing an image also produces a second paragraph: the frame read as the
-            first frame of a ten-second clip &mdash; the action, its direction and rhythm,
-            expression changes, and a soundscape. It is written from the same call and kept
-            with the image. The capture style sets how the clip looks.
-          </Typography>
-          <TextField
-            select
-            size="small"
-            label="Capture style"
-            value={motionStyle}
-            onChange={(e) => setMotionStyle(e.target.value as MotionStyle)}
-            sx={{ minWidth: 260 }}
-            helperText={
-              !motionUsesStyle
-                ? "Has no effect: the prompt below has no {style} placeholder."
-                : "How the clip is shot. Fills {style} in the prompt below; the action is described first, the style is one sentence after it."
-            }
-          >
-            <MenuItem value="handheld">Handheld — natural micro-shake (recommended)</MenuItem>
-            <MenuItem value="amateur">Amateur — consumer-camera, no polish</MenuItem>
-            <MenuItem value="cinematic">Cinematic — slow push-in, shallow depth</MenuItem>
-            <MenuItem value="static">Static — tripod, no camera movement</MenuItem>
-            <MenuItem value="none">None — say nothing about the camera</MenuItem>
-          </TextField>
-
-          {motionStylePrompts[motionStyle] && motionUsesStyle && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: "block", mt: 1, maxWidth: 640, fontStyle: "italic" }}
-            >
-              {"{style}"} = {motionStylePrompts[motionStyle]}
-            </Typography>
-          )}
-
-          <PromptEditorHeader
-            title="Motion prompt"
-            modified={motionModified}
-            unsaved={motionUnsaved}
-            canReset={motionDraft !== motionTemplateDefault}
-            onReset={() => setMotionDraft(motionTemplateDefault)}
-          />
-          <TextField
-            multiline
-            size="small"
-            minRows={6}
-            maxRows={20}
-            value={motionDraft}
-            onChange={(e) => setMotionDraft(e.target.value)}
-            error={!!motionProblem}
-            sx={{ width: "100%", maxWidth: 900 }}
-            slotProps={{ htmlInput: { "aria-label": "Motion prompt", spellCheck: false } }}
-            helperText={
-              motionProblem ??
-              `${motionDraft.length}/${promptMaxLength}. ` +
-                "The default bans 'remains still' hedging and asks for explicit direction and amplitude — without those the model describes a still photo."
-            }
-          />
-          {!motionProblem && !keepsGrounding(motionDraft) && motionDraft.trim() && (
-            <Alert severity="warning" sx={{ mt: 1, maxWidth: 900 }}>
-              This prompt no longer includes the image caption, so the motion is not grounded
-              on it: faces, wardrobe and pose can drift from what the caption says. Keep a{" "}
-              <code>{"{#scene}…{/scene}"}</code> section to prevent that.
-            </Alert>
-          )}
-
-          {/* The legend. From the API, so it cannot drift from what the renderer accepts. */}
-          {Object.keys(motionPlaceholders).length > 0 && (
-            <Box component="dl" sx={{ mt: 1.5, mb: 0, maxWidth: 900, display: "grid",
-              gridTemplateColumns: "max-content 1fr", columnGap: 2, rowGap: 0.5 }}>
-              {Object.entries(motionPlaceholders).map(([token, meaning]) => (
-                <Fragment key={token}>
-                  <Typography component="dt" variant="caption" sx={{ fontFamily: "monospace" }}>
-                    {token}
-                  </Typography>
-                  <Typography component="dd" variant="caption" color="text.secondary" sx={{ m: 0 }}>
-                    {meaning}
-                  </Typography>
-                </Fragment>
-              ))}
-            </Box>
-          )}
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-            Both prompts are saved with Save at the bottom of the page.
+            The prompt is saved with Save at the bottom of the page.
           </Typography>
         </CardContent>
       </Card>

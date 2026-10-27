@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { getAppSettings, updateAppSettings } from "../api/client";
 import type {
-  AppSettingsResponse, AppSettingsUpdate, CaptionStyle, MotionStyle, QueuePosition,
+  AppSettingsResponse, AppSettingsUpdate, CaptionStyle, QueuePosition,
 } from "../api/types";
 import { draftAfterStyleChange, effectiveText } from "../lib/captionPrompts";
 
@@ -15,12 +15,12 @@ import { draftAfterStyleChange, effectiveText } from "../lib/captionPrompts";
  * the response type still declared the fields. Removed (console#390).
  *
  * The same trap runs the other way when ADDING a field: declare it in the store before the
- * API returns it and fetchSettings quietly stores undefined. The motion fields below are
- * safe only because wanly-api returns them unconditionally (defaults in
- * routes/app_settings.py::_DEFAULTS), and AppSettingsResponse declares them as required,
- * not optional — so a response missing them is a compile error here, which is the point.
+ * API returns it and fetchSettings quietly stores undefined. Declare such a field as
+ * required on AppSettingsResponse only once wanly-api returns it unconditionally (defaults in
+ * routes/app_settings.py::_DEFAULTS). The motion-caption fields went the same way as WAN's
+ * when the motion half was removed (wanly-api#481).
  *
- * THE PROMPT EDITORS (console#555) hold a DRAFT, pre-filled with the effective text (the saved
+ * THE PROMPT EDITOR (console#555) holds a DRAFT, pre-filled with the effective text (the saved
  * override, or the default it stands in for), beside the saved override itself. Kept here
  * rather than in the page because both are seeded from the same response: seeding page state
  * from the store would need an effect, and the draft must be re-seeded after every save.
@@ -29,25 +29,15 @@ interface SettingsState {
   negativePrompt: string;
   /** How verbose <SCENE> descriptions are (console#405). */
   captionStyle: CaptionStyle;
-  /** The styles as SAVED; the two above follow the dropdowns before Save. The Try panel
+  /** The style as SAVED; the one above follows the dropdown before Save. The Try panel
    *  needs both to know whether the page differs from what is saved. */
   savedCaptionStyle: CaptionStyle;
-  savedMotionStyle: MotionStyle;
   /** The SAVED caption override; "" means the style's prompt. */
   captionInstruction: string;
   /** The caption editor's text: the effective prompt, or the user's unsaved edit of it. */
   captionDraft: string;
   /** The default text of every caption style, from the API. */
   captionStylePrompts: Record<string, string>;
-  /** The capture style of the motion half (#326). */
-  motionStyle: MotionStyle;
-  /** The SAVED motion template; "" means motionTemplateDefault. */
-  motionInstruction: string;
-  /** The motion editor's text. */
-  motionDraft: string;
-  motionStylePrompts: Record<string, string>;
-  motionTemplateDefault: string;
-  motionPlaceholders: Record<string, string>;
   promptMaxLength: number;
   /** Where a newly queued segment lands (wanly-api#471). Saved the moment it is switched. */
   segmentQueuePosition: QueuePosition;
@@ -57,8 +47,6 @@ interface SettingsState {
   setNegativePrompt: (value: string) => void;
   setCaptionStyle: (value: CaptionStyle) => void;
   setCaptionDraft: (value: string) => void;
-  setMotionStyle: (value: MotionStyle) => void;
-  setMotionDraft: (value: string) => void;
   saveQueuePosition: (value: QueuePosition) => Promise<void>;
 }
 
@@ -69,16 +57,9 @@ function fromResponse(s: AppSettingsResponse): Partial<SettingsState> {
     negativePrompt: s.negative_prompt,
     captionStyle: s.caption_style,
     savedCaptionStyle: s.caption_style,
-    savedMotionStyle: s.motion_style,
     captionInstruction: s.caption_instruction,
     captionDraft: effectiveText(s.caption_instruction, captionStylePrompts[s.caption_style] ?? ""),
     captionStylePrompts,
-    motionStyle: s.motion_style,
-    motionInstruction: s.motion_instruction,
-    motionDraft: effectiveText(s.motion_instruction, s.motion_template_default),
-    motionStylePrompts: s.motion_style_prompts ?? {},
-    motionTemplateDefault: s.motion_template_default,
-    motionPlaceholders: s.motion_placeholders,
     promptMaxLength: s.prompt_max_length,
     segmentQueuePosition: s.segment_queue_position,
   };
@@ -88,16 +69,9 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   negativePrompt: "",
   captionStyle: "standard",
   savedCaptionStyle: "standard",
-  savedMotionStyle: "handheld",
   captionInstruction: "",
   captionDraft: "",
   captionStylePrompts: {},
-  motionStyle: "handheld",
-  motionInstruction: "",
-  motionDraft: "",
-  motionStylePrompts: {},
-  motionTemplateDefault: "",
-  motionPlaceholders: {},
   promptMaxLength: 4000,
   segmentQueuePosition: "top",
   loaded: false,
@@ -126,10 +100,8 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
     ),
   })),
   setCaptionDraft: (value) => set({ captionDraft: value }),
-  setMotionStyle: (value) => set({ motionStyle: value }),
-  setMotionDraft: (value) => set({ motionDraft: value }),
   // Takes only the queue field from the response: a switch saves on its own, and taking the
-  // whole response would throw away unsaved edits in the prompt editors on the same page.
+  // whole response would throw away unsaved edits in the prompt editor on the same page.
   saveQueuePosition: async (value) => {
     const s = await updateAppSettings({ segment_queue_position: value });
     set({ segmentQueuePosition: s.segment_queue_position });

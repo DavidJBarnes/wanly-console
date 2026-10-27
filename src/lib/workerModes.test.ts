@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkerModeResponse } from "../api/types";
 import {
-  canonicalMode, describePending, describeScene, describeUnload, describeVram, modeToSend,
-  modeView, summaryParts,
+  canonicalMode, describePending, describeScene, describeUnload, describeVram, MODE_HELP,
+  MODE_LABEL, modeToSend, modeView, modeWord, summaryParts,
 } from "./workerModes";
 
 const info = (o: Partial<WorkerModeResponse>): WorkerModeResponse => ({
@@ -53,10 +53,23 @@ describe("reading a box's mode in either spelling", () => {
   });
 });
 
+describe("the caption mode's label (wanly-api#481)", () => {
+  it("keeps the wire value motion but shows it as Caption", () => {
+    expect(MODE_LABEL.motion).toBe("Caption");
+    expect(MODE_HELP.motion).toMatch(/dataset clip captions/);
+    expect(MODE_HELP.motion).not.toMatch(/motion/i);
+    expect(modeWord("motion")).toBe("caption");
+    expect(modeWord("caption")).toBe("caption");
+    expect(modeWord("ltx-engine")).toBe("render");
+    expect(modeWord("mystery")).toBe("mystery");
+  });
+});
+
 describe("what the card says", () => {
   it("a pending switch mid-render waits for the segment", () => {
-    expect(describePending("motion", true)).toBe("finishing segment, then motion");
-    expect(describePending("motion", false)).toBe("switching to motion");
+    expect(describePending("motion", true)).toBe("finishing segment, then caption");
+    expect(describePending("motion", false)).toBe("switching to caption");
+    expect(describePending("train", false)).toBe("switching to train");
   });
 
   it("VRAM in GB, or nothing when the box does not say", () => {
@@ -85,7 +98,7 @@ describe("the per-mode summary", () => {
       { mode: "train", count: 1, unit: "runs", reason: null },
     ]);
     expect(parts.map((p) => p.text)).toEqual(
-      ["render: 4 segments", "motion: 12 captions", "train: 1 run"]);
+      ["render: 4 segments", "caption: 12 captions", "train: 1 run"]);
     expect(parts[0].to).toBe("/jobs");
     expect(parts[1].reason).toBe("no GPU in motion mode");
     expect(parts[2].to).toBe("/datasets"); // training lives on datasets (console#647)

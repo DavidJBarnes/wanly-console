@@ -5,7 +5,7 @@ import { holdPlace, modeWaitLabel } from "../lib/captionHold";
 /**
  * A segment held until its start image's captions exist (console#562).
  *
- * The API creates a segment `awaiting_caption` when its prompt has a <SCENE>/<MOTION> with no
+ * The API creates a segment `awaiting_caption` when its prompt has a <SCENE> with no
  * saved words yet, and never hands it to a worker until they are saved -- then it renders with
  * exactly those words. Submitting no longer waits for a caption, so this is where the wait
  * shows up instead: on the job and the segment, with what it is waiting on.
@@ -85,7 +85,7 @@ export function CaptionHoldChip({ hold, detail }: {
     return (
       <Tooltip title={detail
         ? `Held until its start image's captions are saved. ${holdPlace(detail)}`
-        : "Held until its start image's scene and motion captions are saved"}>
+        : "Held until its start image's scene caption is saved"}>
         <Chip size="small" color="info" variant="outlined" label={label} />
       </Tooltip>
     );

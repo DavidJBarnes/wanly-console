@@ -41,10 +41,10 @@ describe("joinNote", () => {
 
 describe("holdPlace (console#587)", () => {
   it("names the place in line and what the job still needs", () => {
-    expect(holdPlace({ queue_status: "queued", queue_position: 3, needs: ["scene", "motion"] }))
-      .toBe("In caption queue (#3) · needs the scene and motion");
-    expect(holdPlace({ queue_status: "running", needs: ["motion"] }))
-      .toBe("Captioning… · needs the motion");
+    expect(holdPlace({ queue_status: "queued", queue_position: 3, needs: ["scene"] }))
+      .toBe("In caption queue (#3) · needs the scene");
+    expect(holdPlace({ queue_status: "running", needs: ["scene"] }))
+      .toBe("Captioning… · needs the scene");
   });
 
   it("says why it is waiting when the captioner is refusing", () => {
@@ -76,9 +76,11 @@ describe("holdSummary (console#587)", () => {
 });
 
 describe("a hold waiting on a mode nobody is in (wanly-api#392)", () => {
-  it("the chip names the mode", () => {
+  it("the chip names the mode as the Workers page labels it", () => {
+    // The API still says "motion" (the wire value); the button is labelled Caption.
     expect(modeWaitLabel("no GPU in motion mode (3090a.zero: render, 3090b: edit); switch one"))
-      .toBe("No GPU in motion mode");
+      .toBe("No GPU in caption mode");
+    expect(modeWaitLabel("no GPU in edit mode")).toBe("No GPU in edit mode");
     expect(modeWaitLabel("3090.zero is rendering")).toBeNull();
     expect(modeWaitLabel(null)).toBeNull();
   });

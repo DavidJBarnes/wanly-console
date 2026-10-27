@@ -198,14 +198,15 @@ export interface SegmentResponse {
    *  the moment a worker holding the file comes online. Null means nothing to say — either
    *  somebody can run it, or no worker has reported an inventory to judge against. */
   blocked_reason: string | null;
-  /** A caption-held segment (console#562): the image its <SCENE>/<MOTION> comes from, and --
+  /** A caption-held segment (console#562): the image its <SCENE> comes from, and --
    *  while awaiting_caption -- what the hold is doing and where the image sits in the caption
    *  queue. Filled by the job detail endpoint only. */
   caption_image?: string | null;
   caption_wait?: string | null;
   /** console#587: the halves still missing, and the image's place in the caption queue
-   *  ("waiting" = the captioner is refusing; caption_wait says why). */
-  caption_needs?: ("scene" | "motion")[] | null;
+   *  ("waiting" = the captioner is refusing; caption_wait says why). Only the scene since
+   *  wanly-api#481. */
+  caption_needs?: "scene"[] | null;
   caption_queue_status?: "queued" | "running" | "waiting" | null;
   caption_queue_position?: number | null;
   caption_queue_depth?: number | null;
@@ -902,10 +903,6 @@ export interface ImageFile {
    *  same as a description that came back empty (nothing stores one of those). */
   scene_description: string | null;
   scene_described_at: string | null;
-  /** The motion half (#326): the frame read as the first frame of a 10-second clip.
-   *  Null means no motion caption — described before #326, or the motion call failed. */
-  motion_description: string | null;
-  motion_described_at: string | null;
 }
 
 /** What a worker box is running right now, read from the box itself (gpu-docker#131).
@@ -997,7 +994,8 @@ export interface CaptionQueueStatus {
   /** The last finished caption ticket of each image AND HALF still remembered, newest
    *  first (per half since console#590). */
   recent?: CaptionTicket[];
-  /** Each lane on its own: "scene" and "motion" (console#572). */
+  /** Each lane on its own (console#572). A "motion" lane from an API older than
+   *  wanly-api#481 is ignored. */
   lanes?: { name: string; depth: number; waiting: number; running: string | null }[];
 }
 
@@ -1016,8 +1014,9 @@ export interface CaptionQueueEntry {
   /** 0 = being captioned now, 1 = next up. */
   position: number;
   ticket_id: string | null;
-  /** "scene" or "motion" (console#572). For a caption ticket, the half it makes. */
-  lane?: "scene" | "motion" | string;
+  /** The lane (console#572). For a caption ticket, the half it makes: "scene". An API older
+   *  than wanly-api#481 can still say "motion"; those entries are ignored. */
+  lane?: string;
   /** The held jobs a ticket is for (console#590). */
   requested_by?: CaptionRequester[];
 }
@@ -1032,7 +1031,8 @@ export interface CaptionTicket {
   /** 0 while running, 1 = next up; null otherwise. */
   position: number | null;
   depth: number;
-  /** The half this ticket makes (console#590). Absent from an older API. */
+  /** The half this ticket makes (console#590). Absent from an older API. "motion" only from
+   *  an API older than wanly-api#481; such tickets are ignored. */
   half?: "scene" | "motion" | null;
   /** Same as `half` since console#590; "pair" before it. */
   mode: "pair" | "scene" | "motion" | null;
@@ -1040,14 +1040,12 @@ export interface CaptionTicket {
   error: string | null;
   /** Failed because the box beside the captioner is rendering: try again later. */
   busy: boolean;
-  /** Pre-#590 pair tickets only: done, but the motion half failed. Null since. */
-  motion_error: string | null;
   /** This request joined a caption already in flight rather than queueing another. */
   joined: boolean;
   created_at: string | null;
   started_at: string | null;
   finished_at: string | null;
-  /** The held jobs this caption is for: "Motion requested by job …" (console#590). */
+  /** The held jobs this caption is for: "Scene requested by job …" (console#590). */
   requested_by?: CaptionRequester[];
   /** POST /images/scene/describe: every half's ticket, scene first. */
   tickets?: CaptionTicket[];
@@ -1056,8 +1054,8 @@ export interface CaptionTicket {
 /** What a caption-held job waits for (console#587). */
 export interface CaptionHoldDetail {
   image: string | null;
-  /** The halves not saved yet, in order: "scene", "motion". */
-  needs: ("scene" | "motion")[];
+  /** The halves not saved yet: "scene" (the only one since wanly-api#481). */
+  needs: "scene"[];
   /** "queued" (+ position), "running", "waiting" (the captioner is refusing -- the box is
    *  rendering; `note` says so), or null (no waiter yet; the API's sweep gives it one). */
   queue_status: "queued" | "running" | "waiting" | null;
@@ -1088,13 +1086,6 @@ export interface ImageScene {
   scene_described_at: string | null;
   /** Length is the thing being judged: the description sits beside a ~100-word arc. */
   words: number;
-  /** The motion half (#326), produced in the same call and grounded on the static half. */
-  motion_description: string | null;
-  motion_instruction: string | null;
-  motion_described_at: string | null;
-  motion_words: number;
-  /** Set when the static half succeeded and the motion half failed. */
-  motion_error: string | null;
   /** WHERE THIS IMAGE SITS IN THE CAPTION QUEUE (wanly-api caption_queue).
    *
    *  ollama is one slot, so describes run strictly one at a time. `position` is 0 while
@@ -1107,9 +1098,8 @@ export interface ImageScene {
   /** The image's caption ticket: the one in flight, else the last finished one remembered
    *  (console#564). Absent from an older API. */
   caption?: CaptionTicket | null;
-  /** Each half's ticket (console#590): in flight, else the last finished. */
+  /** The scene's ticket (console#590): in flight, else the last finished. */
   scene_caption?: CaptionTicket | null;
-  motion_caption?: CaptionTicket | null;
 }
 
 /** One tag and how many items carry it under the current filter. Images and jobs both. */
@@ -1139,9 +1129,6 @@ export interface FramePreviewResponse {
 /** How verbose a <SCENE> description should be. See console#405. */
 export type CaptionStyle = "terse" | "standard" | "rich" | "raw";
 
-/** The capture style of the motion half (#326). See wanly-api#326. */
-export type MotionStyle = "handheld" | "amateur" | "cinematic" | "static" | "none";
-
 /**
  * Global app settings.
  *
@@ -1158,17 +1145,7 @@ export interface AppSettingsResponse {
   caption_instruction: string;
   /** Read-only: what each style asks for, so the UI need not restate it. */
   caption_style_prompts?: Record<string, string>;
-  /** The motion half (#326). Same style/custom pattern as the caption pair above. */
-  motion_style: MotionStyle;
-  /** The saved motion TEMPLATE (console#555); "" means `motion_template_default`. */
-  motion_instruction: string;
-  motion_style_prompts?: Record<string, string>;
-  /** Read-only (console#555): the template "" stands for. Pre-fills the editor, and Reset
-   *  goes back to it. */
-  motion_template_default: string;
-  /** Read-only: placeholder -> what it means, for the editor's legend. */
-  motion_placeholders: Record<string, string>;
-  /** The API's cap on either prompt, in characters. */
+  /** The API's cap on the caption prompt, in characters. */
   prompt_max_length: number;
   /** Where a newly queued segment lands (wanly-api#471). "top" keeps its job's place;
    *  "bottom" moves the job behind every other job. */
@@ -1182,21 +1159,13 @@ export type QueuePosition = "top" | "bottom";
 export interface CaptionTryBody {
   caption_style?: string;
   caption_instruction?: string;
-  motion_style?: string;
-  motion_template?: string;
 }
 
 export interface CaptionTryResult {
   caption: string;
   words: number;
-  /** Null when the motion half failed (`motion_error`) or is switched off (`motion_enabled`). */
-  motion: string | null;
-  motion_words: number;
-  motion_error: string | null;
-  motion_enabled: boolean;
   /** The exact text sent to the captioner, placeholders filled in. */
   caption_instruction_used: string;
-  motion_instruction_used: string | null;
 }
 
 export interface FavoriteToggleRequest {
@@ -1241,8 +1210,6 @@ export interface AppSettingsUpdate {
   /** "" clears a custom instruction and falls back to the style; undefined leaves it alone.
    *  Those are different intents and the API distinguishes them. */
   caption_instruction?: string;
-  motion_style?: MotionStyle;
-  motion_instruction?: string;
   segment_queue_position?: QueuePosition;
 }
 

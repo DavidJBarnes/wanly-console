@@ -11,9 +11,9 @@ import {
 } from "../stores/captionStore";
 
 /**
- * "Scene: In queue (#3)" / "Motion: Captioning…" / "Scene: Failed: retry" for one image,
- * wherever it is shown (console#564) -- one pill PER HALF (console#590). Nothing at all for a
- * half with no caption in flight or failed.
+ * "Scene: In queue (#3)" / "Scene: Captioning…" / "Scene: Failed: retry" for one image,
+ * wherever it is shown (console#564). Nothing at all when no caption is in flight or failed.
+ * Only the scene half remains (wanly-api#481).
  *
  * THE ONE INDICATOR of a caption in progress. A view does not add a spinner line or relabel
  * its button "Describing…" beside it (console#590): the button only disables while its half
@@ -23,7 +23,7 @@ import {
  * its own and says the same thing in every view. "Failed: retry" asks for THAT HALF again --
  * the same describe the modal's button makes.
  *
- * `half` picks one; without it both are shown (scene first), stacked when `overlay`.
+ * `half` picks one; without it every half is shown, stacked when `overlay`.
  * `overlay` pins them to a bottom corner of a thumbnail (the parent must be position:
  * relative); clicks on them never reach the thumbnail underneath.
  *
@@ -115,7 +115,7 @@ function HalfChip({ path, half, overlay, size }: {
       <Tooltip title={retryError ?? captionTooltip(status)}>
         <Chip
           size={size} color="error" variant={overlay ? "filled" : "outlined"}
-          label={retrying ? `${half === "scene" ? "Scene" : "Motion"}: Retrying…` : label}
+          label={retrying ? "Scene: Retrying…" : label}
           onClick={retry} onMouseDown={(e) => e.stopPropagation()} sx={sx}
         />
       </Tooltip>

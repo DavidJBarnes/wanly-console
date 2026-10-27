@@ -22,15 +22,26 @@ const ALIASES: Record<string, ModeName> = {
 /** The old spelling, for a box that predates the four modes. */
 const LEGACY: Partial<Record<ModeName, string>> = { render: "ltx-engine", motion: "caption" };
 
+/**
+ * What each mode is CALLED on screen. The wire value "motion" is kept -- live boxes report it
+ * and accept it -- but the motion caption half is gone (wanly-api#481), so the mode is shown
+ * for what it does now: captions.
+ */
 export const MODE_LABEL: Record<ModeName, string> = {
-  render: "Render", train: "Train", motion: "Motion", edit: "Edit",
+  render: "Render", train: "Train", motion: "Caption", edit: "Edit",
 };
+
+/** A mode's on-screen name in running text ("switching to caption"); unknown names as-is. */
+export function modeWord(mode: string): string {
+  const m = canonicalMode(mode);
+  return m ? MODE_LABEL[m].toLowerCase() : mode;
+}
 
 /** What each mode is for, for the button's tooltip. */
 export const MODE_HELP: Record<ModeName, string> = {
   render: "Claims and renders segments (and, for now, training runs).",
   train: "Runs LoRA training only.",
-  motion: "Writes motion captions (Qwen3-VL).",
+  motion: "Writes dataset clip captions and backs up scene captions (Qwen3-VL).",
   edit: "Runs image edits (Qwen-Image-Edit).",
 };
 
@@ -90,11 +101,11 @@ export function hasSeveralModes(provides: readonly string[] | null | undefined):
   return MODES.filter((m) => services.has(MODE_SERVICE[m])).length >= 2;
 }
 
-/** "finishing segment, then motion" while a render is in flight; else "switching to motion". */
+/** "finishing segment, then caption" while a render is in flight; else "switching to caption". */
 export function describePending(pending: ModeName, rendering: boolean): string {
   return rendering
-    ? `finishing segment, then ${pending}`
-    : `switching to ${pending}`;
+    ? `finishing segment, then ${modeWord(pending)}`
+    : `switching to ${modeWord(pending)}`;
 }
 
 const gb = (mib: number) => (mib / 1024).toFixed(1);
@@ -108,8 +119,8 @@ export function describeVram(gpu: WorkerModeResponse["gpu"]): string | null {
 /** "Last switch render → train: 22.6 → 0.4 GB in 6 s", or a refusal in words. */
 export function describeUnload(u: WorkerModeResponse["last_unload"]): string | null {
   if (!u || !u.from || !u.to) return null;
-  const from = canonicalMode(u.from) ?? u.from;
-  const to = canonicalMode(u.to) ?? u.to;
+  const from = modeWord(u.from);
+  const to = modeWord(u.to);
   if (u.found_mib == null || u.after_mib == null) {
     return `Last switch ${from} → ${to}: card not read (unload not verified)`;
   }
@@ -137,14 +148,14 @@ const UNIT_ONE: Record<string, string> = {
   segments: "segment", captions: "caption", edits: "edit", runs: "run",
 };
 
-/** The per-mode summary's parts: "render: 4 segments", "motion: 12 captions" (with the reason
+/** The per-mode summary's parts: "render: 4 segments", "caption: 12 captions" (with the reason
  *  beside it when nothing serves the mode). Modes with nothing waiting are left out. */
 export function summaryParts(waiting: readonly ModeWaiting[]): SummaryPart[] {
   return waiting
     .filter((w) => w.count > 0)
     .map((w) => ({
       mode: w.mode,
-      text: `${w.mode}: ${w.count} ${w.count === 1 ? (UNIT_ONE[w.unit] ?? w.unit) : w.unit}`,
+      text: `${modeWord(w.mode)}: ${w.count} ${w.count === 1 ? (UNIT_ONE[w.unit] ?? w.unit) : w.unit}`,
       to: LINKS[w.mode] ?? "/workers",
       reason: w.reason,
     }));

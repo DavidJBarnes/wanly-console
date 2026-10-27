@@ -6,7 +6,6 @@ import { useCaptionStore } from "./captionStore";
 
 const A = "s3://wanly-images/2026-10-01/a.png";
 const SA = captionKey(A, "scene");
-const MA = captionKey(A, "motion");
 
 const q = (over: Partial<CaptionQueueStatus>): CaptionQueueStatus => ({
   depth: 0, waiting: 0, running: null, entries: [], recent: [], ...over,
@@ -14,7 +13,7 @@ const q = (over: Partial<CaptionQueueStatus>): CaptionQueueStatus => ({
 
 const ticket: CaptionTicket = {
   path: A, ticket_id: "t1", status: "queued", position: 2, depth: 2, mode: "pair",
-  origin: "describe", error: null, busy: false, motion_error: null, joined: false,
+  origin: "describe", error: null, busy: false, joined: false,
   created_at: null, started_at: null, finished_at: null,
 };
 
@@ -74,28 +73,29 @@ describe("the caption store (console#564)", () => {
     expect(useCaptionStore.getState().statuses.get(SA)).toBe(first);
   });
 
-  it("notes every half a describe answered with, each under its own key (console#590)", () => {
+  it("ignores a motion ticket from an API that still issues one (wanly-api#481)", () => {
     useCaptionStore.getState().apply(q({}), Date.now() - 10);
     const motion: CaptionTicket = { ...ticket, ticket_id: "t2", half: "motion", mode: "motion" };
     useCaptionStore.getState().noteTicket({
       ...ticket, half: "scene", mode: "scene", tickets: [{ ...ticket, half: "scene" }, motion],
     });
     const s = useCaptionStore.getState().statuses;
-    expect(s.get(SA)?.half).toBe("scene");
-    expect(s.get(MA)).toMatchObject({ half: "motion", ticketId: "t2", state: "queued" });
+    expect(s.get(SA)).toMatchObject({ half: "scene", ticketId: "t1" });
+    expect([...s.keys()]).toEqual([SA]);
   });
 
-  it("announces a motion finishing as the image's words changing", () => {
+  it("does not mark an image for a motion-lane entry or a finished motion ticket", () => {
     useCaptionStore.getState().apply(q({
       entries: [{ path: A, kind: "describe", status: "running", position: 0, ticket_id: "m",
         lane: "motion" }],
     }), Date.now());
+    expect(useCaptionStore.getState().statuses.size).toBe(0);
     useCaptionStore.getState().apply(q({
       recent: [{ ...ticket, ticket_id: "m", half: "motion", mode: "motion", status: "done",
         finished_at: "2026-10-02T03:00:00Z" }],
     }), Date.now() + 10);
     const st = useCaptionStore.getState();
-    expect(st.statuses.get(MA)?.state).toBe("done");
-    expect(st.lastDone).toEqual([A]);
+    expect(st.statuses.size).toBe(0);
+    expect(st.lastDone).toEqual([]);
   });
 });

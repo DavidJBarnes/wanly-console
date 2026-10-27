@@ -1,56 +1,53 @@
 /**
- * The `<SCENE>` / `<MOTION>` placeholders and the filled regions that replace them
- * (console#427, console#529).
+ * The `<SCENE>` placeholder and the filled region that replaces it (console#427).
  *
- * A pose's prompt is start-frame-agnostic by design, so it defers the frame-specific parts
- * to placeholders: `<SCENE>` for what the frame IS, `<MOTION>` for what happens next.
- * Filling one in used to be a one-way paste: the placeholder was replaced with bare text
- * and the one thing worth keeping — WHICH WORDS CAME FROM THE CAPTIONER — was gone. Getting
- * a different description then meant hand-editing the sentence back out of the prompt.
+ * A pose's prompt is start-frame-agnostic by design, so it defers the frame-specific part to
+ * a placeholder: `<SCENE>` for what the frame IS. Filling it in used to be a one-way paste:
+ * the placeholder was replaced with bare text and the one thing worth keeping -- WHICH WORDS
+ * CAME FROM THE CAPTIONER -- was gone. Getting a different description then meant
+ * hand-editing the sentence back out of the prompt.
  *
- * So a filled half stays marked:
+ * So a filled scene stays marked:
  *
- *   template   k3llydw, <SCENE>, she grips the edge of the sofa, <MOTION>
- *   filled     k3llydw, <scene>a woman in a red dress on a sofa</scene>, she grips...,
- *              <motion>she leans forward as the light shifts</motion>
- *   submitted  k3llydw, a woman in a red dress on a sofa, she grips..., she leans forward...
+ *   template   k3llydw, <SCENE>, she grips the edge of the sofa
+ *   filled     k3llydw, <scene>a woman in a red dress on a sofa</scene>, she grips...
+ *   submitted  k3llydw, a woman in a red dress on a sofa, she grips...
  *
  * A marked region is rewritable in place: re-describe, or change the start frame, and only
  * the inside changes. Text typed inside it survives until the next explicit replace.
  *
  * AN UNFILLED PLACEHOLDER IS SUBMITTED AS-IS (console#577). A filled region is unwrapped to
- * its words at submit, but a bare `<SCENE>`/`<MOTION>` goes to the API untouched: that
- * placeholder is how the API knows the render needs a caption half, and it holds the segment
+ * its words at submit, but a bare `<SCENE>` goes to the API untouched: that placeholder is
+ * how the API knows the render needs a scene caption, and it holds the segment
  * (`awaiting_caption`, wanly-api caption_hold) until the words are saved, then fills them in
- * verbatim. Deleting it here -- which this module used to do -- made the hold impossible, and
- * a Motion recipe queued before its caption landed rendered with an EMPTY prompt. The API is
- * what keeps a literal placeholder away from the text encoder: it fills it, or refuses to
- * hand the segment out.
+ * verbatim. The API is what keeps a literal placeholder away from the text encoder: it fills
+ * it, or refuses to hand the segment out.
  *
- * Any OTHER marker spelling -- an unpaired `<scene>`, a stray `</motion>`, `<Scene>` -- is
- * not a placeholder the API recognises and would reach the encoder as garbage, so it is
- * stripped.
+ * Any OTHER marker spelling -- an unpaired `<scene>`, `<Scene>` -- is not a placeholder the
+ * API recognises and would reach the encoder as garbage, so it is stripped.
  *
  * The PAIRED form is matched first and the leftover bare token is the placeholder. That
  * pairing, not letter case, is what tells them apart: `<scene>` opening a region and
  * `<SCENE>` standing alone are otherwise the same string in different clothes.
  *
- * ONE module, two halves, with every pattern built from the half's own name so an opening
- * tag can only ever close with its own kind. `<scene>…</motion>` is not a region, and a
- * pattern that accepted either close would let an unclosed opener swallow everything up to
- * the next close of either kind — deleting the real words in between.
+ * THE MOTION HALF IS GONE (wanly-api#481). Older pose templates still carry a `<MOTION>`
+ * placeholder, and a prompt filled before the removal can carry a `<motion>…</motion>`
+ * region. Nothing will ever fill `<MOTION>` again, so submitting it would either hold the
+ * render forever or put the literal token in front of the text encoder. Both spellings are
+ * scrubbed at submit: a bare/stray motion tag is removed (with the separator it leaves
+ * behind), and a filled motion region is unwrapped to its words -- they are visible in the
+ * prompt box, so what is sent stays what was shown.
  */
 
-/** Which half of the description. The two behave identically; only the name differs. */
-export type CaptionHalf = "scene" | "motion";
+/** Which half of the description. Only the scene half remains (wanly-api#481). */
+export type CaptionHalf = "scene";
 
-export const HALVES: readonly CaptionHalf[] = ["scene", "motion"] as const;
+export const HALVES: readonly CaptionHalf[] = ["scene"] as const;
 
 /** The unfilled placeholder, as a pose template carries it. */
 export const SCENE_TOKEN = "<SCENE>";
-export const MOTION_TOKEN = "<MOTION>";
 
-/** The placeholder for a half, e.g. `<MOTION>`. */
+/** The placeholder for a half, e.g. `<SCENE>`. */
 export function placeholderToken(half: CaptionHalf): string {
   return `<${half.toUpperCase()}>`;
 }
@@ -115,41 +112,58 @@ export function regionText(prompt: string, half: CaptionHalf): string | null {
 }
 
 /**
- * Every marker in one pattern: a filled region (closing tag a backreference to its opener, so
- * `<scene>…</motion>` is never a region) or a bare/stray tag of either half, any case.
+ * Every scene marker in one pattern: a filled region or a bare/stray tag, any case. A motion
+ * tag is matched too, as a legacy marker to scrub (wanly-api#481).
  */
-const ANY_MARKER = /<(scene|motion)>([\s\S]*?)<\/\1>|<\/?(?:scene|motion)>/gi;
+const ANY_MARKER = /<scene>([\s\S]*?)<\/scene>|<\/?scene>|(<\/?motion>)/gi;
 
-/** A marker of either half, any spelling -- for scrubbing the words inside a region. */
+/** A marker of either name, any spelling -- for scrubbing the words inside a region. */
 const ANY_TAG = /<\/?(?:scene|motion)>/gi;
+
+/**
+ * Tidy what removing a legacy motion tag leaves behind: the comma that introduced it, a
+ * doubled comma, doubled spaces, a separator dangling at either end. Only run when a motion
+ * tag was actually removed, so a prompt without one is never reformatted.
+ */
+function tidy(prompt: string): string {
+  return prompt
+    .replace(/[ \t]*,(?:[ \t]*,)+/g, ",")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+,/g, ",")
+    .replace(/^[\s,]+|[\s,]+$/g, "");
+}
 
 /**
  * The prompt as it is submitted (console#577).
  *
- *   filled region    `<motion>she leans in</motion>`  ->  `she leans in`
- *   placeholder      `<SCENE>` / `<MOTION>`           ->  KEPT, exactly as written
- *   stray spelling   `<scene>` alone, `</motion>`     ->  removed
+ *   filled region    `<scene>a woman</scene>`  ->  `a woman`
+ *   placeholder      `<SCENE>`                 ->  KEPT, exactly as written
+ *   stray spelling   `<scene>` alone, `<Scene>` ->  removed
+ *   legacy motion    `<MOTION>`, `</motion>`    ->  removed, separators tidied (wanly-api#481)
  *
  * The placeholder is kept because the API needs to see it: it is what makes the caption hold
- * fire and fill the saved words in at release. Dropping it made the API create the segment
- * PENDING with the half simply missing -- a Motion recipe went out with an empty prompt.
+ * fire and fill the saved words in at release.
  *
- * One non-rescanning pass for both halves, so words unwrapped for one half can never be read
- * as the other half's marker. Markers typed INSIDE a region are scrubbed: they are not the
- * description, and a canonical `<MOTION>` there would otherwise be taken for a placeholder.
+ * Markers typed INSIDE a region are scrubbed: they are not the description, and a canonical
+ * `<SCENE>` there would otherwise be taken for a placeholder.
  */
 export function submitPrompt(prompt: string): string {
-  return prompt.replace(ANY_MARKER, (match, _half?: string, words?: string) => {
+  let sawMotion = false;
+  const out = prompt.replace(ANY_MARKER, (match, words?: string, motionTag?: string) => {
+    if (motionTag !== undefined) {
+      sawMotion = true;
+      return "";
+    }
     if (words !== undefined) return words.replace(ANY_TAG, "");
-    return match === SCENE_TOKEN || match === MOTION_TOKEN ? match : "";
+    return match === SCENE_TOKEN ? match : "";
   });
+  return sawMotion ? tidy(out) : out;
 }
 
 /**
- * Put the placeholders back where the regions are, for both halves. Used to ask "did the
- * user edit the prompt?"
+ * Put the placeholder back where the region is. Used to ask "did the user edit the prompt?"
  *
- * Filling `<SCENE>` or `<MOTION>` is not an edit of the recipe — it is the recipe working
+ * Filling `<SCENE>` is not an edit of the recipe — it is the recipe working
  * as designed — so a prompt whose only difference from its template is a filled region must
  * compare EQUAL to that template. Without this the `edited` flag reads "prompt" on every
  * recipe render that auto-fills, which is exactly the signal that is supposed to mean

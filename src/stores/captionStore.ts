@@ -66,12 +66,14 @@ export const useCaptionStore = create<CaptionStore>((set, get) => ({
   },
 
   noteTicket: (answer) => {
-    // A describe answers with the first half's ticket and every half's in `tickets`.
-    const all = (answer.tickets?.length ? answer.tickets : [answer]).filter((t) => t.status);
+    // A describe answers with the first half's ticket and every half's in `tickets`. Only
+    // scene tickets are tracked: an API still issuing motion ones is ignored (wanly-api#481).
+    const all = (answer.tickets?.length ? answer.tickets : [answer])
+      .filter((t) => t.status && ticketHalf(t));
     if (all.length === 0) return;
     const pending = new Map(get().pending);
     for (const t of all) {
-      const key = captionKey(t.path, ticketHalf(t));
+      const key = captionKey(t.path, "scene");
       notedAt.set(key, Date.now());
       pending.set(key, t);
     }

@@ -9,11 +9,11 @@ import { describeScene, summaryParts } from "../lib/workerModes";
 /**
  * What is waiting on which mode, in one line at the top of the Workers page (console#589).
  *
- * "render: 4 segments · motion: 12 captions · edit: 2 edits · train: 1 run". With two boxes and
- * four modes, "why isn't my motion caption moving?" otherwise means opening jobs one by one.
- * A mode nobody is in says so beside its count -- "no GPU in motion mode; switch one to motion
- * on the Workers page" -- and that line is a warning, because it is the one thing on the page
- * that only a person can fix. Scene captions run on their own service, never a mode, and are
+ * "render: 4 segments · caption: 12 captions · edit: 2 edits · train: 1 run" (the caption
+ * mode's wire value is "motion"; it is shown by its label). With two boxes and four modes,
+ * "why isn't my caption moving?" otherwise means opening jobs one by one. A mode nobody is in
+ * says so beside its count -- the API's reason, verbatim -- and that line is a warning,
+ * because it is the one thing on the page that only a person can fix. Scene captions run on their own service, never a mode, and are
  * labelled separately.
  */
 export default function ModeWaitingSummary({ pollMs = 10000 }: { pollMs?: number }) {

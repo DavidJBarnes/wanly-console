@@ -17,10 +17,10 @@ type Column = { result: CaptionTryResult | null; error: string | null };
 const EMPTY: Column = { result: null, error: null };
 
 /**
- * "Try on an image" for the Settings prompt editors (console#555).
+ * "Try on an image" for the Settings caption prompt editor (console#555).
  *
- * Runs the editors' CURRENT, unsaved text on one image and shows it beside what the SAVED
- * prompts produce for the same image, so an edit can be judged before it replaces anything.
+ * Runs the editor's CURRENT, unsaved text on one image and shows it beside what the SAVED
+ * prompt produces for the same image, so an edit can be judged before it replaces anything.
  * Nothing is stored: POST /images/scene/try never writes the image's description.
  *
  * The two runs are made one after the other rather than together. They share one captioner
@@ -68,15 +68,10 @@ export default function PromptTryPanel({ disabledReason }: { disabledReason: str
       captionStyle: s.captionStyle,
       captionDraft: s.captionDraft,
       captionDefault: s.captionStylePrompts[s.captionStyle] ?? "",
-      motionStyle: s.motionStyle,
-      motionDraft: s.motionDraft,
-      motionDefault: s.motionTemplateDefault,
     });
     const same = draftMatchesSaved(body, {
       captionStyle: s.savedCaptionStyle,
       captionOverride: s.captionInstruction,
-      motionStyle: s.savedMotionStyle,
-      motionOverride: s.motionInstruction,
     });
     setDraft(EMPTY);
     setSaved(EMPTY);
@@ -107,9 +102,9 @@ export default function PromptTryPanel({ disabledReason }: { disabledReason: str
           Try on an image
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Runs the two prompts above, as they are now, on one image, next to what the saved
-          prompts produce. Nothing is saved, neither the prompts nor the description.
-          Each run is two captioner calls and waits its turn behind any other captioning.
+          Runs the caption prompt above, as it is now, on one image, next to what the saved
+          prompt produces. Nothing is saved, neither the prompt nor the description.
+          Each run waits its turn behind any other captioning.
         </Typography>
 
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", maxWidth: 900 }}>
@@ -199,7 +194,7 @@ export default function PromptTryPanel({ disabledReason }: { disabledReason: str
                 <Typography variant="subtitle2">Saved prompt</Typography>
                 <Typography variant="body2" color="text.secondary">
                   The current text is the saved prompt, so there is nothing to compare it with.
-                  Edit a prompt or a style and try again.
+                  Edit the prompt or the style and try again.
                 </Typography>
               </Box>
             ) : (
@@ -225,26 +220,11 @@ function ResultColumn({ title, column, busy }: { title: string; column: Column; 
             Image caption · {r.words} words
           </Typography>
           <Typography variant="body2" sx={{ mb: 1 }}>{r.caption}</Typography>
-          <Typography variant="overline" color="text.secondary">
-            Motion{r.motion ? ` · ${r.motion_words} words` : ""}
-          </Typography>
-          {r.motion ? (
-            <Typography variant="body2">{r.motion}</Typography>
-          ) : r.motion_error ? (
-            <Alert severity="warning">The motion half failed: {r.motion_error}</Alert>
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              {r.motion_enabled ? "No motion description." : "Motion descriptions are switched off on the API."}
-            </Typography>
-          )}
           <Box component="details" sx={{ mt: 1 }}>
             <Typography component="summary" variant="caption" sx={{ cursor: "pointer" }}>
               Exactly what was sent
             </Typography>
             <PromptText label="Caption" text={r.caption_instruction_used} />
-            {r.motion_instruction_used && (
-              <PromptText label="Motion" text={r.motion_instruction_used} />
-            )}
           </Box>
         </>
       )}

@@ -18,8 +18,7 @@ import {
   addSegment, createJob, getFileUrl, getImageScene, requestImageDescribe, waitForCaptionTicket,
 } from "../api/client";
 import {
-  fill, hasPlaceholder, hasRegion, restorePlaceholders, submitPrompt, wants,
-  type CaptionHalf,
+  fill, hasPlaceholder, restorePlaceholders, submitPrompt, wants,
 } from "../lib/captionRegion";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
 import {
@@ -28,9 +27,7 @@ import {
 import type { CharacterSlot } from "../lib/recipeBlob";
 import { groupPosesByBook } from "../lib/poseGroups";
 import { lorasForCharacter, SHOW_ALL_LORAS } from "../lib/loraOptions";
-import {
-  captionPending, halfActions, halvesInFlight, REGROUND_HINT, requestedByNote,
-} from "../lib/captionStatus";
+import { sceneAction, sceneInFlight } from "../lib/captionStatus";
 import CaptionStatusChip from "./CaptionStatusChip";
 import {
   noteCaptionTicket, refreshCaptionStatus, useCaptionStatus,
@@ -179,33 +176,16 @@ export default function RecipeForm({
   // file has not been uploaded yet, so there is nothing for the captioner to fetch. That
   // case still works -- the API resolves the placeholder at claim time once the upload has
   // landed -- it just cannot be previewed here.
-  // Per half (console#590): the scene and the motion are asked for, and waited for, apart.
-  const [describing, setDescribing] = useState<Record<CaptionHalf, boolean>>(
-    { scene: false, motion: false });
+  const [describing, setDescribing] = useState(false);
   const [describeError, setDescribeError] = useState<string | null>(null);
-  // Set after a scene redo while a motion paragraph is in the prompt: that paragraph was
-  // grounded on the old scene, and redoing the scene does not touch it (console#590).
-  const [sceneRedone, setSceneRedone] = useState(false);
   // The description already saved against the chosen start frame, if it has one
   // (console#414). A ref as well as state: the pose/character effect fills the prompt the
   // moment it renders a template, and it must read the CURRENT value without listing it as
   // a dependency — that would re-render the template, discarding the user's edits, every
   // time a description arrived.
-  //
-  // BOTH halves (console#529): the static description and the motion paragraph are saved
-  // and filled the same way, from the same record, in the same call.
   const [savedScene, setSavedScene] = useState<string | null>(null);
-  const [savedMotion, setSavedMotion] = useState<string | null>(null);
-  const savedHalvesRef = useRef<Record<CaptionHalf, string | null>>(
-    { scene: null, motion: null });
-  savedHalvesRef.current = { scene: savedScene, motion: savedMotion };
-
-  /** Fill whichever halves we have words for, leaving the rest as placeholders. */
-  const fillSaved = useCallback(
-    (text: string, saved: Record<CaptionHalf, string | null>) =>
-      (["scene", "motion"] as CaptionHalf[]).reduce(
-        (out, half) => (saved[half] ? fill(out, half, saved[half]!) : out), text),
-    []);
+  const savedSceneRef = useRef<string | null>(null);
+  savedSceneRef.current = savedScene;
 
   // Pre-filled from the recipe, editable. Editing means this is no longer the
   // validated configuration — which is recorded, not prevented.
@@ -312,7 +292,8 @@ export default function RecipeForm({
     // Auto-filled the moment there is something to fill it with (console#427). The words
     // land in the editable box, so they are still read before they are used — what changes
     // is that a description already paid for is not paid for again.
-    setPrompt(fillSaved(rendered, savedHalvesRef.current));
+    const saved = savedSceneRef.current;
+    setPrompt(saved ? fill(rendered, "scene", saved) : rendered);
     setNegative(pose.negative_prompt);
     // Every filled slot starts as its character's own LoRA and strengths.
     setSlotEdits(slotCharacters.map((c) => {
@@ -410,10 +391,8 @@ export default function RecipeForm({
         ? initialFrom.last_frame_path
         : null;
 
-  // Where each half of this frame's caption has got to, from the shared caption store
-  // (console#564, per half since #590).
+  // Where this frame's scene caption has got to, from the shared caption store (console#564).
   const frameScene = useCaptionStatus(describePath, "scene");
-  const frameMotion = useCaptionStatus(describePath, "motion");
 
   // Whether the saved description for THIS path has been looked up yet. Distinct from
   // "there is none": one means wait, the other means describe it.
@@ -421,16 +400,13 @@ export default function RecipeForm({
   // Set while the SCENE of this frame is already being captioned somewhere else -- the image
   // modal, another job's caption hold (console#562). The dialog JOINS it: waits for those
   // words to be saved and fills them in, rather than asking for a second caption that would
-  // replace them with different ones. Per half (console#590): a motion paragraph in flight
-  // holds back only the motion, and the status pill says where either has got to.
+  // replace them with different ones. The status pill says where it has got to.
   const [joining, setJoining] = useState(false);
 
   useEffect(() => {
     setSavedScene(null);
-    setSavedMotion(null);
     setSceneLookedUpFor(null);
     setJoining(false);
-    setSceneRedone(false);
     if (!describePath) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -438,17 +414,15 @@ export default function RecipeForm({
       getImageScene(describePath)
         .then((s) => {
           if (!live) return;
-          // A half in flight is not saved words yet: the words about to land are the ones
-          // the modal is showing. Take the halves that are settled, and ask again shortly
-          // for the rest.
-          const flying = halvesInFlight(s);
-          if (!flying.scene) {
+          // A scene in flight is not saved words yet: the words about to land are the ones
+          // the modal is showing. Ask again shortly.
+          const flying = sceneInFlight(s);
+          if (!flying) {
             setSavedScene(s.scene_description);
             setSceneLookedUpFor(describePath);
           }
-          if (!flying.motion) setSavedMotion(s.motion_description);
-          setJoining(flying.scene);
-          if (flying.scene || flying.motion) timer = setTimeout(look, JOIN_POLL_MS);
+          setJoining(flying);
+          if (flying) timer = setTimeout(look, JOIN_POLL_MS);
         })
         // A failure here costs the auto-fill, not the form. The button still works, and a
         // submit with the placeholder still in it is held until the caption exists.
@@ -456,7 +430,6 @@ export default function RecipeForm({
           if (live) {
             setJoining(false);
             setSavedScene(null);
-            setSavedMotion(null);
           }
         });
     };
@@ -481,11 +454,6 @@ export default function RecipeForm({
    * NEVER WHILE ONE IS ALREADY RUNNING (console#562). The lookup above only marks the frame
    * looked-up once no caption of it is in flight, so a frame the modal is still describing
    * is joined, not described a second time.
-   *
-   * THE SCENE ONLY (console#590). The motion paragraph is minutes of another GPU, made only
-   * on an explicit "Describe motion" -- or by the job itself: a queued segment whose
-   * <MOTION> has no saved words is held, and its hold asks for the motion ("Motion requested
-   * by job ..."). Opening a dialog is not asking for one.
    */
   const autoDescribed = useRef<Set<string>>(new Set());
   const needsScene = wants(prompt, "scene") && !savedScene;
@@ -494,23 +462,19 @@ export default function RecipeForm({
     if (sceneLookedUpFor !== describePath) return;
     if (autoDescribed.current.has(describePath)) return;
     autoDescribed.current.add(describePath);
-    void handleDescribe("scene");
+    void handleDescribe();
     // handleDescribe is stable in behaviour but not in identity; the guard set is what makes
     // this once-only, not the dependency list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [describePath, needsScene, sceneLookedUpFor]);
 
   // The description can arrive after the prompt was rendered — the fetch is async and the
-  // pose effect does not wait for it. Fills only a half that is still UNFILLED, so a
-  // description landing late can never overwrite one the user re-rolled or edited, and a
-  // motion paragraph arriving beside an already-filled scene touches only its own half.
+  // pose effect does not wait for it. Fills only a scene that is still UNFILLED, so a
+  // description landing late can never overwrite one the user re-rolled or edited.
   useEffect(() => {
-    if (!savedScene && !savedMotion) return;
-    setPrompt((p) => (["scene", "motion"] as CaptionHalf[]).reduce((out, half) => {
-      const saved = half === "scene" ? savedScene : savedMotion;
-      return saved && hasPlaceholder(out, half) ? fill(out, half, saved) : out;
-    }, p));
-  }, [savedScene, savedMotion]);
+    if (!savedScene) return;
+    setPrompt((p) => (hasPlaceholder(p, "scene") ? fill(p, "scene", savedScene) : p));
+  }, [savedScene]);
 
   // An image passed in from the Image Repo. Referenced, never re-uploaded.
   useEffect(() => {
@@ -541,11 +505,11 @@ export default function RecipeForm({
 
       // The segment, identical either way. What differs is only where it is posted: a new job
       // carries it as first_segment, a continuation appends it to an existing one.
-      // Filled regions are unwrapped to their words; an UNFILLED <SCENE>/<MOTION> is sent
-      // as-is (console#577). The API holds a segment whose placeholder has no saved words
-      // yet and fills them in when the caption lands -- which is what makes queueing while
-      // the frame is still being described safe. Stripping the placeholder here used to
-      // defeat that hold, and a Motion recipe rendered with an empty prompt.
+      // Filled regions are unwrapped to their words; an UNFILLED <SCENE> is sent as-is
+      // (console#577). The API holds a segment whose placeholder has no saved words yet and
+      // fills them in when the caption lands -- which is what makes queueing while the frame
+      // is still being described safe. A legacy <MOTION> from an older pose is dropped
+      // (wanly-api#481): nothing fills it any more.
       const submittedPrompt = submitPrompt(prompt).trim();
 
       const segment = {
@@ -645,7 +609,7 @@ export default function RecipeForm({
     });
   }, [onActions, stableSubmit, busy, submitDisabled, submitLabel]);
 
-  // Both halves are put back to their placeholders first: filling <SCENE> or <MOTION> is
+  // The scene is put back to its placeholder first: filling <SCENE> is
   // the recipe working as designed, not somebody departing from it, and reading it as an
   // edit would light this up on every auto-filled render.
   const edited = pose
@@ -671,35 +635,28 @@ export default function RecipeForm({
    * the next job starting from it is free, and for a generated continuation frame it means
    * reopening this dialog is free and the CLAIM renders with the same words that were shown
    * rather than describing the frame a second time and getting different ones.
-   *
-   * ONE HALF A CALL (console#590): the scene and the motion paragraph are separate captions
-   * on separate GPUs, and redoing one never touches the other. Motion is grounded on the
-   * scene SAVED on the frame -- the API waits for a scene in flight, and makes one if there
-   * is none.
    */
-  // The describe this dialog asked for, per half, so closing the dialog or switching frames
-  // stops WAITING for it. The caption itself carries on in the API either way (console#564).
-  const describeAbort = useRef<Record<CaptionHalf, AbortController | null>>(
-    { scene: null, motion: null });
+  // The describe this dialog asked for, so closing the dialog or switching frames stops
+  // WAITING for it. The caption itself carries on in the API either way (console#564).
+  const describeAbort = useRef<AbortController | null>(null);
   useEffect(() => () => {
-    describeAbort.current.scene?.abort();
-    describeAbort.current.motion?.abort();
+    describeAbort.current?.abort();
   }, [describePath]);
 
-  const handleDescribe = async (half: CaptionHalf) => {
+  const handleDescribe = async () => {
     if (!describePath) return;
     const path = describePath;
-    describeAbort.current[half]?.abort();
+    describeAbort.current?.abort();
     const abort = new AbortController();
-    describeAbort.current[half] = abort;
-    setDescribing((d) => ({ ...d, [half]: true }));
+    describeAbort.current = abort;
+    setDescribing(true);
     setDescribeError(null);
     try {
-      // A TICKET, answered at once (console#564): the caption waits its turn in that half's
+      // A TICKET, answered at once (console#564): the caption waits its turn in the scene
       // queue in the background, and joins one already running for this frame rather than
       // making a second. This dialog only waits for it to finish; the status pill shows
       // where it is in line meanwhile.
-      const ticket = await requestImageDescribe(path, { halves: [half] });
+      const ticket = await requestImageDescribe(path, { halves: ["scene"] });
       noteCaptionTicket(ticket);
       refreshCaptionStatus();
       const done = ticket.ticket_id
@@ -708,19 +665,12 @@ export default function RecipeForm({
       if (done.status === "failed") throw new CaptionTicketFailed(done.error ?? "the caption failed");
       const saved = await getImageScene(path);
       if (abort.signal.aborted) return;
-      const words = half === "scene" ? saved.scene_description : saved.motion_description;
-      if (!words) throw new Error(`the captioner returned no ${half} for this frame`);
-      if (half === "scene") {
-        setSavedScene(words);
-        // A motion paragraph already in the prompt was grounded on the OLD scene.
-        setSceneRedone(!!saved.motion_description && hasRegion(prompt, "motion"));
-      } else {
-        setSavedMotion(words);
-        setSceneRedone(false);
-      }
+      const words = saved.scene_description;
+      if (!words) throw new Error("the captioner returned no scene for this frame");
+      setSavedScene(words);
       // fill rewrites an existing region, so redoing replaces the words rather than pasting
-      // a second description beside the first -- and only this half's.
-      setPrompt((p) => (wants(p, half) ? fill(p, half, words) : p));
+      // a second description beside the first.
+      setPrompt((p) => (wants(p, "scene") ? fill(p, "scene", words) : p));
     } catch (e) {
       if (abort.signal.aborted) return;
       // A MISSING FRAME IS NOT A CAPTION PROBLEM (console#440). The object the previous
@@ -739,21 +689,16 @@ export default function RecipeForm({
               : " -- you can still submit; it will be described when the segment runs."),
       );
     } finally {
-      if (describeAbort.current[half] === abort) {
-        describeAbort.current[half] = null;
-        setDescribing((d) => ({ ...d, [half]: false }));
+      if (describeAbort.current === abort) {
+        describeAbort.current = null;
+        setDescribing(false);
       }
     }
   };
 
-  // The per-half buttons. Disabled -- never relabelled -- while their half is in flight: the
+  // The describe button. Disabled -- never relabelled -- while the scene is in flight: the
   // status pill is the one indicator (console#590).
-  const [sceneAct, motionAct] = halfActions({
-    scene: savedScene, motion: savedMotion,
-    sceneStatus: frameScene,
-    motionStatus: frameMotion,
-  });
-  const motionAsker = requestedByNote(frameMotion);
+  const sceneAct = sceneAction({ scene: savedScene, sceneStatus: frameScene });
 
   return (
     <Stack spacing={compact ? 1.5 : 2}>
@@ -854,41 +799,22 @@ export default function RecipeForm({
             size={compact ? "small" : "medium"}
             onChange={(e) => setPrompt(e.target.value)}
           />
-          {/* Offered while the prompt wants EITHER half -- unfilled OR filled. A filled
+          {/* Offered while the prompt wants the scene -- unfilled OR filled. A filled
               region is still a thing to re-roll, which the old one-way paste could not
               express: once <SCENE> was gone there was nothing left to aim at. */}
-          {(wants(prompt, "scene") || wants(prompt, "motion")) && (
+          {wants(prompt, "scene") && (
             <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
-              {wants(prompt, "scene") && (
-                <>
-                  <span title={sceneAct.why ?? undefined}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => handleDescribe("scene")}
-                      disabled={sceneAct.disabled || describing.scene || joining || !describePath}
-                    >
-                      {sceneAct.label === "Describe" ? "Describe start frame" : sceneAct.label}
-                    </Button>
-                  </span>
-                  <CaptionStatusChip path={describePath} half="scene" />
-                </>
-              )}
-              {wants(prompt, "motion") && (
-                <>
-                  <span title={motionAct.why ?? undefined}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => handleDescribe("motion")}
-                      disabled={motionAct.disabled || describing.motion || !describePath}
-                    >
-                      {motionAct.label}
-                    </Button>
-                  </span>
-                  <CaptionStatusChip path={describePath} half="motion" />
-                </>
-              )}
+              <span title={sceneAct.why ?? undefined}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => handleDescribe()}
+                  disabled={sceneAct.disabled || describing || joining || !describePath}
+                >
+                  {sceneAct.label === "Describe" ? "Describe start frame" : sceneAct.label}
+                </Button>
+              </span>
+              <CaptionStatusChip path={describePath} half="scene" />
               <Typography variant="caption" color="text.secondary">
                 {!describePath
                   ? start
@@ -898,19 +824,9 @@ export default function RecipeForm({
                     : continuing
                       ? "The previous segment has not rendered yet, so there is no frame to describe. It is described automatically when this segment runs."
                       : "Pick a start frame first."
-                  : wants(prompt, "motion") && !savedMotion && !captionPending(frameMotion)
-                    ? `Words are saved on the frame, so they are free next time. The motion is made when you ask, or by the job once queued.${waitsNote}`
-                    : `Words are saved on the frame, so they are free next time.${waitsNote}`}
+                  : `Words are saved on the frame, so they are free next time.${waitsNote}`}
               </Typography>
             </Stack>
-          )}
-          {motionAsker && wants(prompt, "motion") && (
-            <Typography variant="caption" color="text.secondary">{motionAsker}</Typography>
-          )}
-          {sceneRedone && wants(prompt, "motion") && !captionPending(frameMotion) && (
-            <Alert severity="info" onClose={() => setSceneRedone(false)}>
-              {REGROUND_HINT}.
-            </Alert>
           )}
           {describeError && (
             <Alert
