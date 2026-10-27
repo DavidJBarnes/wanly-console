@@ -41,13 +41,15 @@ interface SettingsState {
   captionStylePrompts: Record<string, string>;
   /** The capture style of the motion half (#326). */
   motionStyle: MotionStyle;
-  /** The SAVED motion template; "" means motionTemplateDefault. */
+  /** The SAVED motion instructions (plain text, console#573); "" means motionInstructionDefault. */
   motionInstruction: string;
+  /** A pre-#555 whole prompt still in force, sent verbatim; "" when there is none. The editor
+   *  is pre-filled with it, and it stays in force until the motion prompt is edited and saved. */
+  motionLegacyPrompt: string;
   /** The motion editor's text. */
   motionDraft: string;
   motionStylePrompts: Record<string, string>;
-  motionTemplateDefault: string;
-  motionPlaceholders: Record<string, string>;
+  motionInstructionDefault: string;
   promptMaxLength: number;
   loaded: boolean;
   fetchSettings: () => Promise<void>;
@@ -72,10 +74,11 @@ function fromResponse(s: AppSettingsResponse): Partial<SettingsState> {
     captionStylePrompts,
     motionStyle: s.motion_style,
     motionInstruction: s.motion_instruction,
-    motionDraft: effectiveText(s.motion_instruction, s.motion_template_default),
+    motionLegacyPrompt: s.motion_legacy_prompt ?? "",
+    motionDraft: effectiveText(
+      s.motion_legacy_prompt || s.motion_instruction, s.motion_instruction_default),
     motionStylePrompts: s.motion_style_prompts ?? {},
-    motionTemplateDefault: s.motion_template_default,
-    motionPlaceholders: s.motion_placeholders,
+    motionInstructionDefault: s.motion_instruction_default,
     promptMaxLength: s.prompt_max_length,
   };
 }
@@ -90,10 +93,10 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   captionStylePrompts: {},
   motionStyle: "handheld",
   motionInstruction: "",
+  motionLegacyPrompt: "",
   motionDraft: "",
   motionStylePrompts: {},
-  motionTemplateDefault: "",
-  motionPlaceholders: {},
+  motionInstructionDefault: "",
   promptMaxLength: 4000,
   loaded: false,
   fetchSettings: async () => {

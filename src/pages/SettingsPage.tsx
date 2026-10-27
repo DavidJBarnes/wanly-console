@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -18,7 +18,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import type { CaptionStyle, MotionStyle } from "../api/types";
 import PromptTryPanel from "../components/PromptTryPanel";
 import {
-  hasUnsavedChange, isModified, keepsGrounding, lengthProblem, motionTemplateProblem,
+  hasUnsavedChange, isModified, lengthProblem, motionHasUnsavedChange, motionToSend,
   overrideToSave,
 } from "../lib/captionPrompts";
 
@@ -37,10 +37,10 @@ export default function SettingsPage() {
     captionStylePrompts,
     motionStyle,
     motionInstruction,
+    motionLegacyPrompt,
     motionDraft,
     motionStylePrompts,
-    motionTemplateDefault,
-    motionPlaceholders,
+    motionInstructionDefault,
     promptMaxLength,
     loaded,
     fetchSettings,
@@ -57,12 +57,14 @@ export default function SettingsPage() {
   const captionModified = isModified(captionDraft, captionDefault);
   const captionUnsaved = hasUnsavedChange(captionDraft, captionDefault, captionInstruction);
   const captionProblem = lengthProblem(captionDraft, promptMaxLength);
-  const motionModified = isModified(motionDraft, motionTemplateDefault);
-  const motionUnsaved = hasUnsavedChange(motionDraft, motionTemplateDefault, motionInstruction);
-  const motionProblem =
-    lengthProblem(motionDraft, promptMaxLength) ?? motionTemplateProblem(motionDraft);
-  // An empty editor means the default template, which has {style}.
-  const motionUsesStyle = !motionModified || motionDraft.includes("{style}");
+  const motionModified = isModified(motionDraft, motionInstructionDefault);
+  const motionUnsaved = motionHasUnsavedChange(
+    motionDraft, motionInstructionDefault, motionInstruction, motionLegacyPrompt);
+  const motionProblem = lengthProblem(motionDraft, promptMaxLength);
+  // A pre-#555 whole prompt is sent as written, with no style sentence and no grounding, for
+  // as long as the editor still holds it (motionToSend).
+  const motionIsLegacy =
+    motionToSend(motionDraft, motionInstructionDefault, motionLegacyPrompt) === undefined;
   const promptsProblem = captionProblem || motionProblem
     ? "Fix the prompt errors above first." : null;
   const [saving, setSaving] = useState(false);
@@ -97,7 +99,9 @@ export default function SettingsPage() {
         // holding the default sends "" too, so the default keeps tracking the API's.
         caption_instruction: overrideToSave(captionDraft, captionDefault),
         motion_style: motionStyle,
-        motion_instruction: overrideToSave(motionDraft, motionTemplateDefault),
+        // Undefined, i.e. "leave it alone", only while a legacy whole prompt is still in the
+        // editor untouched -- saving must not quietly turn it into instructions.
+        motion_instruction: motionToSend(motionDraft, motionInstructionDefault, motionLegacyPrompt),
       });
       setSaved(true);
     } catch (err) {
@@ -300,9 +304,9 @@ export default function SettingsPage() {
             onChange={(e) => setMotionStyle(e.target.value as MotionStyle)}
             sx={{ minWidth: 260 }}
             helperText={
-              !motionUsesStyle
-                ? "Has no effect: the prompt below has no {style} placeholder."
-                : "How the clip is shot. Fills {style} in the prompt below; the action is described first, the style is one sentence after it."
+              motionIsLegacy
+                ? "Has no effect while the old whole prompt below is in force."
+                : "How the clip is shot. Added as one sentence after the action, just before \u201cSingle continuous shot\u201d (or at the end if you remove that sentence)."
             }
           >
             <MenuItem value="handheld">Handheld — natural micro-shake (recommended)</MenuItem>
@@ -312,13 +316,13 @@ export default function SettingsPage() {
             <MenuItem value="none">None — say nothing about the camera</MenuItem>
           </TextField>
 
-          {motionStylePrompts[motionStyle] && motionUsesStyle && (
+          {motionStylePrompts[motionStyle] && !motionIsLegacy && (
             <Typography
               variant="caption"
               color="text.secondary"
               sx={{ display: "block", mt: 1, maxWidth: 640, fontStyle: "italic" }}
             >
-              {"{style}"} = {motionStylePrompts[motionStyle]}
+              Adds: {motionStylePrompts[motionStyle]}
             </Typography>
           )}
 
@@ -326,8 +330,8 @@ export default function SettingsPage() {
             title="Motion prompt"
             modified={motionModified}
             unsaved={motionUnsaved}
-            canReset={motionDraft !== motionTemplateDefault}
-            onReset={() => setMotionDraft(motionTemplateDefault)}
+            canReset={motionDraft !== motionInstructionDefault}
+            onReset={() => setMotionDraft(motionInstructionDefault)}
           />
           <TextField
             multiline
@@ -338,36 +342,22 @@ export default function SettingsPage() {
             onChange={(e) => setMotionDraft(e.target.value)}
             error={!!motionProblem}
             sx={{ width: "100%", maxWidth: 900 }}
-            slotProps={{ htmlInput: { "aria-label": "Motion prompt", spellCheck: false } }}
+            slotProps={{ htmlInput: { "aria-label": "Motion prompt" } }}
             helperText={
               motionProblem ??
               `${motionDraft.length}/${promptMaxLength}. ` +
-                "The default bans 'remains still' hedging and asks for explicit direction and amplitude — without those the model describes a still photo."
+                (motionIsLegacy
+                  ? "Sent exactly as written."
+                  : "Plain instructions. Added for you: the capture-style sentence and, when the image has a caption, that caption before these words and the face, body and wardrobe lock and a soundscape sentence after them. Try on an image shows the full text. Keep the ban on \u2018remains still\u2019 hedging: without it the model describes a still photo.")
             }
           />
-          {!motionProblem && !keepsGrounding(motionDraft) && motionDraft.trim() && (
-            <Alert severity="warning" sx={{ mt: 1, maxWidth: 900 }}>
-              This prompt no longer includes the image caption, so the motion is not grounded
-              on it: faces, wardrobe and pose can drift from what the caption says. Keep a{" "}
-              <code>{"{#scene}…{/scene}"}</code> section to prevent that.
+          {motionIsLegacy && (
+            <Alert severity="info" sx={{ mt: 1, maxWidth: 900 }}>
+              This is a whole motion prompt saved before these editors existed. It is still sent
+              exactly as written, with no capture style and no scene grounding. Edit it, or Reset
+              to default, and save to switch to instructions; the capture style and grounding are
+              then added for you.
             </Alert>
-          )}
-
-          {/* The legend. From the API, so it cannot drift from what the renderer accepts. */}
-          {Object.keys(motionPlaceholders).length > 0 && (
-            <Box component="dl" sx={{ mt: 1.5, mb: 0, maxWidth: 900, display: "grid",
-              gridTemplateColumns: "max-content 1fr", columnGap: 2, rowGap: 0.5 }}>
-              {Object.entries(motionPlaceholders).map(([token, meaning]) => (
-                <Fragment key={token}>
-                  <Typography component="dt" variant="caption" sx={{ fontFamily: "monospace" }}>
-                    {token}
-                  </Typography>
-                  <Typography component="dd" variant="caption" color="text.secondary" sx={{ m: 0 }}>
-                    {meaning}
-                  </Typography>
-                </Fragment>
-              ))}
-            </Box>
           )}
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
             Both prompts are saved with Save at the bottom of the page.

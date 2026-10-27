@@ -862,14 +862,18 @@ export interface AppSettingsResponse {
   caption_style_prompts?: Record<string, string>;
   /** The motion half (#326). Same style/custom pattern as the caption pair above. */
   motion_style: MotionStyle;
-  /** The saved motion TEMPLATE (console#555); "" means `motion_template_default`. */
+  /** The saved motion INSTRUCTIONS (console#573): plain text, no placeholders; "" means
+   *  `motion_instruction_default`. The API adds the capture-style sentence and, when there
+   *  is a scene caption, the grounding. A saved #555 template arrives already migrated. */
   motion_instruction: string;
+  /** A pre-#555 whole-prompt override still in force: sent exactly as written, with no
+   *  style sentence and no grounding. "" when there is none. Saving `motion_instruction`
+   *  replaces it; a save that omits `motion_instruction` leaves it alone. */
+  motion_legacy_prompt: string;
   motion_style_prompts?: Record<string, string>;
-  /** Read-only (console#555): the template "" stands for. Pre-fills the editor, and Reset
-   *  goes back to it. */
-  motion_template_default: string;
-  /** Read-only: placeholder -> what it means, for the editor's legend. */
-  motion_placeholders: Record<string, string>;
+  /** Read-only: the instructions "" stands for. Pre-fills the editor, and Reset goes back to
+   *  it. */
+  motion_instruction_default: string;
   /** The API's cap on either prompt, in characters. */
   prompt_max_length: number;
 }
@@ -880,7 +884,8 @@ export interface CaptionTryBody {
   caption_style?: string;
   caption_instruction?: string;
   motion_style?: string;
-  motion_template?: string;
+  /** Plain instructions, as the editor saves them (console#573). */
+  motion_instruction?: string;
 }
 
 export interface CaptionTryResult {
@@ -891,7 +896,8 @@ export interface CaptionTryResult {
   motion_words: number;
   motion_error: string | null;
   motion_enabled: boolean;
-  /** The exact text sent to the captioner, placeholders filled in. */
+  /** The exact, full text sent to the captioner: for motion, the instructions with the
+   *  capture-style sentence and grounding the API adds. */
   caption_instruction_used: string;
   motion_instruction_used: string | null;
 }

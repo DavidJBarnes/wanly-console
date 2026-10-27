@@ -1,17 +1,23 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  Alert, Box, Button, Card, CardContent, CircularProgress, IconButton, InputAdornment,
-  TextField, Typography,
+  Alert, Box, Button, Card, CardContent, CircularProgress, InputAdornment, TextField, Typography,
 } from "@mui/material";
 import { Search as SearchIcon } from "@mui/icons-material";
 
-import { getFileUrl, searchImages, tryCaptionPrompts } from "../api/client";
+import {
+  getFileUrl, getImageFolder, getImageFolders, searchImages, tryCaptionPrompts,
+} from "../api/client";
 import type { CaptionTryResult, ImageFile } from "../api/types";
 import { apiError } from "../lib/apiError";
-import { draftMatchesSaved, draftTryBody, imagePathProblem } from "../lib/captionPrompts";
+import {
+  draftMatchesSaved, draftTryBody, finderEmptyMessage, imagePathProblem, looksLikeS3Path,
+  recentRepoImages,
+} from "../lib/captionPrompts";
 import { useSettingsStore } from "../stores/settingsStore";
 
 const SEARCH_LIMIT = 12;
+/** Long enough that typing a word is one request, short enough to feel like a search box. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 type Column = { result: CaptionTryResult | null; error: string | null };
 const EMPTY: Column = { result: null, error: null };
@@ -21,7 +27,9 @@ const EMPTY: Column = { result: null, error: null };
  *
  * Runs the editors' CURRENT, unsaved text on one image and shows it beside what the SAVED
  * prompts produce for the same image, so an edit can be judged before it replaces anything.
- * Nothing is stored: POST /images/scene/try never writes the image's description.
+ * Nothing is stored: POST /images/scene/try never writes the image's description. Each column
+ * shows the full text the captioner was sent -- for motion, the instructions WITH the style
+ * sentence and grounding the API adds (console#573) -- so nothing the editor hides is hidden.
  *
  * The two runs are made one after the other rather than together. They share one captioner
  * that does one caption at a time, and the API queues them anyway; firing both at once would
@@ -29,8 +37,11 @@ const EMPTY: Column = { result: null, error: null };
  * current text resolves to the saved prompts, the second run is skipped: it would be the same
  * prompt again, and the captioner's variance between two identical runs is not a comparison.
  *
- * The image is chosen from the repo by filename or description (the same /images/search the
- * Image Repo uses), or by pasting an s3:// path, which also covers a generated frame in the jobs bucket.
+ * THE FINDER (console#573) is a search box, not a form: it searches as you type (debounced,
+ * the same /images/search the Image Repo uses), and with nothing typed it shows the newest
+ * repo images, so a test image can be picked without searching at all. Pasting an s3:// path
+ * into it, or into the path box beside it, chooses that image directly -- which also covers a
+ * generated frame in the jobs bucket.
  */
 export default function PromptTryPanel({ disabledReason }: { disabledReason: string | null }) {
   const s = useSettingsStore();
@@ -43,24 +54,47 @@ export default function PromptTryPanel({ disabledReason }: { disabledReason: str
   const [draft, setDraft] = useState<Column>(EMPTY);
   const [saved, setSaved] = useState<Column>(EMPTY);
   const [sameAsSaved, setSameAsSaved] = useState(false);
+  // The newest images, fetched once: the empty box goes back to them without asking again.
+  const recent = useRef<ImageFile[] | null>(null);
+  // Only the latest request may set results; an earlier, slower one must not overwrite them.
+  const seq = useRef(0);
 
   const pathProblem = imagePathProblem(path);
+  const q = query.trim();
 
-  const search = async () => {
-    const q = query.trim();
-    if (!q) return;
-    setSearching(true);
-    setSearchError(null);
-    try {
-      // Filename or description fragment, the same `q` the Image Repo's search box sends.
-      const r = await searchImages({ q, limit: SEARCH_LIMIT });
-      setHits(r.items);
-    } catch (e) {
-      setSearchError(apiError(e, "Search failed"));
-    } finally {
-      setSearching(false);
-    }
-  };
+  useEffect(() => {
+    // A pasted path is not a query; onChange has already made it the image.
+    if (looksLikeS3Path(q)) return;
+    const mine = ++seq.current;
+    const load = async () => {
+      setSearching(true);
+      setSearchError(null);
+      try {
+        let items: ImageFile[];
+        if (q) {
+          // Filename or description fragment, the same `q` the Image Repo's search box sends.
+          items = (await searchImages({ q, limit: SEARCH_LIMIT })).items;
+        } else {
+          recent.current ??= await recentRepoImages(
+            (await getImageFolders()).map((f) => f.name), getImageFolder, SEARCH_LIMIT);
+          items = recent.current;
+        }
+        if (mine === seq.current) setHits(items);
+      } catch (e) {
+        if (mine === seq.current) {
+          setHits(null);
+          setSearchError(apiError(e, q ? "Search failed" : "Could not list recent images"));
+        }
+      } finally {
+        if (mine === seq.current) setSearching(false);
+      }
+    };
+    // The empty box loads at once; typing waits for a pause.
+    const timer = setTimeout(() => void load(), q ? SEARCH_DEBOUNCE_MS : 0);
+    return () => clearTimeout(timer);
+  }, [q]);
+
+  const emptyMessage = finderEmptyMessage(q, hits);
 
   const run = async () => {
     const p = path.trim();
@@ -70,13 +104,15 @@ export default function PromptTryPanel({ disabledReason }: { disabledReason: str
       captionDefault: s.captionStylePrompts[s.captionStyle] ?? "",
       motionStyle: s.motionStyle,
       motionDraft: s.motionDraft,
-      motionDefault: s.motionTemplateDefault,
+      motionDefault: s.motionInstructionDefault,
+      motionLegacy: s.motionLegacyPrompt,
     });
     const same = draftMatchesSaved(body, {
       captionStyle: s.savedCaptionStyle,
       captionOverride: s.captionInstruction,
       motionStyle: s.savedMotionStyle,
       motionOverride: s.motionInstruction,
+      motionLegacy: s.motionLegacyPrompt,
     });
     setDraft(EMPTY);
     setSaved(EMPTY);
@@ -116,23 +152,18 @@ export default function PromptTryPanel({ disabledReason }: { disabledReason: str
           <TextField
             size="small"
             label="Find an image (name or description)"
+            placeholder="Type to search, or pick a recent one below"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void search();
-              }
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (looksLikeS3Path(e.target.value)) setPath(e.target.value.trim());
             }}
             sx={{ flex: "1 1 220px" }}
             slotProps={{
               input: {
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton size="small" onClick={() => void search()}
-                      disabled={!query.trim() || searching} aria-label="Search images">
-                      {searching ? <CircularProgress size={16} /> : <SearchIcon fontSize="small" />}
-                    </IconButton>
+                    {searching ? <CircularProgress size={16} /> : <SearchIcon fontSize="small" />}
                   </InputAdornment>
                 ),
               },
@@ -147,28 +178,39 @@ export default function PromptTryPanel({ disabledReason }: { disabledReason: str
           />
         </Box>
         {searchError && <Alert severity="error" sx={{ mt: 1 }}>{searchError}</Alert>}
-        {hits && (
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 1 }}>
-            {hits.length === 0 && (
-              <Typography variant="body2" color="text.secondary">No images match.</Typography>
-            )}
-            {hits.map((img) => (
-              <Box
-                key={img.path}
-                component="button"
-                type="button"
-                onClick={() => setPath(img.path)}
-                title={img.filename}
-                sx={{
-                  p: 0, border: 2, borderRadius: 1, cursor: "pointer", background: "none",
-                  borderColor: img.path === path.trim() ? "primary.main" : "transparent",
-                }}
-              >
-                <Box component="img" src={getFileUrl(img.path)} alt={img.filename}
-                  loading="lazy"
-                  sx={{ width: 72, height: 72, objectFit: "cover", display: "block", borderRadius: 0.5 }} />
+        {!looksLikeS3Path(q) && (
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              {q ? "Matches, newest first" : "Most recent images"} · click one to use it
+            </Typography>
+            {emptyMessage ? (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                {emptyMessage}
+              </Typography>
+            ) : (
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 0.5 }}>
+                {(hits ?? []).map((img) => (
+                  <Box
+                    key={img.path}
+                    component="button"
+                    type="button"
+                    onClick={() => setPath(img.path)}
+                    title={img.filename}
+                    aria-label={`Use ${img.filename}`}
+                    aria-pressed={img.path === path.trim()}
+                    sx={{
+                      p: 0, border: 2, borderRadius: 1, cursor: "pointer", background: "none",
+                      borderColor: img.path === path.trim() ? "primary.main" : "transparent",
+                      opacity: searching ? 0.5 : 1,
+                    }}
+                  >
+                    <Box component="img" src={getFileUrl(img.path)} alt={img.filename}
+                      loading="lazy"
+                      sx={{ width: 72, height: 72, objectFit: "cover", display: "block", borderRadius: 0.5 }} />
+                  </Box>
+                ))}
               </Box>
-            ))}
+            )}
           </Box>
         )}
 
@@ -237,9 +279,11 @@ function ResultColumn({ title, column, busy }: { title: string; column: Column; 
               {r.motion_enabled ? "No motion description." : "Motion descriptions are switched off on the API."}
             </Typography>
           )}
-          <Box component="details" sx={{ mt: 1 }}>
-            <Typography component="summary" variant="caption" sx={{ cursor: "pointer" }}>
-              Exactly what was sent
+          {/* In full, not behind a toggle: the editors show only the instructions, and this is
+              where the style sentence and grounding the API adds can be seen (console#573). */}
+          <Box sx={{ mt: 1.5, pt: 1, borderTop: 1, borderColor: "divider" }}>
+            <Typography variant="overline" color="text.secondary">
+              Sent to the captioner
             </Typography>
             <PromptText label="Caption" text={r.caption_instruction_used} />
             {r.motion_instruction_used && (

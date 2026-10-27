@@ -1,8 +1,8 @@
 /**
- * The Settings editors for the captioner's two prompts (console#555).
+ * The Settings editors for the captioner's two prompts (console#555, console#573).
  *
  * The API owns every piece of default text (GET /settings returns each caption style's prompt
- * and the default motion template); nothing here restates any of it. What lives here is the
+ * and the default motion instructions); nothing here restates any of it. What lives here is the
  * bookkeeping between three things that are easy to confuse:
  *
  *   draft     what is in the editor now. Pre-filled with the EFFECTIVE text, so you can see
@@ -11,12 +11,11 @@
  *   override  what gets SAVED: "" whenever the draft is the default, so saving an untouched
  *             page never pins today's wording against a later improvement (the API applies the
  *             same rule; this keeps the request honest too).
+ *
+ * Both editors hold plain sentences only (console#573). The motion prompt used to be a template
+ * with {scene}, {style} and {#scene}…{/scene}; the API now adds the capture-style sentence and
+ * the scene grounding itself, so there is no syntax to validate or warn about here.
  */
-
-/** The motion template's placeholders, exactly as wanly-api's renderer knows them. */
-const KNOWN_PLACEHOLDERS = new Set(["scene", "style", "#scene", "/scene"]);
-/** `{identifier}`, optionally `{#…}` / `{/…}`. Anything else in braces is literal text. */
-const PLACEHOLDER = /\{([#/]?[A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 /** The text the editor starts from: the saved override, or the default it stands in for. */
 export function effectiveText(override: string, defaultText: string): string {
@@ -57,41 +56,31 @@ export function draftAfterStyleChange(draft: string, oldDefault: string, newDefa
   return isModified(draft, oldDefault) ? draft : newDefault;
 }
 
-/**
- * Why wanly-api would refuse this motion template with a 422, or null if it would not.
- *
- * A mirror of `validate_motion_template`, so the editor can say so while you type rather than
- * on Save. The API stays the authority; if the two ever disagree, its message is shown.
- */
-export function motionTemplateProblem(template: string): string | null {
-  const tokens = [...template.matchAll(PLACEHOLDER)].map((m) => m[1]);
-  const unknown = [...new Set(tokens.filter((t) => !KNOWN_PLACEHOLDERS.has(t)))].sort();
-  if (unknown.length) {
-    const list = unknown.map((t) => `{${t}}`).join(", ");
-    return `Unknown placeholder${unknown.length > 1 ? "s" : ""} ${list}. `
-      + "The motion prompt understands {scene}, {style} and {#scene}…{/scene}.";
-  }
-  let open = false;
-  for (const t of tokens) {
-    if (t === "#scene") {
-      if (open) return "{#scene} sections cannot be nested: close the first with {/scene}.";
-      open = true;
-    } else if (t === "/scene") {
-      if (!open) return "{/scene} has no matching {#scene} before it.";
-      open = false;
-    }
-  }
-  return open ? "{#scene} is never closed: add {/scene} where the section ends." : null;
-}
-
 /** A length problem against the API's cap, or null. */
 export function lengthProblem(text: string, max: number): string | null {
   return text.length > max ? `${text.length} characters; the limit is ${max}.` : null;
 }
 
-/** Whether the grounding section is still in the template (the warning an edit can earn). */
-export function keepsGrounding(template: string): boolean {
-  return template.includes("{#scene}") || template.includes("{scene}");
+/**
+ * The motion override to send, or undefined to leave the saved one alone.
+ *
+ * A pre-#555 whole prompt (`legacy`) is still in force until the motion prompt is saved, and
+ * the editor is pre-filled with it so you can see it. Saving the page for some other reason
+ * must not quietly turn it into instructions -- which would wrap it in a style sentence and
+ * the grounding and change what the captioner reads -- so while the draft is still that text,
+ * nothing is sent for it.
+ */
+export function motionToSend(draft: string, defaultText: string, legacy: string): string | undefined {
+  if (legacy.trim() && draft.trim() === legacy.trim()) return undefined;
+  return overrideToSave(draft, defaultText);
+}
+
+/** Whether saving now would change the stored motion override. */
+export function motionHasUnsavedChange(
+  draft: string, defaultText: string, savedOverride: string, legacy: string,
+): boolean {
+  if (legacy.trim()) return motionToSend(draft, defaultText, legacy) !== undefined;
+  return hasUnsavedChange(draft, defaultText, savedOverride);
 }
 
 export interface TryDraft {
@@ -101,13 +90,15 @@ export interface TryDraft {
   motionStyle: string;
   motionDraft: string;
   motionDefault: string;
+  /** A pre-#555 whole prompt still in force, or "". */
+  motionLegacy: string;
 }
 
 export interface TryBody {
   caption_style?: string;
   caption_instruction?: string;
   motion_style?: string;
-  motion_template?: string;
+  motion_instruction?: string;
 }
 
 /**
@@ -115,22 +106,29 @@ export interface TryBody {
  *
  * Every field is sent, because omitting one means "the saved value" to the API, and the point
  * of this column is the page as it stands. A draft equal to the default goes as "", which the
- * API reads as "the default", the same thing saving it would do.
+ * API reads as "the default", the same thing saving it would do. The one omission is the
+ * motion draft while it is still a legacy whole prompt: omitted is how the API is told to use
+ * that prompt, exactly as saving the page would leave it.
  */
 export function draftTryBody(d: TryDraft): TryBody {
-  return {
+  const body: TryBody = {
     caption_style: d.captionStyle,
     caption_instruction: overrideToSave(d.captionDraft, d.captionDefault),
     motion_style: d.motionStyle,
-    motion_template: overrideToSave(d.motionDraft, d.motionDefault),
   };
+  const motion = motionToSend(d.motionDraft, d.motionDefault, d.motionLegacy);
+  if (motion !== undefined) body.motion_instruction = motion;
+  return body;
 }
 
 export interface SavedPrompts {
   captionStyle: string;
   captionOverride: string;
   motionStyle: string;
+  /** The saved motion instructions ("" = the default). */
   motionOverride: string;
+  /** A pre-#555 whole prompt in force, or "". */
+  motionLegacy: string;
 }
 
 /**
@@ -145,9 +143,12 @@ export function draftMatchesSaved(body: TryBody, saved: SavedPrompts): boolean {
   const sameCaption = caption.trim() || saved.captionOverride.trim()
     ? caption.trim() === saved.captionOverride.trim()
     : body.caption_style === saved.captionStyle;
-  const motion = body.motion_template ?? "";
-  // {style} can appear in an override too, so the motion style always matters.
-  const sameMotion = motion.trim() === saved.motionOverride.trim()
+  // Omitted means "the saved motion prompt", whatever it is. Otherwise compare the text; the
+  // API adds the style sentence to any instructions, so the motion style always matters.
+  // Any text sent while a legacy whole prompt is saved replaces it, so it cannot match.
+  const sameMotion = (body.motion_instruction === undefined
+    || (!saved.motionLegacy.trim()
+      && body.motion_instruction.trim() === saved.motionOverride.trim()))
     && body.motion_style === saved.motionStyle;
   return sameCaption && sameMotion;
 }
@@ -158,4 +159,48 @@ export function imagePathProblem(path: string): string | null {
   if (!p) return "Choose an image or paste its s3:// path.";
   if (!/^s3:\/\/[^/]+\/.+/.test(p)) return "That is not an s3:// path (s3://bucket/key).";
   return null;
+}
+
+/** Whether text in the finder box is really a pasted s3:// path, to be used as the image. */
+export function looksLikeS3Path(text: string): boolean {
+  return imagePathProblem(text) === null;
+}
+
+/** An image in a repo listing: all the finder needs to show and choose one. */
+export interface FinderImage {
+  path: string;
+  filename: string;
+  last_modified: string;
+}
+
+/**
+ * The most recent repo images, for the finder's empty-box state (console#573).
+ *
+ * There is no "recent images" endpoint and /images/search refuses an empty query (an
+ * unfiltered search is the folder listing), so this IS the folder listing: GET /images/folders
+ * comes back newest folder first, and the newest few folders are opened until `limit` images
+ * are in hand. Newest image first across them, because a folder's own listing is in key order.
+ * `maxFolders` bounds the requests when the newest folders are nearly empty.
+ */
+export async function recentRepoImages<T extends FinderImage>(
+  folderNames: string[],
+  listFolder: (name: string) => Promise<T[]>,
+  limit: number,
+  maxFolders = 3,
+): Promise<T[]> {
+  const found: T[] = [];
+  for (const name of folderNames.slice(0, maxFolders)) {
+    found.push(...(await listFolder(name)));
+    if (found.length >= limit) break;
+  }
+  return found
+    .sort((a, b) => b.last_modified.localeCompare(a.last_modified))
+    .slice(0, limit);
+}
+
+/** What the finder says when there are no thumbnails to show, or null when there are. */
+export function finderEmptyMessage(query: string, hits: FinderImage[] | null): string | null {
+  if (hits === null || hits.length > 0) return null;
+  const q = query.trim();
+  return q ? `No images match “${q}”.` : "The image repo has no images yet.";
 }
