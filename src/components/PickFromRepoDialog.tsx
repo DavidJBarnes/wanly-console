@@ -15,6 +15,8 @@ import type { ImageFile, ImageFolder } from "../api/types";
  * open a folder, or search by filename/description -- reduced to a single choice, because a
  * character has one sheet. The image is referenced by its s3:// path; nothing is copied.
  */
+const PAGE = 48;
+
 export default function PickFromRepoDialog({
   title, onClose, onPick,
 }: { title: string; onClose: () => void; onPick: (path: string) => void }) {
@@ -23,9 +25,13 @@ export default function PickFromRepoDialog({
   const [images, setImages] = useState<ImageFile[]>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ImageFile[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // The query a response belongs to: a slow page for "gen" must not land under "gena".
+  const committed = useRef("");
 
   useEffect(() => {
     getImageFolders().then(setFolders).catch(() => setError("could not load the repo folders"));
@@ -36,16 +42,39 @@ export default function PickFromRepoDialog({
     setQuery(q);
     if (debounce.current) clearTimeout(debounce.current);
     if (!q.trim()) {
+      committed.current = "";
       setResults(null);
       return;
     }
     debounce.current = setTimeout(() => {
+      const term = q.trim();
+      committed.current = term;
       setLoading(true);
-      searchImages({ q: q.trim(), limit: 48, offset: 0 })
-        .then((r) => setResults(r.items))
+      searchImages({ q: term, limit: PAGE, offset: 0 })
+        .then((r) => {
+          if (committed.current !== term) return;
+          setResults(r.items);
+          setTotal(r.total);
+        })
         .catch(() => setError("could not search the repo"))
         .finally(() => setLoading(false));
     }, 300);
+  };
+
+  // console#699: the search used to stop at the first page with no sign there was more.
+  // Appending rather than paging keeps every image seen so far on screen to compare.
+  const showMore = () => {
+    if (!results) return;
+    const term = committed.current;
+    setLoadingMore(true);
+    searchImages({ q: term, limit: PAGE, offset: results.length })
+      .then((r) => {
+        if (committed.current !== term) return;
+        setResults((prev) => [...(prev ?? []), ...r.items]);
+        setTotal(r.total);
+      })
+      .catch(() => setError("could not load more results"))
+      .finally(() => setLoadingMore(false));
   };
 
   const open = async (f: ImageFolder) => {
@@ -76,7 +105,7 @@ export default function PickFromRepoDialog({
       <DialogContent dividers>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         <TextField
-          size="small" fullWidth placeholder="Search by filename or description…"
+          size="small" fullWidth placeholder="Search by tag, filename or description…"
           value={query} onChange={(e) => onQuery(e.target.value)}
           slotProps={{
             input: {
@@ -118,6 +147,20 @@ export default function PickFromRepoDialog({
                 </Typography>
               </Box>
             ))}
+          </Box>
+        )}
+        {!loading && results !== null && results.length > 0 && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, pt: 2 }}>
+            <Typography variant="caption" color="text.secondary">
+              {results.length < total
+                ? `Showing ${results.length} of ${total}`
+                : `${total} image${total === 1 ? "" : "s"}`}
+            </Typography>
+            {results.length < total && (
+              <Button size="small" onClick={showMore} disabled={loadingMore}>
+                {loadingMore ? "Loading…" : "Show more"}
+              </Button>
+            )}
           </Box>
         )}
         {!loading && (results !== null || openFolder) && shown.length === 0 && (
