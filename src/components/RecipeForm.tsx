@@ -20,6 +20,7 @@ import {
 import {
   fill, hasPlaceholder, restorePlaceholders, submitPrompt, wants,
 } from "../lib/captionRegion";
+import { withTriggers } from "../lib/enhancedPrompt";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
 import {
   buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor,
@@ -184,6 +185,8 @@ export default function RecipeForm({
   // a dependency — that would re-render the template, discarding the user's edits, every
   // time a description arrived.
   const [savedScene, setSavedScene] = useState<string | null>(null);
+  // The start frame's enhanced prompt (wanly-api#480), offered as "Use enhanced prompt".
+  const [savedEnhanced, setSavedEnhanced] = useState<string | null>(null);
   const savedSceneRef = useRef<string | null>(null);
   savedSceneRef.current = savedScene;
 
@@ -405,6 +408,7 @@ export default function RecipeForm({
 
   useEffect(() => {
     setSavedScene(null);
+    setSavedEnhanced(null);
     setSceneLookedUpFor(null);
     setJoining(false);
     if (!describePath) return;
@@ -417,6 +421,7 @@ export default function RecipeForm({
           // A scene in flight is not saved words yet: the words about to land are the ones
           // the modal is showing. Ask again shortly.
           const flying = sceneInFlight(s);
+          setSavedEnhanced(s.enhanced_prompt ?? null);
           if (!flying) {
             setSavedScene(s.scene_description);
             setSceneLookedUpFor(describePath);
@@ -825,6 +830,24 @@ export default function RecipeForm({
                       ? "The previous segment has not rendered yet, so there is no frame to describe. It is described automatically when this segment runs."
                       : "Pick a start frame first."
                   : `Words are saved on the frame, so they are free next time.${waitsNote}`}
+              </Typography>
+            </Stack>
+          )}
+          {/* The start frame's enhanced prompt (wanly-api#480), made in the Image Repo modal.
+              A button, not an auto-fill: it REPLACES the pose's prompt, so it is a choice --
+              and it keeps the characters' trigger phrases in front (lib/enhancedPrompt). */}
+          {savedEnhanced && (
+            <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => setPrompt(withTriggers(triggersOf(filledSlots), savedEnhanced))}
+              >
+                Use enhanced prompt
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                This frame has an enhanced prompt ({savedEnhanced.trim().split(/\s+/).length} words).
+                Using it replaces the pose&apos;s prompt; the character trigger stays in front.
               </Typography>
             </Stack>
           )}

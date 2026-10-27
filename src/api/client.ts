@@ -23,6 +23,7 @@ import type {
   ImageFolder,
   ImageFile,
   ImageScene,
+  EnhancePromptResult,
   ImageJobInfo,
   ImageSearchResponse,
   TagCount,
@@ -855,6 +856,18 @@ export async function uploadImage(file: File, folder: string): Promise<{ path: s
  */
 export async function getImageScene(path: string): Promise<ImageScene> {
   const { data } = await api.get<ImageScene>("/images/scene", { params: { path } });
+  return data;
+}
+
+/**
+ * Send an image and its scene description to the Sulphur-2 prompt enhancer and keep the video
+ * prompt it writes on the image (wanly-api#480). Synchronous: the enhancer loads per request on
+ * the 2070 (it takes turns with the scene captioner), so a cold call is ~30 s and a warm one
+ * less. 409 when the image has no scene description yet; 503 when the enhancer is off or down.
+ */
+export async function enhanceImagePrompt(path: string): Promise<EnhancePromptResult> {
+  const { data } = await api.post<EnhancePromptResult>("/images/enhance-prompt", null,
+    { params: { path }, timeout: 15 * 60 * 1000 });
   return data;
 }
 

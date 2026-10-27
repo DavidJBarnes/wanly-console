@@ -903,6 +903,10 @@ export interface ImageFile {
    *  same as a description that came back empty (nothing stores one of those). */
   scene_description: string | null;
   scene_described_at: string | null;
+  /** The Sulphur-2 prompt enhancer's video prompt (wanly-api#480). Null = never enhanced;
+   *  optional for an API that predates it. */
+  enhanced_prompt?: string | null;
+  enhanced_prompt_at?: string | null;
 }
 
 /** What a worker box is running right now, read from the box itself (gpu-docker#131).
@@ -1084,6 +1088,10 @@ export interface ImageScene {
    *  are different artefacts. */
   scene_instruction: string | null;
   scene_described_at: string | null;
+  /** The Sulphur-2 prompt enhancer's video prompt (wanly-api#480). Null = never enhanced;
+   *  optional for an API that predates it. */
+  enhanced_prompt?: string | null;
+  enhanced_prompt_at?: string | null;
   /** Length is the thing being judged: the description sits beside a ~100-word arc. */
   words: number;
   /** WHERE THIS IMAGE SITS IN THE CAPTION QUEUE (wanly-api caption_queue).
@@ -1429,4 +1437,15 @@ export interface CharacterFull {
   runs: DatasetRun[];
   members: CharacterRef[];
   pairs: CharacterRef[];
+}
+
+/** POST /images/enhance-prompt (wanly-api#480). */
+export interface EnhancePromptResult {
+  path: string;
+  enhanced_prompt: string;
+  enhanced_prompt_at: string;
+  words: number;
+  /** How long the enhancer took, and whether it had to load the model first. */
+  ms: number | null;
+  cold: boolean;
 }
