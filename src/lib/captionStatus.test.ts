@@ -2,22 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import type { CaptionQueueStatus, CaptionTicket } from "../api/types";
 import {
-  type CaptionHalfName, captionKey, captionLabel, captionPending, captionTooltip, halfActions,
-  halvesInFlight, type ImageCaptionStatus, motionNeedsRegrounding, newlyDone,
-  requestedByNote, sameStatus, statusesFromQueue, ticketHalf,
+  captionKey, captionLabel, captionPending, captionTooltip, type ImageCaptionStatus, newlyDone,
+  requestedByNote, sameStatus, sceneAction, sceneInFlight, statusesFromQueue, ticketHalf,
 } from "./captionStatus";
 
 const A = "s3://wanly-images/2026-10-01/a.png";
 const B = "s3://wanly-images/2026-10-01/b.png";
 const C = "s3://wanly-images/2026-10-01/c.png";
 const sceneOf = (p: string) => captionKey(p, "scene");
-const motionOf = (p: string) => captionKey(p, "motion");
 
 function ticket(over: Partial<CaptionTicket>): CaptionTicket {
   return {
     path: A, ticket_id: "t1", status: "queued", position: 1, depth: 1, half: "scene",
-    mode: "scene", origin: "describe", error: null, busy: false, motion_error: null,
-    joined: false, created_at: null, started_at: null, finished_at: null, ...over,
+    mode: "scene", origin: "describe", error: null, busy: false, joined: false, created_at: null, started_at: null, finished_at: null, ...over,
   };
 }
 
@@ -52,9 +49,10 @@ describe("statusesFromQueue (console#564), per half (console#590)", () => {
     expect(m.get(sceneOf(A))?.state).toBe("running");
     expect(m.get(sceneOf(B))).toMatchObject({ state: "queued", position: 1, depth: 3 });
     expect(m.get(sceneOf(C))?.position).toBe(2);
-    // The motion of the same image is its own status, in its own lane.
-    expect(m.get(motionOf(A))).toMatchObject({ half: "motion", state: "running", depth: 1 });
-    expect(m.get(motionOf(B))).toBeUndefined();
+    // A motion-lane entry from an API that still has one is not shown (wanly-api#481), and
+    // does not displace the scene's status.
+    expect(m.get(sceneOf(A))).toMatchObject({ half: "scene", ticketId: "ta", depth: 3 });
+    expect(m.size).toBe(3);
   });
 
   it("ignores captions that never land on the image", () => {
@@ -80,8 +78,8 @@ describe("statusesFromQueue (console#564), per half (console#590)", () => {
       ],
     }));
     expect(m.get(sceneOf(A))?.state).toBe("queued");   // re-described after a failure
-    // ...and its failed motion is still there to retry, on its own.
-    expect(m.get(motionOf(A))).toMatchObject({ state: "failed", error: "timed out" });
+    // ...and a failed motion ticket is dropped, not shown as a scene failure.
+    expect([...m.values()].some((x) => x.error === "timed out")).toBe(false);
     expect(m.get(sceneOf(B))).toMatchObject({ state: "failed", error: "render mode", busy: true });
     expect(m.get(sceneOf(C))?.state).toBe("done");
   });
@@ -103,9 +101,9 @@ describe("statusesFromQueue (console#564), per half (console#590)", () => {
     const asker = [{ job_id: "j1", name: "Beach walk" }];
     const m = statusesFromQueue(queue({
       entries: [{ path: A, kind: "hold", status: "queued", position: 1, ticket_id: "h",
-        lane: "motion", requested_by: asker }],
+        lane: "scene", requested_by: asker }],
     }));
-    expect(m.get(motionOf(A))?.requestedBy).toEqual(asker);
+    expect(m.get(sceneOf(A))?.requestedBy).toEqual(asker);
   });
 
   it("copes with an API older than tickets, and older than halves", () => {
@@ -122,32 +120,31 @@ describe("statusesFromQueue (console#564), per half (console#590)", () => {
 });
 
 describe("ticketHalf", () => {
-  it("reads the half, falling back to the old mode", () => {
-    expect(ticketHalf({ half: "motion", mode: "motion" })).toBe("motion");
+  it("reads the half, falling back to the old mode; motion is not a half any more", () => {
+    expect(ticketHalf({ half: "scene", mode: "scene" })).toBe("scene");
     expect(ticketHalf({ half: undefined, mode: "pair" })).toBe("scene");
-    expect(ticketHalf({ half: undefined, mode: "motion" })).toBe("motion");
+    expect(ticketHalf({ half: "motion", mode: "motion" })).toBeNull();
+    expect(ticketHalf({ half: undefined, mode: "motion" })).toBeNull();
   });
 });
 
 describe("newlyDone", () => {
-  it("is the images a half was seen to finish for, each once", () => {
+  it("is the images a caption was seen to finish for", () => {
     const prev = new Map([
-      [sceneOf(A), st("running")], [motionOf(A), st("queued", { half: "motion" })],
-      [sceneOf(B), st("queued")], [sceneOf(C), st("queued")],
+      [sceneOf(A), st("running")], [sceneOf(B), st("queued")], [sceneOf(C), st("queued")],
     ]);
     const next = new Map([
       [sceneOf(A), st("done", { finishedAt: "t1" })],
-      [motionOf(A), st("done", { half: "motion", finishedAt: "t2" })],
       [sceneOf(B), st("failed", { finishedAt: "t1" })], [sceneOf(C), st("queued")],
     ]);
     expect(newlyDone(prev, next)).toEqual([A]);
   });
 
-  it("counts a second finish of the same half (a redo)", () => {
-    const prev = new Map([[motionOf(A), st("done", { half: "motion", finishedAt: "t1" })]]);
-    expect(newlyDone(prev, new Map([[motionOf(A), st("done", { half: "motion", finishedAt: "t2" })]])))
+  it("counts a second finish (a redo)", () => {
+    const prev = new Map([[sceneOf(A), st("done", { finishedAt: "t1" })]]);
+    expect(newlyDone(prev, new Map([[sceneOf(A), st("done", { finishedAt: "t2" })]])))
       .toEqual([A]);
-    expect(newlyDone(prev, new Map([[motionOf(A), st("done", { half: "motion", finishedAt: "t1" })]])))
+    expect(newlyDone(prev, new Map([[sceneOf(A), st("done", { finishedAt: "t1" })]])))
       .toEqual([]);
   });
 
@@ -158,13 +155,13 @@ describe("newlyDone", () => {
 });
 
 describe("the pill's words", () => {
-  const s = (state: ImageCaptionStatus["state"], position: number | null = null,
-    half: CaptionHalfName = "scene") => st(state, { position, half, ticketId: null });
+  const s = (state: ImageCaptionStatus["state"], position: number | null = null) =>
+    st(state, { position, ticketId: null });
 
   it("says which half, where it is, that it is running, or that it failed", () => {
     expect(captionLabel(s("queued", 3))).toBe("Scene: In queue (#3)");
-    expect(captionLabel(s("running", 0, "motion"))).toBe("Motion: Captioning…");
-    expect(captionLabel(s("failed", null, "motion"))).toBe("Motion: Failed: retry");
+    expect(captionLabel(s("running", 0))).toBe("Scene: Captioning…");
+    expect(captionLabel(s("failed", null))).toBe("Scene: Failed: retry");
   });
 
   it("says nothing once the words are there", () => {
@@ -173,8 +170,8 @@ describe("the pill's words", () => {
   });
 
   it("puts the reassurance and the reason in the tooltip, not beside the pill", () => {
-    expect(captionTooltip(s("queued", 2, "motion"))).toContain("carries on if you close this");
-    expect(captionTooltip(s("queued", 2, "motion"))).toContain("motion caption queue");
+    expect(captionTooltip(s("queued", 2))).toContain("carries on if you close this");
+    expect(captionTooltip(s("queued", 2))).toContain("scene caption queue");
     expect(captionTooltip(st("failed", { error: "timed out" }))).toContain("timed out");
     expect(captionTooltip(st("failed", { error: "x" }))).not.toContain("carries on");
   });
@@ -189,7 +186,7 @@ describe("the pill's words", () => {
   it("compares field for field", () => {
     expect(sameStatus(s("queued", 1), s("queued", 1))).toBe(true);
     expect(sameStatus(s("queued", 1), s("queued", 2))).toBe(false);
-    expect(sameStatus(s("queued", 1), s("queued", 1, "motion"))).toBe(false);
+    expect(sameStatus(s("queued", 1), s("failed", 1))).toBe(false);
     expect(sameStatus(undefined, s("queued", 1))).toBe(false);
   });
 });
@@ -197,13 +194,12 @@ describe("the pill's words", () => {
 describe("requestedByNote (console#590)", () => {
   it("names the job that asked for a caption nobody clicked for", () => {
     expect(requestedByNote(st("queued", {
-      half: "motion", requestedBy: [{ job_id: "abc", name: "Beach walk" }],
-    }))).toBe("Motion requested by job Beach walk");
+      requestedBy: [{ job_id: "abc", name: "Beach walk" }],
+    }))).toBe("Scene requested by job Beach walk");
     expect(requestedByNote(st("queued", {
-      half: "motion",
       requestedBy: [{ job_id: "a", name: "One" }, { job_id: "b", name: "Two" },
         { job_id: "c1234567890", name: null }],
-    }))).toBe("Motion requested by jobs One, Two and c1234567");
+    }))).toBe("Scene requested by jobs One, Two and c1234567");
   });
 
   it("is silent when a person asked", () => {
@@ -212,77 +208,33 @@ describe("requestedByNote (console#590)", () => {
   });
 });
 
-describe("motionNeedsRegrounding (console#590)", () => {
-  const img = (sceneAt: string | null, motionAt: string | null) => ({
-    scene_description: "a woman on a pier", scene_described_at: sceneAt,
-    motion_description: "she turns", motion_described_at: motionAt,
+describe("sceneAction (console#590)", () => {
+  it("offers Describe on a fresh image and Redo scene once there are words", () => {
+    expect(sceneAction({ scene: null })).toMatchObject({ label: "Describe", disabled: false });
+    expect(sceneAction({ scene: "a pier" })).toMatchObject({ label: "Redo scene", disabled: false });
   });
 
-  it("says so when the scene was redone after the motion was made", () => {
-    expect(motionNeedsRegrounding(img("2026-10-02T10:05:00Z", "2026-10-02T10:00:00Z"))).toBe(true);
+  it("disables -- never relabels -- the scene in flight", () => {
+    const act = sceneAction({ scene: "a pier", sceneStatus: st("queued", { position: 2 }) });
+    expect(act).toMatchObject({ label: "Redo scene", disabled: true });
+    expect(act.why).toContain("already being captioned");
   });
 
-  it("is quiet for a motion made after (or with) its scene", () => {
-    expect(motionNeedsRegrounding(img("2026-10-02T10:00:00Z", "2026-10-02T10:05:00Z"))).toBe(false);
-    expect(motionNeedsRegrounding(img("2026-10-02T10:00:00Z", "2026-10-02T10:00:00Z"))).toBe(false);
-  });
-
-  it("is quiet when either half is missing", () => {
-    expect(motionNeedsRegrounding({ ...img("2026-10-02T10:05:00Z", null) })).toBe(false);
-    expect(motionNeedsRegrounding({
-      ...img("2026-10-02T10:05:00Z", "2026-10-02T10:00:00Z"), motion_description: null,
-    })).toBe(false);
+  it("re-enables a failed scene for its retry", () => {
+    expect(sceneAction({ scene: null, sceneStatus: st("failed") }).disabled).toBe(false);
   });
 });
 
-describe("halfActions (console#590)", () => {
-  it("offers Describe and Describe motion on a fresh image, motion waiting for a scene", () => {
-    const [scene, motion] = halfActions({ scene: null, motion: null });
-    expect(scene).toMatchObject({ label: "Describe", disabled: false });
-    expect(motion).toMatchObject({ label: "Describe motion", disabled: true });
-    expect(motion.why).toContain("scene first");
+describe("sceneInFlight (console#590)", () => {
+  it("reads the scene's ticket, ignoring any motion one", () => {
+    expect(sceneInFlight({ queue_status: "running", scene_caption: { status: "done" } }))
+      .toBe(false);
+    expect(sceneInFlight({ scene_caption: { status: "queued" } })).toBe(true);
+    expect(sceneInFlight({ scene_caption: null })).toBe(false);
   });
 
-  it("lets motion be asked for while the scene is on its way", () => {
-    const [, motion] = halfActions({ scene: null, motion: null, sceneStatus: st("running") });
-    expect(motion.disabled).toBe(false);
-  });
-
-  it("offers a redo per half", () => {
-    const [scene, motion] = halfActions({ scene: "a pier", motion: "she turns" });
-    expect(scene.label).toBe("Redo scene");
-    expect(motion.label).toBe("Redo motion");
-  });
-
-  it("disables -- never relabels -- a half in flight, leaving the other alone", () => {
-    const [scene, motion] = halfActions({
-      scene: "a pier", motion: "she turns",
-      motionStatus: st("queued", { half: "motion", position: 2 }),
-    });
-    expect(scene.disabled).toBe(false);
-    expect(motion).toMatchObject({ label: "Redo motion", disabled: true });
-  });
-
-  it("re-enables a failed half for its retry", () => {
-    const [, motion] = halfActions({
-      scene: "a pier", motion: null, motionStatus: st("failed", { half: "motion" }),
-    });
-    expect(motion.disabled).toBe(false);
-  });
-});
-
-describe("halvesInFlight (console#590)", () => {
-  it("reads each half's ticket", () => {
-    expect(halvesInFlight({
-      queue_status: "running", scene_caption: { status: "done" },
-      motion_caption: { status: "running" },
-    })).toEqual({ scene: false, motion: true });
-    expect(halvesInFlight({ scene_caption: null, motion_caption: null }))
-      .toEqual({ scene: false, motion: false });
-  });
-
-  it("treats an API older than the split as both halves", () => {
-    expect(halvesInFlight({ queue_status: "queued" })).toEqual({ scene: true, motion: true });
-    expect(halvesInFlight({ queue_status: null })).toEqual({ scene: false, motion: false });
+  it("treats an API older than the split as the scene", () => {
+    expect(sceneInFlight({ queue_status: "queued" })).toBe(true);
+    expect(sceneInFlight({ queue_status: null })).toBe(false);
   });
 });

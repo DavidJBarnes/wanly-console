@@ -8,6 +8,7 @@
  * by another job's hold -- because the second would overwrite the first with different words.
  */
 import type { ImageScene } from "../api/types";
+import { modeWord } from "./workerModes";
 
 /** Held on its caption: waiting, or failed and waiting on a person. Never claimed. */
 export const isCaptionHeld = (status: string): boolean =>
@@ -34,7 +35,7 @@ export function joinNote(
   return n > 0 ? `In caption queue (#${n})` : "In caption queue";
 }
 
-/** "needs the scene and motion" -- what a held job is waiting for (console#587). */
+/** "needs the scene" -- what a held job is waiting for (console#587). */
 export function needsNote(needs: readonly string[] | null | undefined): string | null {
   if (!needs || needs.length === 0) return null;
   return `needs the ${needs.join(" and ")}`;
@@ -42,7 +43,7 @@ export function needsNote(needs: readonly string[] | null | undefined): string |
 
 /**
  * One line for a caption-held job or segment: where its image's caption is, and what it is
- * waiting for. "In caption queue (#3) · needs the scene and motion".
+ * waiting for. "In caption queue (#3) · needs the scene".
  */
 export function holdPlace(d: {
   queue_status?: string | null; queue_position?: number | null;
@@ -82,11 +83,12 @@ export function holdSummary(s: {
 }
 
 /**
- * "No GPU in motion mode" when a hold's note says no box is in the mode its caption needs
+ * "No GPU in caption mode" when a hold's note says no box is in the mode its caption needs
  * (wanly-api#392), else null. The chip on the job row says this instead of "Waiting for
- * caption…", because it is the one wait a person has to end by switching a box.
+ * caption…", because it is the one wait a person has to end by switching a box. The mode is
+ * named as the Workers page labels it: the API's "motion" is the Caption button there.
  */
 export function modeWaitLabel(note: string | null | undefined): string | null {
   const m = /no GPU in (\w+) mode/i.exec(note ?? "");
-  return m ? `No GPU in ${m[1].toLowerCase()} mode` : null;
+  return m ? `No GPU in ${modeWord(m[1])} mode` : null;
 }

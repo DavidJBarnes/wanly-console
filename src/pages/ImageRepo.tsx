@@ -97,10 +97,7 @@ import {
 } from "../lib/lightboxNav";
 import { createDeferredWrite, type DeferredWrite } from "../lib/deferredWrite";
 import CaptionStatusChip from "../components/CaptionStatusChip";
-import {
-  type CaptionHalfName, captionPending, halfActions, motionNeedsRegrounding, REGROUND_HINT,
-  requestedByNote,
-} from "../lib/captionStatus";
+import { type CaptionHalfName, captionPending, sceneAction } from "../lib/captionStatus";
 import {
   captionStatusNow, noteCaptionTicket, refreshCaptionStatus, useCaptionDone, useCaptionStatus,
 } from "../stores/captionStore";
@@ -220,10 +217,8 @@ export default function ImageRepo() {
   // modal may be showing a different image, and an error pinned to the wrong picture reads
   // as that picture having failed.
   const [sceneError, setSceneError] = useState<{ path: string; message: string } | null>(null);
-  // Each half on its own (console#590): the scene and the motion paragraph have their own
-  // tickets, chips, buttons and retry.
+  // The scene caption's own ticket, chip, button and retry (console#590).
   const lightboxScene = useCaptionStatus(lightboxImage?.path, "scene");
-  const lightboxMotion = useCaptionStatus(lightboxImage?.path, "motion");
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
   const [favoritesView, setFavoritesView] = useState(false);
@@ -651,12 +646,11 @@ export default function ImageRepo() {
   };
 
   /**
-   * Caption ONE HALF of an image and save it on its record (console#590).
+   * Caption an image's scene and save it on its record (console#590).
    *
-   * One function for every caller -- the tag's automatic first description (scene), the
-   * Describe / Redo scene / Describe motion / Redo motion buttons -- because they are the
-   * same act on a half. The endpoint always regenerates that half and never touches the
-   * other; which act this is was decided by whoever called.
+   * One function for every caller -- the tag's automatic first description, the Describe /
+   * Redo scene button, the retry -- because they are the same act. The endpoint always
+   * regenerates the scene; which act this is was decided by whoever called.
    *
    * Every view holding this image is updated, not just the modal: the grid, the favourites
    * list and the untagged list all carry their own copy of the row, and a description that
@@ -701,11 +695,6 @@ export default function ImageRepo() {
                   ...img,
                   scene_description: scene.scene_description,
                   scene_described_at: scene.scene_described_at,
-                  // Whichever half finished, both are read back: each is saved on its own
-                  // and neither ever clears the other (console#590), so the row is the
-                  // truth for both.
-                  motion_description: scene.motion_description,
-                  motion_described_at: scene.motion_described_at,
                 }
               : img;
           setImages((prev) => prev.map(patch));
@@ -742,9 +731,7 @@ export default function ImageRepo() {
         }
         setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
         // Tagging an image is the moment someone decided it was worth keeping, so it is the
-        // moment to describe it (console#414) -- its SCENE only (console#590): the motion
-        // paragraph is minutes of another GPU and waits for an explicit Describe motion or a
-        // job that needs it. `existingScene` was captured with the edit
+        // moment to describe it (console#414). `existingScene` was captured with the edit
         // rather than read now: by the time this runs the modal may be showing something
         // else entirely, and the question is about the image that was tagged.
         if (
@@ -1318,14 +1305,12 @@ export default function ImageRepo() {
                   <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
                   <Box>
                     {(() => {
-                      // One status pill per half is the only "in progress" indicator
-                      // (console#590): the buttons disable while their half is in flight,
-                      // and nothing else spins or relabels.
-                      const [sceneAct, motionAct] = halfActions({
+                      // The status pill is the only "in progress" indicator (console#590):
+                      // the button disables while the scene is in flight, and nothing else
+                      // spins or relabels.
+                      const sceneAct = sceneAction({
                         scene: lightboxImage.scene_description,
-                        motion: lightboxImage.motion_description,
                         sceneStatus: lightboxScene,
-                        motionStatus: lightboxMotion,
                       });
                       const halfButton = (act: typeof sceneAct) => (
                         <span title={act.why ?? undefined}>
@@ -1352,7 +1337,6 @@ export default function ImageRepo() {
                           The last {s.half} caption failed: {s.error ?? "no reason given"}
                         </Alert>
                       );
-                      const motionAsker = requestedByNote(lightboxMotion);
                       return (
                         <>
                           <Stack direction="row" alignItems="center" spacing={1}
@@ -1382,46 +1366,6 @@ export default function ImageRepo() {
                             </Typography>
                           )}
                           {failed(lightboxScene)}
-
-                          {/* The motion half (#326): the frame read as a 10-second clip,
-                              grounded on the SAVED scene. Its own caption since console#590 --
-                              made only on an explicit click or a held job's need. */}
-                          <Stack direction="row" alignItems="center" spacing={1}
-                                 useFlexGap flexWrap="wrap" sx={{ mt: 2, mb: 0.5 }}>
-                            <Typography variant="subtitle2" sx={{ fontWeight: 600, flexGrow: 1 }}>
-                              Motion
-                            </Typography>
-                            <CaptionStatusChip path={lightboxImage.path} half="motion" />
-                            {halfButton(motionAct)}
-                          </Stack>
-                          {lightboxImage.motion_description ? (
-                            <>
-                              <Typography variant="body2" fontStyle="italic">
-                                {lightboxImage.motion_description}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {lightboxImage.motion_description.trim().split(/\s+/).length} words
-                                {lightboxImage.motion_described_at
-                                  ? ` \u2014 ${new Date(lightboxImage.motion_described_at).toLocaleString()}`
-                                  : ""}
-                              </Typography>
-                            </>
-                          ) : (
-                            <Typography variant="body2" color="text.secondary">
-                              No motion caption. Describe motion makes one from the scene.
-                            </Typography>
-                          )}
-                          {motionAsker && (
-                            <Typography variant="caption" color="text.secondary" component="div">
-                              {motionAsker}
-                            </Typography>
-                          )}
-                          {motionNeedsRegrounding(lightboxImage) && !captionPending(lightboxMotion) && (
-                            <Alert severity="info" sx={{ mt: 1 }}>
-                              {REGROUND_HINT}.
-                            </Alert>
-                          )}
-                          {failed(lightboxMotion)}
                         </>
                       );
                     })()}

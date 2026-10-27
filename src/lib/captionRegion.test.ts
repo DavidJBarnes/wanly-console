@@ -13,8 +13,7 @@ import {
 const TEMPLATE = "k3llydw, <SCENE>, she grips the edge of the sofa";
 const DESC = "a woman in a red dress on a sofa";
 
-const BOTH = "k3llydw, <SCENE>, she grips the edge of the sofa, <MOTION>";
-const MOTION = "she leans forward as the light shifts";
+const LEGACY = "k3llydw, <SCENE>, she grips the edge of the sofa, <MOTION>";
 
 describe("filling the placeholder", () => {
   it("wraps the description so the region can be found again", () => {
@@ -53,27 +52,21 @@ describe("stripping before submit", () => {
 
   it("KEEPS an unfilled placeholder, so the API can hold the render for its words", () => {
     // console#577. This used to delete it, the API then saw nothing to wait for, and a
-    // Motion recipe queued before its caption landed rendered with an empty prompt. The
-    // API fills the placeholder from the saved caption, or refuses to hand the segment out.
+    // recipe queued before its caption landed rendered without its scene. The API fills
+    // the placeholder from the saved caption, or refuses to hand the segment out.
     expect(submitPrompt(TEMPLATE)).toBe(TEMPLATE);
   });
 
-  it("sends a Motion recipe's prompt exactly as the API's hold test posts it", () => {
-    // The string wanly-api's test_caption_hold_e2e posts to POST /jobs. If this changes,
-    // that test is no longer testing what the console sends.
-    expect(submitPrompt("k3lly2026, woman, <MOTION>")).toBe("k3lly2026, woman, <MOTION>");
-  });
-
   it("strips marker spellings the API does not recognise as a placeholder", () => {
-    // Only the exact <SCENE>/<MOTION> is a placeholder. Anything else would reach the
-    // text encoder as garbage tokens.
-    expect(submitPrompt("a, <scene>, b </motion> c <Motion>")).toBe("a, , b  c ");
+    // Only the exact <SCENE> is a placeholder. Anything else would reach the text encoder
+    // as garbage tokens.
+    expect(submitPrompt("a, <scene>, b <Scene> c")).toBe("a, , b  c");
   });
 
   it("scrubs markers typed inside a filled region", () => {
-    // They are not the description, and a <MOTION> left there would be read by the API
+    // They are not the description, and a <SCENE> left there would be read by the API
     // as a placeholder to fill.
-    expect(submitPrompt("k, <motion>she <MOTION>leans</scene> in</motion>")).toBe(
+    expect(submitPrompt("k, <scene>she <SCENE>leans</motion> in</scene>")).toBe(
       "k, she leans in");
   });
 
@@ -134,88 +127,64 @@ describe("did the user actually edit the prompt?", () => {
 });
 
 // ---------------------------------------------------------------------------------------
-// The motion half (console#529).
+// Legacy motion markers (wanly-api#481).
 //
-// Same machinery, second name. These are not copies of the scene tests for their own sake:
-// every one of them is a place where a half-generalised implementation still passes the
-// scene suite and silently does the wrong thing to the motion paragraph.
+// The motion half is gone, but older pose templates still say <MOTION> and a prompt filled
+// before the removal can carry a <motion> region. Nothing fills <MOTION> any more, so
+// sending it would hold the render forever or hand the literal token to the text encoder.
 // ---------------------------------------------------------------------------------------
 
-describe("the motion half behaves like the scene half", () => {
-  it("fills, marks and strips", () => {
-    const filled = fill(BOTH, "motion", MOTION);
-    expect(filled).toContain(`<motion>${MOTION}</motion>`);
-    expect(hasRegion(filled, "motion")).toBe(true);
-    expect(hasPlaceholder(filled, "motion")).toBe(false);
-    // The scene half is still unfilled, so its placeholder goes to the API (console#577).
+describe("legacy motion markers are stripped at submit", () => {
+  it("drops a bare <MOTION> and the separator it leaves behind", () => {
+    expect(submitPrompt("k3lly2026, woman, <MOTION>")).toBe("k3lly2026, woman");
+    expect(submitPrompt("<MOTION>, k3lly2026, woman")).toBe("k3lly2026, woman");
+    expect(submitPrompt("a, <MOTION>, b")).toBe("a, b");
+  });
+
+  it("keeps the scene placeholder while dropping the motion one", () => {
+    expect(submitPrompt(LEGACY)).toBe("k3llydw, <SCENE>, she grips the edge of the sofa");
+  });
+
+  it("drops a filled motion region WITH its words, as the API does (wanly-api#482)", () => {
+    // The words came from the retired motion half; the API drops them too, so the console
+    // must not send what the API would have removed.
+    const filled = fill(LEGACY, "scene", DESC).replace(
+      "<MOTION>", "<motion>she leans forward</motion>");
     expect(submitPrompt(filled)).toBe(
-      "k3llydw, <SCENE>, she grips the edge of the sofa, she leans forward as the light shifts",
-    );
+      "k3llydw, a woman in a red dress on a sofa, she grips the edge of the sofa");
+    expect(submitPrompt("a, <MOTION>x</motion>, b")).toBe("a, b");
+    expect(submitPrompt("<motion>\nmulti\nline\n</motion>, k")).toBe("k");
   });
 
-  it("replaces the words on a re-describe", () => {
-    const once = fill(BOTH, "motion", MOTION);
-    const twice = fill(once, "motion", "she turns toward the camera");
-    expect(twice).toContain("<motion>she turns toward the camera</motion>");
-    expect(twice).not.toContain("light shifts");
+  it("strips any spelling and stray closer", () => {
+    expect(submitPrompt("a, </motion> b <Motion>  c")).toBe("a, b c");
   });
 
-  it("compares equal to its template once the placeholder is restored", () => {
-    expect(restorePlaceholders(fill(BOTH, "motion", MOTION))).toBe(BOTH);
-  });
-});
-
-describe("the two halves do not interfere", () => {
-  it("filling one leaves the other's placeholder alone", () => {
-    const scened = fill(BOTH, "scene", DESC);
-    expect(hasRegion(scened, "scene")).toBe(true);
-    expect(hasPlaceholder(scened, "motion")).toBe(true);
-    expect(hasPlaceholder(scened, "scene")).toBe(false);
-  });
-
-  it("unwraps BOTH halves at submit", () => {
-    // One act. A strip that took a half would be a way to ship the other half's markers
-    // to the text encoder, which is the exact thing this module exists to prevent.
-    const filled = fill(fill(BOTH, "scene", DESC), "motion", MOTION);
-    expect(submitPrompt(filled)).toBe(
-      "k3llydw, a woman in a red dress on a sofa, she grips the edge of the sofa, "
-      + "she leans forward as the light shifts",
-    );
-  });
-
-  it("restores BOTH halves, so filling both is still not an edit", () => {
-    const filled = fill(fill(BOTH, "scene", DESC), "motion", MOTION);
-    expect(restorePlaceholders(filled)).toBe(BOTH);
-  });
-
-  it("a scene tag never closes with a motion tag", () => {
-    // Each pattern is built from its own half's name. A pattern that accepted either close
-    // would let this unclosed <scene> reach past </motion> and delete the real words
-    // between them.
+  it("never reads a motion tag as a scene marker", () => {
+    // An unclosed <scene> must not reach past a motion closer and eat the words between.
     const odd = "<scene>unclosed <motion>she reaches</motion>";
-    expect(regionText(odd, "motion")).toBe("she reaches");
     expect(hasRegion(odd, "scene")).toBe(false);
-    // The stray opener is not a placeholder the API knows, so it is dropped.
-    expect(submitPrompt(odd)).toBe("unclosed she reaches");
+    expect(submitPrompt(odd)).toBe("unclosed");
   });
 
-  it("does not read a motion region as a scene placeholder, or the reverse", () => {
-    const filled = fill(fill(BOTH, "scene", DESC), "motion", MOTION);
-    expect(hasPlaceholder(filled, "scene")).toBe(false);
-    expect(hasPlaceholder(filled, "motion")).toBe(false);
+  it("is idempotent", () => {
+    const once = submitPrompt(LEGACY);
+    expect(submitPrompt(once)).toBe(once);
+  });
+
+  it("does not reformat a prompt that had no motion tag", () => {
+    const spaced = "a,  b , , c";
+    expect(submitPrompt(spaced)).toBe(spaced);
   });
 });
 
-describe("wants(): is this half part of the prompt at all?", () => {
+describe("wants(): is the scene part of the prompt at all?", () => {
   it("is true for an unfilled placeholder and for a filled region", () => {
-    expect(wants(BOTH, "motion")).toBe(true);
-    expect(wants(fill(BOTH, "motion", MOTION), "motion")).toBe(true);
+    expect(wants(TEMPLATE, "scene")).toBe(true);
+    expect(wants(fill(TEMPLATE, "scene", DESC), "scene")).toBe(true);
   });
 
-  it("is false for a prompt that never mentions the half", () => {
-    // A scene-only pose must not grow a motion control, and must not be waited on for a
-    // motion description it does not use.
-    expect(wants(TEMPLATE, "motion")).toBe(false);
+  it("is false for a prompt that never mentions it", () => {
     expect(wants("k3llydw, a woman on a sofa", "scene")).toBe(false);
   });
 });

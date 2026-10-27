@@ -9,18 +9,17 @@
  * line plus every recently finished ticket -- so one poll is enough to mark every image on
  * every page, and it survives navigation and refresh because it lives on the server.
  *
- * Since console#590 an image's caption is two halves with tickets of their own: the SCENE
- * (JoyCaption, seconds; what tagging makes) and the MOTION paragraph (minutes, on another
- * GPU; made only on an explicit "Describe motion" or a held job's need). Each has its own
- * status, chip, buttons and retry, so everything here is keyed by (image, half).
+ * Since console#590 statuses are keyed by (image, half). Only the SCENE half remains: the
+ * motion paragraph was removed in wanly-api#481. A motion ticket or queue entry from an API
+ * that still reports one is ignored rather than shown, so this works across the cutover.
  *
  * Pure functions here; the poller and the React hooks are in stores/captionStore.ts.
  */
 import type { CaptionQueueEntry, CaptionQueueStatus, CaptionTicket } from "../api/types";
 
 export type CaptionState = "queued" | "running" | "done" | "failed";
-export type CaptionHalfName = "scene" | "motion";
-export const CAPTION_HALVES: readonly CaptionHalfName[] = ["scene", "motion"];
+export type CaptionHalfName = "scene";
+export const CAPTION_HALVES: readonly CaptionHalfName[] = ["scene"];
 
 export interface ImageCaptionStatus {
   half: CaptionHalfName;
@@ -33,7 +32,7 @@ export interface ImageCaptionStatus {
   busy: boolean;
   ticketId: string | null;
   finishedAt: string | null;
-  /** The held jobs this caption is for ("Motion requested by job …"). */
+  /** The held jobs this caption is for ("Scene requested by job …"). */
   requestedBy: { job_id: string; name: string | null }[];
 }
 
@@ -45,22 +44,26 @@ export const WRITES_WORDS: ReadonlySet<string> = new Set(["describe", "hold"]);
 /** The key a half's status is stored under. */
 export const captionKey = (path: string, half: CaptionHalfName): string => `${half}:${path}`;
 
-/** Which half a ticket makes. An API older than console#590 had "pair" tickets, which
- *  started with the scene. */
-export function ticketHalf(t: Pick<CaptionTicket, "half" | "mode">): CaptionHalfName {
-  if (t.half === "motion" || t.half === "scene") return t.half;
-  return t.mode === "motion" ? "motion" : "scene";
+/** Which half a ticket makes, or null for a motion ticket (wanly-api#481), which no view
+ *  shows any more. An API older than console#590 had "pair" tickets, which started with the
+ *  scene; any other value is read as the scene. */
+export function ticketHalf(t: Pick<CaptionTicket, "half" | "mode">): CaptionHalfName | null {
+  if (t.half === "scene") return "scene";
+  if (t.half === "motion" || (t.half == null && t.mode === "motion")) return null;
+  return "scene";
 }
 
-/** Which half a queue entry is for: a ticket's lane IS its half. */
-export const entryHalf = (e: Pick<CaptionQueueEntry, "lane">): CaptionHalfName =>
-  e.lane === "motion" ? "motion" : "scene";
+/** Which half a queue entry is for: a ticket's lane IS its half. Null for the motion lane
+ *  of an API that still has one (wanly-api#481). */
+export const entryHalf = (e: Pick<CaptionQueueEntry, "lane">): CaptionHalfName | null =>
+  e.lane === "motion" ? null : "scene";
 
 /** A ticket as the image's status for that half. Null for a ticket with nothing to say. */
 export function fromTicket(t: CaptionTicket): ImageCaptionStatus | null {
-  if (!t.status) return null;
+  const half = ticketHalf(t);
+  if (!t.status || !half) return null;
   return {
-    half: ticketHalf(t),
+    half,
     state: t.status,
     position: t.position,
     depth: t.depth,
@@ -90,6 +93,7 @@ export function statusesFromQueue(
   for (const e of q?.entries ?? []) {
     if (!WRITES_WORDS.has(e.kind)) continue;
     const half = entryHalf(e);
+    if (!half) continue;
     const key = captionKey(e.path, half);
     if (out.has(key)) continue;
     const known = e.ticket_id ? byId.get(e.ticket_id) : undefined;
@@ -151,9 +155,9 @@ export function newlyDone(
   return out;
 }
 
-const HALF_LABEL: Record<CaptionHalfName, string> = { scene: "Scene", motion: "Motion" };
+const HALF_LABEL: Record<CaptionHalfName, string> = { scene: "Scene" };
 
-/** "Scene: In queue (#3)", "Motion: Captioning…", "Scene: Failed: retry". */
+/** "Scene: In queue (#3)", "Scene: Captioning…", "Scene: Failed: retry". */
 export function captionLabel(s: ImageCaptionStatus | null | undefined): string | null {
   if (!s) return null;
   const half = HALF_LABEL[s.half];
@@ -173,7 +177,7 @@ export function captionLabel(s: ImageCaptionStatus | null | undefined): string |
  *  pill is the ONE indicator of a caption in progress (console#590), so the reassurance that
  *  used to be a line of its own lives here. */
 export function captionTooltip(s: ImageCaptionStatus): string {
-  const lane = s.half === "motion" ? "motion caption queue" : "scene caption queue";
+  const lane = "scene caption queue";
   let where = "";
   if (s.state === "running") where = `This image's ${s.half} is being captioned now.`;
   else if (s.state === "queued") where = `Waiting its turn -- ${s.depth} in the ${lane}.`;
@@ -184,7 +188,7 @@ export function captionTooltip(s: ImageCaptionStatus): string {
   return [where + carries, requestedByNote(s)].filter(Boolean).join(" ");
 }
 
-/** "Motion requested by job Beach walk" (console#590): a caption nobody clicked for says who
+/** "Scene requested by job Beach walk" (console#590): a caption nobody clicked for says who
  *  asked. Null when a person asked. */
 export function requestedByNote(
   s: Pick<ImageCaptionStatus, "half" | "requestedBy"> | null | undefined,
@@ -201,26 +205,6 @@ export function requestedByNote(
 export const captionPending = (s: ImageCaptionStatus | null | undefined): boolean =>
   s?.state === "queued" || s?.state === "running";
 
-/**
- * Should the image say "Redo motion to re-ground on the new scene"? (console#590)
- *
- * Motion is grounded on the saved scene, and redoing the scene leaves the saved paragraph
- * alone -- so a motion paragraph OLDER than its scene was written about a different scene.
- * Both halves of a pair-era describe carry the same time, so those never trigger it.
- */
-export function motionNeedsRegrounding(img: {
-  scene_description?: string | null; scene_described_at?: string | null;
-  motion_description?: string | null; motion_described_at?: string | null;
-}): boolean {
-  if (!(img.scene_description ?? "").trim() || !(img.motion_description ?? "").trim()) {
-    return false;
-  }
-  if (!img.scene_described_at || !img.motion_described_at) return false;
-  return Date.parse(img.scene_described_at) > Date.parse(img.motion_described_at);
-}
-
-export const REGROUND_HINT = "Redo motion to re-ground on the new scene";
-
 /** One half's button: what it says, and whether it can be pressed. */
 export interface HalfAction {
   half: CaptionHalfName;
@@ -231,55 +215,34 @@ export interface HalfAction {
 }
 
 /**
- * The per-half buttons: "Describe" / "Redo scene", "Describe motion" / "Redo motion".
+ * The scene's button: "Describe" / "Redo scene".
  *
- * While a half is in flight its button is DISABLED, not relabelled -- the status pill is the
- * one indicator of a caption in progress (console#590). Motion is grounded on the saved
- * scene, so "Describe motion" waits for a scene to exist (or to be on its way).
+ * While it is in flight the button is DISABLED, not relabelled -- the status pill is the one
+ * indicator of a caption in progress (console#590).
  */
-export function halfActions(args: {
+export function sceneAction(args: {
   scene: string | null | undefined;
-  motion: string | null | undefined;
   sceneStatus?: ImageCaptionStatus | null;
-  motionStatus?: ImageCaptionStatus | null;
-}): HalfAction[] {
+}): HalfAction {
   const hasScene = !!(args.scene ?? "").trim();
-  const hasMotion = !!(args.motion ?? "").trim();
   const scenePending = captionPending(args.sceneStatus);
-  const motionPending = captionPending(args.motionStatus);
-  const noScene = !hasScene && !scenePending;
-  return [
-    {
-      half: "scene",
-      label: hasScene ? "Redo scene" : "Describe",
-      disabled: scenePending,
-      why: scenePending ? "The scene is already being captioned" : null,
-    },
-    {
-      half: "motion",
-      label: hasMotion ? "Redo motion" : "Describe motion",
-      disabled: motionPending || noScene,
-      why: motionPending
-        ? "The motion is already being captioned"
-        : noScene ? "Describe the scene first -- the motion is grounded on it" : null,
-    },
-  ];
+  return {
+    half: "scene",
+    label: hasScene ? "Redo scene" : "Describe",
+    disabled: scenePending,
+    why: scenePending ? "The scene is already being captioned" : null,
+  };
 }
 
 /**
- * Which halves of an image are in flight, from GET /images/scene (console#590). An API older
- * than the split reports one queue place for the whole caption: both halves, then.
+ * Whether the scene is in flight, from GET /images/scene (console#590). An API older than the
+ * split reports one queue place for the whole caption, which counts.
  */
-export function halvesInFlight(scene: {
+export function sceneInFlight(scene: {
   queue_status?: string | null;
   scene_caption?: Pick<CaptionTicket, "status"> | null;
-  motion_caption?: Pick<CaptionTicket, "status"> | null;
-}): Record<CaptionHalfName, boolean> {
-  const live = (t?: Pick<CaptionTicket, "status"> | null) =>
-    t?.status === "queued" || t?.status === "running";
-  if (scene.scene_caption === undefined && scene.motion_caption === undefined) {
-    const any = scene.queue_status != null;
-    return { scene: any, motion: any };
-  }
-  return { scene: live(scene.scene_caption), motion: live(scene.motion_caption) };
+}): boolean {
+  if (scene.scene_caption === undefined) return scene.queue_status != null;
+  const t = scene.scene_caption;
+  return t?.status === "queued" || t?.status === "running";
 }

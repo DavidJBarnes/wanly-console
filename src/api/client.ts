@@ -859,19 +859,18 @@ export async function getImageScene(path: string): Promise<ImageScene> {
 }
 
 /**
- * Ask for HALVES of an image's caption, and get the first half's TICKET back at once
- * (console#564), with every half's in `tickets`.
+ * Ask for an image's scene caption, and get its TICKET back at once (console#564), also in
+ * `tickets`.
  *
- * Per half since console#590: `halves` is ["scene"] (Describe, Redo scene, and what tagging
- * asks for), ["motion"] (Describe motion, Redo motion -- grounded on the saved scene) or
- * both. Saving one half never touches the other. The caption takes its turn in that half's
- * queue in the background, so leaving the page loses nothing. Single-flight per half: if
- * that half of this image is already queued or running -- from the modal, another tab, a
- * held job -- this IS that caption (`joined`).
+ * `halves` is ["scene"] (Describe, Redo scene, and what tagging asks for) -- the only half
+ * since the motion half was removed (wanly-api#481). The caption takes its turn in the queue
+ * in the background, so leaving the page loses nothing. Single-flight: if the scene of this
+ * image is already queued or running -- from the modal, another tab, a held job -- this IS
+ * that caption (`joined`).
  */
 export async function requestImageDescribe(
   path: string,
-  body: { halves: ("scene" | "motion")[]; style?: string; instruction?: string },
+  body: { halves: "scene"[]; style?: string; instruction?: string },
 ): Promise<CaptionTicket> {
   const { data } = await api.post<CaptionTicket>("/images/scene/describe", body,
     { params: { path } });
@@ -963,9 +962,9 @@ export async function saveEditJob(id: string, datasetId: string | null): Promise
 }
 
 /**
- * Run the caption and motion prompts on one image and return what the captioner said, storing
- * NOTHING (console#555). The Settings page's "Try on an image": once with the editors' unsaved
- * text, once with `{}` (the saved prompts). Takes a turn in the caption queue like any describe.
+ * Run the caption prompt on one image and return what the captioner said, storing NOTHING
+ * (console#555). The Settings page's "Try on an image": once with the editor's unsaved text,
+ * once with `{}` (the saved prompt). Takes a turn in the caption queue like any describe.
  */
 export async function tryCaptionPrompts(path: string, body: CaptionTryBody): Promise<CaptionTryResult> {
   const { data } = await api.post<CaptionTryResult>("/images/scene/try", body, { params: { path } });
@@ -1163,7 +1162,8 @@ export async function getWorkerModes(): Promise<WorkerModesSummary> {
   return data;
 }
 
-/** Switch a box's mode (render / train / motion / edit), in place -- no container recreate, so it
+/** Switch a box's mode (render / train / motion / edit -- "motion" is the wire value of the
+ *  mode labelled Caption), in place -- no container recreate, so it
  *  takes seconds rather than a boot and a model re-stage. */
 export async function setWorkerMode(id: string, mode: string): Promise<WorkerModeResponse> {
   const { data } = await api.post<WorkerModeResponse>(`/workers/${id}/mode`, { mode });

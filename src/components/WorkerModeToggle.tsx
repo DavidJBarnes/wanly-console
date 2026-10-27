@@ -2,21 +2,23 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Box, CircularProgress, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
-import { AutoFixHigh, ModelTraining, Movie, Videocam } from "@mui/icons-material";
+import { AutoFixHigh, ModelTraining, Movie, Subtitles } from "@mui/icons-material";
 
 import { getWorkerMode, setWorkerMode } from "../api/client";
 import { ltxError } from "../api/ltx";
 import type { WorkerModeResponse, WorkerResponse } from "../api/types";
 import {
   MODE_HELP, MODE_LABEL, MODES, describePending, describeUnload, describeVram, hasSeveralModes,
-  modeToSend, modeView, type ModeName,
+  modeToSend, modeView, modeWord, type ModeName,
 } from "../lib/workerModes";
 
 /**
- * The box's mode, on the worker card: render, train, motion or edit (wanly-console#589).
+ * The box's mode, on the worker card: render, train, caption or edit (wanly-console#589). The
+ * caption mode's wire value is still "motion" (live boxes speak it); only its label changed
+ * when the motion caption half was removed (wanly-api#481).
  *
  * ONE MODE AT A TIME (wanly-gpu-docker#164). Each mode's model fills most of a 24 GB card --
- * the LTX render stack, the trainer, the 32B motion captioner, Qwen-Image-Edit -- so a box
+ * the LTX render stack, the trainer, the Qwen3-VL captioner, Qwen-Image-Edit -- so a box
  * does one of them, and switching is how the card changes hands. The box unloads the old
  * mode, checks the card actually emptied, and only then starts the new one.
  *
@@ -30,7 +32,7 @@ import {
  * A SWITCH IS NOT INSTANT, and that is the design working rather than a delay to hide.
  * Leaving render lets the segment in flight FINISH -- up to ~27 minutes -- so a switch made
  * mid-render costs nothing. The box reports the pending mode until it lands, and this polls
- * for that: "finishing segment, then motion" rather than snapping to a mode the box is not in
+ * for that: "finishing segment, then caption" rather than snapping to a mode the box is not in
  * yet. A training run is never interrupted: the box refuses the switch with the run named,
  * and that text is shown as it is.
  */
@@ -42,7 +44,7 @@ export function canSwitchMode(worker: WorkerResponse): boolean {
 }
 
 const ICONS: Record<ModeName, typeof Movie> = {
-  render: Movie, train: ModelTraining, motion: Videocam, edit: AutoFixHigh,
+  render: Movie, train: ModelTraining, motion: Subtitles, edit: AutoFixHigh,
 };
 
 export default function WorkerModeToggle({
@@ -106,7 +108,7 @@ export default function WorkerModeToggle({
       if (!(m.pending_mode_name ?? m.pending_mode)) onChanged?.();
     } catch (e) {
       // The box's own refusal, passed through by the API verbatim: "training Joana v3 on this
-      // box; switch to motion after it finishes" says exactly what to do about it.
+      // box; switch modes after it finishes" says exactly what to do about it.
       setError(ltxError(e));
     } finally {
       setAsking(null);
@@ -140,7 +142,7 @@ export default function WorkerModeToggle({
             const Icon = ICONS[m];
             const can = view.available.includes(m);
             return (
-              <Tooltip key={m} title={can ? MODE_HELP[m] : `${worker.friendly_name} is not equipped for ${m} mode`}>
+              <Tooltip key={m} title={can ? MODE_HELP[m] : `${worker.friendly_name} is not equipped for ${modeWord(m)} mode`}>
                 <span>
                   <ToggleButton value={m} disabled={busy || !can} onClick={() => void set(m)}>
                     <Icon sx={{ fontSize: 15, mr: 0.5 }} />
@@ -155,7 +157,7 @@ export default function WorkerModeToggle({
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             <CircularProgress size={12} />
             <Typography variant="caption" color="text.secondary">
-              {pending ? describePending(pending, rendering) : `asking for ${asking}`}
+              {pending ? describePending(pending, rendering) : `asking for ${asking && modeWord(asking)}`}
             </Typography>
           </Box>
         )}

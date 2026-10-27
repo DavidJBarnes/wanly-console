@@ -1,8 +1,8 @@
 /**
- * The Settings editors for the captioner's two prompts (console#555).
+ * The Settings editor for the captioner's prompt (console#555).
  *
- * The API owns every piece of default text (GET /settings returns each caption style's prompt
- * and the default motion template); nothing here restates any of it. What lives here is the
+ * The API owns every piece of default text (GET /settings returns each caption style's
+ * prompt); nothing here restates any of it. What lives here is the
  * bookkeeping between three things that are easy to confuse:
  *
  *   draft     what is in the editor now. Pre-filled with the EFFECTIVE text, so you can see
@@ -12,11 +12,6 @@
  *             page never pins today's wording against a later improvement (the API applies the
  *             same rule; this keeps the request honest too).
  */
-
-/** The motion template's placeholders, exactly as wanly-api's renderer knows them. */
-const KNOWN_PLACEHOLDERS = new Set(["scene", "style", "#scene", "/scene"]);
-/** `{identifier}`, optionally `{#…}` / `{/…}`. Anything else in braces is literal text. */
-const PLACEHOLDER = /\{([#/]?[A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 /** The text the editor starts from: the saved override, or the default it stands in for. */
 export function effectiveText(override: string, defaultText: string): string {
@@ -57,57 +52,20 @@ export function draftAfterStyleChange(draft: string, oldDefault: string, newDefa
   return isModified(draft, oldDefault) ? draft : newDefault;
 }
 
-/**
- * Why wanly-api would refuse this motion template with a 422, or null if it would not.
- *
- * A mirror of `validate_motion_template`, so the editor can say so while you type rather than
- * on Save. The API stays the authority; if the two ever disagree, its message is shown.
- */
-export function motionTemplateProblem(template: string): string | null {
-  const tokens = [...template.matchAll(PLACEHOLDER)].map((m) => m[1]);
-  const unknown = [...new Set(tokens.filter((t) => !KNOWN_PLACEHOLDERS.has(t)))].sort();
-  if (unknown.length) {
-    const list = unknown.map((t) => `{${t}}`).join(", ");
-    return `Unknown placeholder${unknown.length > 1 ? "s" : ""} ${list}. `
-      + "The motion prompt understands {scene}, {style} and {#scene}…{/scene}.";
-  }
-  let open = false;
-  for (const t of tokens) {
-    if (t === "#scene") {
-      if (open) return "{#scene} sections cannot be nested: close the first with {/scene}.";
-      open = true;
-    } else if (t === "/scene") {
-      if (!open) return "{/scene} has no matching {#scene} before it.";
-      open = false;
-    }
-  }
-  return open ? "{#scene} is never closed: add {/scene} where the section ends." : null;
-}
-
 /** A length problem against the API's cap, or null. */
 export function lengthProblem(text: string, max: number): string | null {
   return text.length > max ? `${text.length} characters; the limit is ${max}.` : null;
-}
-
-/** Whether the grounding section is still in the template (the warning an edit can earn). */
-export function keepsGrounding(template: string): boolean {
-  return template.includes("{#scene}") || template.includes("{scene}");
 }
 
 export interface TryDraft {
   captionStyle: string;
   captionDraft: string;
   captionDefault: string;
-  motionStyle: string;
-  motionDraft: string;
-  motionDefault: string;
 }
 
 export interface TryBody {
   caption_style?: string;
   caption_instruction?: string;
-  motion_style?: string;
-  motion_template?: string;
 }
 
 /**
@@ -121,16 +79,12 @@ export function draftTryBody(d: TryDraft): TryBody {
   return {
     caption_style: d.captionStyle,
     caption_instruction: overrideToSave(d.captionDraft, d.captionDefault),
-    motion_style: d.motionStyle,
-    motion_template: overrideToSave(d.motionDraft, d.motionDefault),
   };
 }
 
 export interface SavedPrompts {
   captionStyle: string;
   captionOverride: string;
-  motionStyle: string;
-  motionOverride: string;
 }
 
 /**
@@ -142,14 +96,9 @@ export interface SavedPrompts {
  */
 export function draftMatchesSaved(body: TryBody, saved: SavedPrompts): boolean {
   const caption = body.caption_instruction ?? "";
-  const sameCaption = caption.trim() || saved.captionOverride.trim()
+  return caption.trim() || saved.captionOverride.trim()
     ? caption.trim() === saved.captionOverride.trim()
     : body.caption_style === saved.captionStyle;
-  const motion = body.motion_template ?? "";
-  // {style} can appear in an override too, so the motion style always matters.
-  const sameMotion = motion.trim() === saved.motionOverride.trim()
-    && body.motion_style === saved.motionStyle;
-  return sameCaption && sameMotion;
 }
 
 /** An s3:// path the try endpoint will accept, or an explanation. */
