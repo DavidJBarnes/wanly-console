@@ -92,8 +92,15 @@ describe("buildLtxRecipe", () => {
 
 describe("jobName", () => {
   it("names one, says so for none", () => {
-    expect(jobName(one, [slotFor(pay)])).toBe("p@y — Bedroom");
+    expect(jobName(one, [slotFor(pay)])).toBe("p@y - Bedroom");
     expect(jobName(one, [slotFor(NO_CHARACTER)])).toBe("Bedroom (no character)");
+  });
+
+  it("names the actions over the recipe when there are any (console#709)", () => {
+    expect(jobName(one, [slotFor(pay)], ["Missionary"])).toBe("p@y - Missionary");
+    expect(jobName(one, [slotFor(pay)], ["Missionary", "Doggystyle"]))
+      .toBe("p@y - Missionary, Doggystyle");
+    expect(jobName(one, [slotFor(NO_CHARACTER)], ["Missionary"])).toBe("Missionary (no character)");
   });
 });
 

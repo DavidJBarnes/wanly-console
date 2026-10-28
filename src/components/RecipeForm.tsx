@@ -29,6 +29,8 @@ import {
   buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor,
 } from "../lib/recipeBlob";
 import type { CharacterSlot } from "../lib/recipeBlob";
+import { actionTagNames } from "../lib/tagGroups";
+import { useTagStore } from "../stores/tagStore";
 import { groupPosesByBook } from "../lib/poseGroups";
 import { lorasForCharacter, SHOW_ALL_LORAS } from "../lib/loraOptions";
 import { sceneAction, sceneInFlight } from "../lib/captionStatus";
@@ -168,6 +170,9 @@ export default function RecipeForm({
   const [characterGuess, setCharacterGuess] = useState<CharacterGuess | null>(null);
   // What the form opened with, for the once-only catalogue load below.
   const openedWith = useRef({ initialTags, initialFrom });
+  // The start image's Action tags name the job (console#709).
+  const { titleTags2, fetchTags } = useTagStore();
+  useEffect(() => { if (!titleTags2.length) fetchTags(); }, [titleTags2.length, fetchTags]);
   // The pose is tracked by ID, not name: names are unique only WITHIN a book (wanly-api#320),
   // so two books can each hold "Missionary" and a name-keyed selection would silently pick
   // whichever came first.
@@ -572,7 +577,7 @@ export default function RecipeForm({
 
       const job: JobCreate = {
         // "none — Missionary" reads as a broken template. Name it for what it is.
-        name: jobName(pose, slots),
+        name: jobName(pose, slots, actionTagNames(initialTags, titleTags2)),
         width,
         height,
         fps,

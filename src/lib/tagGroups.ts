@@ -28,3 +28,18 @@ export function actionPrompt(tags: string | null | undefined, actionTags: TitleT
   }
   return lines.length ? lines.join("\n") : null;
 }
+
+/**
+ * The Action tags `tags` carries, by their canonical names, in the image's tag order, each
+ * once (console#709). Unlike actionPrompt this keeps tags with no description: a job is named
+ * for what happens in it, whether or not the enhancer has words for it yet.
+ */
+export function actionTagNames(tags: string | null | undefined, actionTags: TitleTagResponse[]): string[] {
+  const byName = new Map(actionTags.map((t) => [t.name.toLowerCase(), t.name] as const));
+  const names: string[] = [];
+  for (const raw of (tags ?? "").split(",")) {
+    const name = byName.get(raw.trim().toLowerCase());
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names;
+}
