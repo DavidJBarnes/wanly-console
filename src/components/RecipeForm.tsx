@@ -20,7 +20,7 @@ import {
 import {
   fill, hasPlaceholder, restorePlaceholders, submitPrompt, wants,
 } from "../lib/captionRegion";
-import { withTriggers } from "../lib/enhancedPrompt";
+import { PROMPT_TOKEN, withTriggers } from "../lib/enhancedPrompt";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
 import {
   buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor,
@@ -836,7 +836,7 @@ export default function RecipeForm({
           {/* The start frame's enhanced prompt (wanly-api#480), made in the Image Repo modal.
               A button, not an auto-fill: it REPLACES the pose's prompt, so it is a choice --
               and it keeps the characters' trigger phrases in front (lib/enhancedPrompt). */}
-          {savedEnhanced && (
+          {savedEnhanced && !prompt.includes(PROMPT_TOKEN) && (
             <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
               <Button
                 size="small"
@@ -850,6 +850,19 @@ export default function RecipeForm({
                 Using it replaces the pose&apos;s prompt; the character trigger stays in front.
               </Typography>
             </Stack>
+          )}
+          {/* <PROMPT> (wanly-api#484): never filled here -- the API swaps in the job's start
+              image's enhanced prompt at the claim. This says what it will get. */}
+          {prompt.includes(PROMPT_TOKEN) && (
+            <Alert severity={!continuing && describePath && !savedEnhanced ? "warning" : "info"}>
+              {continuing
+                ? `${PROMPT_TOKEN} is filled with the job's start image's enhanced prompt when this segment runs, and dropped if it has none.`
+                : savedEnhanced
+                  ? `${PROMPT_TOKEN} will be swapped for this frame's enhanced prompt (${savedEnhanced.trim().split(/\s+/).length} words) when the segment runs.`
+                  : describePath
+                    ? `This frame has no enhanced prompt, so ${PROMPT_TOKEN} will be dropped. Use Enhance prompt on it in the Image Repo first.`
+                    : `${PROMPT_TOKEN} is filled from the start frame's enhanced prompt when the segment runs, and dropped if it has none.`}
+            </Alert>
           )}
           {describeError && (
             <Alert

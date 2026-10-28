@@ -708,7 +708,7 @@ function PoseDialog({
             fullWidth
             multiline
             minRows={4}
-            helperText={`${TRIGGER_PLACEHOLDER} is replaced with the character's trigger phrase — a joint LoRA carries every identity in it. The scene text names who is who. This box shows the template, not the result.`}
+            helperText={`${TRIGGER_PLACEHOLDER} is replaced with the character's trigger phrase — a joint LoRA carries every identity in it. The scene text names who is who. <PROMPT> is replaced with the job's start image's enhanced prompt when the segment runs (dropped if it has none). This box shows the template, not the result.`}
           />
 
           {warnings.map((w) => (
