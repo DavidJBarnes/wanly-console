@@ -680,6 +680,12 @@ export async function createTag(body: TitleTagCreate): Promise<TitleTagResponse>
   return data;
 }
 
+/** An Action tag's description (wanly-api#486). Blank clears it; a Person tag is a 400. */
+export async function updateTagDescription(id: string, description: string): Promise<TitleTagResponse> {
+  const { data } = await api.patch<TitleTagResponse>(`/tags/${id}`, { description });
+  return data;
+}
+
 export async function deleteTag(id: string): Promise<void> {
   await api.delete(`/tags/${id}`);
 }

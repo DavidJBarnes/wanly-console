@@ -16,6 +16,8 @@ import {
   useTheme,
 } from "@mui/material";
 import TagChip from "../components/TagChip";
+import ActionTagRow from "../components/ActionTagRow";
+import { ACTION_GROUP, PERSON_GROUP } from "../lib/tagGroups";
 import { useTagStore } from "../stores/tagStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { CaptionStyle } from "../api/types";
@@ -27,7 +29,7 @@ import {
 export default function SettingsPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const { titleTags1, titleTags2, loading, fetchTags, addTag, removeTag } =
+  const { titleTags1, titleTags2, loading, fetchTags, addTag, removeTag, setDescription } =
     useTagStore();
   const [input1, setInput1] = useState("");
   const [input2, setInput2] = useState("");
@@ -66,12 +68,12 @@ export default function SettingsPage() {
   }, [fetchTags, fetchSettings]);
 
   const handleAdd1 = () => {
-    addTag(input1, 1);
+    addTag(input1, PERSON_GROUP);
     setInput1("");
   };
 
   const handleAdd2 = () => {
-    addTag(input2, 2);
+    addTag(input2, ACTION_GROUP);
     setInput2("");
   };
 
@@ -162,10 +164,10 @@ export default function SettingsPage() {
               gap: 3,
             }}
           >
-            {/* Title Tag 1 */}
+            {/* Person tags (group 1): who is in the image. */}
             <Box sx={{ flex: 1 }}>
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Title Tag 1
+                Person tags
               </Typography>
               <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
                 <TextField
@@ -202,10 +204,16 @@ export default function SettingsPage() {
               </Box>
             </Box>
 
-            {/* Title Tag 2 */}
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Title Tag 2
+            {/* Action tags (group 2): what is happening. Each has a description -- the "what
+                happens" prompt Enhance prompt sends with the image (wanly-api#486). */}
+            <Box sx={{ flex: 2 }}>
+              <Typography variant="subtitle2">
+                Action tags
+              </Typography>
+              <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
+                A description says what happens in a clip, in a sentence. Enhance prompt sends
+                the image with the descriptions of all its Action tags, and the enhancer writes
+                the video prompt from them. A tag with no description is not sent.
               </Typography>
               <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
                 <TextField
@@ -230,13 +238,13 @@ export default function SettingsPage() {
                   Add
                 </Button>
               </Box>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                 {titleTags2.map((tag) => (
-                  <TagChip
-                    key={tag.id}
-                    label={tag.name}
+                  <ActionTagRow
+                    key={`${tag.id}:${tag.description ?? ""}`}
+                    tag={tag}
                     onDelete={() => removeTag(tag.id)}
-                    size="small"
+                    onSave={(d) => setDescription(tag.id, d)}
                   />
                 ))}
               </Box>

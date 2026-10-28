@@ -122,6 +122,7 @@ import {
 } from "../lib/tagFilter";
 import { useQueryState, getPage, pageValue, getPerPage, perPageValue } from "../hooks/useQueryState";
 import { parseFolderInUse } from "../lib/folderDeleteConflict";
+import { actionPrompt } from "../lib/tagGroups";
 import {
   deleteFailureReason,
   describeImageHolders,
@@ -223,6 +224,8 @@ export default function ImageRepo() {
   // a cold enhance is ~30 s, and the modal may have moved to another image by the end.
   const [enhancingPath, setEnhancingPath] = useState<string | null>(null);
   const [enhanceError, setEnhanceError] = useState<{ path: string; message: string } | null>(null);
+  // The latest tag write, for Enhance prompt to wait on (it never rejects).
+  const lastTagWrite = useRef<Promise<void> | null>(null);
   // The scene caption's own ticket, chip, button and retry (console#590).
   const lightboxScene = useCaptionStatus(lightboxImage?.path, "scene");
   const [refreshing, setRefreshing] = useState(false);
@@ -714,12 +717,16 @@ export default function ImageRepo() {
   }, []);
   useCaptionDone(onCaptionDone);
 
-  /** Send the image and its scene description to the prompt enhancer; keep what it writes. */
+  /** Send the image and its Action tags' descriptions to the prompt enhancer (wanly-api#486);
+   *  keep what it writes. A tag edit still waiting on the debounce is written first and
+   *  waited for: the API reads the SAVED tags, and the tag just added is usually the point. */
   const runEnhance = (path: string) => {
     if (enhancingPath) return;
     setEnhancingPath(path);
     setEnhanceError(null);
-    enhanceImagePrompt(path)
+    tagSave.flush();
+    (lastTagWrite.current ?? Promise.resolve())
+      .then(() => enhanceImagePrompt(path))
       .then((r) => {
         const patch = (img: ImageFile) =>
           img.path === path
@@ -745,7 +752,7 @@ export default function ImageRepo() {
    * tags, and with them the description that hangs off the save succeeding.
    */
   const writeTags = ({ path, tags, existingScene }: TagEdit) => {
-    updateImageTags(path, tags || null)
+    lastTagWrite.current = updateImageTags(path, tags || null)
       .then(() => {
         const patch = (img: ImageFile) =>
           img.path === path ? { ...img, tags: tags || null } : img;
@@ -1407,15 +1414,16 @@ export default function ImageRepo() {
                     )}
                   </Box>
 
-                  {/* Enhanced prompt (wanly-api#480): the image and its scene description,
-                      expanded by the Sulphur-2 prompt enhancer into the long scene script LTX
-                      needs. Kept on the image; "Use enhanced prompt" in the New Job dialog
-                      puts it in a job. */}
+                  {/* Enhanced prompt (wanly-api#480): the image and its Action tags'
+                      descriptions (wanly-api#486), expanded by the Sulphur-2 prompt enhancer into
+                      the long scene script LTX needs. Kept on the image; a recipe's <PROMPT>
+                      or "Use enhanced prompt" in the New Job dialog puts it in a job. */}
                   <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
                   <Box>
                     {(() => {
                       const busy = enhancingPath === lightboxImage.path;
-                      const noScene = !lightboxImage.scene_description;
+                      // The editor's tags, not the saved ones: runEnhance saves them first.
+                      const action = actionPrompt(lightboxTags, titleTags2);
                       const enhanced = lightboxImage.enhanced_prompt;
                       return (
                         <>
@@ -1434,11 +1442,11 @@ export default function ImageRepo() {
                                 <ContentCopy fontSize="small" />
                               </IconButton>
                             )}
-                            <span title={noScene ? "Describe the scene first -- the enhancer expands it." : undefined}>
+                            <span title={action ? undefined : "Needs an Action tag with a description (Settings → Tags)."}>
                               <Button
                                 size="small"
                                 onClick={() => runEnhance(lightboxImage.path)}
-                                disabled={noScene || enhancingPath !== null}
+                                disabled={!action || enhancingPath !== null}
                                 startIcon={busy ? <CircularProgress size={14} /> : undefined}
                               >
                                 {busy ? "Enhancing\u2026" : enhanced ? "Redo" : "Enhance prompt"}
@@ -1447,9 +1455,9 @@ export default function ImageRepo() {
                           </Stack>
                           {busy && (
                             <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
-                              Sending the image and its scene description to the enhancer. The
-                              first one loads the model (it takes turns with the scene captioner),
-                              so allow ~30 s.
+                              Sending the image and its Action tags&apos; descriptions to the
+                              enhancer. The first one loads the model (it takes turns with the
+                              scene captioner), so allow ~30 s.
                             </Typography>
                           )}
                           {enhanced ? (
@@ -1466,9 +1474,9 @@ export default function ImageRepo() {
                             </>
                           ) : !busy && (
                             <Typography variant="body2" color="text.secondary">
-                              {noScene
-                                ? "Needs a scene description first."
-                                : "Not enhanced yet."}
+                              {action
+                                ? "Not enhanced yet."
+                                : "Needs an Action tag with a description -- add one in Settings → Tags."}
                             </Typography>
                           )}
                           {enhanceError?.path === lightboxImage.path && (

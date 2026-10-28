@@ -860,6 +860,8 @@ export interface TitleTagResponse {
   id: string;
   name: string;
   group: number;
+  /** Action tags only (wanly-api#486): the "what happens" prompt Enhance prompt sends. */
+  description?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -867,6 +869,7 @@ export interface TitleTagResponse {
 export interface TitleTagCreate {
   name: string;
   group: number;
+  description?: string | null;
 }
 
 export interface ImageJobInfo {
