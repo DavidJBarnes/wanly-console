@@ -114,9 +114,13 @@ export function slotTriggers(slots: CharacterSlot[]): string[] {
 }
 
 /** "p@y & Me — Bedroom", "p@y — Missionary", "Missionary (no character)". */
-export function jobName(pose: Pose, slots: CharacterSlot[]): string {
+/** "Gena - Missionary, Doggystyle": who, then what happens (console#709) — the start image's
+ *  Action tags, falling back to the recipe's name when it has none, since a generic recipe
+ *  ("Prompt") says nothing about the video. */
+export function jobName(pose: Pose, slots: CharacterSlot[], actions: string[] = []): string {
   const names = slots.map((s) => s.character.name).filter((n) => n !== NO_CHARACTER.name);
-  return names.length ? `${names.join(" & ")} — ${pose.name}` : `${pose.name} (no character)`;
+  const what = actions.length ? actions.join(", ") : pose.name;
+  return names.length ? `${names.join(" & ")} - ${what}` : `${what} (no character)`;
 }
 
 /** How many character slots this pose has: one per placeholder its template uses, and at
