@@ -20,7 +20,10 @@ import {
 import {
   fill, hasPlaceholder, restorePlaceholders, submitPrompt, wants,
 } from "../lib/captionRegion";
-import { PROMPT_TOKEN, withTriggers } from "../lib/enhancedPrompt";
+import {
+  PROMPT_TOKEN, fillEnhanced, hasEnhancedRegion, submitEnhanced, unfillEnhanced, wantsEnhanced,
+  withTriggers,
+} from "../lib/enhancedPrompt";
 import type { JobCreate, SegmentCreate, SegmentResponse } from "../api/types";
 import {
   buildLtxRecipe, jobName, recipeCharacters, slotCount, slotFor,
@@ -187,6 +190,9 @@ export default function RecipeForm({
   const [savedScene, setSavedScene] = useState<string | null>(null);
   // The start frame's enhanced prompt (wanly-api#480), offered as "Use enhanced prompt".
   const [savedEnhanced, setSavedEnhanced] = useState<string | null>(null);
+  // Read by the pose effect for the same reason as savedSceneRef (wanly-api#484).
+  const savedEnhancedRef = useRef<string | null>(null);
+  savedEnhancedRef.current = savedEnhanced;
   const savedSceneRef = useRef<string | null>(null);
   savedSceneRef.current = savedScene;
 
@@ -296,7 +302,9 @@ export default function RecipeForm({
     // land in the editable box, so they are still read before they are used — what changes
     // is that a description already paid for is not paid for again.
     const saved = savedSceneRef.current;
-    setPrompt(saved ? fill(rendered, "scene", saved) : rendered);
+    const enhanced = savedEnhancedRef.current;
+    const withScene = saved ? fill(rendered, "scene", saved) : rendered;
+    setPrompt(enhanced ? fillEnhanced(withScene, enhanced) : withScene);
     setNegative(pose.negative_prompt);
     // Every filled slot starts as its character's own LoRA and strengths.
     setSlotEdits(slotCharacters.map((c) => {
@@ -481,6 +489,19 @@ export default function RecipeForm({
     setPrompt((p) => (hasPlaceholder(p, "scene") ? fill(p, "scene", savedScene) : p));
   }, [savedScene]);
 
+  // <PROMPT> follows the start frame (wanly-api#484): this frame's enhanced prompt goes into
+  // the region (a new frame's REWRITES the last one's), and a frame without one puts the
+  // placeholder back so the old frame's script never renders against a new image. It is
+  // reset to null while a new frame is looked up, so a change of frame passes through the
+  // placeholder and lands on the new script.
+  useEffect(() => {
+    setPrompt((p) => {
+      if (!wantsEnhanced(p)) return p;
+      if (savedEnhanced) return fillEnhanced(p, savedEnhanced);
+      return hasEnhancedRegion(p) ? unfillEnhanced(p) : p;
+    });
+  }, [savedEnhanced]);
+
   // An image passed in from the Image Repo. Referenced, never re-uploaded.
   useEffect(() => {
     if (!initialStartingImageUri) return;
@@ -515,7 +536,7 @@ export default function RecipeForm({
       // fills them in when the caption lands -- which is what makes queueing while the frame
       // is still being described safe. A legacy <MOTION> from an older pose is dropped
       // (wanly-api#481): nothing fills it any more.
-      const submittedPrompt = submitPrompt(prompt).trim();
+      const submittedPrompt = submitEnhanced(submitPrompt(prompt)).trim();
 
       const segment = {
         prompt: submittedPrompt,
@@ -530,7 +551,7 @@ export default function RecipeForm({
         // input.
         ltx_recipe: buildLtxRecipe({
           pose, slots, negative, frames: nFrames,
-          prompt: restorePlaceholders(prompt),
+          prompt: unfillEnhanced(restorePlaceholders(prompt)),
           renderedPrompt,
         }),
       };
@@ -618,7 +639,7 @@ export default function RecipeForm({
   // the recipe working as designed, not somebody departing from it, and reading it as an
   // edit would light this up on every auto-filled render.
   const edited = pose
-    ? restorePlaceholders(prompt).trim() !== renderedPrompt.trim()
+    ? unfillEnhanced(restorePlaceholders(prompt)).trim() !== renderedPrompt.trim()
       || negative.trim() !== pose.negative_prompt.trim()
     : false;
 
@@ -836,7 +857,7 @@ export default function RecipeForm({
           {/* The start frame's enhanced prompt (wanly-api#480), made in the Image Repo modal.
               A button, not an auto-fill: it REPLACES the pose's prompt, so it is a choice --
               and it keeps the characters' trigger phrases in front (lib/enhancedPrompt). */}
-          {savedEnhanced && !prompt.includes(PROMPT_TOKEN) && (
+          {savedEnhanced && !wantsEnhanced(prompt) && (
             <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
               <Button
                 size="small"
@@ -851,14 +872,13 @@ export default function RecipeForm({
               </Typography>
             </Stack>
           )}
-          {/* <PROMPT> (wanly-api#484): never filled here -- the API swaps in the job's start
-              image's enhanced prompt at the claim. This says what it will get. */}
-          {prompt.includes(PROMPT_TOKEN) && (
-            <Alert severity={!continuing && describePath && !savedEnhanced ? "warning" : "info"}>
-              {continuing
-                ? `${PROMPT_TOKEN} is filled with the job's start image's enhanced prompt when this segment runs, and dropped if it has none.`
-                : savedEnhanced
-                  ? `${PROMPT_TOKEN} will be swapped for this frame's enhanced prompt (${savedEnhanced.trim().split(/\s+/).length} words) when the segment runs.`
+          {/* <PROMPT> (wanly-api#484): what the placeholder became, or will become. */}
+          {wantsEnhanced(prompt) && (
+            <Alert severity={!continuing && describePath && !hasEnhancedRegion(prompt) ? "warning" : "info"}>
+              {hasEnhancedRegion(prompt)
+                ? `${PROMPT_TOKEN} is filled with this frame's enhanced prompt (${(savedEnhanced ?? "").trim().split(/\s+/).length} words).`
+                : continuing
+                  ? `${PROMPT_TOKEN} is filled with the job's start image's enhanced prompt when this segment runs, and dropped if it has none.`
                   : describePath
                     ? `This frame has no enhanced prompt, so ${PROMPT_TOKEN} will be dropped. Use Enhance prompt on it in the Image Repo first.`
                     : `${PROMPT_TOKEN} is filled from the start frame's enhanced prompt when the segment runs, and dropped if it has none.`}
