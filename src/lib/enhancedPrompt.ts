@@ -1,4 +1,12 @@
 /**
+ * The recipe placeholder for the job's start image's enhanced prompt (wanly-api#484). Unlike
+ * `<SCENE>` it is never filled here: it is submitted as written and the API swaps the saved
+ * script in when the segment is claimed -- from the JOB's start image for every segment, and
+ * dropped when that image has none.
+ */
+export const PROMPT_TOKEN = "<PROMPT>";
+
+/**
  * The enhanced prompt as a job's prompt (wanly-api#480).
  *
  * The Sulphur-2 enhancer writes the scene from the image and its scene description. It knows
