@@ -451,31 +451,9 @@ function PoseList({
       >
         {poses.map((p) => (
           <Card key={p.id} sx={{ p: 1.5, display: "flex", flexDirection: "column" }} variant="outlined">
-            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
-              <Typography variant="subtitle2" sx={{ flexGrow: 1, minWidth: 0 }} noWrap>
-                {p.name}
-              </Typography>
-              <DefaultStar isDefault={!!p.is_default} what="pose"
-                           onToggle={() => toggleDefault(p)} />
-              <Tooltip title="Edit">
-                <IconButton size="small" onClick={() => setEditing(p)}>
-                  <Edit fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Duplicate">
-                <IconButton
-                  size="small"
-                  onClick={() => setEditing({ ...p, id: "", name: `${p.name} copy` })}
-                >
-                  <ContentCopy fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Delete">
-                <IconButton size="small" onClick={() => setConfirm(p)}>
-                  <DeleteOutline fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
+            <Typography variant="subtitle2" sx={{ mb: 0.5, overflowWrap: "anywhere" }}>
+              {p.name}
+            </Typography>
             <Stack direction="row" spacing={0.5} sx={{ mb: 0.5, flexWrap: "wrap", gap: 0.5 }}>
               {!bookId && (
                 <Chip size="small" variant="outlined" label={p.book_name} />
@@ -499,6 +477,34 @@ function PoseList({
             >
               {p.prompt_template}
             </Typography>
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="flex-end"
+              spacing={0.5}
+              sx={{ mt: "auto", pt: 1 }}
+            >
+              <DefaultStar isDefault={!!p.is_default} what="pose"
+                           onToggle={() => toggleDefault(p)} />
+              <Tooltip title="Edit">
+                <IconButton size="small" onClick={() => setEditing(p)}>
+                  <Edit fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Duplicate">
+                <IconButton
+                  size="small"
+                  onClick={() => setEditing({ ...p, id: "", name: `${p.name} copy` })}
+                >
+                  <ContentCopy fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Delete">
+                <IconButton size="small" onClick={() => setConfirm(p)}>
+                  <DeleteOutline fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
           </Card>
         ))}
         {poses.length === 0 && (
