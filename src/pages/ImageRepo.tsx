@@ -2304,13 +2304,27 @@ export default function ImageRepo() {
             {isMobile ? "Play" : "Play"}
           </Button>
         ) : null}
-          {/* Selection on the untagged queue (#519): the cards already render checkboxes in
-              selectMode; this is the affordance that turns them on, plus the two actions that
-              resolve a selection. Tag covers both directions — #518's dialog has Remove. */}
-          {untaggedView && untaggedImages.length > 0 && (
+          {/* Selection on the untagged queue (#519) and on filter results (No video, tags,
+              search): the cards render checkboxes in selectMode; this is the affordance that
+              turns them on, plus the actions that resolve a selection. Tag covers both
+              directions — #518's dialog has Remove. No Move here: filter results span folders. */}
+          {((untaggedView && untaggedImages.length > 0) || (filterActive && searchResults.length > 0)) && (
             <>
               {selectMode && selectedKeys.size > 0 && (
                 <>
+                  {filterActive && (
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      startIcon={isMobile ? undefined : <PhotoLibrary />}
+                      size={isMobile ? "small" : "medium"}
+                      onClick={() => setAddToDatasetOpen(true)}
+                    >
+                      {isMobile
+                        ? `Dataset (${selectedKeys.size})`
+                        : `Add ${selectedKeys.size} to a dataset`}
+                    </Button>
+                  )}
                   <Button
                     variant="contained"
                     color="error"
@@ -2393,7 +2407,11 @@ export default function ImageRepo() {
                   {searchResults.map((image) => (
                     <Grid key={image.key} size={{ xs: 6, sm: 4, md: 3, lg: 2 }}>
                       <Card sx={{ position: "relative" }}>
-                        <CardActionArea onClick={() => handleOpenLightbox(image)}>
+                        <CardActionArea
+                          onClick={() =>
+                            selectMode ? toggleSelect(image.key) : handleOpenLightbox(image)
+                          }
+                        >
                           <CardMedia
                             component="img" loading="lazy"
                             image={getFileUrl(image.path)}
@@ -2420,22 +2438,38 @@ export default function ImageRepo() {
                             )}
                           </Box>
                         </CardActionArea>
-                        <Box sx={{ position: "absolute", top: 4, left: 4 }}>
-                          <FavoriteHeart
-                            favorited={favoritesSet.has(image.path)}
-                            onToggle={async () => {
-                              const prev = new Set(favoritesSet);
-                              const nowFav = !prev.has(image.path);
-                              if (nowFav) prev.add(image.path); else prev.delete(image.path);
-                              setFavoritesSet(prev);
-                              try {
-                                await toggleFavorite({ item_type: "image", item_ref: image.path });
-                              } catch {
-                                setFavoritesSet(favoritesSet);
-                              }
+                        {selectMode && (
+                          <Checkbox
+                            checked={selectedKeys.has(image.key)}
+                            onChange={() => toggleSelect(image.key)}
+                            sx={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              bgcolor: "rgba(255,255,255,0.8)",
+                              borderRadius: "0 0 4px 0",
+                              p: 0.5,
                             }}
                           />
-                        </Box>
+                        )}
+                        {!selectMode && (
+                          <Box sx={{ position: "absolute", top: 4, left: 4 }}>
+                            <FavoriteHeart
+                              favorited={favoritesSet.has(image.path)}
+                              onToggle={async () => {
+                                const prev = new Set(favoritesSet);
+                                const nowFav = !prev.has(image.path);
+                                if (nowFav) prev.add(image.path); else prev.delete(image.path);
+                                setFavoritesSet(prev);
+                                try {
+                                  await toggleFavorite({ item_type: "image", item_ref: image.path });
+                                } catch {
+                                  setFavoritesSet(favoritesSet);
+                                }
+                              }}
+                            />
+                          </Box>
+                        )}
                       </Card>
                     </Grid>
                   ))}
