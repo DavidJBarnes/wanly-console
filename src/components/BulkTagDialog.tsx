@@ -4,10 +4,12 @@ import {
   TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from "@mui/material";
 import TagChip from "./TagChip";
+import TagGroupRule from "./TagGroupRule";
 
 import { ltxError } from "../api/ltx";
 import { bulkUpdateImageTags, type BulkTagResult } from "../api/client";
 import type { TagCount } from "../api/types";
+import { splitByPerson } from "../lib/tagGroups";
 import { useTagStore } from "../stores/tagStore";
 
 /**
@@ -31,6 +33,7 @@ export default function BulkTagDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const { titleTags1, titleTags2 } = useTagStore();
+  const [usedPeople, usedOther] = splitByPerson(tagCounts.slice(0, 30), (tc) => tc.tag, titleTags1);
 
   const words = tags.split(",").map((t) => t.trim()).filter(Boolean);
 
@@ -108,7 +111,12 @@ export default function BulkTagDialog({
           <Box sx={{ mt: 2 }}>
             <Typography variant="caption" color="text.secondary">Vocabulary</Typography>
             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
-              {[...titleTags1, ...titleTags2].map((tag) => (
+              {titleTags1.map((tag) => (
+                <TagChip key={tag.id} label={tag.name} size="small" variant="outlined"
+                  disabled={busy} onClick={() => appendTag(tag.name)} />
+              ))}
+              {titleTags1.length > 0 && titleTags2.length > 0 && <TagGroupRule />}
+              {titleTags2.map((tag) => (
                 <TagChip key={tag.id} label={tag.name} size="small" variant="outlined"
                   disabled={busy} onClick={() => appendTag(tag.name)} />
               ))}
@@ -119,7 +127,12 @@ export default function BulkTagDialog({
           <Box sx={{ mt: 1.5 }}>
             <Typography variant="caption" color="text.secondary">In use</Typography>
             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
-              {tagCounts.slice(0, 30).map((tc) => (
+              {usedPeople.map((tc) => (
+                <TagChip key={tc.tag} label={tc.tag} size="small"
+                  disabled={busy} onClick={() => appendTag(tc.tag)} />
+              ))}
+              {usedPeople.length > 0 && usedOther.length > 0 && <TagGroupRule />}
+              {usedOther.map((tc) => (
                 <TagChip key={tc.tag} label={tc.tag} size="small"
                   disabled={busy} onClick={() => appendTag(tc.tag)} />
               ))}

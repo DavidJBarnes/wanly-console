@@ -9,6 +9,19 @@ export const PERSON_GROUP = 1;
 export const ACTION_GROUP = 2;
 
 /**
+ * Split a list into what names a Person tag and everything else, each keeping its order. A used
+ * tag can be outside the vocabulary altogether (see TagFilterBar), and those land in "everything
+ * else" because nothing says they are a person.
+ */
+export function splitByPerson<T>(
+  items: T[], nameOf: (item: T) => string, personTags: TitleTagResponse[],
+): [T[], T[]] {
+  const people = new Set(personTags.map((t) => t.name.toLowerCase()));
+  const isPerson = (item: T) => people.has(nameOf(item).trim().toLowerCase());
+  return [items.filter(isPerson), items.filter((item) => !isPerson(item))];
+}
+
+/**
  * What Enhance prompt will send for an image tagged `tags`: the descriptions of ALL its Action
  * tags, in the image's tag order, each once. Null when none of them has a description. Mirrors
  * wanly-api's prompt_enhance.action_prompt, which is what actually decides; this is so the

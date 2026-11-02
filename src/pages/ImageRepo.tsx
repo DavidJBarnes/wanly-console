@@ -112,6 +112,7 @@ import { useTagStore } from "../stores/tagStore";
 import AddToDatasetDialog from "../components/AddToDatasetDialog";
 import BulkTagDialog from "../components/BulkTagDialog";
 import TagChip from "../components/TagChip";
+import TagGroupRule from "../components/TagGroupRule";
 import TagFilterBar from "../components/TagFilterBar";
 import {
   describeFilter,
@@ -1311,6 +1312,7 @@ export default function ImageRepo() {
                             }}
                           />
                         ))}
+                        {titleTags1.length > 0 && titleTags2.length > 0 && <TagGroupRule />}
                         {titleTags2.map((tag) => (
                           <TagChip
                             key={tag.id}
