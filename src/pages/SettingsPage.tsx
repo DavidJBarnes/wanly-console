@@ -22,6 +22,7 @@ import { useTagStore } from "../stores/tagStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { CaptionStyle } from "../api/types";
 import PromptTryPanel from "../components/PromptTryPanel";
+import { stage2SigmasProblem } from "../lib/stage2Sigmas";
 import {
   hasUnsavedChange, isModified, lengthProblem, overrideToSave,
 } from "../lib/captionPrompts";
@@ -44,6 +45,10 @@ export default function SettingsPage() {
     fetchSettings,
     saveSettings,
     setNegativePrompt,
+    stage2Sigmas,
+    stage2SigmasDefault,
+    setStage2Sigmas,
+    saveStage2Sigmas,
     setCaptionStyle,
     setCaptionDraft,
     segmentQueuePosition,
@@ -59,6 +64,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const sigmasProblem = stage2SigmasProblem(stage2Sigmas);
+  const [sigmasSaving, setSigmasSaving] = useState(false);
+  const [sigmasSaved, setSigmasSaved] = useState(false);
+  const [sigmasError, setSigmasError] = useState<string | null>(null);
   const [queueSaving, setQueueSaving] = useState(false);
   const [queueError, setQueueError] = useState<string | null>(null);
 
@@ -98,6 +107,21 @@ export default function SettingsPage() {
       setSaveError(message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Saved on its own: this card's Save must not also commit unsaved edits in the others.
+  const handleSaveSigmas = async () => {
+    setSigmasSaving(true);
+    setSigmasSaved(false);
+    setSigmasError(null);
+    try {
+      await saveStage2Sigmas(stage2Sigmas);
+      setSigmasSaved(true);
+    } catch (err) {
+      setSigmasError(err instanceof Error ? err.message : "Failed to save. Please try again.");
+    } finally {
+      setSigmasSaving(false);
     }
   };
 
@@ -371,6 +395,60 @@ export default function SettingsPage() {
                 {saveError && (
                   <Alert severity="error" sx={{ mt: 1 }} onClose={() => setSaveError(null)}>
                     {saveError}
+                  </Alert>
+                )}
+              </Box>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
+            Stage 2 sigmas
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            The noise schedule for the refining pass, on every LTX render claimed after saving.
+            A lower first value lets stage 2 redraw less, so it invents less but adds less
+            detail. Leave it empty for the default.
+          </Typography>
+          {!loaded ? (
+            <Box sx={{ textAlign: "center", py: 2 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : (
+            <>
+              <TextField
+                label="Sigmas"
+                size="small"
+                value={stage2Sigmas}
+                onChange={(e) => {
+                  setStage2Sigmas(e.target.value);
+                  setSigmasSaved(false);
+                }}
+                placeholder={stage2SigmasDefault}
+                error={!!sigmasProblem}
+                helperText={sigmasProblem ?? `Default: ${stage2SigmasDefault}`}
+                sx={{ mt: 1, width: "100%", maxWidth: 500 }}
+              />
+              <Box sx={{ mt: 2 }}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={handleSaveSigmas}
+                  disabled={sigmasSaving || !!sigmasProblem}
+                >
+                  {sigmasSaving ? "Saving..." : "Save"}
+                </Button>
+                {sigmasSaved && (
+                  <Alert severity="success" sx={{ mt: 1 }}>
+                    Saved
+                  </Alert>
+                )}
+                {sigmasError && (
+                  <Alert severity="error" sx={{ mt: 1 }} onClose={() => setSigmasError(null)}>
+                    {sigmasError}
                   </Alert>
                 )}
               </Box>

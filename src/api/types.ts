@@ -1172,6 +1172,10 @@ export interface AppSettingsResponse {
   /** Where a newly queued segment lands (wanly-api#471). "top" keeps its job's place;
    *  "bottom" moves the job behind every other job. */
   segment_queue_position: QueuePosition;
+  /** LTX stage 2's noise schedule (console#717). Empty means stage2_sigmas_default. */
+  stage2_sigmas: string;
+  /** Read-only: the validated schedule a blank setting renders with. */
+  stage2_sigmas_default: string;
 }
 
 export type QueuePosition = "top" | "bottom";
@@ -1233,6 +1237,8 @@ export interface AppSettingsUpdate {
    *  Those are different intents and the API distinguishes them. */
   caption_instruction?: string;
   segment_queue_position?: QueuePosition;
+  /** "" clears it back to the default; undefined leaves it alone. */
+  stage2_sigmas?: string;
 }
 
 /** Body for POST /jobs/{id}/reroll.
