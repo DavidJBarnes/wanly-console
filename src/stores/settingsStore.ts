@@ -41,10 +41,15 @@ interface SettingsState {
   promptMaxLength: number;
   /** Where a newly queued segment lands (wanly-api#471). Saved the moment it is switched. */
   segmentQueuePosition: QueuePosition;
+  /** LTX stage 2's noise schedule, as edited; "" means the default (console#717). */
+  stage2Sigmas: string;
+  stage2SigmasDefault: string;
   loaded: boolean;
   fetchSettings: () => Promise<void>;
   saveSettings: (updates: AppSettingsUpdate) => Promise<void>;
   setNegativePrompt: (value: string) => void;
+  setStage2Sigmas: (value: string) => void;
+  saveStage2Sigmas: (value: string) => Promise<void>;
   setCaptionStyle: (value: CaptionStyle) => void;
   setCaptionDraft: (value: string) => void;
   saveQueuePosition: (value: QueuePosition) => Promise<void>;
@@ -62,6 +67,7 @@ function fromResponse(s: AppSettingsResponse): Partial<SettingsState> {
     captionStylePrompts,
     promptMaxLength: s.prompt_max_length,
     segmentQueuePosition: s.segment_queue_position,
+    stage2SigmasDefault: s.stage2_sigmas_default,
   };
 }
 
@@ -74,11 +80,13 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   captionStylePrompts: {},
   promptMaxLength: 4000,
   segmentQueuePosition: "top",
+  stage2Sigmas: "",
+  stage2SigmasDefault: "",
   loaded: false,
   fetchSettings: async () => {
     try {
       const s = await getAppSettings();
-      set({ ...fromResponse(s), loaded: true });
+      set({ ...fromResponse(s), stage2Sigmas: s.stage2_sigmas, loaded: true });
     } catch {
       // Defaults stand if the API is unreachable. `loaded` still flips so the page renders
       // its form rather than spinning forever on a request that will not arrive.
@@ -90,6 +98,13 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
     set(fromResponse(s));
   },
   setNegativePrompt: (value) => set({ negativePrompt: value }),
+  setStage2Sigmas: (value) => set({ stage2Sigmas: value }),
+  // Like the queue switch below: takes only its own field from the response, so neither this
+  // Save nor the other cards' Save throws away the other's unsaved edits.
+  saveStage2Sigmas: async (value) => {
+    const s = await updateAppSettings({ stage2_sigmas: value });
+    set({ stage2Sigmas: s.stage2_sigmas });
+  },
   // An untouched caption draft follows the style, so choosing "rich" shows what rich asks for.
   setCaptionStyle: (value) => set((st) => ({
     captionStyle: value,
