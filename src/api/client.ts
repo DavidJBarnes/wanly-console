@@ -10,6 +10,7 @@ import type {
   JobUpdate,
   SegmentCreate,
   SegmentResponse,
+  HologramListItem,
   HologramRequest,
   FramePreviewResponse,
   WorkerResponse,
@@ -317,6 +318,18 @@ export async function getHologram(segmentId: string): Promise<{
   version: string | null; // carrier completed_at — cache-buster for the fixed-key artifacts
 }> {
   const { data } = await api.get(`/segments/${segmentId}/hologram`);
+  return data;
+}
+
+/** Every playable hologram, for the shuffled AR playlist (console#713). */
+export async function getHolograms(params?: {
+  q?: string;
+  tags?: string[];
+}): Promise<HologramListItem[]> {
+  const { data } = await api.get<HologramListItem[]>("/holograms", {
+    params,
+    ...REPEAT_ARRAY_PARAMS,
+  });
   return data;
 }
 

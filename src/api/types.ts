@@ -219,6 +219,17 @@ export interface HologramRequest {
   depth_scale_m?: number; // 2.5d relief depth in meters
 }
 
+export interface HologramListItem {
+  segment_id: string;
+  job_id: string;
+  job_name: string;
+  flavor: string;
+  video_path: string;
+  manifest_path: string;
+  poster_path: string | null;
+  version: string | null; // carrier completed_at — cache-buster for the fixed-key artifacts
+}
+
 export interface HologramUvRect {
   x: number;
   y: number;

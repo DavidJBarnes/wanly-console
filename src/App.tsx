@@ -28,6 +28,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           {/* Full-screen WebXR player — outside MainLayout (no nav chrome) */}
+          <Route path="/holo/shuffle" element={<HologramPlayer shuffle />} />
           <Route path="/holo/:id" element={<HologramPlayer />} />
           <Route element={<MainLayout />}>
             <Route path="/" element={<Dashboard />} />

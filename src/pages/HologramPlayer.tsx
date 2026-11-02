@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "react-router";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { getHologram, getFileUrl } from "../api/client";
-import type { HologramManifest } from "../api/types";
+import { getFavorites, getHologram, getHolograms, getFileUrl } from "../api/client";
+import type { HologramListItem, HologramManifest } from "../api/types";
 import {
   DEFAULT_AR_SETTINGS,
   EDGE_DEFAULTS,
@@ -13,6 +13,17 @@ import {
   smoothing,
 } from "../lib/arFollow";
 import type { ArSettings, LockMode } from "../lib/arFollow";
+import {
+  clipSettings,
+  MIN_CLIP_SECONDS,
+  pressedDelta,
+  sharedSettings,
+  SHUFFLE_SETTINGS_KEY,
+  shuffled,
+  stepPlaylist,
+} from "../lib/hologramPlaylist";
+import type { FaceButtons, Playlist } from "../lib/hologramPlaylist";
+import { parseTagParam } from "../lib/tagFilter";
 
 // Full-screen WebXR immersive-ar player: places a finalized clip's matted subject
 // (packed color+alpha) life-size on the real floor via Quest 3 passthrough. Tier-0 flat/mono.
@@ -146,11 +157,14 @@ function buildHologramMesh(
   // from the start — the WebGL texture upload requires a CORS-clean video.
   const video = document.createElement("video");
   video.crossOrigin = "anonymous";
+  let disposed = false;
   video.addEventListener("error", () => {
+    if (disposed) return;
     const msg = `hologram video failed to load${video.error ? `: ${video.error.message}` : ""}`;
     console.error(msg, video.error);
     onVideoError?.(msg);
   });
+  video.preload = "auto";
   video.src = videoUrl;
   video.loop = true;
   video.muted = audio?.muted ?? true;
@@ -220,22 +234,48 @@ function buildHologramMesh(
   const quad = new THREE.Mesh(geometry, material);
   quad.position.y = height / 2; // base sits on the floor
 
+  const shadowTex = radialShadowTexture();
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(width * 0.55, 48),
-    new THREE.MeshBasicMaterial({ map: radialShadowTexture(), transparent: true, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }),
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.005;
 
   const dispose = () => {
+    disposed = true;
     video.pause();
+    // Pausing alone keeps the decoder and the buffered video. One clip per session never
+    // noticed; a playlist builds a new element per clip and would run the headset out of both.
+    video.removeAttribute("src");
+    video.load();
     videoTex.dispose();
+    shadowTex.dispose();
     material.dispose();
     geometry.dispose();
     shadow.geometry.dispose();
     (shadow.material as THREE.Material).dispose();
   };
   return { video, quad, shadow, width, height, isDepth, uniforms, edgeDefaults, dispose };
+}
+
+/** What the session asks of the shuffled playlist (console#713). */
+interface ArPlaylist {
+  /** One clip in the pool: there is nothing to advance to, so it just loops. */
+  single: boolean;
+  onStep: (delta: 1 | -1) => void;
+  /** This clip played out, as opposed to the viewer skipping it. */
+  onFinished: () => void;
+  onFailed: () => void;
+}
+
+/** Swaps clips inside a running session, because leaving it needs another gesture and loses the
+ *  placement. */
+interface ArControl {
+  /** Start buffering the clip likely to come next, so the swap has no gap. */
+  prepare: (manifest: HologramManifest, videoUrl: string) => void;
+  /** Replace the clip on screen once the new one can play. The old one holds until then. */
+  show: (manifest: HologramManifest, videoUrl: string) => void;
 }
 
 // Unmuted play may be refused by autoplay policy; failing silently is exactly how the old
@@ -324,10 +364,52 @@ async function startArSession(
   settingsRef: { current: ArSettings },
   onOverlayState: (type: string | null) => void,
   audio?: AudioOpts,
-): Promise<void> {
+  playlist?: ArPlaylist,
+): Promise<ArControl> {
   const xr = (navigator as unknown as { xr: XRSystem }).xr;
 
-  const holo = buildHologramMesh(manifest, videoUrl, undefined, settingsRef.current, audio);
+  type Holo = ReturnType<typeof buildHologramMesh>;
+  let currentUrl = videoUrl;
+  let prepared: { url: string; holo: Holo } | null = null;
+  let pending: { url: string; holo: Holo } | null = null;
+  let playedSeconds = 0;
+
+  const build = (m: HologramManifest, url: string, opts?: AudioOpts): Holo => {
+    const built = buildHologramMesh(
+      m,
+      url,
+      // A failure only matters for the clip on screen or the one about to replace it. A
+      // prepared clip that failed is dropped, so it is retried and reported if ever asked for
+      // rather than swapped to and waited on forever.
+      playlist && (() => {
+        if (prepared?.url === url) {
+          prepared.holo.dispose();
+          prepared = null;
+        } else if (url === (pending?.url ?? currentUrl)) {
+          playlist.onFailed();
+        }
+      }),
+      settingsRef.current,
+      opts,
+    );
+    if (playlist && !playlist.single) {
+      built.video.loop = false;
+      built.video.addEventListener("ended", () => {
+        // Ended while its replacement buffers: hold the last frame, the swap is on its way.
+        if (built !== holo || pending) return;
+        playedSeconds += built.video.duration;
+        if (playedSeconds >= MIN_CLIP_SECONDS) {
+          playlist.onFinished();
+        } else {
+          built.video.currentTime = 0;
+          built.video.play().catch(() => undefined);
+        }
+      });
+    }
+    return built;
+  };
+
+  let holo: Holo = build(manifest, videoUrl, audio);
   const { video } = holo;
 
   const group = new THREE.Group();
@@ -412,6 +494,7 @@ async function startArSession(
   let snapNext = true; // first frame of a mode change — jump, don't glide in from wherever
   let lastMode: LockMode = settingsRef.current.lockMode;
   let lastT = 0;
+  const buttons = new Map<XRInputSource, FaceButtons>();
 
   renderer.setAnimationLoop((t: number, frame?: XRFrame) => {
     const s = settingsRef.current;
@@ -419,6 +502,17 @@ async function startArSession(
     // backgrounded session doesn't teleport the clip on resume.
     const dt = lastT ? Math.min((t - lastT) / 1000, 0.1) : 1 / 72;
     lastT = t;
+
+    if (playlist) {
+      for (const source of session.inputSources) {
+        const pad = source.gamepad;
+        if (!pad) continue;
+        const now = { next: !!pad.buttons[4]?.pressed, prev: !!pad.buttons[5]?.pressed };
+        const delta = pressedDelta(buttons.get(source) ?? { next: false, prev: false }, now);
+        buttons.set(source, now);
+        if (delta) playlist.onStep(delta);
+      }
+    }
 
     if (s.lockMode !== lastMode) {
       snapNext = true;
@@ -549,10 +643,62 @@ async function startArSession(
   session.addEventListener("end", () => {
     renderer.setAnimationLoop(null);
     holo.dispose();
+    prepared?.holo.dispose();
+    pending?.holo.dispose();
+    prepared = pending = null;
     renderer.dispose();
     if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement);
     onEnd();
   });
+
+  // Only the clip on screen talks to React: a buffering clip handing up its element would point
+  // the mute button at something silent.
+  const silent = (): AudioOpts => ({ muted: true });
+
+  return {
+    prepare: (m, url) => {
+      if (url === currentUrl || url === pending?.url || url === prepared?.url) return;
+      prepared?.holo.dispose();
+      prepared = { url, holo: build(m, url, silent()) };
+    },
+    show: (m, url) => {
+      if (url === pending?.url) return;
+      if (url === currentUrl) {
+        // Skipped ahead and straight back while the next clip buffered: this one never left.
+        pending?.holo.dispose();
+        pending = null;
+        return;
+      }
+      let next: Holo;
+      if (prepared?.url === url) {
+        next = prepared.holo;
+        prepared = null;
+      } else {
+        next = build(m, url, silent());
+      }
+      // Skipping past a clip that was still buffering.
+      pending?.holo.dispose();
+      const entry = { url, holo: next };
+      pending = entry;
+      const install = () => {
+        if (pending !== entry) return;
+        next.video.muted = holo.video.muted;
+        group.remove(holo.quad, holo.shadow);
+        const old = holo;
+        holo = next;
+        group.add(next.quad, next.shadow);
+        currentUrl = url;
+        pending = null;
+        playedSeconds = 0;
+        old.dispose();
+        audio?.onVideo?.(next.video);
+        playWithAudioFallback(next.video, audio?.onPlayBlocked);
+      };
+      // HAVE_CURRENT_DATA: there is a frame to show, so the swap cannot flash an empty quad.
+      if (next.video.readyState >= 2) install();
+      else next.video.addEventListener("canplay", install, { once: true });
+    },
+  };
 }
 
 function Slider({
@@ -801,8 +947,22 @@ function TuningPanel({
   );
 }
 
-export default function HologramPlayer() {
-  const { id } = useParams<{ id: string }>();
+export default function HologramPlayer({ shuffle = false }: { shuffle?: boolean }) {
+  const { id: routeId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  // console#713: Play Random VR. Same player, with the clip coming from a shuffled list.
+  const [playlist, setPlaylist] = useState<Playlist<HologramListItem> | null>(null);
+  const currentClip = playlist?.clips[playlist.index] ?? null;
+  const id = shuffle ? currentClip?.segment_id : routeId;
+  // The clip the manifest in state belongs to. `id` moves first and the manifest arrives later,
+  // and the settings effects must never read one clip's tuning against another's manifest.
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  // State, not a ref: the session finishes starting after inAr flips, and the first clip's
+  // successor still has to be buffered once it does.
+  const [control, setControl] = useState<ArControl | null>(null);
+  const manifests = useRef(new Map<string, Promise<HologramManifest>>());
+  const failures = useRef(0);
+  const poolSize = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<XRSession | null>(null);
@@ -842,31 +1002,123 @@ export default function HologramPlayer() {
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+  const manifestRef = useRef<HologramManifest | null>(manifest);
+  useEffect(() => {
+    manifestRef.current = manifest;
+  }, [manifest]);
+
+  // Deal the playlist once, with the filters the Videos page handed over.
+  const shuffleQ = searchParams.get("q");
+  const shuffleTags = searchParams.get("tags");
+  const shuffleFav = searchParams.get("fav") === "1";
+  useEffect(() => {
+    if (!shuffle) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const tags = parseTagParam(shuffleTags);
+        let clips = await getHolograms({
+          q: shuffleQ || undefined,
+          tags: tags.length ? tags : undefined,
+        });
+        if (shuffleFav) {
+          const favorites = new Set((await getFavorites("video")).item_refs);
+          clips = clips.filter((c) => favorites.has(c.job_id));
+        }
+        if (cancelled) return;
+        if (clips.length === 0) {
+          setError("No holograms match this filter. Make one from a finished clip's page first.");
+          return;
+        }
+        poolSize.current = clips.length;
+        setPlaylist({ clips: shuffled(clips), index: 0 });
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load holograms");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shuffle, shuffleQ, shuffleTags, shuffleFav]);
+
+  // Stable, because the running session holds on to it.
+  const stepClip = useCallback((delta: 1 | -1) => {
+    setPlaylist((p) => (p ? stepPlaylist(p, delta) : p));
+  }, []);
+
+  /** A broken clip should not end the session, but a pool of nothing but broken clips must not
+   *  spin forever either. */
+  const clipFailed = useCallback(() => {
+    failures.current += 1;
+    if (failures.current >= poolSize.current) {
+      sessionRef.current?.end();
+      setError("None of these holograms would play.");
+      return;
+    }
+    stepClip(1);
+  }, [stepClip]);
+
+  const fetchManifest = (clipId: string, path: string, version?: string) => {
+    let pending = manifests.current.get(clipId);
+    if (!pending) {
+      pending = fetch(getFileUrl(path, version)).then((res) => {
+        if (!res.ok) throw new Error(`manifest ${res.status}`);
+        return res.json() as Promise<HologramManifest>;
+      });
+      manifests.current.set(clipId, pending);
+      pending.catch(() => manifests.current.delete(clipId));
+    }
+    return pending;
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         if (!id) return;
-        const paths = await getHologram(id);
+        const paths = currentClip ?? (await getHologram(id));
         // Version param busts the cached /files redirect: hologram artifacts live at fixed S3
         // keys, so without it a remake replays the previous flavor's video + manifest for hours.
         const v = paths.version ?? undefined;
-        const res = await fetch(getFileUrl(paths.manifest_path, v));
-        if (!res.ok) throw new Error(`manifest ${res.status}`);
-        const m: HologramManifest = await res.json();
+        const m = await fetchManifest(id, paths.manifest_path, v);
         if (cancelled) return;
         setManifest(m);
+        setLoadedId(id);
         setVideoUrl(getFileUrl(paths.video_path, v));
-        setPosterUrl(getFileUrl(paths.poster_path, v));
+        setPosterUrl(paths.poster_path ? getFileUrl(paths.poster_path, v) : null);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load hologram");
+        if (cancelled) return;
+        if (shuffle) clipFailed();
+        else setError(e instanceof Error ? e.message : "Failed to load hologram");
       }
     })();
     return () => {
       cancelled = true;
     };
+    // currentClip is the same clip as `id`; the object changes on a reshuffle, the clip does not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Hand each new clip to the running session, and start buffering the one after it.
+  useEffect(() => {
+    if (!control || !manifest || !videoUrl) return;
+    control.show(manifest, videoUrl);
+    if (!playlist || playlist.clips.length < 2) return;
+    // The last clip's successor is a reshuffle nobody has dealt yet, so nothing to buffer.
+    const after = playlist.clips[playlist.index + 1];
+    if (!after) return;
+    const v = after.version ?? undefined;
+    let cancelled = false;
+    fetchManifest(after.segment_id, after.manifest_path, v)
+      .then((m) => {
+        if (!cancelled) control.prepare(m, getFileUrl(after.video_path, v));
+      })
+      .catch(() => undefined); // It reports itself if it is ever actually asked for.
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [control, manifest, videoUrl]);
 
   useEffect(() => {
     const xr = (navigator as unknown as { xr?: XRSystem }).xr;
@@ -882,7 +1134,7 @@ export default function HologramPlayer() {
   // Edge defaults are tier-dependent, so they can only be resolved once the manifest is in. Any
   // values already tuned for this hologram win over the defaults.
   useEffect(() => {
-    if (!manifest || !id) return;
+    if (!manifest || !loadedId) return;
     const isDepth =
       !!manifest.region_depth_uv && (manifest.tier === 1 || manifest.flavor === "2.5d_depth");
     const base: ArSettings = {
@@ -891,25 +1143,42 @@ export default function HologramPlayer() {
     };
     let stored: Partial<ArSettings> = {};
     try {
-      const raw = localStorage.getItem(`ar-settings:${id}`);
+      const raw = localStorage.getItem(`ar-settings:${loadedId}`);
       if (raw) stored = JSON.parse(raw) as Partial<ArSettings>;
+      if (shuffle) {
+        const shared = localStorage.getItem(SHUFFLE_SETTINGS_KEY);
+        setSettings(clipSettings(base, shared ? JSON.parse(shared) : {}, stored));
+        return;
+      }
     } catch {
       /* corrupt or unavailable storage — fall back to defaults */
     }
     setSettings({ ...base, ...stored });
-  }, [manifest, id]);
+  }, [manifest, loadedId, shuffle]);
 
   // Persist per hologram. Deliberately localStorage and not a Segment column: the point of the
   // sliders is to find out what the defaults should be, and there is no sense migrating a schema
   // around numbers nobody has confirmed in a headset yet.
   useEffect(() => {
-    if (!id || !manifest) return;
+    if (!loadedId || !manifest) return;
     try {
-      localStorage.setItem(`ar-settings:${id}`, JSON.stringify(settings));
+      if (shuffle) {
+        // Edges stay with the clip; the lock mode goes with the playlist, so shuffling never
+        // rewrites how a clip opens on its own page.
+        const raw = localStorage.getItem(`ar-settings:${loadedId}`);
+        const stored = raw ? (JSON.parse(raw) as Partial<ArSettings>) : {};
+        localStorage.setItem(
+          `ar-settings:${loadedId}`,
+          JSON.stringify({ ...stored, edgeMin: settings.edgeMin, edgeMax: settings.edgeMax }),
+        );
+        localStorage.setItem(SHUFFLE_SETTINGS_KEY, JSON.stringify(sharedSettings(settings)));
+      } else {
+        localStorage.setItem(`ar-settings:${loadedId}`, JSON.stringify(settings));
+      }
     } catch {
       /* private mode / quota — tuning still works, it just won't survive a reload */
     }
-  }, [id, manifest, settings]);
+  }, [loadedId, manifest, settings, shuffle]);
 
   // Desktop 3D preview: same mesh + shaders as AR, orbited with the mouse instead of your feet.
   useEffect(() => {
@@ -972,13 +1241,14 @@ export default function HologramPlayer() {
       setInPreview(false); // never both — each owns a canvas on the same container
       setInAr(true);
       setSessionRan(true);
-      await startArSession(
+      const started = await startArSession(
         containerRef.current,
         overlayRef.current,
         manifest,
         videoUrl,
         () => {
           sessionRef.current = null;
+          setControl(null);
           setInAr(false);
           videoRef.current = null;
         },
@@ -995,10 +1265,27 @@ export default function HologramPlayer() {
           },
           onPlayBlocked: () => {
             setAudioMuted(true);
-            setTapForSound(manifest?.has_audio === true);
+            // Read at the moment it fires: in a playlist this outlives the clip it started on.
+            setTapForSound(manifestRef.current?.has_audio === true);
           },
         },
-      );    } catch (e) {
+        playlist
+          ? {
+              single: playlist.clips.length < 2,
+              onStep: (delta) => {
+                failures.current = 0;
+                stepClip(delta);
+              },
+              onFinished: () => {
+                failures.current = 0;
+                stepClip(1);
+              },
+              onFailed: clipFailed,
+            }
+          : undefined,
+      );
+      setControl(() => started);
+    } catch (e) {
       setInAr(false);
       videoRef.current = null;
       setError(e instanceof Error ? e.message : "Could not start AR session");
@@ -1101,7 +1388,34 @@ export default function HologramPlayer() {
                   fontSize: 13,
                 }}
               >
-                {tierLabel}
+                {playlist
+                  ? `${playlist.index + 1} / ${playlist.clips.length} · ${currentClip?.job_name} · ${tierLabel}`
+                  : tierLabel}
+              </div>
+            )}
+            {/* Beside the A/B buttons, not instead of them: hand tracking has no buttons. */}
+            {playlist && playlist.clips.length > 1 && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 130,
+                  right: 20,
+                  display: "flex",
+                  gap: 12,
+                }}
+              >
+                <button
+                  onClick={() => stepClip(-1)}
+                  style={{ ...soundButtonStyle, position: "static" }}
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => stepClip(1)}
+                  style={{ ...soundButtonStyle, position: "static" }}
+                >
+                  Next
+                </button>
               </div>
             )}
             <button
@@ -1252,6 +1566,19 @@ export default function HologramPlayer() {
               }}
             >
               {tierLabel}
+            </div>
+          )}
+          {playlist && (
+            <div style={{ fontSize: 14, opacity: 0.85 }}>
+              {playlist.index + 1} / {playlist.clips.length} · {currentClip?.job_name}
+              {playlist.clips.length > 1 && (
+                <button
+                  onClick={() => stepClip(1)}
+                  style={{ marginLeft: 12, padding: "4px 12px", borderRadius: 6, cursor: "pointer" }}
+                >
+                  Next clip
+                </button>
+              )}
             </div>
           )}
           {arSupported === true && manifest && (

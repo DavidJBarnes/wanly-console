@@ -18,8 +18,9 @@ import {
   TextField,
 } from "@mui/material";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary } from "@mui/icons-material";
+import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary, ViewInAr } from "@mui/icons-material";
 import { useNavigate } from "react-router";
+import { shuffleUrl } from "../lib/hologramPlaylist";
 import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite, getJobTagCounts } from "../api/client";
 import type { JobDetailResponse, JobResponse, TagCount } from "../api/types";
 import { DEFAULT_JOB_FETCH_LIMIT, POLL_INTERVAL_FAST } from "../constants";
@@ -295,6 +296,16 @@ export default function Videos() {
             sx={{ textTransform: "none" }}
           >
             Play Random
+          </Button>
+        )}
+        {jobs.length > 0 && (
+          <Button
+            variant="outlined"
+            startIcon={<ViewInAr />}
+            onClick={() => navigate(shuffleUrl(debouncedQuery, rawTags, favoritesOnly))}
+            sx={{ textTransform: "none" }}
+          >
+            Play Random VR
           </Button>
         )}
         <Button
