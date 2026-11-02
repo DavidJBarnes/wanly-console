@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TitleTagResponse } from "../api/types";
-import { ACTION_GROUP, actionPrompt, actionTagNames } from "./tagGroups";
+import { ACTION_GROUP, actionPrompt, actionTagNames, splitByPerson } from "./tagGroups";
 
 const tag = (name: string, description: string | null): TitleTagResponse => ({
   id: name, name, group: ACTION_GROUP, description, created_at: "", updated_at: "",
@@ -30,5 +30,21 @@ describe("actionTagNames (console#709)", () => {
   it("is empty when the image has no Action tag", () => {
     expect(actionTagNames("Joana", ACTIONS)).toEqual([]);
     expect(actionTagNames(null, ACTIONS)).toEqual([]);
+  });
+});
+
+describe("splitByPerson", () => {
+  const PEOPLE = [tag("Kelly", null), tag("Udycz", null)];
+  const name = (t: string) => t;
+
+  it("puts Person tags first and keeps each side's order", () => {
+    expect(splitByPerson(["Anal", "Udycz", "POV", "Kelly"], name, PEOPLE))
+      .toEqual([["Udycz", "Kelly"], ["Anal", "POV"]]);
+  });
+  it("matches case-insensitively", () => {
+    expect(splitByPerson(["kelly"], name, PEOPLE)).toEqual([["kelly"], []]);
+  });
+  it("leaves a tag outside the vocabulary with the rest", () => {
+    expect(splitByPerson(["kellyteacher"], name, PEOPLE)).toEqual([[], ["kellyteacher"]]);
   });
 });

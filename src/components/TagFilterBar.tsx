@@ -1,7 +1,11 @@
+import { useEffect } from "react";
 import { Box, Button, Typography } from "@mui/material";
 import type { TagCount } from "../api/types";
 import { isTagSelected } from "../lib/tagFilter";
+import { splitByPerson } from "../lib/tagGroups";
+import { useTagStore } from "../stores/tagStore";
 import TagChip from "./TagChip";
+import TagGroupRule from "./TagGroupRule";
 
 interface Props {
   counts: TagCount[];
@@ -29,33 +33,42 @@ interface Props {
  * is stored, so the same row serves images (/images/tag-counts) and videos (/jobs/tag-counts).
  */
 export default function TagFilterBar({ counts, selected, onToggle, onClear }: Props) {
+  // Videos and the Add from repo dialog do not load the vocabulary themselves.
+  const { titleTags1, fetchTags } = useTagStore();
+  useEffect(() => { if (!titleTags1.length) fetchTags(); }, [titleTags1.length, fetchTags]);
+
   if (counts.length === 0 && selected.length === 0) return null;
+
+  const [people, other] = splitByPerson(counts, (c) => c.tag, titleTags1);
+  const pill = ({ tag, count }: TagCount) => {
+    const on = isTagSelected(selected, tag);
+    return (
+      // A tag that is a character's name shows the character's icon (console#658, #684).
+      <TagChip
+        key={tag}
+        size="small"
+        character={tag}
+        label={
+          <Box component="span" sx={{ display: "inline-flex", gap: 0.5 }}>
+            <span>{tag}</span>
+            <Typography component="span" variant="caption" sx={{ opacity: 0.7 }}>
+              {count}
+            </Typography>
+          </Box>
+        }
+        onClick={() => onToggle(tag)}
+        color={on ? "primary" : "default"}
+        variant={on ? "filled" : "outlined"}
+        sx={{ cursor: "pointer" }}
+      />
+    );
+  };
 
   return (
     <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.75, mb: 2 }}>
-      {counts.map(({ tag, count }) => {
-        const on = isTagSelected(selected, tag);
-        return (
-          // A tag that is a character's name shows the character's icon (console#658, #684).
-          <TagChip
-            key={tag}
-            size="small"
-            character={tag}
-            label={
-              <Box component="span" sx={{ display: "inline-flex", gap: 0.5 }}>
-                <span>{tag}</span>
-                <Typography component="span" variant="caption" sx={{ opacity: 0.7 }}>
-                  {count}
-                </Typography>
-              </Box>
-            }
-            onClick={() => onToggle(tag)}
-            color={on ? "primary" : "default"}
-            variant={on ? "filled" : "outlined"}
-            sx={{ cursor: "pointer" }}
-          />
-        );
-      })}
+      {people.map(pill)}
+      {people.length > 0 && other.length > 0 && <TagGroupRule />}
+      {other.map(pill)}
       {selected.length > 0 && (
         <Button size="small" onClick={onClear}>
           Clear
