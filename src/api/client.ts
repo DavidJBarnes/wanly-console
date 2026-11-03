@@ -24,7 +24,8 @@ import type {
   ImageFolder,
   ImageFile,
   ImageScene,
-  EnhancePromptResult,
+  EnhanceQueueResult,
+  EnhanceQueueStatus,
   ImageJobInfo,
   ImageSearchResponse,
   TagCount,
@@ -879,14 +880,22 @@ export async function getImageScene(path: string): Promise<ImageScene> {
 }
 
 /**
- * Send an image and its scene description to the Sulphur-2 prompt enhancer and keep the video
- * prompt it writes on the image (wanly-api#480). Synchronous: the enhancer loads per request on
- * the 2070 (it takes turns with the scene captioner), so a cold call is ~30 s and a warm one
- * less. 409 when the image has no scene description yet; 503 when the enhancer is off or down.
+ * Queue images for the Sulphur-2 prompt enhancer and return at once (console#719). The API runs
+ * them one at a time and keeps each prompt on its image. `redo` replaces prompts already there.
  */
-export async function enhanceImagePrompt(path: string): Promise<EnhancePromptResult> {
-  const { data } = await api.post<EnhancePromptResult>("/images/enhance-prompt", null,
-    { params: { path }, timeout: 15 * 60 * 1000 });
+export async function queueEnhance(paths: string[], redo = false): Promise<EnhanceQueueResult> {
+  const { data } = await api.post<EnhanceQueueResult>("/images/enhance-prompt/queue", { paths, redo });
+  return data;
+}
+
+export async function getEnhanceQueue(): Promise<EnhanceQueueStatus> {
+  const { data } = await api.get<EnhanceQueueStatus>("/images/enhance-prompt/queue");
+  return data;
+}
+
+/** Empty the line and forget the failures. */
+export async function clearEnhanceQueue(): Promise<EnhanceQueueStatus> {
+  const { data } = await api.delete<EnhanceQueueStatus>("/images/enhance-prompt/queue");
   return data;
 }
 
