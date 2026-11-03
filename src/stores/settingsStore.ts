@@ -71,6 +71,12 @@ function fromResponse(s: AppSettingsResponse): Partial<SettingsState> {
   };
 }
 
+// The API stores blank for "use the default", so the field shows the default's actual values
+// and they can be edited in place (console#721). Saving them unchanged stores blank again.
+function shownSigmas(s: AppSettingsResponse): string {
+  return s.stage2_sigmas || s.stage2_sigmas_default;
+}
+
 export const useSettingsStore = create<SettingsState>()((set) => ({
   negativePrompt: "",
   captionStyle: "standard",
@@ -86,7 +92,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   fetchSettings: async () => {
     try {
       const s = await getAppSettings();
-      set({ ...fromResponse(s), stage2Sigmas: s.stage2_sigmas, loaded: true });
+      set({ ...fromResponse(s), stage2Sigmas: shownSigmas(s), loaded: true });
     } catch {
       // Defaults stand if the API is unreachable. `loaded` still flips so the page renders
       // its form rather than spinning forever on a request that will not arrive.
@@ -103,7 +109,7 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   // Save nor the other cards' Save throws away the other's unsaved edits.
   saveStage2Sigmas: async (value) => {
     const s = await updateAppSettings({ stage2_sigmas: value });
-    set({ stage2Sigmas: s.stage2_sigmas });
+    set({ stage2Sigmas: shownSigmas(s) });
   },
   // An untouched caption draft follows the style, so choosing "rich" shows what rich asks for.
   setCaptionStyle: (value) => set((st) => ({
