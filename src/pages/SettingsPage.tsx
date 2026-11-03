@@ -411,7 +411,7 @@ export default function SettingsPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             The noise schedule for the refining pass, on every LTX render claimed after saving.
             A lower first value lets stage 2 redraw less, so it invents less but adds less
-            detail. Leave it empty for the default.
+            detail.
           </Typography>
           {!loaded ? (
             <Box sx={{ textAlign: "center", py: 2 }}>
@@ -427,7 +427,6 @@ export default function SettingsPage() {
                   setStage2Sigmas(e.target.value);
                   setSigmasSaved(false);
                 }}
-                placeholder={stage2SigmasDefault}
                 error={!!sigmasProblem}
                 helperText={sigmasProblem ?? `Default: ${stage2SigmasDefault}`}
                 sx={{ mt: 1, width: "100%", maxWidth: 500 }}
@@ -440,6 +439,17 @@ export default function SettingsPage() {
                   disabled={sigmasSaving || !!sigmasProblem}
                 >
                   {sigmasSaving ? "Saving..." : "Save"}
+                </Button>
+                <Button
+                  size="small"
+                  sx={{ ml: 1 }}
+                  onClick={() => {
+                    setStage2Sigmas(stage2SigmasDefault);
+                    setSigmasSaved(false);
+                  }}
+                  disabled={stage2Sigmas === stage2SigmasDefault}
+                >
+                  Reset to default
                 </Button>
                 {sigmasSaved && (
                   <Alert severity="success" sx={{ mt: 1 }}>
