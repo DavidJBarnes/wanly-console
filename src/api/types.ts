@@ -1459,13 +1459,17 @@ export interface CharacterFull {
   pairs: CharacterRef[];
 }
 
-/** POST /images/enhance-prompt (wanly-api#480). */
-export interface EnhancePromptResult {
-  path: string;
-  enhanced_prompt: string;
-  enhanced_prompt_at: string;
-  words: number;
-  /** How long the enhancer took, and whether it had to load the model first. */
-  ms: number | null;
-  cold: boolean;
+/** GET /images/enhance-prompt/queue (console#719). `waiting` includes `running`. */
+export interface EnhanceQueueStatus {
+  running: string | null;
+  waiting: string[];
+  failed: { path: string; error: string }[];
+}
+
+/** POST /images/enhance-prompt/queue: how many went in, and why the others did not. */
+export interface EnhanceQueueResult {
+  queued: number;
+  already_enhanced: number;
+  no_action: number;
+  status: EnhanceQueueStatus;
 }

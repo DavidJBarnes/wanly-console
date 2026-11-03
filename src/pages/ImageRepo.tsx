@@ -81,7 +81,7 @@ import {
   updateImageTags,
   getImageScene,
   requestImageDescribe,
-  enhanceImagePrompt,
+  queueEnhance,
   searchImages,
   getImageTagCounts,
 } from "../api/client";
@@ -104,6 +104,9 @@ import {
   captionStatusNow, noteCaptionTicket, refreshCaptionStatus, useCaptionDone, useCaptionStatus,
 } from "../stores/captionStore";
 import CaptionQueueChip from "../components/CaptionQueueChip";
+import EnhanceQueueChip from "../components/EnhanceQueueChip";
+import { describeQueued } from "../lib/enhanceQueue";
+import { useEnhanceQueue, useEnhanceStore } from "../stores/enhanceStore";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import CropResizeDialog from "../components/CropResizeDialog";
 import ImageEditDialog from "../components/ImageEditDialog";
@@ -221,10 +224,12 @@ export default function ImageRepo() {
   // modal may be showing a different image, and an error pinned to the wrong picture reads
   // as that picture having failed.
   const [sceneError, setSceneError] = useState<{ path: string; message: string } | null>(null);
-  // The prompt enhancer (wanly-api#480). Both carry their path for the reason sceneError does:
-  // a cold enhance is ~30 s, and the modal may have moved to another image by the end.
-  const [enhancingPath, setEnhancingPath] = useState<string | null>(null);
+  // The prompt enhancer's queue (console#719) is the API's, so a batch outlives this page.
+  const enhanceQueue = useEnhanceQueue();
+  // Carries its path for the reason sceneError does: the modal may have moved on by the time
+  // a request to queue fails.
   const [enhanceError, setEnhanceError] = useState<{ path: string; message: string } | null>(null);
+  const [enhanceNotice, setEnhanceNotice] = useState<string | null>(null);
   // The latest tag write, for Enhance prompt to wait on (it never rejects).
   const lastTagWrite = useRef<Promise<void> | null>(null);
   // The scene caption's own ticket, chip, button and retry (console#590).
@@ -718,30 +723,51 @@ export default function ImageRepo() {
   }, []);
   useCaptionDone(onCaptionDone);
 
-  /** Send the image and its Action tags' descriptions to the prompt enhancer (wanly-api#486);
-   *  keep what it writes. A tag edit still waiting on the debounce is written first and
-   *  waited for: the API reads the SAVED tags, and the tag just added is usually the point. */
+  /** Queue the image for the prompt enhancer (console#719). A tag edit still waiting on the
+   *  debounce is written first and waited for: the API reads the SAVED tags, and the tag just
+   *  added is usually the point. */
   const runEnhance = (path: string) => {
-    if (enhancingPath) return;
-    setEnhancingPath(path);
     setEnhanceError(null);
     tagSave.flush();
     (lastTagWrite.current ?? Promise.resolve())
-      .then(() => enhanceImagePrompt(path))
-      .then((r) => {
-        const patch = (img: ImageFile) =>
-          img.path === path
-            ? { ...img, enhanced_prompt: r.enhanced_prompt, enhanced_prompt_at: r.enhanced_prompt_at }
-            : img;
-        setImages((prev) => prev.map(patch));
-        setFavImages((prev) => prev.map(patch));
-        setUntaggedImages((prev) => prev.map(patch));
-        setSearchResults((prev) => prev.map(patch));
-        setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
-      })
-      .catch((err) => setEnhanceError({ path, message: apiError(err, "The enhancer failed") }))
-      .finally(() => setEnhancingPath(null));
+      .then(() => queueEnhance([path], true))
+      .then((r) => useEnhanceStore.getState().apply(r.status))
+      .catch((err) => setEnhanceError({ path, message: apiError(err, "Could not queue it") }));
   };
+
+  const handleBulkEnhance = () => {
+    queueEnhance(selectedUris())
+      .then((r) => {
+        useEnhanceStore.getState().apply(r.status);
+        setEnhanceNotice(describeQueued(r));
+      })
+      .catch((err) => setEnhanceNotice(apiError(err, "Could not queue them")));
+  };
+
+  // Put each prompt the queue finishes on every copy of the row, as onCaptionDone does.
+  const enhanceDoneSeq = useEnhanceStore((s) => s.doneSeq);
+  useEffect(() => {
+    if (!enhanceDoneSeq) return;
+    for (const path of useEnhanceStore.getState().lastDone) {
+      getImageScene(path)
+        .then((scene) => {
+          const patch = (img: ImageFile) =>
+            img.path === path
+              ? {
+                  ...img,
+                  enhanced_prompt: scene.enhanced_prompt,
+                  enhanced_prompt_at: scene.enhanced_prompt_at,
+                }
+              : img;
+          setImages((prev) => prev.map(patch));
+          setFavImages((prev) => prev.map(patch));
+          setUntaggedImages((prev) => prev.map(patch));
+          setSearchResults((prev) => prev.map(patch));
+          setLightboxImage((prev) => (prev && prev.path === path ? patch(prev) : prev));
+        })
+        .catch((err) => console.error("Failed to read the new prompt:", err));
+    }
+  }, [enhanceDoneSeq]);
 
   /**
    * Write the pending tag edit now, whatever it was and whichever image it belongs to.
@@ -1423,7 +1449,10 @@ export default function ImageRepo() {
                   <Box component="hr" sx={{ my: 2, borderColor: "divider" }} />
                   <Box>
                     {(() => {
-                      const busy = enhancingPath === lightboxImage.path;
+                      const place = enhanceQueue?.waiting.indexOf(lightboxImage.path) ?? -1;
+                      const busy = place >= 0;
+                      const running = enhanceQueue?.running === lightboxImage.path;
+                      const failure = enhanceQueue?.failed.find((f) => f.path === lightboxImage.path);
                       // The editor's tags, not the saved ones: runEnhance saves them first.
                       const action = actionPrompt(lightboxTags, titleTags2);
                       const enhanced = lightboxImage.enhanced_prompt;
@@ -1448,18 +1477,21 @@ export default function ImageRepo() {
                               <Button
                                 size="small"
                                 onClick={() => runEnhance(lightboxImage.path)}
-                                disabled={!action || enhancingPath !== null}
-                                startIcon={busy ? <CircularProgress size={14} /> : undefined}
+                                disabled={!action || busy}
+                                startIcon={running ? <CircularProgress size={14} /> : undefined}
                               >
-                                {busy ? "Enhancing\u2026" : enhanced ? "Redo" : "Enhance prompt"}
+                                {running
+                                  ? "Enhancing\u2026"
+                                  : busy
+                                    ? `Queued (#${place + 1})`
+                                    : enhanced ? "Redo" : "Enhance prompt"}
                               </Button>
                             </span>
                           </Stack>
                           {busy && (
                             <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
-                              Sending the image and its Action tags&apos; descriptions to the
-                              enhancer. The first one loads the model (it takes turns with the
-                              scene captioner), so allow ~30 s.
+                              You can move on or close this page; it runs in the background and
+                              the prompt is kept on the image.
                             </Typography>
                           )}
                           {enhanced ? (
@@ -1480,6 +1512,11 @@ export default function ImageRepo() {
                                 ? "Not enhanced yet."
                                 : "Needs an Action tag with a description -- add one in Settings → Tags."}
                             </Typography>
+                          )}
+                          {failure && !busy && (
+                            <Alert severity="warning" sx={{ mt: 1 }}>
+                              {failure.error}
+                            </Alert>
                           )}
                           {enhanceError?.path === lightboxImage.path && (
                             <Alert severity="warning" sx={{ mt: 1 }} onClose={() => setEnhanceError(null)}>
@@ -1709,6 +1746,12 @@ export default function ImageRepo() {
         </DialogActions>
       </Dialog>
 
+      <Snackbar
+        open={!!enhanceNotice}
+        autoHideDuration={8000}
+        onClose={() => setEnhanceNotice(null)}
+        message={enhanceNotice}
+      />
       <Snackbar
         open={!!error}
         autoHideDuration={6000}
@@ -2348,6 +2391,15 @@ export default function ImageRepo() {
                       ? `Tag (${selectedKeys.size})`
                       : `Tag ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
                   </Button>
+                  <Button
+                    variant="outlined"
+                    size={isMobile ? "small" : "medium"}
+                    onClick={handleBulkEnhance}
+                  >
+                    {isMobile
+                      ? `Enhance (${selectedKeys.size})`
+                      : `Enhance prompt for ${selectedKeys.size}`}
+                  </Button>
                 </>
               )}
               <Button
@@ -2942,6 +2994,7 @@ export default function ImageRepo() {
             per-image position only existed for an image you had already opened, which is no
             answer to "how is the queue looking?". Renders nothing when idle. */}
         <CaptionQueueChip />
+        <EnhanceQueueChip />
         <Button
           variant="outlined"
           startIcon={
