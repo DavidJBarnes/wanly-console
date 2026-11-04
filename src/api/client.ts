@@ -52,6 +52,7 @@ import type {
   WorkerModesSummary,
   CaptionHoldSummary,
   CaptionQueueStatus,
+  DescribeQueueStatus,
   CaptionTicket,
   EditPresets,
   FullEditBody,
@@ -1182,6 +1183,13 @@ export async function drainWorker(id: string, afterJobs?: number): Promise<void>
 
 export async function cancelDrain(id: string): Promise<void> {
   await api.delete(`/workers/${id}/drain`);
+}
+
+/** Put every image the describe queue gave up on back in line (console#727). */
+export async function retryDescribeQueue(): Promise<{ retried: number; status: DescribeQueueStatus }> {
+  const { data } = await api.post<{ retried: number; status: DescribeQueueStatus }>(
+    "/images/describe-queue/retry");
+  return data;
 }
 
 /** The captioner's queue. No path: it is the whole-queue view, cheap enough to poll. */

@@ -1018,6 +1018,12 @@ export interface CaptionQueueStatus {
   /** Each lane on its own (console#572). A "motion" lane from an API older than
    *  wanly-api#481 is ignored. */
   lanes?: { name: string; depth: number; waiting: number; running: string | null }[];
+  /** Uploads waiting in the describe queue that are not in the lane yet (console#727). The
+   *  queue feeds the lane one image at a time, so `depth` alone hides a whole upload batch.
+   *  Absent from an older API. */
+  backlog?: number;
+  /** Images the describe queue gave up on (console#727). */
+  backlog_failed?: number;
 }
 
 /** A held job a caption is being made for (console#590). */
@@ -1475,4 +1481,11 @@ export interface EnhanceQueueResult {
   already_enhanced: number;
   no_action: number;
   status: EnhanceQueueStatus;
+}
+
+/** GET /images/describe-queue (console#727). `waiting` includes `running`. */
+export interface DescribeQueueStatus {
+  running: string | null;
+  waiting: number;
+  failed: { path: string; error: string }[];
 }

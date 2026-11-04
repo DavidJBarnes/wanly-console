@@ -6,9 +6,9 @@
  * second 2070 call for a frame that is already described, on a box that also serves
  * Automatic1111.
  *
- * Tagging is the trigger because it is the moment a person has decided the image is worth
- * keeping. An untagged image is triage; describing all of them would be a queue of GPU work
- * for frames nobody has looked at.
+ * Since console#727 every upload is described anyway, by the API's describe queue, so this is
+ * the fast path for an image uploaded before that (or one the queue gave up on): tagging it
+ * describes it now rather than waiting for a retry.
  */
 export function shouldAutoDescribe(args: {
   /** The tags just saved. */
