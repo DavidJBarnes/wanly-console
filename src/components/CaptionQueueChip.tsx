@@ -1,5 +1,8 @@
+import { useState } from "react";
 import { Chip, CircularProgress, Tooltip } from "@mui/material";
 
+import { retryDescribeQueue } from "../api/client";
+import { captionQueueCounts } from "../lib/captionQueueCounts";
 import { useCaptionQueueSnapshot } from "../stores/captionStore";
 
 /**
@@ -14,9 +17,13 @@ import { useCaptionQueueSnapshot } from "../stores/captionStore";
  * from nothing happening.
  *
  * ONE POLL, NOT ONE PER IMAGE. Depth belongs to the captioner, not to any image, so
- * GET /images/caption-queue needs no path -- no database and no captioner call behind it
- * either, because the queue lives in the API process. Since console#564 that same poll
+ * GET /images/caption-queue needs no path. Since console#564 that same poll
  * (stores/captionStore.ts) also feeds every image's own caption badge.
+ *
+ * THE UPLOAD BACKLOG COUNTS TOO (console#727). Every upload joins the API's describe queue,
+ * which feeds the lane one image at a time; a batch of uploads would otherwise read as
+ * "Captioning 1" for an hour. Images that queue gave up on get their own chip, which retries
+ * them.
  *
  * SILENT WHEN IDLE. A chip reading "0 queued" on every page all day is furniture; the
  * useful signal is that there IS a queue.
@@ -24,29 +31,55 @@ import { useCaptionQueueSnapshot } from "../stores/captionStore";
 
 export default function CaptionQueueChip() {
   const q = useCaptionQueueSnapshot();
+  const [retrying, setRetrying] = useState(false);
 
-  if (!q || q.depth === 0) return null;
-
+  if (!q) return null;
+  // The count people act on is what is LEFT, so depth (which includes the one being captioned
+  // now) rather than the waiting count alone -- "6 waiting" while a seventh is mid-caption
+  // understates the wait by a whole caption.
+  const { left, behind, failed } = captionQueueCounts(q);
   const name = q.running ? q.running.split("/").pop() : null;
 
+  const retry = async () => {
+    setRetrying(true);
+    try {
+      await retryDescribeQueue();
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   return (
-    <Tooltip
-      title={
-        name
-          ? `Captioning ${name}${q.waiting ? ` — ${q.waiting} waiting behind it` : ""}`
-          : `${q.depth} in the caption queue`
-      }
-    >
-      <Chip
-        size="small"
-        icon={<CircularProgress size={12} sx={{ ml: 0.75 }} />}
-        // The count people act on is what is LEFT, so depth (which includes the one being
-        // captioned now) rather than the waiting count alone -- "6 waiting" while a seventh
-        // is mid-caption understates the wait by a whole caption.
-        label={`Captioning ${q.depth}`}
-        variant="outlined"
-        sx={{ fontWeight: 600 }}
-      />
-    </Tooltip>
+    <>
+      {left > 0 && (
+        <Tooltip
+          title={
+            name
+              ? `Captioning ${name}${behind ? ` — ${behind} waiting behind it` : ""}`
+              : `${left} waiting to be described`
+          }
+        >
+          <Chip
+            size="small"
+            icon={<CircularProgress size={12} sx={{ ml: 0.75 }} />}
+            label={`Captioning ${left}`}
+            variant="outlined"
+            sx={{ fontWeight: 600 }}
+          />
+        </Tooltip>
+      )}
+      {failed > 0 && (
+        <Tooltip title="The describe queue gave up on these after its retries. Click to put them back in line.">
+          <Chip
+            size="small"
+            color="warning"
+            label={retrying ? "Retrying…" : `${failed} not described — retry`}
+            onClick={retrying ? undefined : retry}
+            variant="outlined"
+            sx={{ fontWeight: 600 }}
+          />
+        </Tooltip>
+      )}
+    </>
   );
 }
