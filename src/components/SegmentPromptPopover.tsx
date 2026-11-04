@@ -47,6 +47,8 @@ interface Props {
   promptTemplate?: string | null;
   negativePrompt?: string | null;
   ltxRecipe?: LtxRecipeRef | null;
+  /** From segmentStage2Sigmas; null hides the row. */
+  stage2Sigmas?: string | null;
 }
 
 /** One labelled line, in the "Fixed by the recipe" accordion's format. */
@@ -67,6 +69,7 @@ export default function SegmentPromptPopover({
   promptTemplate,
   negativePrompt,
   ltxRecipe,
+  stage2Sigmas,
 }: Props) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
 
@@ -222,6 +225,12 @@ export default function SegmentPromptPopover({
                   {recipe.img_compression != null ? ` · conditioning CRF ${recipe.img_compression}` : ""}
                 </Typography>
               </RecipeRow>
+
+              {stage2Sigmas && (
+                <RecipeRow label="Stage 2 sigmas">
+                  <Typography variant="caption">{stage2Sigmas}</Typography>
+                </RecipeRow>
+              )}
 
               {recipeEdits.length > 0 && (
                 <RecipeRow label="Overrode">

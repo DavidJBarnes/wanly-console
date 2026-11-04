@@ -76,6 +76,7 @@ import NextSegmentDialog from "../components/NextSegmentDialog";
 import TagChip from "../components/TagChip";
 import CreateLtxJobDialog from "../components/CreateLtxJobDialog";
 import { useSettingsStore } from "../stores/settingsStore";
+import { jobStage2Sigmas, segmentStage2Sigmas } from "../lib/stage2Sigmas";
 import type {
   JobDetailResponse,
   SegmentResponse,
@@ -364,7 +365,7 @@ export default function JobDetail() {
   useEffect(() => {
   }, []);
 
-  const { fetchSettings: fetchAppSettings } = useSettingsStore();
+  const { fetchSettings: fetchAppSettings, stage2SigmasDefault } = useSettingsStore();
   useEffect(() => {
     fetchAppSettings();
   }, [fetchAppSettings]);
@@ -980,6 +981,10 @@ export default function JobDetail() {
                 label="Total Video Time"
                 value={formatDuration(job.total_video_time)}
               />
+              {(() => {
+                const sigmas = jobStage2Sigmas(liveSegments, stage2SigmasDefault);
+                return sigmas && <MetaItem label="Stage 2 Sigmas" value={sigmas} />;
+              })()}
               <MetaItem label="Created" value={formatDate(job.created_at)} />
               <MetaItem label="Updated" value={formatDate(job.updated_at)} />
             </Box>
@@ -1311,6 +1316,7 @@ export default function JobDetail() {
                         promptTemplate={seg.prompt_template}
                         negativePrompt={seg.negative_prompt}
                         ltxRecipe={seg.ltx_recipe}
+                        stage2Sigmas={segmentStage2Sigmas(seg, stage2SigmasDefault)}
                       />
                     </TableCell>
                     <TableCell>

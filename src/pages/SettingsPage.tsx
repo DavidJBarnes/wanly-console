@@ -10,6 +10,11 @@ import {
   FormControlLabel,
   MenuItem,
   Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
   Typography,
   useMediaQuery,
@@ -22,7 +27,7 @@ import { useTagStore } from "../stores/tagStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { CaptionStyle } from "../api/types";
 import PromptTryPanel from "../components/PromptTryPanel";
-import { stage2SigmasProblem } from "../lib/stage2Sigmas";
+import { STAGE2_SIGMAS_PRESETS, stage2SigmasProblem } from "../lib/stage2Sigmas";
 import {
   hasUnsavedChange, isModified, lengthProblem, overrideToSave,
 } from "../lib/captionPrompts";
@@ -410,8 +415,48 @@ export default function SettingsPage() {
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             The noise schedule for the refining pass, on every LTX render claimed after saving.
-            A lower first value lets stage 2 redraw less, so it invents less but adds less
-            detail.
+            Only the first value really matters: it is how much stage 2 may redraw. Stage 1 renders
+            at half resolution; stage 2 adds noise up to the first value and cleans it back down,
+            one step per remaining value. More redrawing adds detail but is where invented hands
+            and arms creep in. Each value must be lower than the last, ending at 0.
+          </Typography>
+          <Table size="small" sx={{ mb: 1, maxWidth: 760 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell>Setting</TableCell>
+                <TableCell>Values</TableCell>
+                <TableCell>What to expect</TableCell>
+                <TableCell />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {STAGE2_SIGMAS_PRESETS.map((p) => (
+                <TableRow key={p.name}>
+                  <TableCell>{p.name}</TableCell>
+                  <TableCell sx={{ fontFamily: "monospace", whiteSpace: "nowrap" }}>{p.value}</TableCell>
+                  <TableCell>{p.expect}</TableCell>
+                  <TableCell align="right">
+                    <Button
+                      size="small"
+                      disabled={!loaded || stage2Sigmas === p.value}
+                      onClick={() => {
+                        setStage2Sigmas(p.value);
+                        setSigmasSaved(false);
+                      }}
+                    >
+                      Use
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            To test: render 2 or 3 start images that have produced bad limbs, at least twice per
+            setting (seeds vary a lot). If the bad limbs fade as the first value drops, stage 2 was
+            inventing them; if they survive Low, they come from stage 1 and these values will not
+            fix them. This is global, so every LTX segment claimed after Save uses it: reset when
+            done testing. Each job's page shows the values its segments ran with.
           </Typography>
           {!loaded ? (
             <Box sx={{ textAlign: "center", py: 2 }}>

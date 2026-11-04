@@ -61,6 +61,9 @@ export interface LtxRecipeRef {
   /** Which of the recipe's defaults the user changed, if any. */
   edited?: (string | null)[];
   graph_sha256?: string;
+  /** Stage 2 sigmas stamped at claim from the global setting (console#717). Absent on a
+   *  claimed render means the recipe default ran. */
+  stage2_sigmas?: string;
 }
 
 export interface SegmentCreate {
