@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Box,
   Typography,
@@ -15,21 +15,25 @@ import {
   CircularProgress,
   Tooltip,
 } from "@mui/material";
-import { Add, Edit, DeleteOutline, ContentCopy } from "@mui/icons-material";
+import { Add, Edit, DeleteOutline, ContentCopy, Close } from "@mui/icons-material";
 import { getWildcards, createWildcard, updateWildcard, deleteWildcard } from "../api/client";
 import type { WildcardResponse } from "../api/types";
+import {
+  editRow,
+  fromRows,
+  optionsToText,
+  removeRow,
+  textToOptions,
+  toRows,
+  type OptionRow,
+} from "../lib/wildcardOptions";
 
 // The API resolver matches <([^<>]+)> — so a name containing angle brackets can never be hit.
 const NAME_RE = /^[^<>]+$/;
 
-// Options are edited one-per-line: dolphin returns long sentences, which chips/autocomplete
-// would make unreadable.
-const optionsToText = (options: string[]) => options.join("\n");
-const textToOptions = (text: string) =>
-  text
-    .split("\n")
-    .map((o) => o.trim())
-    .filter(Boolean);
+// Options are long sentences, which chips/autocomplete would make unreadable. Each one gets
+// its own field so it's obvious where one ends and the next begins; Bulk edit keeps the old
+// one-per-line textarea for pasting many at once.
 
 export default function Wildcards() {
   const [wildcards, setWildcards] = useState<WildcardResponse[]>([]);
@@ -39,7 +43,11 @@ export default function Wildcards() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WildcardResponse | null>(null);
   const [name, setName] = useState("");
-  const [optionsText, setOptionsText] = useState("");
+  const [rows, setRows] = useState<OptionRow[]>(() => toRows([]));
+  const [bulk, setBulk] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const inputs = useRef(new Map<number, HTMLTextAreaElement>());
+  const focusAt = useRef<{ index: number; caret: "start" | "end" } | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<WildcardResponse | null>(null);
@@ -64,7 +72,8 @@ export default function Wildcards() {
   const openNew = () => {
     setEditing(null);
     setName("");
-    setOptionsText("");
+    setRows(toRows([]));
+    setBulk(false);
     setFormError(null);
     setDialogOpen(true);
   };
@@ -72,14 +81,15 @@ export default function Wildcards() {
   const openEdit = (wc: WildcardResponse) => {
     setEditing(wc);
     setName(wc.name);
-    setOptionsText(optionsToText(wc.options));
+    setRows(toRows(wc.options));
+    setBulk(false);
     setFormError(null);
     setDialogOpen(true);
   };
 
   const handleSave = async () => {
     const trimmed = name.trim();
-    const options = textToOptions(optionsText);
+    const options = bulk ? textToOptions(bulkText) : fromRows(rows);
     if (!trimmed) {
       setFormError("Name is required");
       return;
@@ -120,6 +130,42 @@ export default function Wildcards() {
       setDeleteConfirm(null);
     }
   };
+
+  // After a split or removal, move the caret into the row it belongs in.
+  useEffect(() => {
+    const f = focusAt.current;
+    if (!f) return;
+    focusAt.current = null;
+    const el = rows[f.index] && inputs.current.get(rows[f.index].id);
+    if (!el) return;
+    el.focus();
+    const pos = f.caret === "start" ? 0 : el.value.length;
+    el.setSelectionRange(pos, pos);
+  }, [rows]);
+
+  const changeRow = (index: number, value: string) => {
+    const r = editRow(rows, index, value);
+    if (r.focus !== index) focusAt.current = { index: r.focus, caret: "start" };
+    setRows(r.rows);
+  };
+
+  const deleteRow = (index: number) => {
+    focusAt.current = { index: Math.max(0, index - 1), caret: "end" };
+    setRows(removeRow(rows, index));
+  };
+
+  const addRow = () => {
+    focusAt.current = { index: rows.length, caret: "start" };
+    setRows(editRow(rows, rows.length - 1, rows[rows.length - 1].text + "\n").rows);
+  };
+
+  const toggleBulk = () => {
+    if (bulk) setRows(toRows(textToOptions(bulkText)));
+    else setBulkText(optionsToText(fromRows(rows)));
+    setBulk(!bulk);
+  };
+
+  const optionCount = bulk ? textToOptions(bulkText).length : fromRows(rows).length;
 
   const copyToken = (wcName: string) => {
     navigator.clipboard.writeText(`<${wcName}>`);
@@ -210,7 +256,7 @@ export default function Wildcards() {
         </Box>
       )}
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>{editing ? "Edit Wildcard" : "New Wildcard"}</DialogTitle>
         <DialogContent>
           {formError && (
@@ -228,16 +274,92 @@ export default function Wildcards() {
             helperText={`Referenced in prompts as <${name.trim() || "name"}>`}
             sx={{ mt: 1, mb: 2 }}
           />
-          <TextField
-            label="Options"
-            multiline
-            minRows={6}
-            maxRows={18}
-            fullWidth
-            value={optionsText}
-            onChange={(e) => setOptionsText(e.target.value)}
-            helperText="One option per line. Blank lines are ignored."
-          />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+            <Typography variant="subtitle2">Options</Typography>
+            <Chip label={optionCount} size="small" variant="outlined" />
+            <Button size="small" onClick={toggleBulk} sx={{ ml: "auto" }}>
+              {bulk ? "Edit as list" : "Bulk edit"}
+            </Button>
+          </Box>
+          {bulk ? (
+            <TextField
+              multiline
+              minRows={6}
+              maxRows={18}
+              fullWidth
+              value={bulkText}
+              onChange={(e) => setBulkText(e.target.value)}
+              helperText="One option per line. Blank lines are ignored."
+            />
+          ) : (
+            <>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 1.5,
+                  maxHeight: "55vh",
+                  overflowY: "auto",
+                  pr: 0.5,
+                  pt: 0.5,
+                }}
+              >
+                {rows.map((row, i) => (
+                  <Box key={row.id} sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+                    <Box
+                      sx={{
+                        flexShrink: 0,
+                        width: 28,
+                        height: 28,
+                        mt: 1,
+                        borderRadius: "50%",
+                        bgcolor: "action.selected",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "0.8rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {i + 1}
+                    </Box>
+                    <TextField
+                      multiline
+                      minRows={1}
+                      fullWidth
+                      size="small"
+                      placeholder="Describe this option…"
+                      value={row.text}
+                      inputRef={(el: HTMLTextAreaElement | null) => {
+                        if (el) inputs.current.set(row.id, el);
+                        else inputs.current.delete(row.id);
+                      }}
+                      onChange={(e) => changeRow(i, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Backspace" && row.text === "" && rows.length > 1) {
+                          e.preventDefault();
+                          deleteRow(i);
+                        }
+                      }}
+                    />
+                    <Tooltip title="Remove option">
+                      <IconButton size="small" onClick={() => deleteRow(i)} sx={{ mt: 0.75 }}>
+                        <Close fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                ))}
+              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", mt: 1.5 }}>
+                <Button size="small" startIcon={<Add />} onClick={addRow}>
+                  Add option
+                </Button>
+                <Typography variant="caption" color="text.secondary" sx={{ ml: "auto" }}>
+                  Enter starts a new option · pasting several lines adds one option per line
+                </Typography>
+              </Box>
+            </>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)} disabled={saving}>
