@@ -479,9 +479,11 @@ export type WorkerStatus =
   | "draining";
 
 /** What a worker IS. `render` takes segments; `service` never can — the API's claim gate keys
- *  on this, so it is not a display label with a UI consequence, it is the reverse. Never null:
- *  the column is NOT NULL with a `render` default, so there is no "unclassified" branch. */
-export type WorkerKind = "render" | "service" | "trainer";
+ *  on this, so it is not a display label with a UI consequence, it is the reverse. `hologram`
+ *  takes only the CPU carriers (AR holograms, smashcut concats; wanly-gpu-docker#228) — it
+ *  renders nothing, so the Workers page shows it as a service. Never null: the column is NOT
+ *  NULL with a `render` default, so there is no "unclassified" branch. */
+export type WorkerKind = "render" | "service" | "trainer" | "hologram";
 
 export interface WorkerStatsItem {
   worker_name: string;

@@ -119,3 +119,13 @@ describe("byStatus", () => {
     expect(order).toEqual(["online-busy", "draining", "online-idle", "offline"]);
   });
 });
+
+describe("a hologram box (wanly-gpu-docker#228)", () => {
+  it("renders nothing, so it counts and displays as a service", () => {
+    const scene = { kind: "hologram" as const, kinds: ["hologram"] as WorkerKind[], status: "online" as const };
+    expect(canRender(scene)).toBe(false);
+    expect(isService(scene)).toBe(true);
+    expect(canDrain(scene)).toBe(false);
+    expect(fleetCounts([scene])).toEqual({ liveRender: 0, liveServices: 1, total: 1 });
+  });
+});
