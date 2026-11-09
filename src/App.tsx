@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { ThemeProvider, CssBaseline } from "@mui/material";
 import theme from "./theme";
@@ -15,6 +16,8 @@ import SmashcutBuilder from "./pages/SmashcutBuilder";
 import ImageRepo from "./pages/ImageRepo";
 import SettingsPage from "./pages/SettingsPage";
 import HologramPlayer from "./pages/HologramPlayer";
+// Lazy: it pulls in MediaPipe, which no other page needs.
+const FaceSpike = lazy(() => import("./pages/FaceSpike"));
 import Wildcards from "./pages/Wildcards";
 import LoraRecipes from "./pages/LoraRecipes";
 import Characters from "./pages/Characters";
@@ -28,6 +31,14 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           {/* Full-screen WebXR player — outside MainLayout (no nav chrome) */}
+          <Route
+            path="/holo/face-spike"
+            element={
+              <Suspense fallback={null}>
+                <FaceSpike />
+              </Suspense>
+            }
+          />
           <Route path="/holo/shuffle" element={<HologramPlayer shuffle />} />
           <Route path="/holo/:id" element={<HologramPlayer />} />
           <Route element={<MainLayout />}>

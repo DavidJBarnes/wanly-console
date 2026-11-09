@@ -15,6 +15,7 @@
     "@dnd-kit/react": "^0.3.2",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
+    "@mediapipe/tasks-vision": "1.1.1",
     "@mui/icons-material": "^7.3.7",
     "@mui/material": "^7.3.7",
     "axios": "^1.9.0",
