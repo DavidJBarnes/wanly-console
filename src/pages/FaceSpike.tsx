@@ -4,9 +4,11 @@ import {
   Alert,
   Box,
   Button,
+  FormControlLabel,
   MenuItem,
   Paper,
   Slider,
+  Switch,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -14,26 +16,31 @@ import {
 } from "@mui/material";
 import * as THREE from "three";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import { uploadFile } from "../api/client";
+import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 import {
+  applyMat4,
   centerJitter,
-  faceInCamera,
+  faceInViewer,
+  LATENCIES_MS,
   LM,
   sampleFromLandmarks,
 } from "../lib/faceSpike";
-import type { CameraModel, FaceSample, Pt2 } from "../lib/faceSpike";
+import type { CalResult, CalSample, CamParams, FaceSample, Mat4, Pt2 } from "../lib/faceSpike";
+import type { CalRequest } from "../lib/faceSpikeWorker";
 
 // AR face-replacement feasibility spike (console#730).
 //
-// One question: can a WebXR immersive-ar page on Quest Browser read the passthrough camera via
-// getUserMedia and find a mannequin's face with MediaPipe at a usable rate? Everything else here
-// (world back-projection, the oval, the nudge) exists to measure HOW WELL, so the answer on the
-// ticket is numbers rather than "it sort of worked".
+// Run 1 answered the go/no-go: the camera keeps running inside immersive-ar and the face is
+// found. It also showed the oval landing to the right of the face, i.e. the assumed camera
+// model was wrong. So this page now calibrates itself:
 //
-// Flow: 1) start the camera on the flat page — the permission prompt cannot appear once in
-// immersive mode; check detection on the preview. 2) Enter AR. The first ~1 s of detections are
-// averaged in world space and a placeholder oval is anchored there. Trigger = re-lock.
-// Thumbsticks nudge the oval onto the real face; the HUD reports the nudge, which IS the
-// calibration error of the assumed camera model.
+//   Trigger → "move your head slowly" for a few seconds → the page fits the camera model
+//   (FOV, orientation, offset, mirroring, latency) that keeps the static face in one place
+//   → re-locks with it. See calibrate() in lib/faceSpike.ts.
+//
+// Reports upload themselves (POST /upload → s3://wanly-jobs/uploads/face-spike-*.json), because
+// copying text out of a headset is not a workflow.
 
 // Pinned to the npm dependency so the JS and the wasm can never disagree.
 const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm";
@@ -43,27 +50,52 @@ const MODEL_URL =
 const PARAMS_KEY = "wanly.faceSpike.params";
 const LOCK_SECONDS = 1.0;
 const LOCK_MIN_SAMPLES = 8;
+const CALIBRATE_SECONDS = 6;
 const NUDGE_M_PER_S = 0.05;
+const POSE_HISTORY_MS = 400;
 
 type Delegate = "GPU" | "CPU";
 
 interface Params {
   hfovDeg: number;
-  eyeSpanCm: number; // outer eye corner to outer eye corner on the mannequin — measure it
+  eyeSpanCm: number; // outer eye corner to outer eye corner on the target face — measure it
+  yawDeg: number;
+  pitchDeg: number;
+  rollDeg: number;
   offXCm: number; // camera position relative to the XR viewer (between the eyes)
   offYCm: number;
   offZCm: number;
+  flipX: boolean;
+  latencyMs: number;
   delegate: Delegate;
 }
 
 const DEFAULT_PARAMS: Params = {
   hfovDeg: 80,
   eyeSpanCm: 9.5,
+  yawDeg: 0,
+  pitchDeg: 0,
+  rollDeg: 0,
   offXCm: 0,
   offYCm: 0,
   offZCm: 0,
+  flipX: false,
+  latencyMs: 0,
   delegate: "GPU",
 };
+
+const toCam = (p: Params): CamParams => ({
+  hfovDeg: p.hfovDeg,
+  yawDeg: p.yawDeg,
+  pitchDeg: p.pitchDeg,
+  rollDeg: p.rollDeg,
+  offX: p.offXCm / 100,
+  offY: p.offYCm / 100,
+  offZ: p.offZCm / 100,
+  flipX: p.flipX,
+});
+
+const round = (v: number, step: number) => Math.round(v / step) * step;
 
 function loadParams(): Params {
   try {
@@ -83,6 +115,16 @@ function saveParams(p: Params) {
   }
 }
 
+function loggedIn(): boolean {
+  try {
+    return !!localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY);
+  } catch {
+    return false;
+  }
+}
+
+type State = "idle" | "searching" | "locking" | "locked" | "calibrating" | "solving";
+
 /** Mutable, per-frame numbers. Lives in a ref; the React state copy is refreshed at ~4 Hz. */
 interface Stats {
   videoW: number;
@@ -91,7 +133,8 @@ interface Stats {
   detectMs: number;
   faceFound: boolean;
   landmarks: number;
-  state: "idle" | "searching" | "locking" | "locked";
+  state: State;
+  calProgress: number; // 0..1 while calibrating
   jitterCm: number | null;
   imgJitterPx: number | null;
   depthM: number | null;
@@ -99,6 +142,8 @@ interface Stats {
   xrStarted: boolean;
   xrFrames: number;
   xrDetections: number;
+  lastCal: CalResult | null;
+  calMessage: string | null;
 }
 
 const freshStats = (): Stats => ({
@@ -109,6 +154,7 @@ const freshStats = (): Stats => ({
   faceFound: false,
   landmarks: 0,
   state: "idle",
+  calProgress: 0,
   jitterCm: null,
   imgJitterPx: null,
   depthM: null,
@@ -116,6 +162,8 @@ const freshStats = (): Stats => ({
   xrStarted: false,
   xrFrames: 0,
   xrDetections: 0,
+  lastCal: null,
+  calMessage: null,
 });
 
 export default function FaceSpike() {
@@ -144,7 +192,8 @@ export default function FaceSpike() {
   const [arSupported, setArSupported] = useState<boolean | null>(xr ? null : false);
   const [inAr, setInAr] = useState(false);
   const [arError, setArError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [reportStatus, setReportStatus] = useState<string | null>(null);
+  const [isLoggedIn] = useState(loggedIn);
 
   useEffect(() => {
     if (!xr) return;
@@ -156,6 +205,54 @@ export default function FaceSpike() {
     const id = window.setInterval(() => setStats({ ...statsRef.current }), 250);
     return () => window.clearInterval(id);
   }, []);
+
+  const deviceLabel = useCallback(
+    () => devices.find((d) => d.deviceId === deviceId)?.label ?? deviceId,
+    [devices, deviceId],
+  );
+
+  const buildReport = useCallback(
+    (reason: string) => ({
+      ticket: "console#730",
+      reason,
+      at: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      secureContext: window.isSecureContext,
+      arSupported,
+      camError,
+      camera: deviceLabel(),
+      cameras: devices.map((d) => d.label),
+      mediapipe: mpStatus,
+      params: paramsRef.current,
+      stats: statsRef.current,
+    }),
+    [arSupported, camError, deviceLabel, devices, mpStatus],
+  );
+
+  /** Upload a report to S3 via the api. Never throws; reports where it landed. */
+  const sendReport = useCallback(
+    async (reason: string) => {
+      // Without a token the api 401s, and the client's 401 handler navigates to /login — which
+      // would tear down a live AR session. Skip instead.
+      if (!loggedIn()) {
+        setReportStatus("not saved — log in to the console first");
+        return;
+      }
+      try {
+        const name = `face-spike-${new Date().toISOString().replace(/[:.]/g, "-")}-${reason}.json`;
+        const body = JSON.stringify(buildReport(reason), null, 2);
+        await uploadFile(new File([body], name, { type: "application/json" }));
+        setReportStatus(`saved (${reason}) at ${new Date().toLocaleTimeString()}`);
+      } catch (e) {
+        setReportStatus(`save failed: ${String(e)}`);
+      }
+    },
+    [buildReport],
+  );
+  const sendReportRef = useRef(sendReport);
+  useEffect(() => {
+    sendReportRef.current = sendReport;
+  }, [sendReport]);
 
   const loadLandmarker = useCallback(async (delegate: Delegate) => {
     landmarkerRef.current?.close();
@@ -226,14 +323,7 @@ export default function FaceSpike() {
       const ctx = cv.getContext("2d");
       if (!ctx) return;
       ctx.clearRect(0, 0, cv.width, cv.height);
-      if (!out.lm) return;
-      ctx.fillStyle = "rgba(0,229,255,0.8)";
-      for (const p of out.lm) ctx.fillRect(p.x * cv.width - 1, p.y * cv.height - 1, 2, 2);
-      ctx.fillStyle = "#ff2bd6";
-      for (const i of Object.values(LM)) {
-        const p = out.lm[i];
-        if (p) ctx.fillRect(p.x * cv.width - 4, p.y * cv.height - 4, 8, 8);
-      }
+      if (out.lm) drawLandmarks(ctx, out.lm, cv.width, cv.height);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -283,39 +373,37 @@ export default function FaceSpike() {
         statsRef,
         paramsRef,
         video: videoRef.current!,
+        onCalibrated: (r) => {
+          setParams((p) => ({
+            ...p,
+            hfovDeg: round(r.params.hfovDeg, 0.1),
+            yawDeg: round(r.params.yawDeg, 0.1),
+            pitchDeg: round(r.params.pitchDeg, 0.1),
+            rollDeg: round(r.params.rollDeg, 0.1),
+            offXCm: round(r.params.offX * 100, 0.1),
+            offYCm: round(r.params.offY * 100, 0.1),
+            flipX: r.params.flipX,
+            latencyMs: r.latencyMs,
+          }));
+          // Let the params effect run first so the report carries the new values.
+          window.setTimeout(() => sendReportRef.current("calibrated"), 0);
+        },
       });
       sessionRef.current = session;
       setInAr(true);
       session.addEventListener("end", () => {
         sessionRef.current = null;
         setInAr(false);
+        sendReportRef.current("session-end");
       });
     } catch (e) {
       setArError(String(e));
     }
   }, [xr, detectOnce]);
 
-  const report = () =>
-    JSON.stringify(
-      {
-        ticket: "console#730",
-        at: new Date().toISOString(),
-        userAgent: navigator.userAgent,
-        secureContext: window.isSecureContext,
-        arSupported,
-        camError,
-        camera: devices.find((d) => d.deviceId === deviceId)?.label ?? deviceId,
-        cameras: devices.map((d) => d.label),
-        mediapipe: mpStatus,
-        params,
-        stats: statsRef.current,
-      },
-      null,
-      2,
-    );
-
   const set = <K extends keyof Params>(k: K, v: Params[K]) => setParams((p) => ({ ...p, [k]: v }));
   const camOk = stats.videoW > 0;
+  const cal = stats.lastCal;
 
   return (
     <Box sx={{ p: 2, maxWidth: 960, mx: "auto" }}>
@@ -325,12 +413,25 @@ export default function FaceSpike() {
           Back to settings
         </Button>
       </Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Quest 3 + a mannequin (sculpted, matte, skin-toned). 1. Start the camera here and check that
-        the face is detected. 2. Enter AR: the oval locks onto the face after about 1 s. Trigger
-        re-locks. Left stick moves the oval left/right/up/down, right stick moves it nearer/farther.
-        Line it up on the real face; the nudge on the HUD is the calibration error.
-      </Typography>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Typography variant="subtitle1" sx={{ mb: 1 }}>
+          How to use it
+        </Typography>
+        <Typography component="ol" variant="body2" sx={{ pl: 2.5, m: 0, "& li": { mb: 0.5 } }}>
+          <li>Press <b>Start camera</b>. Check that the preview below says <b>face yes</b>.</li>
+          <li>Press <b>Enter AR</b>. Stand about a metre from the face and look at it.</li>
+          <li>
+            Pull the <b>trigger</b>. For 6 seconds, keep looking at the face while you slowly sway
+            side to side and nod up and down. The readout says when it's done.
+          </li>
+          <li>The pink oval re-appears. Check whether it now sits on the face.</li>
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Grip button: re-place the oval without calibrating. A/X button: show or hide the camera
+          view. Reports save themselves; nothing to copy.
+        </Typography>
+      </Paper>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
@@ -361,17 +462,13 @@ export default function FaceSpike() {
           >
             2. Enter AR
           </Button>
-          <Button
-            onClick={() =>
-              navigator.clipboard?.writeText(report()).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              )
-            }
-          >
-            {copied ? "Copied" : "Copy report"}
-          </Button>
+          <Button onClick={() => sendReport("manual")}>Save report</Button>
         </Box>
+        {!isLoggedIn && (
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            Not logged in on this browser, so reports can't be saved. Log in to the console first.
+          </Alert>
+        )}
         {camError && (
           <Alert severity="error" sx={{ mt: 1 }}>
             Camera: {camError}
@@ -389,11 +486,13 @@ export default function FaceSpike() {
         )}
         <Typography variant="body2" sx={{ mt: 1, fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
           {[
-            `camera   ${camOk ? `${stats.videoW}×${stats.videoH}` : "—"}`,
+            `camera    ${camOk ? `${stats.videoW}×${stats.videoH}` : "—"}`,
             `mediapipe ${mpStatus}`,
-            `detect   ${stats.detectFps.toFixed(1)} fps, ${stats.detectMs.toFixed(1)} ms`,
-            `face     ${stats.faceFound ? `yes (${stats.landmarks} landmarks)` : "no"}`,
-            `xr       ${inAr ? `in session, state ${stats.state}` : stats.xrStarted ? `ended — ${stats.xrFrames} frames, ${stats.xrDetections} detections` : "—"}`,
+            `detect    ${stats.detectFps.toFixed(1)} fps, ${stats.detectMs.toFixed(1)} ms`,
+            `face      ${stats.faceFound ? `yes (${stats.landmarks} landmarks)` : "no"}`,
+            `xr        ${inAr ? `in session, ${stats.state}` : stats.xrStarted ? `ended — ${stats.xrFrames} frames, ${stats.xrDetections} detections` : "—"}`,
+            `calibrate ${cal ? `spread ${cal.spreadBeforeCm.toFixed(1)} → ${cal.spreadAfterCm.toFixed(1)} cm, head travel ${cal.headTravelCm.toFixed(0)} cm, ${cal.samples} samples` : (stats.calMessage ?? "—")}`,
+            `report    ${reportStatus ?? "—"}`,
           ].join("\n")}
         </Typography>
       </Paper>
@@ -408,15 +507,36 @@ export default function FaceSpike() {
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Camera model (assumed — Quest Browser does not expose intrinsics)
+          Camera model — calibration fills these in; you only need to set the eye span
         </Typography>
-        <ParamSlider label="Horizontal FOV" unit="°" min={40} max={120} step={1} value={params.hfovDeg} onChange={(v) => set("hfovDeg", v)} />
-        <ParamSlider label="Mannequin eye span (outer corners)" unit=" cm" min={6} max={14} step={0.1} value={params.eyeSpanCm} onChange={(v) => set("eyeSpanCm", v)} />
-        <ParamSlider label="Camera offset X (right +)" unit=" cm" min={-10} max={10} step={0.5} value={params.offXCm} onChange={(v) => set("offXCm", v)} />
-        <ParamSlider label="Camera offset Y (up +)" unit=" cm" min={-10} max={10} step={0.5} value={params.offYCm} onChange={(v) => set("offYCm", v)} />
-        <ParamSlider label="Camera offset Z (back +)" unit=" cm" min={-10} max={10} step={0.5} value={params.offZCm} onChange={(v) => set("offZCm", v)} />
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1 }}>
-          <Typography variant="body2">MediaPipe delegate</Typography>
+        <ParamSlider label="Face eye span (outer corners)" unit=" cm" min={6} max={14} step={0.1} value={params.eyeSpanCm} onChange={(v) => set("eyeSpanCm", v)} />
+        <ParamSlider label="Horizontal FOV" unit="°" min={40} max={120} step={0.1} value={params.hfovDeg} onChange={(v) => set("hfovDeg", v)} />
+        <ParamSlider label="Yaw (left +)" unit="°" min={-30} max={30} step={0.1} value={params.yawDeg} onChange={(v) => set("yawDeg", v)} />
+        <ParamSlider label="Pitch (up +)" unit="°" min={-30} max={30} step={0.1} value={params.pitchDeg} onChange={(v) => set("pitchDeg", v)} />
+        <ParamSlider label="Roll" unit="°" min={-30} max={30} step={0.1} value={params.rollDeg} onChange={(v) => set("rollDeg", v)} />
+        <ParamSlider label="Camera offset X (right +)" unit=" cm" min={-10} max={10} step={0.1} value={params.offXCm} onChange={(v) => set("offXCm", v)} />
+        <ParamSlider label="Camera offset Y (up +)" unit=" cm" min={-10} max={10} step={0.1} value={params.offYCm} onChange={(v) => set("offYCm", v)} />
+        <ParamSlider label="Camera offset Z (back +)" unit=" cm" min={-10} max={10} step={0.1} value={params.offZCm} onChange={(v) => set("offZCm", v)} />
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, flexWrap: "wrap" }}>
+          <FormControlLabel
+            control={<Switch checked={params.flipX} onChange={(e) => set("flipX", e.target.checked)} />}
+            label="Mirrored image"
+          />
+          <TextField
+            select
+            size="small"
+            label="Camera latency"
+            value={params.latencyMs}
+            onChange={(e) => set("latencyMs", Number(e.target.value))}
+            sx={{ width: 160 }}
+          >
+            {LATENCIES_MS.map((ms) => (
+              <MenuItem key={ms} value={ms}>
+                {ms} ms
+              </MenuItem>
+            ))}
+          </TextField>
+          <Typography variant="body2">MediaPipe</Typography>
           <ToggleButtonGroup
             size="small"
             exclusive
@@ -430,8 +550,8 @@ export default function FaceSpike() {
             <ToggleButton value="GPU">GPU</ToggleButton>
             <ToggleButton value="CPU">CPU</ToggleButton>
           </ToggleButtonGroup>
-          <Button size="small" onClick={() => setParams(DEFAULT_PARAMS)}>
-            Reset
+          <Button size="small" onClick={() => setParams({ ...DEFAULT_PARAMS, eyeSpanCm: params.eyeSpanCm })}>
+            Reset calibration
           </Button>
         </Box>
       </Paper>
@@ -454,6 +574,16 @@ function ParamSlider({
       <Slider size="small" min={min} max={max} step={step} value={value} onChange={(_, v) => onChange(v as number)} />
     </Box>
   );
+}
+
+function drawLandmarks(ctx: CanvasRenderingContext2D, lm: Pt2[], w: number, h: number) {
+  ctx.fillStyle = "rgba(0,229,255,0.8)";
+  for (const p of lm) ctx.fillRect(p.x * w - 1, p.y * h - 1, 2, 2);
+  ctx.fillStyle = "#ff2bd6";
+  for (const i of Object.values(LM)) {
+    const p = lm[i];
+    if (p) ctx.fillRect(p.x * w - 4, p.y * h - 4, 8, 8);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -480,12 +610,27 @@ interface SessionDeps {
   statsRef: { current: Stats };
   paramsRef: { current: Params };
   video: HTMLVideoElement;
+  onCalibrated: (r: CalResult) => void;
+}
+
+/** Head-locked-ish panel: a canvas texture held at an offset in front of the viewer. */
+function makePanel(w: number, h: number, widthM: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const tex = new THREE.CanvasTexture(canvas);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(widthM, (widthM * h) / w),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }),
+  );
+  mesh.renderOrder = 10;
+  return { canvas, tex, mesh, ctx: canvas.getContext("2d") };
 }
 
 async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession> {
-  const { detectOnce, statsRef, paramsRef, video } = deps;
+  const { detectOnce, statsRef, paramsRef, video, onCalibrated } = deps;
   const stats = statsRef.current;
-  Object.assign(stats, { ...freshStats(), xrStarted: true, state: "searching" });
+  Object.assign(stats, { ...freshStats(), xrStarted: true, state: "searching", lastCal: stats.lastCal });
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera();
@@ -513,8 +658,8 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   oval.visible = false;
   scene.add(oval);
 
-  // Live marker: where the CURRENT detection back-projects, unsmoothed. Shows lag and offset
-  // error directly, independent of the lock.
+  // Live marker: where the CURRENT detection back-projects, unsmoothed. With a right camera
+  // model it sits on the face whatever the head does.
   const marker = new THREE.Mesh(
     new THREE.SphereGeometry(0.008, 12, 8),
     new THREE.MeshBasicMaterial({ color: 0x00e5ff }),
@@ -522,39 +667,47 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   marker.visible = false;
   scene.add(marker);
 
-  // HUD: canvas texture held ahead of and below the gaze.
-  const hudCanvas = document.createElement("canvas");
-  hudCanvas.width = 640;
-  hudCanvas.height = 320;
-  const hudTex = new THREE.CanvasTexture(hudCanvas);
-  const hud = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.32, 0.16),
-    new THREE.MeshBasicMaterial({ map: hudTex, transparent: true, depthTest: false }),
-  );
-  hud.renderOrder = 10;
-  scene.add(hud);
+  const hud = makePanel(640, 360, 0.34);
+  scene.add(hud.mesh);
+  // What the camera sees, with the landmarks: makes mirroring / rotation obvious at a glance.
+  const camView = makePanel(320, 240, 0.24);
+  scene.add(camView.mesh);
+  let camViewOn = true;
+
   let lastHud = 0;
   const drawHud = () => {
-    const ctx = hudCanvas.getContext("2d");
+    const ctx = hud.ctx;
     if (!ctx) return;
     const p = paramsRef.current;
-    ctx.clearRect(0, 0, 640, 320);
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.fillRect(0, 0, 640, 320);
+    ctx.clearRect(0, 0, 640, 360);
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(0, 0, 640, 360);
+    ctx.font = "bold 30px sans-serif";
+    ctx.fillStyle = "#ffd54f";
+    const headline: Record<State, string> = {
+      idle: "",
+      searching: stats.faceFound ? "Face found…" : "Look at the face",
+      locking: "Hold still…",
+      locked: "Trigger = calibrate",
+      calibrating: `Sway + nod slowly  ${Math.round(stats.calProgress * 100)}%`,
+      solving: "Calculating…",
+    };
+    ctx.fillText(stats.calMessage && stats.state === "locked" ? stats.calMessage : headline[stats.state], 18, 42);
+    ctx.font = "24px monospace";
     ctx.fillStyle = "#fff";
-    ctx.font = "26px monospace";
     const n = stats.nudgeCm;
+    const c = stats.lastCal;
     const lines = [
-      `cam ${stats.videoW}x${stats.videoH}  ${video.paused ? "PAUSED" : "playing"}`,
-      `detect ${stats.detectFps.toFixed(1)} fps  ${stats.detectMs.toFixed(1)} ms`,
-      `face ${stats.faceFound ? "YES" : "no"}  state ${stats.state}`,
-      `depth ${stats.depthM?.toFixed(2) ?? "-"} m  jitter ${stats.jitterCm?.toFixed(1) ?? "-"} cm / ${stats.imgJitterPx?.toFixed(1) ?? "-"} px`,
-      `nudge x${n.x.toFixed(1)} y${n.y.toFixed(1)} z${n.z.toFixed(1)} cm`,
-      `hfov ${p.hfovDeg}  eye ${p.eyeSpanCm}cm  ${p.delegate}`,
-      `trigger = re-lock`,
+      `cam ${stats.videoW}x${stats.videoH} ${video.paused ? "PAUSED" : "playing"}  ${stats.detectFps.toFixed(0)} fps`,
+      `face ${stats.faceFound ? "YES" : "no"}  depth ${stats.depthM?.toFixed(2) ?? "-"} m`,
+      `lock jitter ${stats.jitterCm?.toFixed(1) ?? "-"} cm`,
+      `nudge ${n.x.toFixed(1)} ${n.y.toFixed(1)} ${n.z.toFixed(1)} cm`,
+      c ? `cal ${c.spreadBeforeCm.toFixed(1)}->${c.spreadAfterCm.toFixed(1)}cm lat ${c.latencyMs}ms` : "cal -",
+      `fov ${p.hfovDeg.toFixed(0)} yaw ${p.yawDeg.toFixed(1)} pit ${p.pitchDeg.toFixed(1)}${p.flipX ? " MIRROR" : ""}`,
+      `grip=re-place  A/X=camera view`,
     ];
-    lines.forEach((l, i) => ctx.fillText(l, 18, 40 + i * 40));
-    hudTex.needsUpdate = true;
+    lines.forEach((l, i) => ctx.fillText(l, 18, 84 + i * 38));
+    hud.tex.needsUpdate = true;
   };
 
   const session = await xr.requestSession("immersive-ar", {
@@ -562,21 +715,75 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   });
   await renderer.xr.setSession(session);
 
+  // Pose history: the camera frame is older than the current pose, by an unknown amount the
+  // calibration estimates. Keep enough to look back over every candidate latency.
+  const history: { t: number; m: number[] }[] = [];
+  const poseAt = (t: number): number[] | null => {
+    let best: { t: number; m: number[] } | null = null;
+    for (const h of history) if (!best || Math.abs(h.t - t) < Math.abs(best.t - t)) best = h;
+    return best?.m ?? null;
+  };
+
   // Lock state: world-space samples collected over LOCK_SECONDS, then averaged.
-  let lockStart = 0;
+  let phaseStart = 0;
   let lockSamples: { pos: THREE.Vector3; heightM: number; sample: FaceSample }[] = [];
+  let calSamples: CalSample[] = [];
   const beginLock = () => {
     stats.state = "searching";
-    lockStart = 0;
+    phaseStart = 0;
     lockSamples = [];
     stats.nudgeCm = { x: 0, y: 0, z: 0 };
   };
-  session.addEventListener("select", beginLock);
+  const beginCalibrate = () => {
+    if (stats.state === "solving") return;
+    stats.state = "calibrating";
+    stats.calMessage = null;
+    stats.calProgress = 0;
+    phaseStart = 0;
+    calSamples = [];
+    oval.visible = false;
+  };
+  session.addEventListener("select", beginCalibrate);
+  session.addEventListener("squeeze", beginLock);
+
+  const worker = new Worker(new URL("../lib/faceSpikeWorker.ts", import.meta.url), { type: "module" });
+  worker.onmessage = (e: MessageEvent<CalResult | null>) => {
+    const r = e.data;
+    if (!r) {
+      stats.calMessage = "Not enough face samples — try again";
+    } else if (r.headTravelCm < 3) {
+      stats.lastCal = r;
+      stats.calMessage = "Too little head movement — try again";
+    } else {
+      stats.lastCal = r;
+      stats.calMessage = `Calibrated (${r.spreadBeforeCm.toFixed(0)} → ${r.spreadAfterCm.toFixed(1)} cm)`;
+      // Apply now so the re-lock below uses it; React mirrors it into the sliders + storage.
+      const p = paramsRef.current;
+      paramsRef.current = {
+        ...p,
+        hfovDeg: r.params.hfovDeg,
+        yawDeg: r.params.yawDeg,
+        pitchDeg: r.params.pitchDeg,
+        rollDeg: r.params.rollDeg,
+        offXCm: r.params.offX * 100,
+        offYCm: r.params.offY * 100,
+        flipX: r.params.flipX,
+        latencyMs: r.latencyMs,
+      };
+      onCalibrated(r);
+    }
+    beginLock();
+  };
+  worker.onerror = (e) => {
+    stats.calMessage = `Calibration crashed: ${e.message}`;
+    beginLock();
+  };
 
   const viewer = new THREE.Matrix4();
   const viewerPos = new THREE.Vector3();
   const v = new THREE.Vector3();
   let lastT = 0;
+  let lastToggle = false;
 
   renderer.setAnimationLoop((t: number, frame?: XRFrame) => {
     const dt = lastT ? Math.min((t - lastT) / 1000, 0.1) : 1 / 72;
@@ -585,39 +792,74 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
     const ref = renderer.xr.getReferenceSpace();
     const pose = frame && ref ? frame.getViewerPose(ref) : null;
     if (pose) {
-      viewer.fromArray(pose.transform.matrix);
+      const now = Array.from(pose.transform.matrix);
+      history.push({ t, m: now });
+      while (history.length && t - history[0].t > POSE_HISTORY_MS) history.shift();
+      viewer.fromArray(now);
       viewerPos.setFromMatrixPosition(viewer);
 
+      // A/X toggles the camera view (edge-triggered).
+      let toggle = false;
+      for (const src of session.inputSources) if (src.gamepad?.buttons[4]?.pressed) toggle = true;
+      if (toggle && !lastToggle) camViewOn = !camViewOn;
+      lastToggle = toggle;
+
       const out = detectOnce();
-      if (out) stats.xrDetections += 1;
+      if (out) {
+        stats.xrDetections += 1;
+        if (camViewOn && camView.ctx) {
+          camView.ctx.drawImage(video, 0, 0, 320, 240);
+          if (out.lm) drawLandmarks(camView.ctx, out.lm, 320, 240);
+          camView.tex.needsUpdate = true;
+        }
+      }
+      const p = paramsRef.current;
+      const aspect = stats.videoW / Math.max(1, stats.videoH);
       if (out?.sample) {
-        const p = paramsRef.current;
-        const cam: CameraModel = { hfovDeg: p.hfovDeg, width: stats.videoW, height: stats.videoH };
-        const f = faceInCamera(out.sample, cam, p.eyeSpanCm / 100);
-        if (f) {
-          // camera space → viewer space (camera offset) → world. Uses the pose of the frame the
-          // detection RAN on, not the one the camera captured — the camera's latency is part of
-          // what the live marker shows.
-          v.set(
-            f.position.x + p.offXCm / 100,
-            f.position.y + p.offYCm / 100,
-            f.position.z + p.offZCm / 100,
-          ).applyMatrix4(viewer);
+        const lagged = poseAt(t - p.latencyMs) ?? now;
+        const local = faceInViewer(out.sample, toCam(p), p.eyeSpanCm / 100, aspect);
+        if (local) {
+          const w = applyMat4(lagged, local);
+          v.set(w.x, w.y, w.z);
           marker.position.copy(v);
           marker.visible = true;
-          stats.depthM = -f.position.z;
+          stats.depthM = -local.z;
+
+          if (stats.state === "calibrating") {
+            if (!phaseStart) phaseStart = t;
+            calSamples.push({
+              sample: out.sample,
+              viewers: LATENCIES_MS.map((ms) => (poseAt(t - ms) ?? now) as Mat4),
+            });
+          }
           if (stats.state === "searching") {
             stats.state = "locking";
-            lockStart = t;
+            phaseStart = t;
           }
           if (stats.state === "locking") {
-            lockSamples.push({ pos: v.clone(), heightM: f.heightM, sample: out.sample });
+            const heightM = out.sample.faceHeight * ((p.eyeSpanCm / 100) / out.sample.eyeSpan);
+            lockSamples.push({ pos: v.clone(), heightM, sample: out.sample });
           }
         }
       }
+
+      if (stats.state === "calibrating" && phaseStart) {
+        stats.calProgress = Math.min(1, (t - phaseStart) / 1000 / CALIBRATE_SECONDS);
+        if (stats.calProgress >= 1) {
+          stats.state = "solving";
+          const req: CalRequest = {
+            samples: calSamples,
+            start: toCam(p),
+            eyeSpanM: p.eyeSpanCm / 100,
+            aspect,
+          };
+          worker.postMessage(req);
+        }
+      }
+
       if (
         stats.state === "locking" &&
-        (t - lockStart) / 1000 >= LOCK_SECONDS &&
+        (t - phaseStart) / 1000 >= LOCK_SECONDS &&
         lockSamples.length >= LOCK_MIN_SAMPLES
       ) {
         const mean = new THREE.Vector3();
@@ -631,8 +873,6 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         let spread = 0;
         for (const s of lockSamples) spread += s.pos.distanceToSquared(mean);
         stats.jitterCm = Math.sqrt(spread / lockSamples.length) * 100;
-        // Image-space jitter alongside the world spread: a big world spread with a small image
-        // spread means head motion during the lock, not detector noise.
         stats.imgJitterPx = centerJitter(lockSamples.map((s) => s.sample)) * stats.videoW;
         oval.position.copy(mean);
         oval.scale.set(h * 0.78, h, 1);
@@ -661,10 +901,14 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         }
       }
 
-      // HUD: 0.6 m ahead, 0.22 m below the gaze, facing the viewer.
-      v.set(0, -0.22, -0.6).applyMatrix4(viewer);
-      hud.position.copy(v);
-      hud.lookAt(viewerPos);
+      // HUD below the gaze; camera view below-left. Both face the viewer.
+      v.set(0.02, -0.24, -0.6).applyMatrix4(viewer);
+      hud.mesh.position.copy(v);
+      hud.mesh.lookAt(viewerPos);
+      camView.mesh.visible = camViewOn;
+      v.set(-0.3, -0.24, -0.6).applyMatrix4(viewer);
+      camView.mesh.position.copy(v);
+      camView.mesh.lookAt(viewerPos);
       if (t - lastHud > 250) {
         lastHud = t;
         drawHud();
@@ -676,6 +920,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   session.addEventListener("end", () => {
     renderer.setAnimationLoop(null);
     renderer.dispose();
+    worker.terminate();
     host.remove();
     stats.state = "idle";
   });
