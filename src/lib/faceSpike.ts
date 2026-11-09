@@ -258,3 +258,51 @@ export function profileForLabel(label: string, override?: "left" | "right" | nul
   if (override) return QUEST_3S_CAMERAS[override];
   return /camera 1\b/i.test(label) ? QUEST_3S_CAMERAS.left : QUEST_3S_CAMERAS.right;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Stereo. Run 4 (factory model, mono) put the dots "just to the left": the ray was right and the
+// DISTANCE was wrong — it came from assuming a 9.5 cm eye span, which a face on a monitor need
+// not have. The headset has two calibrated room-facing cameras 6.4 cm apart, so the distance can
+// be measured instead: the same landmark seen by both cameras, triangulated.
+
+export interface Triangulation {
+  point: Vec3; // head frame
+  gapM: number; // closest distance between the two rays — ~0 when the match is good
+}
+
+/** Ray from a camera through a normalised image point, in the head frame. */
+export function rayInHead(pt: Pt2, p: CameraProfile, k: StreamIntrinsics): { o: Vec3; d: Vec3 } {
+  const o = cameraToHead({ x: 0, y: 0, z: 0 }, p);
+  const a = cameraToHead(
+    { x: (pt.x * k.width - k.cx) / k.fx, y: (pt.y * k.height - k.cy) / k.fy, z: 1 },
+    p,
+  );
+  return { o, d: { x: a.x - o.x, y: a.y - o.y, z: a.z - o.z } };
+}
+
+/** Midpoint of the closest approach of the left- and right-camera rays through a landmark. */
+export function triangulate(
+  ptL: Pt2,
+  pL: CameraProfile,
+  kL: StreamIntrinsics,
+  ptR: Pt2,
+  pR: CameraProfile,
+  kR: StreamIntrinsics,
+): Triangulation | null {
+  const L = rayInHead(ptL, pL, kL);
+  const R = rayInHead(ptR, pR, kR);
+  const dot = (u: Vec3, v: Vec3) => u.x * v.x + u.y * v.y + u.z * v.z;
+  const w = { x: L.o.x - R.o.x, y: L.o.y - R.o.y, z: L.o.z - R.o.z };
+  const a = dot(L.d, L.d), b = dot(L.d, R.d), c = dot(R.d, R.d), d = dot(L.d, w), e = dot(R.d, w);
+  const den = a * c - b * b;
+  if (Math.abs(den) < 1e-12) return null; // parallel rays: no depth information
+  const s = (b * e - c * d) / den;
+  const t = (a * e - b * d) / den;
+  if (s <= 0 || t <= 0) return null; // behind a camera — a mismatched pair
+  const pa = { x: L.o.x + s * L.d.x, y: L.o.y + s * L.d.y, z: L.o.z + s * L.d.z };
+  const pb = { x: R.o.x + t * R.d.x, y: R.o.y + t * R.d.y, z: R.o.z + t * R.d.z };
+  return {
+    point: { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2, z: (pa.z + pb.z) / 2 },
+    gapM: Math.hypot(pa.x - pb.x, pa.y - pb.y, pa.z - pb.z),
+  };
+}

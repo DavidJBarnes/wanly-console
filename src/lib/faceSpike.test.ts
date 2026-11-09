@@ -11,6 +11,7 @@ import {
   QUEST_3S_CAMERAS,
   sampleFromLandmarks,
   streamIntrinsics,
+  triangulate,
 } from "./faceSpike";
 import type { Pt2 } from "./faceSpike";
 
@@ -128,5 +129,35 @@ describe("sampleFromLandmarks / centerJitter", () => {
     const a = { center: { x: 0.4, y: 0.5 }, eyeSpan: 0.04, faceHeight: 0.1 };
     const b = { center: { x: 0.6, y: 0.5 }, eyeSpan: 0.06, faceHeight: 0.2 };
     expect(centerJitter([a, b])).toBeCloseTo(0.1);
+  });
+});
+
+
+describe("triangulate (stereo depth)", () => {
+  const left = QUEST_3S_CAMERAS.left;
+  const kL = streamIntrinsics(left, 1280, 960);
+  it("recovers a point seen by both calibrated cameras, with no size assumption", () => {
+    for (const P of [
+      { x: 0.02, y: -0.05, z: -0.7 },
+      { x: -0.1, y: 0.08, z: -1.3 },
+      { x: 0.0, y: 0.0, z: -2.0 },
+    ]) {
+      const r = triangulate(projectToImage(P, left, kL), left, kL, projectToImage(P, right, k), right, k)!;
+      expect(r.gapM).toBeLessThan(1e-6);
+      expect(Math.hypot(r.point.x - P.x, r.point.y - P.y, r.point.z - P.z)).toBeLessThan(1e-6);
+    }
+  });
+  it("one pixel of disagreement at 1 m costs ~2 cm of depth, not more", () => {
+    const P = { x: 0, y: 0, z: -1 };
+    const pl = projectToImage(P, left, kL);
+    const r = triangulate({ x: pl.x + 1 / 1280, y: pl.y }, left, kL, projectToImage(P, right, k), right, k)!;
+    expect(Math.abs(r.point.z - P.z)).toBeLessThan(0.03);
+  });
+  it("rejects a mismatched pair whose rays meet behind the cameras", () => {
+    const P = { x: 0, y: 0, z: -1 };
+    const pl = projectToImage(P, left, kL);
+    const pr = projectToImage(P, right, k);
+    // Swap which camera saw which point: the rays now diverge.
+    expect(triangulate({ x: pr.x - 0.2, y: pr.y }, left, kL, { x: pl.x + 0.2, y: pl.y }, right, k)).toBeNull();
   });
 });

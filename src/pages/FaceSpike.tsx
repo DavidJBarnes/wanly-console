@@ -21,11 +21,12 @@ import {
   landmarkInHead,
   LM,
   MARKERS,
-  profileForLabel,
+  QUEST_3S_CAMERAS,
   sampleFromLandmarks,
   streamIntrinsics,
+  triangulate,
 } from "../lib/faceSpike";
-import type { CameraProfile, FaceSample, Pt3 } from "../lib/faceSpike";
+import type { FaceSample, Pt3, Vec3 } from "../lib/faceSpike";
 
 // AR face-replacement feasibility spike (console#730).
 //
@@ -35,6 +36,13 @@ import type { CameraProfile, FaceSample, Pt3 } from "../lib/faceSpike";
 // cameras' factory calibration (read off the headset with `adb shell dumpsys media.camera`)
 // lives in lib/faceSpike.ts and is applied exactly as Meta's own sample does. Nothing to
 // calibrate: start the camera, enter AR, look at the face.
+//
+// Run 4 (factory model, one camera) landed the dots "just to the left": right ray, wrong
+// distance, because the distance came from assuming a 9.5 cm eye span. So both room-facing
+// cameras now run, and each landmark is TRIANGULATED from the pair — the distance is measured.
+// Browser "camera 1"/"camera 2" are Camera2 devices 50/51 (left/right): confirmed with
+// `dumpsys media.camera` ("Device 1 maps to 50", "Device 2 maps to 51", and the browser's
+// connect log). If the second camera can't be opened, it falls back to the eye-span distance.
 //
 // Reports upload themselves (POST /upload → s3://wanly-jobs/uploads/face-spike-*.json), because
 // copying text out of a headset is not a workflow.
@@ -49,18 +57,18 @@ const LOCK_SECONDS = 1.0;
 const LOCK_MIN_SAMPLES = 8;
 const NUDGE_M_PER_S = 0.05;
 const POSE_HISTORY_MS = 400;
+// Left/right detections are paired only if they ran this close together (ms). The two cameras
+// are not frame-synchronised; with the head still, a few tens of ms is harmless.
+const STEREO_PAIR_MS = 80;
 // Used only when the browser gives no frame capture time. Runs 2 and 3 independently measured
 // ~100 ms between capture and display on this headset.
 const FALLBACK_LATENCY_MS = 100;
 
-type LensChoice = "auto" | "left" | "right";
-
 interface Params {
-  eyeSpanCm: number; // outer eye corner to outer eye corner; ~9.5 cm on an adult face
-  lens: LensChoice;
+  eyeSpanCm: number; // fallback distance only (single camera): adult outer-eye-corner span
 }
 
-const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5, lens: "auto" };
+const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5 };
 
 function loadParams(): Params {
   try {
@@ -99,7 +107,10 @@ interface Stats {
   faceFound: boolean;
   landmarks: number;
   state: State;
-  lens: string;
+  stereo: string; // "on", or why it is off
+  depthSource: "stereo" | "eye span" | "";
+  rayGapMm: number | null; // left/right ray miss distance at the nose — match quality
+  measuredEyeSpanCm: number | null; // triangulated outer-eye-corner span — sanity check
   latencySource: "captureTime" | "fallback";
   latencyMs: number | null;
   jitterCm: number | null;
@@ -120,7 +131,10 @@ const freshStats = (): Stats => ({
   faceFound: false,
   landmarks: 0,
   state: "idle",
-  lens: "",
+  stereo: "not started",
+  depthSource: "",
+  rayGapMm: null,
+  measuredEyeSpanCm: null,
   latencySource: "fallback",
   latencyMs: null,
   jitterCm: null,
@@ -138,6 +152,41 @@ interface Detection {
   lm: Pt3[] | null;
   /** performance.now() time the frame was captured, when the browser says. */
   captureTime: number | null;
+  /** performance.now() when the detection ran (pairs left with right). */
+  at: number;
+}
+
+const RIGHT = QUEST_3S_CAMERAS.right;
+const LEFT = QUEST_3S_CAMERAS.left;
+
+/** Landmarks used in stereo: the three dots plus the outer eye corners (for the span check). */
+const STEREO_IDS = [MARKERS.rightIris, MARKERS.leftIris, MARKERS.noseTip, LM.rightEyeOuter, LM.leftEyeOuter];
+
+/**
+ * Head-frame positions of STEREO_IDS by triangulating the right and left detections. Null if
+ * any landmark fails (a mismatched pair). Also reports match quality and the measured eye span.
+ */
+function stereoPoints(
+  right: Pt3[],
+  left: Pt3[],
+  w: number,
+  h: number,
+): { pts: Vec3[]; gapM: number; eyeSpanM: number } | null {
+  const kR = streamIntrinsics(RIGHT, w, h);
+  const kL = streamIntrinsics(LEFT, w, h);
+  const pts: Vec3[] = [];
+  let gap = 0;
+  for (const id of STEREO_IDS) {
+    const r = right[id];
+    const l = left[id];
+    if (!r || !l) return null;
+    const t = triangulate(l, LEFT, kL, r, RIGHT, kR);
+    if (!t) return null;
+    pts.push(t.point);
+    gap = Math.max(gap, t.gapM);
+  }
+  const [, , , a, b] = pts;
+  return { pts: pts.slice(0, 3), gapM: gap, eyeSpanM: Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) };
 }
 
 export default function FaceSpike() {
@@ -154,7 +203,12 @@ export default function FaceSpike() {
   const streamRef = useRef<MediaStream | null>(null);
   const statsRef = useRef<Stats>(freshStats());
   const sessionRef = useRef<XRSession | null>(null);
-  const labelRef = useRef("");
+  // Second (left) camera for stereo depth.
+  const videoLRef = useRef<HTMLVideoElement>(null);
+  const landmarkerLRef = useRef<FaceLandmarker | null>(null);
+  const streamLRef = useRef<MediaStream | null>(null);
+  const lastLeftRef = useRef<{ lm: Pt3[]; at: number } | null>(null);
+  const leftVideoTimeRef = useRef(-1);
   // Detection-rate bookkeeping shared by the flat and XR loops.
   const rateRef = useRef({ windowStart: 0, count: 0, msAcc: 0, lastVideoTime: -1 });
   // Latest frame metadata from requestVideoFrameCallback: the true capture time of the frame.
@@ -184,10 +238,6 @@ export default function FaceSpike() {
   }, []);
 
   const currentLabel = devices.find((d) => d.deviceId === deviceId)?.label ?? "";
-  useEffect(() => {
-    labelRef.current = currentLabel;
-  }, [currentLabel]);
-  const profile = profileForLabel(currentLabel, params.lens === "auto" ? null : params.lens);
 
   const buildReport = useCallback(
     (reason: string) => ({
@@ -197,14 +247,13 @@ export default function FaceSpike() {
       userAgent: navigator.userAgent,
       arSupported,
       camError,
-      camera: labelRef.current,
+      camera: currentLabel,
       cameras: devices.map((d) => d.label),
       mediapipe: mpStatus,
       params: paramsRef.current,
-      profile: profileForLabel(labelRef.current, paramsRef.current.lens === "auto" ? null : paramsRef.current.lens),
       stats: statsRef.current,
     }),
-    [arSupported, camError, devices, mpStatus],
+    [arSupported, camError, currentLabel, devices, mpStatus],
   );
 
   /** Upload a report to S3 via the api. Never throws; reports where it landed. */
@@ -235,6 +284,8 @@ export default function FaceSpike() {
   const loadLandmarker = useCallback(async () => {
     landmarkerRef.current?.close();
     landmarkerRef.current = null;
+    landmarkerLRef.current?.close();
+    landmarkerLRef.current = null;
     setMpStatus("loading…");
     const fileset = await FilesetResolver.forVisionTasks(WASM_BASE);
     const make = (d: "GPU" | "CPU") =>
@@ -243,12 +294,15 @@ export default function FaceSpike() {
         runningMode: "VIDEO",
         numFaces: 1,
       });
+    // One instance per camera: VIDEO mode needs monotonic timestamps per stream.
     try {
       landmarkerRef.current = await make("GPU");
-      setMpStatus("ready (GPU)");
+      landmarkerLRef.current = await make("GPU");
+      setMpStatus("ready (GPU ×2)");
     } catch (e) {
       // The GPU delegate needs its own WebGL2 context; fall back rather than dead-end.
-      landmarkerRef.current = await make("CPU");
+      landmarkerRef.current ??= await make("CPU");
+      landmarkerLRef.current = await make("CPU");
       setMpStatus(`ready (CPU — GPU failed: ${String(e)})`);
     }
   }, []);
@@ -287,8 +341,33 @@ export default function FaceSpike() {
     const lm = (res.faceLandmarks[0] as Pt3[] | undefined) ?? null;
     s.faceFound = !!lm;
     s.landmarks = lm?.length ?? 0;
-    if (!lm) return { sample: null, lm: null, captureTime };
-    return { sample: sampleFromLandmarks(lm, video.videoWidth / video.videoHeight), lm, captureTime };
+    if (!lm) return { sample: null, lm: null, captureTime, at: t1 };
+    return { sample: sampleFromLandmarks(lm, video.videoWidth / video.videoHeight), lm, captureTime, at: t1 };
+  }, []);
+
+  /** Left-camera detection on a new frame; keeps the latest face in lastLeftRef. */
+  const detectLeft = useCallback(() => {
+    const video = videoLRef.current;
+    const lmk = landmarkerLRef.current;
+    if (!video || !lmk || video.readyState < 2 || video.currentTime === leftVideoTimeRef.current) return;
+    leftVideoTimeRef.current = video.currentTime;
+    const res = lmk.detectForVideo(video, performance.now());
+    const lm = (res.faceLandmarks[0] as Pt3[] | undefined) ?? null;
+    lastLeftRef.current = lm ? { lm, at: performance.now() } : null;
+  }, []);
+
+  /** Stereo points for a right-camera detection, if a fresh left detection pairs with it. */
+  const pairStereo = useCallback((out: Detection) => {
+    const left = lastLeftRef.current;
+    const s = statsRef.current;
+    if (!out.lm || !left || Math.abs(left.at - out.at) > STEREO_PAIR_MS || !s.videoW) return null;
+    const st = stereoPoints(out.lm, left.lm, s.videoW, s.videoH);
+    if (st) {
+      s.rayGapMm = st.gapM * 1000;
+      s.measuredEyeSpanCm = st.eyeSpanM * 100;
+      s.depthM = -st.pts[2].z;
+    }
+    return st;
   }, []);
 
   // Flat-page preview loop: detect + draw landmarks. Paused while in AR (the XR loop owns it).
@@ -297,7 +376,9 @@ export default function FaceSpike() {
     let raf = 0;
     const tick = () => {
       raf = requestAnimationFrame(tick);
+      detectLeft();
       const out = detectOnce();
+      if (out?.lm) pairStereo(out);
       const cv = canvasRef.current;
       const video = videoRef.current;
       if (!out || !cv || !video) return;
@@ -310,7 +391,7 @@ export default function FaceSpike() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [inAr, detectOnce]);
+  }, [inAr, detectOnce, detectLeft, pairStereo]);
 
   const startCamera = useCallback(
     async (id?: string) => {
@@ -350,11 +431,35 @@ export default function FaceSpike() {
         const outward = all.filter((d) => !/facing front/i.test(d.label));
         const usable = outward.length ? outward : all;
         setDevices(usable);
-        if (!usable.some((d) => d.deviceId === active) && usable[0]) {
-          active = await open(usable[0].deviceId);
-        }
+        // The main (right) camera must be "camera 2" (Camera2 51): the model below assumes it.
+        const rightDev = usable.find((d) => /camera 2\b/i.test(d.label));
+        if (rightDev && rightDev.deviceId !== active) active = await open(rightDev.deviceId);
+        else if (!usable.some((d) => d.deviceId === active) && usable[0]) active = await open(usable[0].deviceId);
         setDeviceId(active);
         if (!landmarkerRef.current) await loadLandmarker();
+
+        // Second camera ("camera 1" = Camera2 50, left) for stereo depth.
+        streamLRef.current?.getTracks().forEach((t) => t.stop());
+        streamLRef.current = null;
+        lastLeftRef.current = null;
+        const leftDev = usable.find((d) => /camera 1\b/i.test(d.label));
+        if (!leftDev) {
+          statsRef.current.stereo = "off: no camera 1 listed";
+        } else {
+          try {
+            const sL = await navigator.mediaDevices.getUserMedia({
+              video: { deviceId: { exact: leftDev.deviceId }, width: { ideal: 1280 }, height: { ideal: 960 } },
+              audio: false,
+            });
+            streamLRef.current = sL;
+            const elL = videoLRef.current!;
+            elL.srcObject = sL;
+            await elL.play();
+            statsRef.current.stereo = "on";
+          } catch (e) {
+            statsRef.current.stereo = `off: ${(e as Error).name}: ${(e as Error).message}`;
+          }
+        }
       } catch (e) {
         setCamError(`${(e as Error).name ?? "Error"}: ${(e as Error).message ?? String(e)}`);
       }
@@ -365,7 +470,9 @@ export default function FaceSpike() {
   useEffect(
     () => () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamLRef.current?.getTracks().forEach((t) => t.stop());
       landmarkerRef.current?.close();
+      landmarkerLRef.current?.close();
       sessionRef.current?.end().catch(() => {});
     },
     [],
@@ -377,10 +484,10 @@ export default function FaceSpike() {
     try {
       const session = await runArSession(xr, {
         detectOnce,
+        detectLeft,
+        pairStereo,
         statsRef,
         video: videoRef.current!,
-        getProfile: () =>
-          profileForLabel(labelRef.current, paramsRef.current.lens === "auto" ? null : paramsRef.current.lens),
         getEyeSpanM: () => paramsRef.current.eyeSpanCm / 100,
         onLocked: () => sendReportRef.current("locked"),
       });
@@ -394,10 +501,9 @@ export default function FaceSpike() {
     } catch (e) {
       setArError(String(e));
     }
-  }, [xr, detectOnce]);
+  }, [xr, detectOnce, detectLeft, pairStereo]);
 
   const camOk = stats.videoW > 0;
-  const k = camOk ? streamIntrinsics(profile, stats.videoW, stats.videoH) : null;
 
   return (
     <Box sx={{ p: 2, maxWidth: 960, mx: "auto" }}>
@@ -422,7 +528,7 @@ export default function FaceSpike() {
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Trigger: place the dots again. A/X button: show or hide the camera view. Reports save
-          themselves. There is nothing to calibrate.
+          themselves. There is nothing to calibrate or measure.
         </Typography>
       </Paper>
 
@@ -479,8 +585,9 @@ export default function FaceSpike() {
         )}
         <Typography variant="body2" sx={{ mt: 1, fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
           {[
-            `camera    ${camOk ? `${stats.videoW}×${stats.videoH}` : "—"}  lens ${profile.name} (Camera2 ${profile.camera2Id})`,
-            `model     ${k ? `factory: fx ${k.fx.toFixed(1)} cx ${k.cx.toFixed(1)} cy ${k.cy.toFixed(1)}, hfov ${((2 * Math.atan(k.width / 2 / k.fx) * 180) / Math.PI).toFixed(1)}°` : "—"}`,
+            `camera    ${camOk ? `${stats.videoW}×${stats.videoH}` : "—"}  ${currentLabel || ""}`,
+            `stereo    ${stats.stereo}`,
+            `depth     ${stats.depthM != null ? `${stats.depthM.toFixed(2)} m` : "—"}${stats.measuredEyeSpanCm != null ? `  (measured eye span ${stats.measuredEyeSpanCm.toFixed(1)} cm, ray gap ${stats.rayGapMm?.toFixed(1)} mm)` : ""}`,
             `mediapipe ${mpStatus}`,
             `detect    ${stats.detectFps.toFixed(1)} fps, ${stats.detectMs.toFixed(1)} ms`,
             `face      ${stats.faceFound ? `yes (${stats.landmarks} landmarks)` : "no"}`,
@@ -493,6 +600,13 @@ export default function FaceSpike() {
 
       <Box sx={{ position: "relative", width: "100%", mb: 2, bgcolor: "black", lineHeight: 0 }}>
         <video ref={videoRef} playsInline muted style={{ width: "100%", display: "block" }} />
+        {/* Left camera: decoded, not shown. Kept 1px rather than display:none so it keeps playing. */}
+        <video
+          ref={videoLRef}
+          playsInline
+          muted
+          style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+        />
         <canvas
           ref={canvasRef}
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}
@@ -501,7 +615,7 @@ export default function FaceSpike() {
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Settings (the defaults should be right)
+          Fallback setting
         </Typography>
         <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
           <Typography variant="body2" sx={{ width: 260, flexShrink: 0 }}>
@@ -517,20 +631,9 @@ export default function FaceSpike() {
           />
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Only sets how far away the face is. Being off by a bit barely moves the dots.
+          Used only if the second camera can't be opened (no stereo). With stereo the distance
+          is measured.
         </Typography>
-        <TextField
-          select
-          size="small"
-          label="Which lens this camera is"
-          value={params.lens}
-          onChange={(e) => setParams((p) => ({ ...p, lens: e.target.value as LensChoice }))}
-          sx={{ width: 260 }}
-        >
-          <MenuItem value="auto">Auto (camera 1 = left, camera 2 = right)</MenuItem>
-          <MenuItem value="left">Left</MenuItem>
-          <MenuItem value="right">Right</MenuItem>
-        </TextField>
       </Paper>
     </Box>
   );
@@ -551,9 +654,10 @@ function drawLandmarks(ctx: CanvasRenderingContext2D, lm: Pt3[], w: number, h: n
 
 interface SessionDeps {
   detectOnce: () => Detection | null;
+  detectLeft: () => void;
+  pairStereo: (out: Detection) => { pts: Vec3[]; gapM: number; eyeSpanM: number } | null;
   statsRef: { current: Stats };
   video: HTMLVideoElement;
-  getProfile: () => CameraProfile;
   getEyeSpanM: () => number;
   onLocked: () => void;
 }
@@ -573,9 +677,9 @@ function makePanel(w: number, h: number, widthM: number) {
 }
 
 async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession> {
-  const { detectOnce, statsRef, video, getProfile, getEyeSpanM, onLocked } = deps;
+  const { detectOnce, detectLeft, pairStereo, statsRef, video, getEyeSpanM, onLocked } = deps;
   const stats = statsRef.current;
-  Object.assign(stats, { ...freshStats(), xrStarted: true, state: "searching" });
+  Object.assign(stats, { ...freshStats(), xrStarted: true, state: "searching", stereo: stats.stereo });
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera();
@@ -631,8 +735,8 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
     const n = stats.nudgeCm;
     const lines = [
       `cam ${stats.videoW}x${stats.videoH} ${video.paused ? "PAUSED" : "playing"}  ${stats.detectFps.toFixed(0)} fps`,
-      `lens ${stats.lens}  latency ${stats.latencyMs?.toFixed(0) ?? "-"}ms ${stats.latencySource === "captureTime" ? "(measured)" : "(assumed)"}`,
-      `face ${stats.faceFound ? "YES" : "no"}  depth ${stats.depthM?.toFixed(2) ?? "-"} m`,
+      `stereo ${stats.stereo === "on" ? "ON" : "OFF"}  depth ${stats.depthM?.toFixed(2) ?? "-"} m (${stats.depthSource || "-"})`,
+      `face ${stats.faceFound ? "YES" : "no"}  eye span ${stats.measuredEyeSpanCm?.toFixed(1) ?? "-"} cm  gap ${stats.rayGapMm?.toFixed(0) ?? "-"} mm`,
       `jitter ${stats.jitterCm?.toFixed(1) ?? "-"} cm  nudge ${n.x.toFixed(1)} ${n.y.toFixed(1)} ${n.z.toFixed(1)}`,
       `trigger=place again  A/X=camera view`,
     ];
@@ -689,6 +793,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
       if (toggle && !lastToggle) camViewOn = !camViewOn;
       lastToggle = toggle;
 
+      detectLeft();
       const out = detectOnce();
       if (out) {
         stats.xrDetections += 1;
@@ -700,11 +805,9 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
       }
 
       if (out?.sample && out.lm && stats.videoW > 0) {
-        const profile = getProfile();
-        stats.lens = `${profile.name} (${profile.camera2Id})`;
-        const k = streamIntrinsics(profile, stats.videoW, stats.videoH);
+        const k = streamIntrinsics(RIGHT, stats.videoW, stats.videoH);
         const eyeSpanM = getEyeSpanM();
-        stats.depthM = eyeLineDepth(out.sample, k, eyeSpanM);
+        const stereo = pairStereo(out);
         let poseTime: number;
         if (out.captureTime != null && t - out.captureTime >= 0 && t - out.captureTime < POSE_HISTORY_MS) {
           poseTime = out.captureTime;
@@ -722,16 +825,30 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         }
         if (stats.state === "locking") {
           const lm = out.lm;
-          const eyeLineZ = ((lm[LM.rightEyeOuter]?.z ?? 0) + (lm[LM.leftEyeOuter]?.z ?? 0)) / 2;
-          const pts: THREE.Vector3[] = [];
-          for (const id of MARKER_IDS) {
-            const pt = lm[id];
-            const head = pt && landmarkInHead(pt, eyeLineZ, out.sample, profile, k, eyeSpanM);
-            if (!head) break;
-            const w = applyMat4(headPose, head);
-            pts.push(new THREE.Vector3(w.x, w.y, w.z));
+          let heads: Vec3[] = [];
+          if (stereo) {
+            heads = stereo.pts; // measured distance
+            stats.depthSource = "stereo";
+          } else if (stats.stereo !== "on") {
+            // No second camera: fall back to the eye-span distance.
+            const eyeLineZ = ((lm[LM.rightEyeOuter]?.z ?? 0) + (lm[LM.leftEyeOuter]?.z ?? 0)) / 2;
+            for (const id of MARKER_IDS) {
+              const pt = lm[id];
+              const head = pt && landmarkInHead(pt, eyeLineZ, out.sample, RIGHT, k, eyeSpanM);
+              if (!head) break;
+              heads.push(head);
+            }
+            stats.depthM = eyeLineDepth(out.sample, k, eyeSpanM);
+            stats.depthSource = "eye span";
           }
-          if (pts.length === MARKER_IDS.length) lockSamples.push({ pts, sample: out.sample });
+          // (Stereo on but this frame unpaired: skip it rather than mix in a guessed distance.)
+          if (heads.length === MARKER_IDS.length) {
+            const pts = heads.map((hp) => {
+              const w = applyMat4(headPose, hp);
+              return new THREE.Vector3(w.x, w.y, w.z);
+            });
+            lockSamples.push({ pts, sample: out.sample });
+          }
         }
       }
 
