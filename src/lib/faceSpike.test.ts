@@ -4,6 +4,7 @@ import {
   averageSamples,
   calibrate,
   faceInViewer,
+  landmarkInViewer,
   LATENCIES_MS,
   projectFace,
   rotation,
@@ -106,6 +107,17 @@ describe("faceInViewer / projectFace", () => {
   });
 });
 
+describe("landmarkInViewer", () => {
+  it("an eye-line landmark sits at the face depth; the nose tip sits in front", () => {
+    const s = { center: { x: 0.5, y: 0.5 }, eyeSpan: 0.05, faceHeight: 0.2 };
+    const cam90 = { ...DEFAULT, hfovDeg: 90 };
+    const eye = landmarkInViewer({ x: 0.5, y: 0.5, z: -0.02 }, -0.02, s, cam90, 0.1, 4 / 3)!;
+    expect(eye.z).toBeCloseTo(-1);
+    const nose = landmarkInViewer({ x: 0.5, y: 0.5, z: -0.05 }, -0.02, s, cam90, 0.1, 4 / 3)!;
+    expect(nose.z).toBeCloseTo(-0.94); // 0.03 units × 2 m/unit nearer
+  });
+});
+
 describe("calibrate", () => {
   // A plausible headset error: narrower FOV, camera turned and offset, 66 ms of latency.
   const truth: CamParams = { ...DEFAULT, hfovDeg: 68, yawDeg: -7, pitchDeg: 5, rollDeg: 1.5, offX: 0.032, offY: -0.015 };
@@ -141,6 +153,30 @@ describe("calibrate", () => {
     const v = faceInViewer(samples[0].sample, r.params, 0.095, aspect)!;
     const w = applyMat4(samples[0].viewers[2], v);
     expect(Math.hypot(w.x - P.x, w.y - P.y, w.z - P.z)).toBeLessThan(0.02);
+  });
+
+  it("also fits the face size when the assumed eye span is wrong", () => {
+    // Real face (e.g. on a monitor) has a 12 cm span; the page starts from 9.5 cm.
+    const poses: number[][] = [];
+    for (let i = 0; i < 190; i++) {
+      const tt = i / 30;
+      poses.push(pose(0.15 * Math.sin(tt * 1.3), 1.6 + 0.05 * Math.sin(tt * 2.1), 0.08 * Math.cos(tt * 0.9),
+        8 * Math.sin(tt * 1.3), -6 + 8 * Math.sin(tt * 1.7)));
+    }
+    const samples: CalSample[] = [];
+    for (let i = 10; i < poses.length; i += 2) {
+      samples.push({
+        sample: projectFace(P, poses[i], truth, 0.12, aspect),
+        viewers: LATENCIES_MS.map((ms) => poses[i - Math.round(ms / 33.3)]),
+      });
+    }
+    const r = calibrate(samples, DEFAULT, 0.095, aspect)!;
+    expect(r.eyeSpanM).toBeGreaterThan(0.11);
+    expect(r.eyeSpanM).toBeLessThan(0.13);
+    expect(r.spreadAfterCm).toBeLessThan(0.5);
+    const v = faceInViewer(samples[0].sample, r.params, r.eyeSpanM, aspect)!;
+    const w = applyMat4(samples[0].viewers[0], v);
+    expect(Math.hypot(w.x - P.x, w.y - P.y, w.z - P.z)).toBeLessThan(0.03);
   });
 
   it("detects a mirrored image", () => {

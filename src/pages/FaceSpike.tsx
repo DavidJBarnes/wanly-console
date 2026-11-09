@@ -22,11 +22,13 @@ import {
   applyMat4,
   centerJitter,
   faceInViewer,
+  landmarkInViewer,
   LATENCIES_MS,
   LM,
+  MARKERS,
   sampleFromLandmarks,
 } from "../lib/faceSpike";
-import type { CalResult, CalSample, CamParams, FaceSample, Mat4, Pt2 } from "../lib/faceSpike";
+import type { CalResult, CalSample, CamParams, FaceSample, Mat4, Pt2, Pt3 } from "../lib/faceSpike";
 import type { CalRequest } from "../lib/faceSpikeWorker";
 
 // AR face-replacement feasibility spike (console#730).
@@ -38,6 +40,10 @@ import type { CalRequest } from "../lib/faceSpikeWorker";
 //   Trigger → "move your head slowly" for a few seconds → the page fits the camera model
 //   (FOV, orientation, offset, mirroring, latency) that keeps the static face in one place
 //   → re-locks with it. See calibrate() in lib/faceSpike.ts.
+//
+// Run 2 showed a translucent oval is hard to judge, so the lock now places three small dots —
+// on each iris and the nose tip — and the question becomes "are the dots on the eyes?". The
+// fit also solves the face's size, and the user-facing ("facing front") camera is hidden.
 //
 // Reports upload themselves (POST /upload → s3://wanly-jobs/uploads/face-spike-*.json), because
 // copying text out of a headset is not a workflow.
@@ -277,7 +283,7 @@ export default function FaceSpike() {
   }, []);
 
   /** Run one detection if the video has a new frame. Shared by the flat preview and XR loops. */
-  const detectOnce = useCallback((): { sample: FaceSample | null; lm: Pt2[] | null } | null => {
+  const detectOnce = useCallback((): { sample: FaceSample | null; lm: Pt3[] | null } | null => {
     const video = videoRef.current;
     const lmk = landmarkerRef.current;
     if (!video || !lmk || video.readyState < 2) return null;
@@ -332,21 +338,32 @@ export default function FaceSpike() {
   const startCamera = useCallback(
     async (id?: string) => {
       setCamError(null);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      try {
+      const open = async (devId?: string) => {
+        streamRef.current?.getTracks().forEach((t) => t.stop());
         const video: MediaTrackConstraints = {
           width: { ideal: 1280 },
           height: { ideal: 960 },
-          ...(id ? { deviceId: { exact: id } } : { facingMode: "environment" }),
+          ...(devId ? { deviceId: { exact: devId } } : { facingMode: "environment" }),
         };
         const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
         streamRef.current = stream;
         const el = videoRef.current!;
         el.srcObject = stream;
         await el.play();
-        const all = await navigator.mediaDevices.enumerateDevices();
-        setDevices(all.filter((d) => d.kind === "videoinput"));
-        setDeviceId(stream.getVideoTracks()[0]?.getSettings().deviceId ?? id ?? "");
+        return stream.getVideoTracks()[0]?.getSettings().deviceId ?? devId ?? "";
+      };
+      try {
+        let active = await open(id);
+        const all = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+        // Quest lists a "facing front" camera that does not look out into the room (run 1 picked
+        // it by hand and calibrated to garbage). Hide it whenever a room-facing one exists.
+        const outward = all.filter((d) => !/facing front/i.test(d.label));
+        const usable = outward.length ? outward : all;
+        setDevices(usable);
+        if (!usable.some((d) => d.deviceId === active) && usable[0]) {
+          active = await open(usable[0].deviceId);
+        }
+        setDeviceId(active);
         if (!landmarkerRef.current) await loadLandmarker(paramsRef.current.delegate);
       } catch (e) {
         setCamError(`${(e as Error).name ?? "Error"}: ${(e as Error).message ?? String(e)}`);
@@ -384,6 +401,7 @@ export default function FaceSpike() {
             offYCm: round(r.params.offY * 100, 0.1),
             flipX: r.params.flipX,
             latencyMs: r.latencyMs,
+            eyeSpanCm: round(r.eyeSpanM * 100, 0.1),
           }));
           // Let the params effect run first so the report carries the new values.
           window.setTimeout(() => sendReportRef.current("calibrated"), 0);
@@ -425,10 +443,13 @@ export default function FaceSpike() {
             Pull the <b>trigger</b>. For 6 seconds, keep looking at the face while you slowly sway
             side to side and nod up and down. The readout says when it's done.
           </li>
-          <li>The pink oval re-appears. Check whether it now sits on the face.</li>
+          <li>
+            Three dots appear: green on each eye, yellow on the tip of the nose. Are they on the
+            eyes and the nose? If not, which way are they off?
+          </li>
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          Grip button: re-place the oval without calibrating. A/X button: show or hide the camera
+          Grip button: re-place the dots without calibrating. A/X button: show or hide the camera
           view. Reports save themselves; nothing to copy.
         </Typography>
       </Paper>
@@ -507,7 +528,7 @@ export default function FaceSpike() {
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Camera model — calibration fills these in; you only need to set the eye span
+          Camera model — calibration fills all of these in; nothing to set by hand
         </Typography>
         <ParamSlider label="Face eye span (outer corners)" unit=" cm" min={6} max={14} step={0.1} value={params.eyeSpanCm} onChange={(v) => set("eyeSpanCm", v)} />
         <ParamSlider label="Horizontal FOV" unit="°" min={40} max={120} step={0.1} value={params.hfovDeg} onChange={(v) => set("hfovDeg", v)} />
@@ -589,24 +610,8 @@ function drawLandmarks(ctx: CanvasRenderingContext2D, lm: Pt2[], w: number, h: n
 // ---------------------------------------------------------------------------------------------
 // The XR session. Plain three.js, outside React: it runs at display rate and must not re-render.
 
-const OVAL_FRAGMENT = /* glsl */ `
-  varying vec2 vUv;
-  void main() {
-    vec2 d = (vUv - 0.5) * 2.0;
-    float r = length(d);
-    float a = 1.0 - smoothstep(0.75, 1.0, r);   // feathered edge
-    float ring = smoothstep(0.88, 0.92, r) * (1.0 - smoothstep(0.96, 1.0, r));
-    vec3 col = mix(vec3(1.0, 0.17, 0.84), vec3(1.0), ring);
-    gl_FragColor = vec4(col * a * 0.6, a * 0.6);
-  }
-`;
-const OVAL_VERTEX = /* glsl */ `
-  varying vec2 vUv;
-  void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
-`;
-
 interface SessionDeps {
-  detectOnce: () => { sample: FaceSample | null; lm: Pt2[] | null } | null;
+  detectOnce: () => { sample: FaceSample | null; lm: Pt3[] | null } | null;
   statsRef: { current: Stats };
   paramsRef: { current: Params };
   video: HTMLVideoElement;
@@ -644,28 +649,20 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   host.appendChild(renderer.domElement);
   document.body.appendChild(host);
 
-  // Placeholder face: unit plane, scaled to the measured face height at lock.
-  const oval = new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1),
-    new THREE.ShaderMaterial({
-      vertexShader: OVAL_VERTEX,
-      fragmentShader: OVAL_FRAGMENT,
-      transparent: true,
-      premultipliedAlpha: true,
-      depthWrite: false,
-    }),
-  );
-  oval.visible = false;
-  scene.add(oval);
-
-  // Live marker: where the CURRENT detection back-projects, unsmoothed. With a right camera
-  // model it sits on the face whatever the head does.
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.008, 12, 8),
-    new THREE.MeshBasicMaterial({ color: 0x00e5ff }),
-  );
-  marker.visible = false;
-  scene.add(marker);
+  // The lock result: a dot on each iris and one on the nose tip. Far easier to judge than a
+  // translucent oval — "are the dots on the eyes?" has a yes/no answer.
+  const dots = new THREE.Group();
+  const dotGeo = new THREE.SphereGeometry(0.006, 16, 12);
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x39ff14, depthTest: false });
+  const noseMat = new THREE.MeshBasicMaterial({ color: 0xffd600, depthTest: false });
+  const dotMeshes = [new THREE.Mesh(dotGeo, eyeMat), new THREE.Mesh(dotGeo, eyeMat), new THREE.Mesh(dotGeo, noseMat)];
+  for (const m of dotMeshes) {
+    m.renderOrder = 5;
+    dots.add(m);
+  }
+  dots.visible = false;
+  scene.add(dots);
+  const MARKER_IDS = [MARKERS.rightIris, MARKERS.leftIris, MARKERS.noseTip];
 
   const hud = makePanel(640, 360, 0.34);
   scene.add(hud.mesh);
@@ -688,11 +685,12 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
       idle: "",
       searching: stats.faceFound ? "Face found…" : "Look at the face",
       locking: "Hold still…",
-      locked: "Trigger = calibrate",
+      locked: stats.lastCal ? "Dots on eyes + nose?" : "Trigger = calibrate",
       calibrating: `Sway + nod slowly  ${Math.round(stats.calProgress * 100)}%`,
       solving: "Calculating…",
     };
-    ctx.fillText(stats.calMessage && stats.state === "locked" ? stats.calMessage : headline[stats.state], 18, 42);
+    const calFailed = stats.calMessage && !stats.calMessage.startsWith("Calibrated");
+    ctx.fillText(calFailed && stats.state === "locked" ? stats.calMessage! : headline[stats.state], 18, 42);
     ctx.font = "24px monospace";
     ctx.fillStyle = "#fff";
     const n = stats.nudgeCm;
@@ -703,7 +701,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
       `lock jitter ${stats.jitterCm?.toFixed(1) ?? "-"} cm`,
       `nudge ${n.x.toFixed(1)} ${n.y.toFixed(1)} ${n.z.toFixed(1)} cm`,
       c ? `cal ${c.spreadBeforeCm.toFixed(1)}->${c.spreadAfterCm.toFixed(1)}cm lat ${c.latencyMs}ms` : "cal -",
-      `fov ${p.hfovDeg.toFixed(0)} yaw ${p.yawDeg.toFixed(1)} pit ${p.pitchDeg.toFixed(1)}${p.flipX ? " MIRROR" : ""}`,
+      `fov ${p.hfovDeg.toFixed(0)} yaw ${p.yawDeg.toFixed(1)} eye ${p.eyeSpanCm.toFixed(1)}cm${p.flipX ? " MIRROR" : ""}`,
       `grip=re-place  A/X=camera view`,
     ];
     lines.forEach((l, i) => ctx.fillText(l, 18, 84 + i * 38));
@@ -726,7 +724,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
 
   // Lock state: world-space samples collected over LOCK_SECONDS, then averaged.
   let phaseStart = 0;
-  let lockSamples: { pos: THREE.Vector3; heightM: number; sample: FaceSample }[] = [];
+  let lockSamples: { pts: THREE.Vector3[]; sample: FaceSample }[] = [];
   let calSamples: CalSample[] = [];
   const beginLock = () => {
     stats.state = "searching";
@@ -741,7 +739,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
     stats.calProgress = 0;
     phaseStart = 0;
     calSamples = [];
-    oval.visible = false;
+    dots.visible = false;
   };
   session.addEventListener("select", beginCalibrate);
   session.addEventListener("squeeze", beginLock);
@@ -769,6 +767,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         offYCm: r.params.offY * 100,
         flipX: r.params.flipX,
         latencyMs: r.latencyMs,
+        eyeSpanCm: r.eyeSpanM * 100,
       };
       onCalibrated(r);
     }
@@ -819,10 +818,6 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         const lagged = poseAt(t - p.latencyMs) ?? now;
         const local = faceInViewer(out.sample, toCam(p), p.eyeSpanCm / 100, aspect);
         if (local) {
-          const w = applyMat4(lagged, local);
-          v.set(w.x, w.y, w.z);
-          marker.position.copy(v);
-          marker.visible = true;
           stats.depthM = -local.z;
 
           if (stats.state === "calibrating") {
@@ -836,9 +831,19 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
             stats.state = "locking";
             phaseStart = t;
           }
-          if (stats.state === "locking") {
-            const heightM = out.sample.faceHeight * ((p.eyeSpanCm / 100) / out.sample.eyeSpan);
-            lockSamples.push({ pos: v.clone(), heightM, sample: out.sample });
+          if (stats.state === "locking" && out.lm) {
+            const lm = out.lm;
+            const eyeLineZ = ((lm[LM.rightEyeOuter]?.z ?? 0) + (lm[LM.leftEyeOuter]?.z ?? 0)) / 2;
+            const cam = toCam(p);
+            const pts: THREE.Vector3[] = [];
+            for (const id of MARKER_IDS) {
+              const pt = lm[id];
+              const lv = pt && landmarkInViewer(pt, eyeLineZ, out.sample, cam, p.eyeSpanCm / 100, aspect);
+              if (!lv) break;
+              const w = applyMat4(lagged, lv);
+              pts.push(new THREE.Vector3(w.x, w.y, w.z));
+            }
+            if (pts.length === MARKER_IDS.length) lockSamples.push({ pts, sample: out.sample });
           }
         }
       }
@@ -862,22 +867,20 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         (t - phaseStart) / 1000 >= LOCK_SECONDS &&
         lockSamples.length >= LOCK_MIN_SAMPLES
       ) {
-        const mean = new THREE.Vector3();
-        let h = 0;
-        for (const s of lockSamples) {
-          mean.add(s.pos);
-          h += s.heightM;
-        }
-        mean.divideScalar(lockSamples.length);
-        h /= lockSamples.length;
+        const means = MARKER_IDS.map(() => new THREE.Vector3());
+        for (const smp of lockSamples) smp.pts.forEach((q, k) => means[k].add(q));
+        means.forEach((m) => m.divideScalar(lockSamples.length));
         let spread = 0;
-        for (const s of lockSamples) spread += s.pos.distanceToSquared(mean);
+        for (const smp of lockSamples) spread += smp.pts[2].distanceToSquared(means[2]);
         stats.jitterCm = Math.sqrt(spread / lockSamples.length) * 100;
-        stats.imgJitterPx = centerJitter(lockSamples.map((s) => s.sample)) * stats.videoW;
-        oval.position.copy(mean);
-        oval.scale.set(h * 0.78, h, 1);
-        oval.lookAt(viewerPos); // +z faces the viewer at lock time, then it stays put
-        oval.visible = true;
+        stats.imgJitterPx = centerJitter(lockSamples.map((x) => x.sample)) * stats.videoW;
+        // The group sits at the nose and faces the viewer, so the thumbstick nudge moves all
+        // three dots together in a frame that makes sense to the person nudging.
+        dots.position.copy(means[2]);
+        dots.lookAt(viewerPos);
+        dots.updateMatrixWorld(true);
+        means.forEach((m, k) => dotMeshes[k].position.copy(dots.worldToLocal(m.clone())));
+        dots.visible = true;
         stats.state = "locked";
       }
 
@@ -890,12 +893,12 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
           const sy = Math.abs(ax[3]) > 0.15 ? ax[3] : 0;
           const step = NUDGE_M_PER_S * dt;
           if (src.handedness === "left") {
-            oval.translateX(sx * step);
-            oval.translateY(-sy * step);
+            dots.translateX(sx * step);
+            dots.translateY(-sy * step);
             stats.nudgeCm.x += sx * step * 100;
             stats.nudgeCm.y += -sy * step * 100;
           } else if (src.handedness === "right") {
-            oval.translateZ(sy * step); // push forward = farther (oval +z faces the viewer)
+            dots.translateZ(sy * step); // push forward = farther (+z faces the viewer)
             stats.nudgeCm.z += -sy * step * 100;
           }
         }
