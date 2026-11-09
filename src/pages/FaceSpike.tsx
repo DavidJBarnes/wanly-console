@@ -141,6 +141,7 @@ interface Stats {
   xrDetections: number;
   locks: number;
   faceFitMm: number | null; // RMS of the clip→mannequin anchor fit
+  xrFps: number; // render-loop rate; the display wants 72
   lockWaiting: string; // why the current lock is not collecting ("" when it is)
   /** Raw measurements for offline diagnosis (run 5: placement depended on head direction). */
   trace: TraceSample[];
@@ -187,6 +188,7 @@ const freshStats = (): Stats => ({
   xrDetections: 0,
   locks: 0,
   faceFitMm: null,
+  xrFps: 0,
   lockWaiting: "",
   trace: [],
 });
@@ -203,7 +205,8 @@ interface Detection {
 /** The face loop shown on the mannequin. Built by make_face_loop.py from a Kelly-2026 render. */
 const FACE_ASSET = {
   character: "Kelly-2026",
-  base: "s3://wanly-jobs/ar-face/kelly-2026/a442cfd8-6-9",
+  // v2: temporally smoothed shape + UVs (texture shimmer 0.38 → 0.20 mm/frame).
+  base: "s3://wanly-jobs/ar-face/kelly-2026/a442cfd8-6-9-v2",
 };
 
 interface FaceAsset {
@@ -903,7 +906,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
     ctx.fillStyle = "#fff";
     const n = stats.nudgeCm;
     const lines = [
-      `cam ${stats.videoW}x${stats.videoH} ${video.paused ? "PAUSED" : "playing"}  ${stats.detectFps.toFixed(0)} fps`,
+      `render ${stats.xrFps.toFixed(0)} fps  detect ${stats.state === "locked" ? "off (locked)" : `${stats.detectFps.toFixed(0)} fps`}`,
       `stereo ${stats.stereo === "on" ? "ON" : "OFF"}  depth ${stats.depthM?.toFixed(2) ?? "-"} m (${stats.depthSource || "-"})`,
       `face ${stats.faceFound ? "YES" : "no"}  eye span ${stats.measuredEyeSpanCm?.toFixed(1) ?? "-"} cm  gap ${stats.rayGapMm?.toFixed(0) ?? "-"} mm`,
       `jitter ${stats.jitterCm?.toFixed(1) ?? "-"} cm  nudge ${n.x.toFixed(1)} ${n.y.toFixed(1)} ${n.z.toFixed(1)}`,
@@ -955,11 +958,19 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   let lastT = 0;
   let lastToggle = false;
   let lastTrace = 0;
+  let fpsStart = 0;
+  let fpsCount = 0;
 
   renderer.setAnimationLoop((t: number, frame?: XRFrame) => {
     const dt = lastT ? Math.min((t - lastT) / 1000, 0.1) : 1 / 72;
     lastT = t;
     stats.xrFrames += 1;
+    fpsCount += 1;
+    if (t - fpsStart >= 1000) {
+      stats.xrFps = (fpsCount * 1000) / (t - fpsStart);
+      fpsStart = t;
+      fpsCount = 0;
+    }
     const ref = renderer.xr.getReferenceSpace();
     const pose = frame && ref ? frame.getViewerPose(ref) : null;
     if (pose) {
@@ -975,8 +986,13 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
       if (toggle && !lastToggle) camViewOn = !camViewOn;
       lastToggle = toggle;
 
-      detectLeft();
-      const out = detectOnce();
+      // Once locked, the mannequin does not move, so stop detecting. Two MediaPipe runs per
+      // frame held the XR loop to ~25-30 fps (xrDetections == xrFrames in every report) against
+      // the display's 72; the compositor's reprojection of the missing frames is the jitter and
+      // jumping seen when moving. Locked = render only. The trigger resumes detection.
+      const tracking = stats.state !== "locked";
+      if (tracking) detectLeft();
+      const out = tracking ? detectOnce() : null;
       if (out) {
         stats.xrDetections += 1;
         if (camViewOn && camView.ctx) {

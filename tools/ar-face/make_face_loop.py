@@ -93,6 +93,16 @@ resid = np.mean([np.linalg.norm(Q[ANCHORS] - ref[ANCHORS], axis=1).mean() for Q 
 centre = ref[ANCHORS].mean(0)
 pos = np.stack([Q[:468] - centre for Q in stab]).astype(np.float32)          # frames x 468 x 3 (px, centred)
 uv = np.stack([np.array(l).reshape(-1, 2)[:468] for l in lms]).astype(np.float32)  # frames x 468 x 2
+
+# Temporal smoothing (console#739 pass 2): MediaPipe landmarks flicker ~0.7 px frame to frame,
+# which shows as texture shimmer. A circular Gaussian over time (the ping-pong loop is circular)
+# removes it; expressions change over many frames, so nothing visible is lost. Shape and UVs get
+# the same filter so the texture stays registered to the mesh.
+SIGMA = 1.2
+k = np.exp(-0.5 * (np.arange(-3, 4) / SIGMA) ** 2); k /= k.sum()
+def smooth(a):
+    return sum(w * np.roll(a, s, axis=0) for s, w in zip(range(-3, 4), k)).astype(np.float32)
+pos, uv = smooth(pos), smooth(uv)
 with open(f"{out}/face.bin", "wb") as f:
     f.write(pos.tobytes()); f.write(uv.tobytes())
 json.dump({"source": clip.split("/")[-1], "start": t0, "end": t1, "fps": fps, "size": size, "frames": len(seq),
