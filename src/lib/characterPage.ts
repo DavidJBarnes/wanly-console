@@ -31,8 +31,8 @@ export function characterSetHome(owner: string, run: string | null): string {
   return `/characters/${encodeURIComponent(owner)}${q}`;
 }
 
-export type CharacterTab = "settings" | "images" | "prompts" | "sheet" | "training" | "history";
-export const CHARACTER_TABS: CharacterTab[] = ["settings", "images", "prompts", "sheet", "training", "history"];
+export type CharacterTab = "settings" | "images" | "prompts" | "faceloops" | "sheet" | "training" | "history";
+export const CHARACTER_TABS: CharacterTab[] = ["settings", "images", "prompts", "faceloops", "sheet", "training", "history"];
 
 /** "Added Oct 12, 2:41 PM", plus when it was last edited (console#675). The date added is
  *  the point: an edit never moves it. */
