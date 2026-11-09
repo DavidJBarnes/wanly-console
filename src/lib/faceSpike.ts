@@ -285,6 +285,7 @@ export function nelderMead(
   x0: number[],
   steps: number[],
   iters = 600,
+  tol = 1e-7,
 ): { x: number[]; fx: number } {
   const n = x0.length;
   let simplex = [x0, ...x0.map((_, i) => x0.map((v, j) => (i === j ? v + steps[i] : v)))].map(
@@ -293,6 +294,7 @@ export function nelderMead(
   for (let it = 0; it < iters; it++) {
     simplex.sort((a, b) => a.fx - b.fx);
     const best = simplex[0], worst = simplex[n], second = simplex[n - 1];
+    if (worst.fx - best.fx < tol) break; // converged (spread in metres: 1e-7 is nothing)
     const centroid = Array.from({ length: n }, (_, j) =>
       simplex.slice(0, n).reduce((acc, s) => acc + s.x[j], 0) / n,
     );
@@ -321,6 +323,8 @@ export function nelderMead(
 
 export interface CalResult {
   params: CamParams;
+  /** Fitted outer-eye-corner span of the target face, metres. Nobody has to measure it. */
+  eyeSpanM: number;
   latencyMs: number;
   spreadBeforeCm: number;
   spreadAfterCm: number;
@@ -336,11 +340,19 @@ const BOUNDS = {
   rollDeg: [-30, 30],
   offX: [-0.1, 0.1],
   offY: [-0.1, 0.1],
+  eyeSpanM: [0.05, 0.2],
 } as const;
 
+/** Light pull of the camera offset toward zero. At one viewing distance a sideways shift and a
+ *  small yaw look alike; without this the fit wanders along that valley to the bounds (run 2
+ *  hit ±10 cm). 0.5·off² costs 0.5 cm of spread at a 10 cm offset and nothing near zero. */
+const OFFSET_PULL = 0.5;
+
 /**
- * Fit hfov, yaw, pitch, roll and the x/y camera offset (offZ is left alone: it trades almost
- * exactly against depth) for each mirror setting and candidate latency; keep the best.
+ * Fit hfov, yaw, pitch, roll, the x/y camera offset and the face's eye span for each mirror
+ * setting and candidate latency; keep the best. offZ is left alone: it trades almost exactly
+ * against depth. The eye span is observable because head TRANSLATION produces parallax that
+ * only the true distance explains.
  */
 export function calibrate(
   samples: readonly CalSample[],
@@ -349,33 +361,63 @@ export function calibrate(
   aspect: number,
 ): CalResult | null {
   if (samples.length < 10) return null;
-  const keys = ["hfovDeg", "yawDeg", "pitchDeg", "rollDeg", "offX", "offY"] as const;
-  const steps = [10, 5, 5, 5, 0.02, 0.02];
-  let best: { params: CamParams; latencyIdx: number; fx: number } | null = null;
+  const keys = ["hfovDeg", "yawDeg", "pitchDeg", "rollDeg", "offX", "offY", "eyeSpanM"] as const;
+  const steps = [10, 5, 5, 5, 0.02, 0.02, 0.02];
+  const x0 = [start.hfovDeg, start.yawDeg, start.pitchDeg, start.rollDeg, start.offX, start.offY, eyeSpanM];
+  let best: { x: number[]; flipX: boolean; latencyIdx: number; fx: number } | null = null;
 
+  const toParams = (x: number[], flipX: boolean): CamParams => ({
+    ...start,
+    hfovDeg: x[0],
+    yawDeg: x[1],
+    pitchDeg: x[2],
+    rollDeg: x[3],
+    offX: x[4],
+    offY: x[5],
+    flipX,
+  });
+
+  // Cost control: this runs on a Quest. The spread is O(samples), and 6 s of capture is ~200
+  // samples — 60 spread evenly carry the same geometry. And rather than a full fit for every
+  // (mirror × latency) pair: settle the mirror at a middle latency, then only refine across
+  // latencies from that answer, then polish the winner on every sample.
+  const stride = Math.max(1, Math.floor(samples.length / 60));
+  const sub = samples.filter((_, k) => k % stride === 0);
+  const objectiveFor = (set: readonly CalSample[], flipX: boolean, li: number) => (x: number[]) => {
+    let penalty = OFFSET_PULL * (x[4] ** 2 + x[5] ** 2);
+    keys.forEach((k, i) => {
+      const [lo, hi] = BOUNDS[k];
+      if (x[i] < lo) penalty += (lo - x[i]) * 10;
+      if (x[i] > hi) penalty += (x[i] - hi) * 10;
+    });
+    return spreadM(set, toParams(x, flipX), x[6], aspect, li) + penalty;
+  };
+  const fit = (f: (x: number[]) => number, start: number[], scale: number) => {
+    // Restarts: Nelder–Mead stalls on long valleys.
+    let r = nelderMead(f, start, steps.map((st) => st * scale));
+    r = nelderMead(f, r.x, steps.map((st) => (st * scale) / 2));
+    return nelderMead(f, r.x, steps.map((st) => (st * scale) / 4));
+  };
+
+  const midLi = Math.floor(LATENCIES_MS.length / 2);
   for (const flipX of [false, true]) {
-    for (let li = 0; li < LATENCIES_MS.length; li++) {
-      const toParams = (x: number[]): CamParams => {
-        const p = { ...start, flipX };
-        keys.forEach((k, i) => (p[k] = x[i]));
-        return p;
-      };
-      const objective = (x: number[]) => {
-        let penalty = 0;
-        keys.forEach((k, i) => {
-          const [lo, hi] = BOUNDS[k];
-          if (x[i] < lo) penalty += (lo - x[i]) * 10;
-          if (x[i] > hi) penalty += (x[i] - hi) * 10;
-        });
-        return spreadM(samples, toParams(x), eyeSpanM, aspect, li) + penalty;
-      };
-      // Restart once from the first result: Nelder–Mead stalls on long valleys.
-      let r = nelderMead(objective, keys.map((k) => start[k] as number), steps);
-      r = nelderMead(objective, r.x, steps.map((s) => s / 2));
-      if (!best || r.fx < best.fx) best = { params: toParams(r.x), latencyIdx: li, fx: r.fx };
-    }
+    const r = fit(objectiveFor(sub, flipX, midLi), x0, 1);
+    if (!best || r.fx < best.fx) best = { x: r.x, flipX, latencyIdx: midLi, fx: r.fx };
+  }
+  const flipX = best!.flipX;
+  const fromMid = best!.x;
+  for (let li = 0; li < LATENCIES_MS.length; li++) {
+    if (li === midLi) continue;
+    const r = fit(objectiveFor(sub, flipX, li), fromMid, 0.25);
+    if (r.fx < best!.fx) best = { x: r.x, flipX, latencyIdx: li, fx: r.fx };
+  }
+  {
+    const r = fit(objectiveFor(samples, flipX, best!.latencyIdx), best!.x, 0.25);
+    best = { ...best!, x: r.x, fx: r.fx };
   }
   if (!best) return null;
+  const params = toParams(best.x, best.flipX);
+  const fitSpan = best.x[6];
 
   const heads = samples.map((s) => ({ x: s.viewers[0][12], y: s.viewers[0][13], z: s.viewers[0][14] }));
   const hc = heads.reduce((a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }), { x: 0, y: 0, z: 0 });
@@ -385,11 +427,44 @@ export function calibrate(
   );
 
   return {
-    params: best.params,
+    params,
+    eyeSpanM: fitSpan,
     latencyMs: LATENCIES_MS[best.latencyIdx],
     spreadBeforeCm: spreadM(samples, start, eyeSpanM, aspect, 0) * 100,
-    spreadAfterCm: spreadM(samples, best.params, eyeSpanM, aspect, best.latencyIdx) * 100,
+    spreadAfterCm: spreadM(samples, params, fitSpan, aspect, best.latencyIdx) * 100,
     headTravelCm: travel * 100,
     samples: samples.length,
   };
 }
+
+/** A landmark with MediaPipe's relative depth (z: same scale as x, negative = toward camera). */
+export interface Pt3 extends Pt2 {
+  z: number;
+}
+
+/**
+ * Viewer-space position of an individual landmark (an eye, the nose tip). The face's distance
+ * comes from the eye span as before; the landmark's own MediaPipe z then moves it nearer or
+ * farther relative to the eye line, so the nose tip sits in front of the eyes.
+ */
+export function landmarkInViewer(
+  pt: Pt3,
+  eyeLineZ: number,
+  s: FaceSample,
+  p: CamParams,
+  eyeSpanM: number,
+  aspect: number,
+  rot: Mat3 = rotation(p.yawDeg, p.pitchDeg, p.rollDeg),
+): Vec3 | null {
+  const cam: CameraModel = { hfovDeg: p.hfovDeg, width: aspect, height: 1 };
+  const depth = depthFromSpan(s.eyeSpan, eyeSpanM, cam);
+  if (!Number.isFinite(depth)) return null;
+  const metresPerUnit = eyeSpanM / s.eyeSpan; // normalised-x units → metres at the face
+  const d = depth + (pt.z - eyeLineZ) * metresPerUnit;
+  const ray = pixelRay(p.flipX ? { x: 1 - pt.x, y: pt.y } : pt, cam);
+  const v = mul3(rot, { x: ray.x * d, y: ray.y * d, z: ray.z * d });
+  return { x: v.x + p.offX, y: v.y + p.offY, z: v.z + p.offZ };
+}
+
+/** MediaPipe iris centres (present with the 478-point model) and the nose tip. */
+export const MARKERS = { rightIris: 468, leftIris: 473, noseTip: 1 } as const;
