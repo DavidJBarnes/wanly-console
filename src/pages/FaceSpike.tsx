@@ -85,9 +85,10 @@ const FALLBACK_LATENCY_MS = 100;
 
 interface Params {
   eyeSpanCm: number; // fallback distance only (single camera): adult outer-eye-corner span
+  faceLoop: FaceLoopId;
 }
 
-const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5 };
+const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5, faceLoop: "lp-blink" };
 
 function loadParams(): Params {
   try {
@@ -202,12 +203,18 @@ interface Detection {
   at: number;
 }
 
-/** The face loop shown on the mannequin. Built by make_face_loop.py from a Kelly-2026 render. */
-const FACE_ASSET = {
-  character: "Kelly-2026",
-  // v2: temporally smoothed shape + UVs (texture shimmer 0.38 → 0.20 mm/frame).
-  base: "s3://wanly-jobs/ar-face/kelly-2026/a442cfd8-6-9-v2",
-};
+/**
+ * Face loops to choose from, all prepared by tools/ar-face/make_face_loop.py. Hard-coded until
+ * Character Face Loops (#742) gives them a home in the api.
+ * - laugh: cut from an LTX render (job a442cfd8, 6-9 s) — expressive but the jaw moves ~13 mm.
+ * - blink / smile: LivePortrait from one Kelly-2026 still, head pose fixed (sway ≤ 2.3 mm).
+ */
+const FACE_ASSETS = [
+  { id: "lp-blink", label: "Kelly-2026 — blink (portrait animation)", base: "s3://wanly-jobs/ar-face/kelly-2026/lp-blink-v1" },
+  { id: "lp-smile", label: "Kelly-2026 — smile + blink (portrait animation)", base: "s3://wanly-jobs/ar-face/kelly-2026/lp-smile-v1" },
+  { id: "ltx-laugh", label: "Kelly-2026 — laugh (LTX clip)", base: "s3://wanly-jobs/ar-face/kelly-2026/a442cfd8-6-9-v2" },
+] as const;
+type FaceLoopId = (typeof FACE_ASSETS)[number]["id"];
 
 interface FaceAsset {
   fps: number;
@@ -313,10 +320,12 @@ export default function FaceSpike() {
       return;
     }
     let cancelled = false;
+    const asset = FACE_ASSETS.find((a) => a.id === params.faceLoop) ?? FACE_ASSETS[0];
     (async () => {
       try {
-        const meta = await (await fetch(getFileUrl(`${FACE_ASSET.base}/face.json`))).json();
-        const buf = await (await fetch(getFileUrl(`${FACE_ASSET.base}/face.bin`))).arrayBuffer();
+        faceRef.current = null;
+        const meta = await (await fetch(getFileUrl(`${asset.base}/face.json`))).json();
+        const buf = await (await fetch(getFileUrl(`${asset.base}/face.bin`))).arrayBuffer();
         const n = meta.frames * meta.vertices;
         const video = document.createElement("video");
         video.crossOrigin = "anonymous";
@@ -324,7 +333,7 @@ export default function FaceSpike() {
         video.muted = true;
         video.playsInline = true;
         video.preload = "auto";
-        video.src = getFileUrl(`${FACE_ASSET.base}/loop.mp4`);
+        video.src = getFileUrl(`${asset.base}/loop.mp4`);
         if (cancelled) return;
         faceRef.current = {
           fps: meta.fps,
@@ -333,7 +342,7 @@ export default function FaceSpike() {
           uvs: new Float32Array(buf, n * 3 * 4, n * 2),
           video,
         };
-        setFaceStatus(`${FACE_ASSET.character} ready (${meta.frames} frames, ${(meta.frames / meta.fps).toFixed(1)} s loop)`);
+        setFaceStatus(`${asset.label} ready (${meta.frames} frames, ${(meta.frames / meta.fps).toFixed(1)} s loop)`);
       } catch (e) {
         if (!cancelled) setFaceStatus(`failed: ${String(e)}`);
       }
@@ -341,7 +350,7 @@ export default function FaceSpike() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [params.faceLoop]);
 
   useEffect(() => {
     if (!xr) return;
@@ -642,7 +651,7 @@ export default function FaceSpike() {
         <Typography component="ol" variant="body2" sx={{ pl: 2.5, m: 0, "& li": { mb: 0.5 } }}>
           <li>Press <b>Start camera</b>. Check that it says <b>face yes</b>.</li>
           <li>Press <b>Enter AR</b>. Stand about a metre from the face and look at it.</li>
-          <li>Hold still for a second: Kelly-2026's face appears on it and starts moving.</li>
+          <li>Hold still for a second: the chosen face loop appears on it and starts playing.</li>
           <li>
             After a second, three dots appear: green on each eye, yellow on the tip of the nose.
             Are they on the eyes and nose? If not, which way are they off?
@@ -688,6 +697,21 @@ export default function FaceSpike() {
           >
             2. Enter AR
           </Button>
+          <TextField
+            select
+            size="small"
+            label="Face loop"
+            value={params.faceLoop}
+            disabled={inAr}
+            onChange={(e) => setParams((p) => ({ ...p, faceLoop: e.target.value as FaceLoopId }))}
+            sx={{ minWidth: 300 }}
+          >
+            {FACE_ASSETS.map((a) => (
+              <MenuItem key={a.id} value={a.id}>
+                {a.label}
+              </MenuItem>
+            ))}
+          </TextField>
           <Button onClick={() => sendReport("manual")}>Save report</Button>
         </Box>
         {!isLoggedIn && (
