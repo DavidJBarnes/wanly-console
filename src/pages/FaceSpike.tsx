@@ -12,7 +12,9 @@ import {
 } from "@mui/material";
 import * as THREE from "three";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
-import { getFileUrl, uploadFile } from "../api/client";
+import { getFileUrl, listFaceLoops, uploadFile } from "../api/client";
+import type { FaceLoop } from "../api/types";
+import { loopPickerLabel } from "../lib/faceLoops";
 import {
   buildTriangles,
   featherAlpha,
@@ -95,18 +97,20 @@ const FALLBACK_LATENCY_MS = 100;
 
 interface Params {
   eyeSpanCm: number; // fallback distance only (single camera): adult outer-eye-corner span
-  faceLoop: FaceLoopId;
+  faceLoop: string; // face loop id ("" = the first one available)
 }
 
-const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5, faceLoop: "ltx-calm" };
+const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5, faceLoop: "" };
 
 function loadParams(): Params {
   try {
     const raw = localStorage.getItem(PARAMS_KEY);
     if (raw) {
       const p = { ...DEFAULT_PARAMS, ...(JSON.parse(raw) as Partial<Params>) };
-      // A saved loop that no longer exists (the removed portrait-animation loops) → default.
-      if (!FACE_ASSETS.some((a) => a.id === p.faceLoop)) p.faceLoop = DEFAULT_PARAMS.faceLoop;
+      // Pre-api saves held a hard-coded id ("ltx-calm"); a real id is a UUID.
+      if (!/^[0-9a-f-]{36}$/.test(p.faceLoop)) p.faceLoop = "";
+      const wanted = new URLSearchParams(window.location.search).get("loop");
+      if (wanted) p.faceLoop = wanted;
       return p;
     }
   } catch {
@@ -220,22 +224,9 @@ interface Detection {
   at: number;
 }
 
-/**
- * Face loops to choose from, all prepared by tools/ar-face/make_face_loop.py. Hard-coded until
- * Character Face Loops (#742) gives them a home in the api.
- * - calm / smile: calm-prompt LTX render (job 465275c6) from a close-up real photo (real_034,
- *   face ~650 px), Prompt recipe, Kelly-2026 LoRA only. Expression travel 3.2 mm; 768² texture.
- * - neutral / brows: same recipe, job 185c719e (neutral face, slow blinks, eyebrow raise), 4.1 mm.
- * - laugh: cut from an LTX render (job a442cfd8, 6-9 s) — expressive but the jaw moves ~13 mm.
- */
-const FACE_ASSETS = [
-  { id: "ltx-calm", label: "Kelly-2026 — calm smile + blinks", base: "s3://wanly-jobs/ar-face/kelly-2026/465275c6-calm-v1" },
-  { id: "ltx-smile", label: "Kelly-2026 — smile appears + fades", base: "s3://wanly-jobs/ar-face/kelly-2026/465275c6-smile-v1" },
-  { id: "ltx-neutral", label: "Kelly-2026 — neutral + blinks", base: "s3://wanly-jobs/ar-face/kelly-2026/185c719e-neutral-v1" },
-  { id: "ltx-brows", label: "Kelly-2026 — eyebrow raise", base: "s3://wanly-jobs/ar-face/kelly-2026/185c719e-brows-v1" },
-  { id: "ltx-laugh", label: "Kelly-2026 — laugh (LTX clip)", base: "s3://wanly-jobs/ar-face/kelly-2026/a442cfd8-6-9-v2" },
-] as const;
-type FaceLoopId = (typeof FACE_ASSETS)[number]["id"];
+// Face loops come from the api (console#742): every character's ready loops, made on the
+// character page's Face loops tab. ?loop=<id> preselects one (the tab's "AR" button).
+
 
 interface FaceAsset {
   fps: number;
@@ -332,6 +323,11 @@ export default function FaceSpike() {
   const [reportStatus, setReportStatus] = useState<string | null>(null);
   const [isLoggedIn] = useState(loggedIn);
   const faceRef = useRef<FaceAsset | null>(null);
+  const [loops, setLoops] = useState<FaceLoop[]>([]);
+  useEffect(() => {
+    if (!loggedIn()) return;
+    listFaceLoops("ready").then(setLoops, () => setLoops([]));
+  }, []);
   const [faceStatus, setFaceStatus] = useState("loading…");
 
   // Load the face loop: header, shape/UV binary, and the video (texture). crossOrigin before
@@ -342,7 +338,9 @@ export default function FaceSpike() {
       return;
     }
     let cancelled = false;
-    const asset = FACE_ASSETS.find((a) => a.id === params.faceLoop) ?? FACE_ASSETS[0];
+    const loop = loops.find((l) => l.id === params.faceLoop) ?? loops[0];
+    if (!loop?.asset_prefix) return;
+    const asset = { label: loopPickerLabel(loop), base: loop.asset_prefix.replace(/\/+$/, "") };
     (async () => {
       try {
         faceRef.current = null;
@@ -372,7 +370,7 @@ export default function FaceSpike() {
     return () => {
       cancelled = true;
     };
-  }, [params.faceLoop]);
+  }, [params.faceLoop, loops]);
 
   useEffect(() => {
     if (!xr) return;
@@ -723,14 +721,14 @@ export default function FaceSpike() {
             select
             size="small"
             label="Face loop"
-            value={params.faceLoop}
+            value={loops.some((l) => l.id === params.faceLoop) ? params.faceLoop : (loops[0]?.id ?? "")}
             disabled={inAr}
-            onChange={(e) => setParams((p) => ({ ...p, faceLoop: e.target.value as FaceLoopId }))}
+            onChange={(e) => setParams((p) => ({ ...p, faceLoop: e.target.value }))}
             sx={{ minWidth: 300 }}
           >
-            {FACE_ASSETS.map((a) => (
-              <MenuItem key={a.id} value={a.id}>
-                {a.label}
+            {loops.map((l) => (
+              <MenuItem key={l.id} value={l.id}>
+                {loopPickerLabel(l)}
               </MenuItem>
             ))}
           </TextField>
@@ -766,7 +764,7 @@ export default function FaceSpike() {
             `face      ${stats.faceFound ? `yes (${stats.landmarks} landmarks)` : "no"}`,
             `xr        ${inAr ? `in session, ${stats.state}` : stats.xrStarted ? `ended — ${stats.xrFrames} frames, ${stats.xrDetections} detections, ${stats.locks} locks` : "—"}`,
             `latency   ${stats.latencyMs != null ? `${stats.latencyMs.toFixed(0)} ms (${stats.latencySource})` : "—"}`,
-            `face loop ${faceStatus}`,
+            `face loop ${loops.length ? faceStatus : "none ready — make one on a character's Face loops tab"}`,
             `report    ${reportStatus ?? "—"}`,
           ].join("\n")}
         </Typography>

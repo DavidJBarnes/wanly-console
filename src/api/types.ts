@@ -1461,6 +1461,56 @@ export interface CharacterPrompt {
   updated_at: string | null;
 }
 
+/** A calm, looping face clip of a character for the AR face page (console#742, wanly-api#495).
+ *  status: rendering (the LTX job) -> processing (loop prepared on the api box) -> ready | failed. */
+export interface FaceLoop {
+  id: string;
+  character_id: string;
+  character: string | null;
+  label: string;
+  preset: string;
+  prompt: string;
+  start_image: string;
+  job_id: string | null;
+  status: "rendering" | "processing" | "ready" | "failed";
+  /** The render's own segment status while status is "rendering". */
+  render_status: string | null;
+  /** s3:// folder holding loop.mp4, face.json, face.bin, poster.jpg once ready. */
+  asset_prefix: string | null;
+  window_start: number | null;
+  window_end: number | null;
+  stats: {
+    expression_travel_mm?: number;
+    face_px?: number;
+    anchor_residual_px?: number;
+    frontal_pct?: number;
+    frames?: number;
+    fps?: number;
+    hand_prepared?: boolean;
+  } | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+/** A candidate start photo, rated for a face loop by the api (best first). */
+export interface FaceLoopPhoto {
+  uri: string;
+  score: number;
+  suitable: boolean;
+  face_px: number;
+  yaw: number;
+  pitch: number;
+  mouth_closed: boolean;
+  eyes_open: boolean;
+}
+
+export interface FaceLoopPreset {
+  id: string;
+  label: string;
+  motion: string;
+}
+
 export interface CharacterFull {
   character: import("./ltx").Character;
   dataset: Dataset | null;

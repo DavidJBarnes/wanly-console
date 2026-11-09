@@ -3,6 +3,9 @@ import { parseInUseResponse, type InUseMap } from "../lib/bulkDelete";
 import type {
   CharacterFull,
   CharacterPrompt,
+  FaceLoop,
+  FaceLoopPhoto,
+  FaceLoopPreset,
   TokenResponse,
   JobResponse,
   JobListResponse,
@@ -1325,4 +1328,53 @@ export async function editCharacterPrompt(id: string, text: string): Promise<Cha
 
 export async function deleteCharacterPrompt(id: string): Promise<void> {
   await api.delete(`/ltx/character-prompts/${id}`);
+}
+
+// --- Face loops (console#742, wanly-api#495) ---
+
+export async function listFaceLoopPresets(): Promise<FaceLoopPreset[]> {
+  const { data } = await api.get<FaceLoopPreset[]>("/face-loops/presets");
+  return data;
+}
+
+/** A character's face loops, newest first. `key` is its id or name. */
+export async function listCharacterFaceLoops(key: string): Promise<FaceLoop[]> {
+  const { data } = await api.get<FaceLoop[]>(`/ltx/characters/${encodeURIComponent(key)}/face-loops`);
+  return data;
+}
+
+/** Every character's loops; ready ones by default (the AR page's picker). */
+export async function listFaceLoops(status: string = "ready"): Promise<FaceLoop[]> {
+  const { data } = await api.get<FaceLoop[]>("/face-loops", { params: { status } });
+  return data;
+}
+
+/** The character's photos rated as start images, best first (rating is cached server-side;
+ *  the first call for a character can take ~30 s). */
+export async function rankFaceLoopPhotos(key: string): Promise<FaceLoopPhoto[]> {
+  const { data } = await api.get<FaceLoopPhoto[]>(`/ltx/characters/${encodeURIComponent(key)}/face-loop-photos`,
+    { timeout: 180_000 });
+  return data;
+}
+
+export async function createFaceLoop(
+  key: string,
+  body: { preset: string; start_image: string; label?: string; motion?: string },
+): Promise<FaceLoop> {
+  const { data } = await api.post<FaceLoop>(`/ltx/characters/${encodeURIComponent(key)}/face-loops`, body);
+  return data;
+}
+
+export async function renameFaceLoop(id: string, label: string): Promise<FaceLoop> {
+  const { data } = await api.patch<FaceLoop>(`/face-loops/${id}`, { label });
+  return data;
+}
+
+export async function reprocessFaceLoop(id: string): Promise<FaceLoop> {
+  const { data } = await api.post<FaceLoop>(`/face-loops/${id}/reprocess`);
+  return data;
+}
+
+export async function deleteFaceLoop(id: string): Promise<void> {
+  await api.delete(`/face-loops/${id}`);
 }

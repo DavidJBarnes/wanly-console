@@ -21,6 +21,7 @@ import DefaultStar from "../components/DefaultStar";
 import TrainLoraDialog from "../components/TrainLoraDialog";
 import { characterPicture, tabFromParams, type CharacterTab } from "../lib/characterPage";
 import CharacterPrompts from "../components/CharacterPrompts";
+import CharacterFaceLoops from "../components/CharacterFaceLoops";
 import { hasLora } from "../lib/characterIdentity";
 import { CharacterDialog } from "./Characters";
 
@@ -186,6 +187,7 @@ export default function CharacterPage() {
             <Tab value="settings" label="Settings" />
             <Tab value="images" label={`Images${ds ? ` (${ds.images.length})` : ""}`} />
             <Tab value="prompts" label="Prompts" />
+            {!pair && <Tab value="faceloops" label="Face loops" />}
             {!pair && <Tab value="sheet" label="Character sheet" />}
             <Tab value="training" label={`Training (${full.runs.length})`} />
             <Tab value="history" label={`History (${full.archived.length})`} />
@@ -214,6 +216,10 @@ export default function CharacterPage() {
           ))}
 
           {tab === "prompts" && <CharacterPrompts key={c.id} character={c.name} />}
+
+          {tab === "faceloops" && !pair && (
+            <CharacterFaceLoops key={c.id} character={c.name} />
+          )}
 
           {tab === "training" && (
             <Box>
