@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link as RouterLink } from "react-router";
 import {
   Alert,
   Box,
@@ -512,6 +513,25 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
+            Tools
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Experiments and diagnostics that open outside the main console.
+          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+            <Button variant="outlined" component={RouterLink} to="/holo/face-spike">
+              AR face spike
+            </Button>
+            <Typography variant="body2" color="text.secondary">
+              Quest 3 only. Detects a mannequin's face through the passthrough camera and pins a
+              placeholder oval on it (console#730).
+            </Typography>
+          </Box>
+        </CardContent>
+      </Card>
     </Box>
   );
 }
