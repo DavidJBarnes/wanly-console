@@ -12,7 +12,15 @@ import {
 } from "@mui/material";
 import * as THREE from "three";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
-import { uploadFile } from "../api/client";
+import { getFileUrl, uploadFile } from "../api/client";
+import {
+  ANCHORS,
+  buildTriangles,
+  featherAlpha,
+  fitSimilarity,
+  frameAttributes,
+  TOTAL_VERTICES,
+} from "../lib/faceMask";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
 import {
   applyMat4,
@@ -43,6 +51,11 @@ import type { FaceSample, Pt3, Vec3 } from "../lib/faceSpike";
 // Browser "camera 1"/"camera 2" are Camera2 devices 50/51 (left/right): confirmed with
 // `dumpsys media.camera` ("Device 1 maps to 50", "Device 2 maps to 51", and the browser's
 // connect log). If the second camera can't be opened, it falls back to the eye-span distance.
+//
+// console#739: once locked, a generated face loop (Kelly-2026, cut and pre-stabilised offline by
+// make_face_loop.py) replaces the dots. The mesh SHAPE comes from the clip frame by frame so the
+// mouth really opens; one similarity transform, fitted at lock from stereo-measured
+// expression-free anchors, places it on the mannequin. See lib/faceMask.ts.
 //
 // Reports upload themselves (POST /upload → s3://wanly-jobs/uploads/face-spike-*.json), because
 // copying text out of a headset is not a workflow.
@@ -127,6 +140,7 @@ interface Stats {
   xrFrames: number;
   xrDetections: number;
   locks: number;
+  faceFitMm: number | null; // RMS of the clip→mannequin anchor fit
   lockWaiting: string; // why the current lock is not collecting ("" when it is)
   /** Raw measurements for offline diagnosis (run 5: placement depended on head direction). */
   trace: TraceSample[];
@@ -172,6 +186,7 @@ const freshStats = (): Stats => ({
   xrFrames: 0,
   xrDetections: 0,
   locks: 0,
+  faceFitMm: null,
   lockWaiting: "",
   trace: [],
 });
@@ -183,6 +198,20 @@ interface Detection {
   captureTime: number | null;
   /** performance.now() when the detection ran (pairs left with right). */
   at: number;
+}
+
+/** The face loop shown on the mannequin. Built by make_face_loop.py from a Kelly-2026 render. */
+const FACE_ASSET = {
+  character: "Kelly-2026",
+  base: "s3://wanly-jobs/ar-face/kelly-2026/a442cfd8-6-9",
+};
+
+interface FaceAsset {
+  fps: number;
+  frames: number;
+  positions: Float32Array; // frames × 468 × 3, px, pre-stabilised
+  uvs: Float32Array; // frames × 468 × 2
+  video: HTMLVideoElement;
 }
 
 const RIGHT = QUEST_3S_CAMERAS.right;
@@ -216,6 +245,22 @@ function stereoPoints(
   }
   const [, , , a, b] = pts;
   return { pts: pts.slice(0, 3), gapM: gap, eyeSpanM: Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) };
+}
+
+/** World-placement anchors (ANCHORS) triangulated from a right/left pair, head frame. */
+function stereoAnchors(right: Pt3[], left: Pt3[], w: number, h: number): Vec3[] | null {
+  const kR = streamIntrinsics(RIGHT, w, h);
+  const kL = streamIntrinsics(LEFT, w, h);
+  const out: Vec3[] = [];
+  for (const id of ANCHORS) {
+    const r = right[id];
+    const l = left[id];
+    if (!r || !l) return null;
+    const t = triangulate(l, LEFT, kL, r, RIGHT, kR);
+    if (!t || t.gapM > LOCK_MAX_RAY_GAP_M * 2) return null;
+    out.push(t.point);
+  }
+  return out;
 }
 
 export default function FaceSpike() {
@@ -254,6 +299,46 @@ export default function FaceSpike() {
   const [arError, setArError] = useState<string | null>(null);
   const [reportStatus, setReportStatus] = useState<string | null>(null);
   const [isLoggedIn] = useState(loggedIn);
+  const faceRef = useRef<FaceAsset | null>(null);
+  const [faceStatus, setFaceStatus] = useState("loading…");
+
+  // Load the face loop: header, shape/UV binary, and the video (texture). crossOrigin before
+  // src so the S3 fetch is CORS-mode and WebGL may sample it (same as HologramPlayer).
+  useEffect(() => {
+    if (!loggedIn()) {
+      setFaceStatus("needs login");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const meta = await (await fetch(getFileUrl(`${FACE_ASSET.base}/face.json`))).json();
+        const buf = await (await fetch(getFileUrl(`${FACE_ASSET.base}/face.bin`))).arrayBuffer();
+        const n = meta.frames * meta.vertices;
+        const video = document.createElement("video");
+        video.crossOrigin = "anonymous";
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = "auto";
+        video.src = getFileUrl(`${FACE_ASSET.base}/loop.mp4`);
+        if (cancelled) return;
+        faceRef.current = {
+          fps: meta.fps,
+          frames: meta.frames,
+          positions: new Float32Array(buf, 0, n * 3),
+          uvs: new Float32Array(buf, n * 3 * 4, n * 2),
+          video,
+        };
+        setFaceStatus(`${FACE_ASSET.character} ready (${meta.frames} frames, ${(meta.frames / meta.fps).toFixed(1)} s loop)`);
+      } catch (e) {
+        if (!cancelled) setFaceStatus(`failed: ${String(e)}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!xr) return;
@@ -511,8 +596,11 @@ export default function FaceSpike() {
   const enterAr = useCallback(async () => {
     if (!xr) return;
     setArError(null);
+    // Start the face loop inside the click gesture; autoplay rules would block it later.
+    faceRef.current?.video.play().catch(() => {});
     try {
       const session = await runArSession(xr, {
+        face: faceRef.current,
         detectOnce,
         detectLeft,
         pairStereo,
@@ -551,6 +639,7 @@ export default function FaceSpike() {
         <Typography component="ol" variant="body2" sx={{ pl: 2.5, m: 0, "& li": { mb: 0.5 } }}>
           <li>Press <b>Start camera</b>. Check that it says <b>face yes</b>.</li>
           <li>Press <b>Enter AR</b>. Stand about a metre from the face and look at it.</li>
+          <li>Hold still for a second: Kelly-2026's face appears on it and starts moving.</li>
           <li>
             After a second, three dots appear: green on each eye, yellow on the tip of the nose.
             Are they on the eyes and nose? If not, which way are they off?
@@ -628,6 +717,7 @@ export default function FaceSpike() {
             `face      ${stats.faceFound ? `yes (${stats.landmarks} landmarks)` : "no"}`,
             `xr        ${inAr ? `in session, ${stats.state}` : stats.xrStarted ? `ended — ${stats.xrFrames} frames, ${stats.xrDetections} detections, ${stats.locks} locks` : "—"}`,
             `latency   ${stats.latencyMs != null ? `${stats.latencyMs.toFixed(0)} ms (${stats.latencySource})` : "—"}`,
+            `face loop ${faceStatus}`,
             `report    ${reportStatus ?? "—"}`,
           ].join("\n")}
         </Typography>
@@ -688,6 +778,7 @@ function drawLandmarks(ctx: CanvasRenderingContext2D, lm: Pt3[], w: number, h: n
 // The XR session. Plain three.js, outside React: it runs at display rate and must not re-render.
 
 interface SessionDeps {
+  face: FaceAsset | null;
   detectOnce: () => Detection | null;
   detectLeft: () => void;
   pairStereo: (out: Detection) => { pts: Vec3[]; gapM: number; eyeSpanM: number; left: Pt3[] } | null;
@@ -712,7 +803,7 @@ function makePanel(w: number, h: number, widthM: number) {
 }
 
 async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession> {
-  const { detectOnce, detectLeft, pairStereo, statsRef, video, getEyeSpanM, onLocked } = deps;
+  const { face, detectOnce, detectLeft, pairStereo, statsRef, video, getEyeSpanM, onLocked } = deps;
   const stats = statsRef.current;
   Object.assign(stats, { ...freshStats(), xrStarted: true, state: "searching", stereo: stats.stereo });
 
@@ -740,6 +831,49 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   }
   dots.visible = false;
   scene.add(dots);
+
+  // The face mask: shape + UVs per clip frame, placed by one similarity transform at lock.
+  const faceGeo = new THREE.BufferGeometry();
+  const facePos = new Float32Array(TOTAL_VERTICES * 3);
+  const faceUv = new Float32Array(TOTAL_VERTICES * 2);
+  const faceTris = buildTriangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION);
+  faceGeo.setAttribute("position", new THREE.BufferAttribute(facePos, 3));
+  faceGeo.setAttribute("uv", new THREE.BufferAttribute(faceUv, 2));
+  faceGeo.setAttribute("alpha", new THREE.BufferAttribute(featherAlpha(faceTris, 3), 1));
+  faceGeo.setIndex(faceTris);
+  const faceTex = face ? new THREE.VideoTexture(face.video) : null;
+  if (faceTex) faceTex.colorSpace = THREE.SRGBColorSpace;
+  const faceMesh = new THREE.Mesh(
+    faceGeo,
+    new THREE.ShaderMaterial({
+      uniforms: { map: { value: faceTex } },
+      vertexShader: /* glsl */ `
+        attribute float alpha;
+        varying vec2 vUv;
+        varying float vAlpha;
+        void main() {
+          vUv = uv;
+          vAlpha = alpha;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D map;
+        varying vec2 vUv;
+        varying float vAlpha;
+        void main() {
+          vec3 c = texture2D(map, vUv).rgb;
+          gl_FragColor = vec4(c * vAlpha, vAlpha); // premultiplied
+        }`,
+      transparent: true,
+      premultipliedAlpha: true,
+      side: THREE.DoubleSide,
+    }),
+  );
+  faceMesh.matrixAutoUpdate = false;
+  faceMesh.frustumCulled = false; // positions change every frame; skip stale bounds
+  faceMesh.visible = false;
+  scene.add(faceMesh);
+  let faceFrame = -1;
   const MARKER_IDS = [MARKERS.rightIris, MARKERS.leftIris, MARKERS.noseTip];
 
   const hud = makePanel(640, 300, 0.34);
@@ -762,7 +896,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
       idle: "",
       searching: stats.faceFound ? "Face found…" : "Look at the face",
       locking: stats.lockWaiting ? `Hold still… (${stats.lockWaiting})` : "Hold still…",
-      locked: "Dots on eyes + nose?",
+      locked: stats.faceFitMm != null ? `Face on (fit ${stats.faceFitMm.toFixed(0)} mm)` : "Dots on eyes + nose?",
     };
     ctx.fillText(headline[stats.state], 18, 42);
     ctx.font = "24px monospace";
@@ -792,7 +926,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   };
 
   let phaseStart = 0;
-  let lockSamples: { pts: THREE.Vector3[]; sample: FaceSample }[] = [];
+  let lockSamples: { pts: THREE.Vector3[]; anchors: THREE.Vector3[] | null; sample: FaceSample }[] = [];
   /** Head turn rate (°/s) from the pose history, at time t. */
   const turnRate = (t: number): number => {
     const a = poseAt(t);
@@ -810,6 +944,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
     lockSamples = [];
     stats.nudgeCm = { x: 0, y: 0, z: 0 };
     dots.visible = false;
+    faceMesh.visible = false;
   };
   session.addEventListener("select", beginLock);
   session.addEventListener("squeeze", beginLock);
@@ -906,11 +1041,12 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
           const matched = !stereo || stereo.gapM <= LOCK_MAX_RAY_GAP_M;
           stats.lockWaiting = !steady ? "hold head still" : !matched ? "bad camera match" : "";
           if (heads.length === MARKER_IDS.length && steady && matched) {
-            const pts = heads.map((hp) => {
+            const toWorld = (hp: Vec3) => {
               const w = applyMat4(headPose, hp);
               return new THREE.Vector3(w.x, w.y, w.z);
-            });
-            lockSamples.push({ pts, sample: out.sample });
+            };
+            const anc = stereo ? stereoAnchors(lm, stereo.left, stats.videoW, stats.videoH) : null;
+            lockSamples.push({ pts: heads.map(toWorld), anchors: anc && anc.map(toWorld), sample: out.sample });
           }
         }
       }
@@ -943,7 +1079,37 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         dots.lookAt(viewerPos);
         dots.updateMatrixWorld(true);
         means.forEach((m, i) => dotMeshes[i].position.copy(dots.worldToLocal(m.clone())));
-        dots.visible = true;
+        // Face mask: fit the clip's frame-0 anchors onto the mannequin's measured anchors.
+        const withAnchors = lockSamples.filter((x) => x.anchors);
+        faceMesh.visible = false;
+        if (face && withAnchors.length >= LOCK_MIN_SAMPLES / 2) {
+          const dst = ANCHORS.map((_, i) => ({
+            x: med(withAnchors.map((x) => x.anchors![i].x)),
+            y: med(withAnchors.map((x) => x.anchors![i].y)),
+            z: med(withAnchors.map((x) => x.anchors![i].z)),
+          }));
+          const src = ANCHORS.map((id) => ({
+            x: face.positions[id * 3],
+            y: face.positions[id * 3 + 1],
+            z: face.positions[id * 3 + 2],
+          }));
+          const f = fitSimilarity(src, dst);
+          const r = f.rotation;
+          const sc = f.scale;
+          faceMesh.matrix.set(
+            sc * r[0], sc * r[1], sc * r[2], f.translation.x,
+            sc * r[3], sc * r[4], sc * r[5], f.translation.y,
+            sc * r[6], sc * r[7], sc * r[8], f.translation.z,
+            0, 0, 0, 1,
+          );
+          faceMesh.matrixWorldNeedsUpdate = true;
+          faceMesh.visible = true;
+          stats.faceFitMm = f.rmsM * 1000;
+        } else {
+          stats.faceFitMm = null;
+        }
+        // Dots only when there is no face to show (no asset, or no stereo anchors).
+        dots.visible = !faceMesh.visible;
         stats.state = "locked";
         stats.locks += 1;
         onLocked();
@@ -983,12 +1149,22 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         drawHud();
       }
     }
+    if (face && faceMesh.visible) {
+      const fi = Math.floor(face.video.currentTime * face.fps) % face.frames;
+      if (fi !== faceFrame) {
+        faceFrame = fi;
+        frameAttributes(face.positions, face.uvs, fi, facePos, faceUv);
+        faceGeo.attributes.position.needsUpdate = true;
+        faceGeo.attributes.uv.needsUpdate = true;
+      }
+    }
     renderer.render(scene, camera);
   });
 
   session.addEventListener("end", () => {
     renderer.setAnimationLoop(null);
     renderer.dispose();
+    face?.video.pause();
     host.remove();
     stats.state = "idle";
   });
