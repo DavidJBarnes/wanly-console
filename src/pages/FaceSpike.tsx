@@ -213,11 +213,14 @@ interface Detection {
  * Character Face Loops (#742) gives them a home in the api.
  * - calm / smile: calm-prompt LTX render (job 465275c6) from a close-up real photo (real_034,
  *   face ~650 px), Prompt recipe, Kelly-2026 LoRA only. Expression travel 3.2 mm; 768² texture.
+ * - neutral / brows: same recipe, job 185c719e (neutral face, slow blinks, eyebrow raise), 4.1 mm.
  * - laugh: cut from an LTX render (job a442cfd8, 6-9 s) — expressive but the jaw moves ~13 mm.
  */
 const FACE_ASSETS = [
   { id: "ltx-calm", label: "Kelly-2026 — calm smile + blinks", base: "s3://wanly-jobs/ar-face/kelly-2026/465275c6-calm-v1" },
   { id: "ltx-smile", label: "Kelly-2026 — smile appears + fades", base: "s3://wanly-jobs/ar-face/kelly-2026/465275c6-smile-v1" },
+  { id: "ltx-neutral", label: "Kelly-2026 — neutral + blinks", base: "s3://wanly-jobs/ar-face/kelly-2026/185c719e-neutral-v1" },
+  { id: "ltx-brows", label: "Kelly-2026 — eyebrow raise", base: "s3://wanly-jobs/ar-face/kelly-2026/185c719e-brows-v1" },
   { id: "ltx-laugh", label: "Kelly-2026 — laugh (LTX clip)", base: "s3://wanly-jobs/ar-face/kelly-2026/a442cfd8-6-9-v2" },
 ] as const;
 type FaceLoopId = (typeof FACE_ASSETS)[number]["id"];
