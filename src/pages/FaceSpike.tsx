@@ -56,7 +56,7 @@ const PARAMS_KEY = "wanly.faceSpike.v2";
 const LOCK_SECONDS = 1.0;
 const LOCK_MIN_SAMPLES = 8;
 const NUDGE_M_PER_S = 0.05;
-const POSE_HISTORY_MS = 400;
+const POSE_HISTORY_MS = 500;
 // Left/right detections are paired only if they ran this close together (ms). The two cameras
 // are not frame-synchronised; with the head still, a few tens of ms is harmless.
 const STEREO_PAIR_MS = 80;
@@ -121,7 +121,27 @@ interface Stats {
   xrFrames: number;
   xrDetections: number;
   locks: number;
+  /** Raw measurements for offline diagnosis (run 5: placement depended on head direction). */
+  trace: TraceSample[];
 }
+
+/**
+ * One stereo measurement of the (static) face. The face does not move, so every sample should
+ * give the same world points; how they move with head yaw/pitch and with the assumed latency
+ * identifies which head↔camera assumption is wrong. Poses are logged at several lags so the
+ * capture-to-pose latency can be solved for offline.
+ */
+interface TraceSample {
+  t: number;
+  poses: number[][]; // viewer matrices at TRACE_LAGS_MS before t
+  head: number[][]; // triangulated head-frame points: right iris, left iris, nose
+  imgR: number[][]; // right-camera normalised image points, same landmarks
+  imgL: number[][]; // left-camera
+}
+const TRACE_LAGS_MS = [0, 33, 66, 100, 133, 166, 200];
+const TRACE_EVERY_MS = 150;
+const TRACE_MAX = 800;
+const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
 
 const freshStats = (): Stats => ({
   videoW: 0,
@@ -145,6 +165,7 @@ const freshStats = (): Stats => ({
   xrFrames: 0,
   xrDetections: 0,
   locks: 0,
+  trace: [],
 });
 
 interface Detection {
@@ -361,7 +382,8 @@ export default function FaceSpike() {
     const left = lastLeftRef.current;
     const s = statsRef.current;
     if (!out.lm || !left || Math.abs(left.at - out.at) > STEREO_PAIR_MS || !s.videoW) return null;
-    const st = stereoPoints(out.lm, left.lm, s.videoW, s.videoH);
+    const st0 = stereoPoints(out.lm, left.lm, s.videoW, s.videoH);
+    const st = st0 && { ...st0, left: left.lm };
     if (st) {
       s.rayGapMm = st.gapM * 1000;
       s.measuredEyeSpanCm = st.eyeSpanM * 100;
@@ -525,6 +547,11 @@ export default function FaceSpike() {
             After a second, three dots appear: green on each eye, yellow on the tip of the nose.
             Are they on the eyes and nose? If not, which way are they off?
           </li>
+          <li>
+            Keep the face in view and slowly turn your head left and right, and up and down, for
+            about 20 seconds. Then leave AR. (This records what the page needs to fix the
+            placement; there is nothing to judge.)
+          </li>
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Trigger: place the dots again. A/X button: show or hide the camera view. Reports save
@@ -655,7 +682,7 @@ function drawLandmarks(ctx: CanvasRenderingContext2D, lm: Pt3[], w: number, h: n
 interface SessionDeps {
   detectOnce: () => Detection | null;
   detectLeft: () => void;
-  pairStereo: (out: Detection) => { pts: Vec3[]; gapM: number; eyeSpanM: number } | null;
+  pairStereo: (out: Detection) => { pts: Vec3[]; gapM: number; eyeSpanM: number; left: Pt3[] } | null;
   statsRef: { current: Stats };
   video: HTMLVideoElement;
   getEyeSpanM: () => number;
@@ -738,7 +765,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
       `stereo ${stats.stereo === "on" ? "ON" : "OFF"}  depth ${stats.depthM?.toFixed(2) ?? "-"} m (${stats.depthSource || "-"})`,
       `face ${stats.faceFound ? "YES" : "no"}  eye span ${stats.measuredEyeSpanCm?.toFixed(1) ?? "-"} cm  gap ${stats.rayGapMm?.toFixed(0) ?? "-"} mm`,
       `jitter ${stats.jitterCm?.toFixed(1) ?? "-"} cm  nudge ${n.x.toFixed(1)} ${n.y.toFixed(1)} ${n.z.toFixed(1)}`,
-      `trigger=place again  A/X=camera view`,
+      `trigger=place again  A/X=camera view  rec ${stats.trace.length}`,
     ];
     lines.forEach((l, i) => ctx.fillText(l, 18, 84 + i * 40));
     hud.tex.needsUpdate = true;
@@ -773,6 +800,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   const v = new THREE.Vector3();
   let lastT = 0;
   let lastToggle = false;
+  let lastTrace = 0;
 
   renderer.setAnimationLoop((t: number, frame?: XRFrame) => {
     const dt = lastT ? Math.min((t - lastT) / 1000, 0.1) : 1 / 72;
@@ -818,6 +846,18 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         }
         stats.latencyMs = t - poseTime;
         const headPose = poseAt(poseTime) ?? now;
+
+        if (stereo && t - lastTrace >= TRACE_EVERY_MS && stats.trace.length < TRACE_MAX) {
+          lastTrace = t;
+          const ids = [MARKERS.rightIris, MARKERS.leftIris, MARKERS.noseTip];
+          stats.trace.push({
+            t: Math.round(t),
+            poses: TRACE_LAGS_MS.map((ms) => (poseAt(t - ms) ?? now).map(r4)),
+            head: stereo.pts.map((q) => [r4(q.x), r4(q.y), r4(q.z)]),
+            imgR: ids.map((id) => [r4(out.lm![id].x), r4(out.lm![id].y)]),
+            imgL: ids.map((id) => [r4(stereo.left[id].x), r4(stereo.left[id].y)]),
+          });
+        }
 
         if (stats.state === "searching") {
           stats.state = "locking";
