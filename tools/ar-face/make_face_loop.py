@@ -1,17 +1,13 @@
 """Cut a face loop from a clip: stable square crop around the face, ping-pong for a seamless
 loop, plus MediaPipe landmarks for every output frame (the texture coordinates the AR page uses).
 
-usage: make_face_loop.py MODEL CLIP START END SIZE OUT_DIR [--seamless]
-
---seamless: the clip already loops (first frame == last, e.g. a portrait-animation loop), so it is
-used as-is instead of ping-ponged.
+usage: make_face_loop.py MODEL CLIP START END SIZE OUT_DIR
 """
 import json, subprocess, sys
 import cv2, numpy as np, mediapipe as mp
 from mediapipe.tasks.python import vision, BaseOptions
 
 model, clip, t0, t1, size, out = sys.argv[1], sys.argv[2], float(sys.argv[3]), float(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
-SEAMLESS = "--seamless" in sys.argv[7:]
 cap = cv2.VideoCapture(clip); fps = cap.get(cv2.CAP_PROP_FPS) or 24
 cap.set(cv2.CAP_PROP_POS_MSEC, t0 * 1000)
 frames = []
@@ -37,9 +33,7 @@ b = np.array(boxes); x0, y0, x1, y1 = b[:, 0].min(), b[:, 1].min(), b[:, 2].max(
 side = max(x1 - x0, y1 - y0) * 1.25; cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
 sx, sy = int(max(0, cx - side / 2)), int(max(0, cy - side / 2)); side = int(min(side, W - sx, H - sy))
 crops = [cv2.resize(fr[sy:sy + side, sx:sx + side], (size, size), interpolation=cv2.INTER_AREA) for fr in frames]
-# ping-pong (f0..fN-1, fN-2..f1) loops a cut without a jump; a seamless source is used as-is
-# (minus its last frame, which repeats the first).
-seq = crops[:-1] if SEAMLESS else crops + crops[-2:0:-1]
+seq = crops + crops[-2:0:-1]  # ping-pong: f0..fN-1, fN-2..f1 -> loops without a jump
 
 # Pass 2: landmarks on the exact frames that get encoded (texture coordinates).
 d = detector(); lms = []
@@ -62,7 +56,7 @@ subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", raw, "-c:v", "libope
                 "-b:v", "4M", "-movflags", "+faststart", f"{out}/loop.mp4"], check=True)
 os.remove(raw)
 json.dump({"source": clip.split("/")[-1], "start": t0, "end": t1, "fps": fps, "size": size, "frames": len(seq),
-           "pingpong": not SEAMLESS, "landmarks": lms}, open(f"{out}/landmarks.json", "w"), separators=(",", ":"))
+           "pingpong": True, "landmarks": lms}, open(f"{out}/landmarks.json", "w"), separators=(",", ":"))
 cv2.imwrite(f"{out}/poster.jpg", seq[0])
 print(f"{len(seq)} frames @ {fps} fps = {len(seq)/fps:.2f}s, crop {side}px -> {size}px")
 
@@ -112,7 +106,7 @@ pos, uv = smooth(pos), smooth(uv)
 with open(f"{out}/face.bin", "wb") as f:
     f.write(pos.tobytes()); f.write(uv.tobytes())
 json.dump({"source": clip.split("/")[-1], "start": t0, "end": t1, "fps": fps, "size": size, "frames": len(seq),
-           "pingpong": not SEAMLESS, "vertices": 468, "anchors": ANCHORS, "units": "px of the 512 crop, centred on the anchor centroid",
+           "pingpong": True, "vertices": 468, "anchors": ANCHORS, "units": "px of the 512 crop, centred on the anchor centroid",
            "layout": "float32: positions[frames][468][3] then uvs[frames][468][2]",
            "anchorResidualPx": round(float(resid), 3)}, open(f"{out}/face.json", "w"), indent=1)
 print(f"stabilised: mean anchor residual {resid:.2f}px; face.bin {pos.nbytes + uv.nbytes} bytes")

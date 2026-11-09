@@ -88,12 +88,17 @@ interface Params {
   faceLoop: FaceLoopId;
 }
 
-const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5, faceLoop: "lp-blink" };
+const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5, faceLoop: "ltx-laugh" };
 
 function loadParams(): Params {
   try {
     const raw = localStorage.getItem(PARAMS_KEY);
-    if (raw) return { ...DEFAULT_PARAMS, ...(JSON.parse(raw) as Partial<Params>) };
+    if (raw) {
+      const p = { ...DEFAULT_PARAMS, ...(JSON.parse(raw) as Partial<Params>) };
+      // A saved loop that no longer exists (the removed portrait-animation loops) → default.
+      if (!FACE_ASSETS.some((a) => a.id === p.faceLoop)) p.faceLoop = DEFAULT_PARAMS.faceLoop;
+      return p;
+    }
   } catch {
     /* private mode / blocked storage — defaults are fine */
   }
@@ -207,11 +212,8 @@ interface Detection {
  * Face loops to choose from, all prepared by tools/ar-face/make_face_loop.py. Hard-coded until
  * Character Face Loops (#742) gives them a home in the api.
  * - laugh: cut from an LTX render (job a442cfd8, 6-9 s) — expressive but the jaw moves ~13 mm.
- * - blink / smile: LivePortrait from one Kelly-2026 still, head pose fixed (sway ≤ 2.3 mm).
  */
 const FACE_ASSETS = [
-  { id: "lp-blink", label: "Kelly-2026 — blink (portrait animation)", base: "s3://wanly-jobs/ar-face/kelly-2026/lp-blink-v1" },
-  { id: "lp-smile", label: "Kelly-2026 — smile + blink (portrait animation)", base: "s3://wanly-jobs/ar-face/kelly-2026/lp-smile-v1" },
   { id: "ltx-laugh", label: "Kelly-2026 — laugh (LTX clip)", base: "s3://wanly-jobs/ar-face/kelly-2026/a442cfd8-6-9-v2" },
 ] as const;
 type FaceLoopId = (typeof FACE_ASSETS)[number]["id"];
