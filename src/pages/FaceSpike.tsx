@@ -14,11 +14,11 @@ import * as THREE from "three";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { getFileUrl, uploadFile } from "../api/client";
 import {
-  ANCHORS,
   buildTriangles,
   featherAlpha,
   fitSimilarity,
   frameAttributes,
+  ovalLoop,
   TOTAL_VERTICES,
 } from "../lib/faceMask";
 import { LOCAL_STORAGE_TOKEN_KEY } from "../constants";
@@ -79,6 +79,16 @@ const STEREO_PAIR_MS = 80;
 // the lock just refuses bad evidence: only steady-head samples, only well-matched pairs, median.
 const LOCK_MAX_TURN_DEG_PER_S = 15;
 const LOCK_MAX_RAY_GAP_M = 0.005;
+// Close range (David: "it drops when you get too close"): no lock ever succeeded nearer than
+// ~0.5 m — the reports show "bad camera match". With a 6.4 cm baseline the two cameras see the
+// face from visibly different angles up close, and SILHOUETTE landmarks (cheek edges, temples)
+// land on different skin in each view. So: placement uses only landmarks both cameras see
+// face-on, a sample is judged by its MEDIAN point gap (one bad point no longer rejects it), and
+// individual bad anchors are dropped instead of the whole sample.
+const PLACE_ANCHORS = [33, 133, 362, 263, 168, 6, 197, 195, 5, 4, 1, 10, 151, 9, 8];
+const ANCHOR_MAX_GAP_M = 0.01;
+const ANCHOR_MIN_SAMPLES = 3;
+const ANCHOR_MIN_COUNT = 8;
 // Used only when the browser gives no frame capture time. Runs 2 and 3 independently measured
 // ~100 ms between capture and display on this headset.
 const FALLBACK_LATENCY_MS = 100;
@@ -147,6 +157,7 @@ interface Stats {
   xrDetections: number;
   locks: number;
   faceFitMm: number | null; // RMS of the clip→mannequin anchor fit
+  anchorsUsed: number | null; // how many placement anchors survived the stereo checks
   xrFps: number; // render-loop rate; the display wants 72
   lockWaiting: string; // why the current lock is not collecting ("" when it is)
   /** Raw measurements for offline diagnosis (run 5: placement depended on head direction). */
@@ -194,6 +205,7 @@ const freshStats = (): Stats => ({
   xrDetections: 0,
   locks: 0,
   faceFitMm: null,
+  anchorsUsed: null,
   xrFps: 0,
   lockWaiting: "",
   trace: [],
@@ -252,7 +264,7 @@ function stereoPoints(
   const kR = streamIntrinsics(RIGHT, w, h);
   const kL = streamIntrinsics(LEFT, w, h);
   const pts: Vec3[] = [];
-  let gap = 0;
+  const gaps: number[] = [];
   for (const id of STEREO_IDS) {
     const r = right[id];
     const l = left[id];
@@ -260,26 +272,27 @@ function stereoPoints(
     const t = triangulate(l, LEFT, kL, r, RIGHT, kR);
     if (!t) return null;
     pts.push(t.point);
-    gap = Math.max(gap, t.gapM);
+    gaps.push(t.gapM);
   }
   const [, , , a, b] = pts;
+  // Median, not max: one point seen at a different angle by each camera (close range) should not
+  // condemn the whole sample.
+  const sorted = [...gaps].sort((x, y) => x - y);
+  const gap = sorted[sorted.length >> 1];
   return { pts: pts.slice(0, 3), gapM: gap, eyeSpanM: Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) };
 }
 
-/** World-placement anchors (ANCHORS) triangulated from a right/left pair, head frame. */
-function stereoAnchors(right: Pt3[], left: Pt3[], w: number, h: number): Vec3[] | null {
+/** Placement anchors (PLACE_ANCHORS) triangulated from a right/left pair, head frame; null where a point fails. */
+function stereoAnchors(right: Pt3[], left: Pt3[], w: number, h: number): (Vec3 | null)[] {
   const kR = streamIntrinsics(RIGHT, w, h);
   const kL = streamIntrinsics(LEFT, w, h);
-  const out: Vec3[] = [];
-  for (const id of ANCHORS) {
+  return PLACE_ANCHORS.map((id) => {
     const r = right[id];
     const l = left[id];
     if (!r || !l) return null;
     const t = triangulate(l, LEFT, kL, r, RIGHT, kR);
-    if (!t || t.gapM > LOCK_MAX_RAY_GAP_M * 2) return null;
-    out.push(t.point);
-  }
-  return out;
+    return t && t.gapM <= ANCHOR_MAX_GAP_M ? t.point : null;
+  });
 }
 
 export default function FaceSpike() {
@@ -844,7 +857,9 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   Object.assign(stats, { ...freshStats(), xrStarted: true, state: "searching", stereo: stats.stereo });
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera();
+  // near 2 cm (default 10 cm): three passes it to the XR session's depthNear, so the face is not
+  // clipped away when you lean right in.
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.02, 100);
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -872,7 +887,8 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   const faceGeo = new THREE.BufferGeometry();
   const facePos = new Float32Array(TOTAL_VERTICES * 3);
   const faceUv = new Float32Array(TOTAL_VERTICES * 2);
-  const faceTris = buildTriangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION);
+  const faceOval = ovalLoop(FaceLandmarker.FACE_LANDMARKS_FACE_OVAL);
+  const faceTris = buildTriangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION, faceOval);
   faceGeo.setAttribute("position", new THREE.BufferAttribute(facePos, 3));
   faceGeo.setAttribute("uv", new THREE.BufferAttribute(faceUv, 2));
   faceGeo.setAttribute("alpha", new THREE.BufferAttribute(featherAlpha(faceTris, 3), 1));
@@ -962,7 +978,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
   };
 
   let phaseStart = 0;
-  let lockSamples: { pts: THREE.Vector3[]; anchors: THREE.Vector3[] | null; sample: FaceSample }[] = [];
+  let lockSamples: { pts: THREE.Vector3[]; anchors: (THREE.Vector3 | null)[] | null; sample: FaceSample }[] = [];
   /** Head turn rate (°/s) from the pose history, at time t. */
   const turnRate = (t: number): number => {
     const a = poseAt(t);
@@ -1095,7 +1111,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
               return new THREE.Vector3(w.x, w.y, w.z);
             };
             const anc = stereo ? stereoAnchors(lm, stereo.left, stats.videoW, stats.videoH) : null;
-            lockSamples.push({ pts: heads.map(toWorld), anchors: anc && anc.map(toWorld), sample: out.sample });
+            lockSamples.push({ pts: heads.map(toWorld), anchors: anc && anc.map((a) => (a ? toWorld(a) : null)), sample: out.sample });
           }
         }
       }
@@ -1129,19 +1145,19 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         dots.updateMatrixWorld(true);
         means.forEach((m, i) => dotMeshes[i].position.copy(dots.worldToLocal(m.clone())));
         // Face mask: fit the clip's frame-0 anchors onto the mannequin's measured anchors.
-        const withAnchors = lockSamples.filter((x) => x.anchors);
+        // Per anchor: median over the samples where it triangulated well; keep anchors seen in
+        // enough samples, and fit on those.
+        const src: Vec3[] = [];
+        const dst: Vec3[] = [];
+        PLACE_ANCHORS.forEach((id, i) => {
+          const seen = lockSamples.map((x) => x.anchors?.[i]).filter((a): a is THREE.Vector3 => !!a);
+          if (seen.length < ANCHOR_MIN_SAMPLES) return;
+          dst.push({ x: med(seen.map((a) => a.x)), y: med(seen.map((a) => a.y)), z: med(seen.map((a) => a.z)) });
+          src.push({ x: face!.positions[id * 3], y: face!.positions[id * 3 + 1], z: face!.positions[id * 3 + 2] });
+        });
         faceMesh.visible = false;
-        if (face && withAnchors.length >= LOCK_MIN_SAMPLES / 2) {
-          const dst = ANCHORS.map((_, i) => ({
-            x: med(withAnchors.map((x) => x.anchors![i].x)),
-            y: med(withAnchors.map((x) => x.anchors![i].y)),
-            z: med(withAnchors.map((x) => x.anchors![i].z)),
-          }));
-          const src = ANCHORS.map((id) => ({
-            x: face.positions[id * 3],
-            y: face.positions[id * 3 + 1],
-            z: face.positions[id * 3 + 2],
-          }));
+        stats.anchorsUsed = dst.length;
+        if (face && dst.length >= ANCHOR_MIN_COUNT) {
           const f = fitSimilarity(src, dst);
           const r = f.rotation;
           const sc = f.scale;
@@ -1202,7 +1218,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
       const fi = Math.floor(face.video.currentTime * face.fps) % face.frames;
       if (fi !== faceFrame) {
         faceFrame = fi;
-        frameAttributes(face.positions, face.uvs, fi, facePos, faceUv);
+        frameAttributes(face.positions, face.uvs, fi, facePos, faceUv, faceOval);
         faceGeo.attributes.position.needsUpdate = true;
         faceGeo.attributes.uv.needsUpdate = true;
       }

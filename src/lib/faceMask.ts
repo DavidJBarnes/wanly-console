@@ -25,10 +25,38 @@ export const HOLES: number[][] = [
 ];
 
 export const MESH_VERTICES = 468;
-export const TOTAL_VERTICES = MESH_VERTICES + HOLES.length;
+/** MediaPipe's face-oval loop is 36 vertices; one extension vertex is added outside each. */
+export const OVAL_SIZE = 36;
+const RING_START = MESH_VERTICES + HOLES.length;
+export const TOTAL_VERTICES = RING_START + OVAL_SIZE;
 
-/** Triangle indices: the tesselation's triangles (edges come in consecutive triples) + hole fans. */
-export function buildTriangles(tesselation: readonly { start: number; end: number }[]): number[] {
+/**
+ * How far the extension ring sits outside the face oval, as a fraction of each oval vertex's
+ * distance from the oval centre. MediaPipe's oval stops around the hairline and cheek edges;
+ * David asked for "a bit more coverage on forehead and sides, just a touch". The forehead
+ * (upward-facing part of the oval) gets more than the sides.
+ */
+export const EXTEND_SIDES = 0.08;
+export const EXTEND_FOREHEAD = 0.1;
+
+/** The face oval as an ordered loop, from MediaPipe's FACE_LANDMARKS_FACE_OVAL connections. */
+export function ovalLoop(connections: readonly { start: number; end: number }[]): number[] {
+  const next = new Map(connections.map((c) => [c.start, c.end]));
+  const loop = [connections[0].start];
+  for (let v = next.get(loop[0]); v !== undefined && v !== loop[0] && loop.length <= connections.length; v = next.get(v)) {
+    loop.push(v);
+  }
+  return loop;
+}
+
+/**
+ * Triangle indices: the tesselation's triangles (edges come in consecutive triples), the hole
+ * fans, and a strip joining the face oval to the extension ring outside it.
+ */
+export function buildTriangles(
+  tesselation: readonly { start: number; end: number }[],
+  oval: readonly number[],
+): number[] {
   const idx: number[] = [];
   for (let i = 0; i + 2 < tesselation.length; i += 3) {
     idx.push(tesselation[i].start, tesselation[i + 1].start, tesselation[i + 2].start);
@@ -37,6 +65,12 @@ export function buildTriangles(tesselation: readonly { start: number; end: numbe
     const c = MESH_VERTICES + k;
     for (let i = 0; i < loop.length; i++) idx.push(loop[i], loop[(i + 1) % loop.length], c);
   });
+  for (let i = 0; i < oval.length; i++) {
+    const j = (i + 1) % oval.length;
+    const ri = RING_START + i;
+    const rj = RING_START + j;
+    idx.push(oval[i], oval[j], rj, oval[i], rj, ri);
+  }
   return idx;
 }
 
@@ -58,8 +92,8 @@ export function featherAlpha(triangles: readonly number[], rings = 3): Float32Ar
       adj[b].add(a);
     }
   }
-  // Boundary vertices: on an edge used by one triangle. With the holes filled, that is only the
-  // outer oval.
+  // Boundary vertices: on an edge used by one triangle. With the holes filled and the ring
+  // added, that is only the extension ring.
   const dist = new Array<number>(n).fill(Infinity);
   const queue: number[] = [];
   for (const [k, c] of edgeCount) {
@@ -95,6 +129,7 @@ export function frameAttributes(
   frame: number,
   outPos: Float32Array,
   outUv: Float32Array,
+  oval: readonly number[],
 ): void {
   const p0 = frame * MESH_VERTICES * 3;
   const u0 = frame * MESH_VERTICES * 2;
@@ -119,6 +154,30 @@ export function frameAttributes(
     outPos[c * 3 + 2] = z / n;
     outUv[c * 2] = u / n;
     outUv[c * 2 + 1] = v / n;
+  });
+  // Extension ring: each oval vertex pushed outward from the oval's centre, in shape AND in
+  // texture by the same fraction, so the texture keeps registering. z is extrapolated too, so
+  // the ring follows the head's curve back rather than sticking out flat.
+  let cx = 0, cy = 0, cz = 0, cu = 0, cv = 0;
+  for (const i of oval) {
+    cx += outPos[i * 3];
+    cy += outPos[i * 3 + 1];
+    cz += outPos[i * 3 + 2];
+    cu += outUv[i * 2];
+    cv += outUv[i * 2 + 1];
+  }
+  const n = oval.length;
+  cx /= n; cy /= n; cz /= n; cu /= n; cv /= n;
+  oval.forEach((i, k) => {
+    const dx = outPos[i * 3] - cx, dy = outPos[i * 3 + 1] - cy, dz = outPos[i * 3 + 2] - cz;
+    const up = Math.max(0, dy / (Math.hypot(dx, dy) || 1)); // 1 at the top of the forehead
+    const f = EXTEND_SIDES + EXTEND_FOREHEAD * up;
+    const r = RING_START + k;
+    outPos[r * 3] = outPos[i * 3] + f * dx;
+    outPos[r * 3 + 1] = outPos[i * 3 + 1] + f * dy;
+    outPos[r * 3 + 2] = outPos[i * 3 + 2] + f * dz;
+    outUv[r * 2] = Math.min(1, Math.max(0, outUv[i * 2] + f * (outUv[i * 2] - cu)));
+    outUv[r * 2 + 1] = Math.min(1, Math.max(0, outUv[i * 2 + 1] + f * (outUv[i * 2 + 1] - cv)));
   });
 }
 
