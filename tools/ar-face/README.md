@@ -18,3 +18,14 @@ curl -LO https://storage.googleapis.com/mediapipe-models/face_landmarker/face_la
 
 `make_face_loop.py` needs an ffmpeg with an H.264 encoder (`libopenh264` on Fedora's build).
 Current asset: Kelly-2026, job a442cfd8, 6.0–9.0 s (most frontal and steady of 19 renders).
+
+## Calm loops (console#742)
+
+What works: an LTX render on the **Prompt** recipe (no pose LoRA, character LoRA only) from a
+**close-up real photo** of the character, with a calm prompt (blinks, small closed-mouth smile;
+negative: talking, laughing, open mouth, head turning, camera movement), then the calmest
+window picked by `score_clips.py` (it now penalises jaw/mouth "expr-travel").
+
+Kelly-2026, job 465275c6 from dataset photo real_034 (face ~650 px): 3.2 mm expression travel
+vs 16 mm for the laugh clip. Cut at **768** (`make_face_loop.py ... 768 ...`): these sources
+are sharp enough that 512 throws detail away.
