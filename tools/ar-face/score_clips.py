@@ -1,4 +1,9 @@
-"""Score clips for a face-loop source: frontal, large, steady face. Prints the best 3 s window per clip."""
+"""Score clips for a face-loop source: frontal, large, steady face, CALM expression.
+
+Prints the best 3 s window per clip. "Calm" (console#742): the LTX laugh won on colour and
+identity but its jaw moved ~13 mm, which reads as the face moving on a static mannequin. The
+window score now penalises jaw/mouth travel (chin + mouth-corner landmarks, relative to the face).
+"""
 import glob, math, sys
 import cv2, numpy as np, mediapipe as mp
 from mediapipe.tasks.python import vision, BaseOptions
@@ -27,9 +32,11 @@ for path in sorted(glob.glob(f"{CLIPS}/*.mp4")):
                 p = r.face_landmarks[0]
                 h = math.hypot((p[152].x - p[10].x) * W, (p[152].y - p[10].y) * H)
                 y, pt = euler(r.facial_transformation_matrixes[0])
-                rows.append((i / fps, h, y, pt))
+                # expression: chin + mouth corners, normalised by face height, x/y image space
+                ex = [((p[k].x - p[1].x) * W / h, (p[k].y - p[1].y) * H / h) for k in (152, 61, 291, 13, 14)]
+                rows.append((i / fps, h, y, pt, *[v for xy in ex for v in xy]))
             else:
-                rows.append((i / fps, 0, 99, 99))
+                rows.append((i / fps, 0, 99, 99, *[0.0] * 10))
         i += 1
     lm.close()
     if not rows: continue
@@ -38,11 +45,13 @@ for path in sorted(glob.glob(f"{CLIPS}/*.mp4")):
         w = a[s:s + n]
         if (w[:, 1] == 0).any(): continue
         frontal = (np.abs(w[:, 2]) < 20) & (np.abs(w[:, 3]) < 20)
-        score = w[:, 1].mean() * frontal.mean() / (1 + w[:, 2].std() / 5 + w[:, 3].std() / 5)
+        ex = w[:, 4:].reshape(len(w), 5, 2)
+        travel = np.linalg.norm(ex - ex.mean(0), axis=2).max(0).max() * 190  # ~mm on a 19 cm face
+        score = w[:, 1].mean() * frontal.mean() / (1 + w[:, 2].std() / 5 + w[:, 3].std() / 5) / (1 + travel / 4)
         if not best or score > best[0]:
-            best = (score, w[0, 0], w[:, 1].mean(), np.abs(w[:, 2]).mean(), np.abs(w[:, 3]).mean(), w[:, 2].std(), frontal.mean())
+            best = (score, w[0, 0], w[:, 1].mean(), np.abs(w[:, 2]).mean(), np.abs(w[:, 3]).mean(), w[:, 2].std(), frontal.mean(), travel)
     name = path.split("/")[-1][:8]
     if best:
-        print(f"{name} {int(W)}x{int(H)} score {best[0]:6.0f}  t={best[1]:5.1f}s  face {best[2]:4.0f}px  |yaw| {best[3]:4.1f} |pitch| {best[4]:4.1f}  yaw-sd {best[5]:4.1f}  frontal {best[6]:.0%}")
+        print(f"{name} {int(W)}x{int(H)} score {best[0]:6.1f}  t={best[1]:5.1f}s  face {best[2]:4.0f}px  |yaw| {best[3]:4.1f} |pitch| {best[4]:4.1f}  yaw-sd {best[5]:4.1f}  frontal {best[6]:.0%}  expr-travel {best[7]:4.1f}mm")
     else:
         print(f"{name} no full-face 3 s window")
