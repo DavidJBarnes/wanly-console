@@ -60,6 +60,12 @@ const POSE_HISTORY_MS = 500;
 // Left/right detections are paired only if they ran this close together (ms). The two cameras
 // are not frame-synchronised; with the head still, a few tens of ms is harmless.
 const STEREO_PAIR_MS = 80;
+// Run 6 trace (mannequin, 79 stereo samples): placement error was 1.4 cm median with the head
+// still and up to ~8 cm (p90) when turning faster than 40°/s; a few pairs had 2-3 cm ray gaps
+// (mismatched frames). The fitted head↔camera correction was noise, so the model stays as is and
+// the lock just refuses bad evidence: only steady-head samples, only well-matched pairs, median.
+const LOCK_MAX_TURN_DEG_PER_S = 15;
+const LOCK_MAX_RAY_GAP_M = 0.005;
 // Used only when the browser gives no frame capture time. Runs 2 and 3 independently measured
 // ~100 ms between capture and display on this headset.
 const FALLBACK_LATENCY_MS = 100;
@@ -121,6 +127,7 @@ interface Stats {
   xrFrames: number;
   xrDetections: number;
   locks: number;
+  lockWaiting: string; // why the current lock is not collecting ("" when it is)
   /** Raw measurements for offline diagnosis (run 5: placement depended on head direction). */
   trace: TraceSample[];
 }
@@ -165,6 +172,7 @@ const freshStats = (): Stats => ({
   xrFrames: 0,
   xrDetections: 0,
   locks: 0,
+  lockWaiting: "",
   trace: [],
 });
 
@@ -753,7 +761,7 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
     const headline: Record<State, string> = {
       idle: "",
       searching: stats.faceFound ? "Face found…" : "Look at the face",
-      locking: "Hold still…",
+      locking: stats.lockWaiting ? `Hold still… (${stats.lockWaiting})` : "Hold still…",
       locked: "Dots on eyes + nose?",
     };
     ctx.fillText(headline[stats.state], 18, 42);
@@ -785,6 +793,17 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
 
   let phaseStart = 0;
   let lockSamples: { pts: THREE.Vector3[]; sample: FaceSample }[] = [];
+  /** Head turn rate (°/s) from the pose history, at time t. */
+  const turnRate = (t: number): number => {
+    const a = poseAt(t);
+    const b = poseAt(t - 33);
+    if (!a || !b) return 0;
+    // Angle between the two rotations: trace(Aᵀ·B) of the 3×3 parts (column-major).
+    let tr = 0;
+    for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) tr += a[c * 4 + r] * b[c * 4 + r];
+    const ang = Math.acos(Math.min(1, Math.max(-1, (tr - 1) / 2)));
+    return ((ang * 180) / Math.PI) / 0.033;
+  };
   const beginLock = () => {
     stats.state = "searching";
     phaseStart = 0;
@@ -882,7 +901,11 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
             stats.depthSource = "eye span";
           }
           // (Stereo on but this frame unpaired: skip it rather than mix in a guessed distance.)
-          if (heads.length === MARKER_IDS.length) {
+          // Steady head and a well-matched pair only — see LOCK_MAX_* above.
+          const steady = turnRate(poseTime) <= LOCK_MAX_TURN_DEG_PER_S;
+          const matched = !stereo || stereo.gapM <= LOCK_MAX_RAY_GAP_M;
+          stats.lockWaiting = !steady ? "hold head still" : !matched ? "bad camera match" : "";
+          if (heads.length === MARKER_IDS.length && steady && matched) {
             const pts = heads.map((hp) => {
               const w = applyMat4(headPose, hp);
               return new THREE.Vector3(w.x, w.y, w.z);
@@ -897,9 +920,19 @@ async function runArSession(xr: XRSystem, deps: SessionDeps): Promise<XRSession>
         (t - phaseStart) / 1000 >= LOCK_SECONDS &&
         lockSamples.length >= LOCK_MIN_SAMPLES
       ) {
-        const means = MARKER_IDS.map(() => new THREE.Vector3());
-        for (const smp of lockSamples) smp.pts.forEach((q, i) => means[i].add(q));
-        means.forEach((m) => m.divideScalar(lockSamples.length));
+        // Per-coordinate median: one stray sample cannot drag the dots.
+        const med = (xs: number[]) => {
+          const a = [...xs].sort((p, q) => p - q);
+          const m = a.length >> 1;
+          return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+        };
+        const means = MARKER_IDS.map((_, i) =>
+          new THREE.Vector3(
+            med(lockSamples.map((x) => x.pts[i].x)),
+            med(lockSamples.map((x) => x.pts[i].y)),
+            med(lockSamples.map((x) => x.pts[i].z)),
+          ),
+        );
         let spread = 0;
         for (const smp of lockSamples) spread += smp.pts[2].distanceToSquared(means[2]);
         stats.jitterCm = Math.sqrt(spread / lockSamples.length) * 100;
