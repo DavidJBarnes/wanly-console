@@ -1,193 +1,132 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyMat4,
-  averageSamples,
-  calibrate,
-  faceInViewer,
-  landmarkInViewer,
-  LATENCIES_MS,
-  projectFace,
-  rotation,
-  spreadM,
+  cameraToHead,
   centerJitter,
-  depthFromSpan,
-  faceInCamera,
+  eyeLineDepth,
+  headToCamera,
+  landmarkInHead,
   LM,
-  pixelRay,
+  profileForLabel,
+  projectToImage,
+  QUEST_3S_CAMERAS,
   sampleFromLandmarks,
+  streamIntrinsics,
 } from "./faceSpike";
-import type { CalSample, CameraModel, CamParams, Mat4, Pt2 } from "./faceSpike";
+import type { Pt2 } from "./faceSpike";
 
-const cam: CameraModel = { hfovDeg: 90, width: 1280, height: 960 };
+const right = QUEST_3S_CAMERAS.right;
+const k = streamIntrinsics(right, 1280, 960);
 
-describe("pixelRay", () => {
-  it("image centre is straight down -z", () => {
-    expect(pixelRay({ x: 0.5, y: 0.5 }, cam)).toEqual({ x: 0, y: 0, z: -1 });
+describe("streamIntrinsics", () => {
+  it("1280x960 from the 1728² sensor: full width, middle 1296 rows, scaled by 1280/1728", () => {
+    const s = 1280 / 1728;
+    expect(k.fx).toBeCloseTo(right.fx * s, 6);
+    expect(k.cx).toBeCloseTo(right.cx * s, 6);
+    expect(k.cy).toBeCloseTo((right.cy - 216) * s, 6);
   });
-  it("right edge at 90° hfov is 45° right; top is up (+y)", () => {
-    const r = pixelRay({ x: 1, y: 0 }, cam);
-    expect(r.x).toBeCloseTo(1);
-    expect(r.y).toBeCloseTo(0.75); // aspect 4:3
-  });
-});
-
-describe("depthFromSpan", () => {
-  it("round-trips: a 0.1 m span at 1 m fills 0.05 of a 90° frame", () => {
-    // at depth 1, 90° hfov spans 2 m; 0.1 m = 0.05 of the width
-    expect(depthFromSpan(0.05, 0.1, cam)).toBeCloseTo(1);
-    expect(depthFromSpan(0.025, 0.1, cam)).toBeCloseTo(2);
-  });
-  it("rejects a degenerate span", () => {
-    expect(depthFromSpan(0, 0.1, cam)).toBeNaN();
+  it("gives the FOV run 2's (independent) motion fit found: ~73°", () => {
+    const hfov = (2 * Math.atan(640 / k.fx) * 180) / Math.PI;
+    expect(hfov).toBeGreaterThan(72.5);
+    expect(hfov).toBeLessThan(74);
   });
 });
 
-function landmarks(points: Record<number, Pt2>): Pt2[] {
-  const out: Pt2[] = Array.from({ length: 478 }, () => ({ x: 0.5, y: 0.5 }));
-  for (const [i, p] of Object.entries(points)) out[Number(i)] = p;
+describe("camera pose (factory, Meta's convention)", () => {
+  it("the optical axis points forward and ~6° down, as the hardware is mounted", () => {
+    const o = cameraToHead({ x: 0, y: 0, z: 0 }, right);
+    const a = cameraToHead({ x: 0, y: 0, z: 1 }, right);
+    const dir = { x: a.x - o.x, y: a.y - o.y, z: a.z - o.z };
+    expect(dir.z).toBeLessThan(-0.99); // forward is -z in the head frame
+    const pitchDeg = (Math.atan2(dir.y, -dir.z) * 180) / Math.PI;
+    expect(pitchDeg).toBeGreaterThan(-7);
+    expect(pitchDeg).toBeLessThan(-5.5);
+  });
+  it("image-up is head-up, image-right is head-right (no mirror, no flip)", () => {
+    const o = cameraToHead({ x: 0, y: 0, z: 0 }, right);
+    const up = cameraToHead({ x: 0, y: -1, z: 0 }, right); // camera y points DOWN
+    const r = cameraToHead({ x: 1, y: 0, z: 0 }, right);
+    expect(up.y - o.y).toBeGreaterThan(0.9);
+    expect(r.x - o.x).toBeGreaterThan(0.9);
+  });
+  it("the lens sits 3 cm right, 1.3 cm down, 7.5 cm forward of the head origin", () => {
+    const o = cameraToHead({ x: 0, y: 0, z: 0 }, right);
+    expect(o.x).toBeCloseTo(0.031, 3);
+    expect(o.y).toBeCloseTo(-0.0135, 3);
+    expect(o.z).toBeCloseTo(-0.075, 3);
+  });
+  it("headToCamera inverts cameraToHead", () => {
+    const p = { x: 0.1, y: -0.2, z: -0.9 };
+    const back = cameraToHead(headToCamera(p, right), right);
+    expect(back.x).toBeCloseTo(p.x, 9);
+    expect(back.y).toBeCloseTo(p.y, 9);
+    expect(back.z).toBeCloseTo(p.z, 9);
+  });
+});
+
+function landmarks(points: Record<number, { x: number; y: number; z?: number }>) {
+  const out = Array.from({ length: 478 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
+  for (const [i, p] of Object.entries(points)) out[Number(i)] = { z: 0, ...p };
   return out;
 }
 
-describe("sampleFromLandmarks → faceInCamera", () => {
-  it("a centred face with a 0.05 eye span lands 1 m ahead with a 9 cm eye span", () => {
+describe("landmarkInHead", () => {
+  it("round-trips a face 1 m ahead of the head through the real camera model", () => {
+    // Outer eye corners 9.5 cm apart, eye line 1 m in front of the head at eye height.
+    const eyeR = { x: -0.0475, y: 0, z: -1 };
+    const eyeL = { x: 0.0475, y: 0, z: -1 };
+    const nose = { x: 0, y: -0.04, z: -0.97 };
+    const iR = projectToImage(eyeR, right, k);
+    const iL = projectToImage(eyeL, right, k);
+    const iN = projectToImage(nose, right, k);
+    // MediaPipe z: relative depth in x-normalised units. Eye line 0; nose 3 cm nearer.
+    const unitsPerM = Math.hypot(iL.x - iR.x, (iL.y - iR.y) * (960 / 1280)) / 0.095;
     const lm = landmarks({
-      [LM.rightEyeOuter]: { x: 0.475, y: 0.45 },
-      [LM.leftEyeOuter]: { x: 0.525, y: 0.45 },
-      [LM.noseTip]: { x: 0.5, y: 0.55 },
-      [LM.forehead]: { x: 0.5, y: 0.4 },
-      [LM.chin]: { x: 0.5, y: 0.6 },
+      [LM.rightEyeOuter]: { x: iR.x, y: iR.y },
+      [LM.leftEyeOuter]: { x: iL.x, y: iL.y },
+      [LM.noseTip]: { x: iN.x, y: iN.y, z: -0.03 * unitsPerM },
+      [LM.forehead]: { x: iN.x, y: iN.y - 0.1 },
+      [LM.chin]: { x: iN.x, y: iN.y + 0.1 },
     });
     const s = sampleFromLandmarks(lm, 1280 / 960)!;
-    expect(s.eyeSpan).toBeCloseTo(0.05);
-    expect(s.center).toEqual({ x: 0.5, y: 0.5 });
-    const f = faceInCamera(s, cam, 0.09)!;
-    expect(f.position.z).toBeCloseTo(-0.9);
-    expect(f.position.x).toBeCloseTo(0);
-    // faceHeight 0.2 in y → 0.15 in x-units; scaled by 0.09/0.05
-    expect(f.heightM).toBeCloseTo(0.27);
+    const got = landmarkInHead(lm[LM.noseTip], 0, s, right, k, 0.095)!;
+    // The eye span is foreshortened slightly off-axis, so allow a cm or so.
+    expect(Math.hypot(got.x - nose.x, got.y - nose.y, got.z - nose.z)).toBeLessThan(0.015);
+    const eye = landmarkInHead(lm[LM.rightEyeOuter], 0, s, right, k, 0.095)!;
+    expect(Math.hypot(eye.x - eyeR.x, eye.y - eyeR.y, eye.z - eyeR.z)).toBeLessThan(0.015);
   });
-  it("returns null when landmarks are missing", () => {
-    expect(sampleFromLandmarks([], 1)).toBeNull();
+
+  it("a wrong eye span moves the point ALONG the camera ray only", () => {
+    const pt = { x: 0.55, y: 0.45, z: 0 };
+    const s = { center: { x: 0.55, y: 0.45 }, eyeSpan: 0.06, faceHeight: 0.2 };
+    const a = landmarkInHead(pt, 0, s, right, k, 0.095)!;
+    const b = landmarkInHead(pt, 0, s, right, k, 0.12)!;
+    const o = cameraToHead({ x: 0, y: 0, z: 0 }, right);
+    const da = { x: a.x - o.x, y: a.y - o.y, z: a.z - o.z };
+    const db = { x: b.x - o.x, y: b.y - o.y, z: b.z - o.z };
+    const cos = (da.x * db.x + da.y * db.y + da.z * db.z) / (Math.hypot(da.x, da.y, da.z) * Math.hypot(db.x, db.y, db.z));
+    expect(cos).toBeCloseTo(1, 9);
+  });
+
+  it("eyeLineDepth rejects a degenerate span", () => {
+    expect(eyeLineDepth({ center: { x: 0.5, y: 0.5 }, eyeSpan: 0, faceHeight: 0 }, k, 0.095)).toBeNaN();
   });
 });
 
-describe("averageSamples / centerJitter", () => {
-  it("averages and measures spread", () => {
+describe("profileForLabel", () => {
+  it("camera 1 → left, camera 2 → right, override wins", () => {
+    expect(profileForLabel("camera 1, facing back").name).toBe("left");
+    expect(profileForLabel("camera 2, facing back").name).toBe("right");
+    expect(profileForLabel("camera 2, facing back", "left").name).toBe("left");
+  });
+});
+
+describe("sampleFromLandmarks / centerJitter", () => {
+  it("returns null when landmarks are missing", () => {
+    expect(sampleFromLandmarks([] as Pt2[], 1)).toBeNull();
+  });
+  it("measures spread", () => {
     const a = { center: { x: 0.4, y: 0.5 }, eyeSpan: 0.04, faceHeight: 0.1 };
     const b = { center: { x: 0.6, y: 0.5 }, eyeSpan: 0.06, faceHeight: 0.2 };
-    const m = averageSamples([a, b])!;
-    expect(m.center.x).toBeCloseTo(0.5);
-    expect(m.eyeSpan).toBeCloseTo(0.05);
     expect(centerJitter([a, b])).toBeCloseTo(0.1);
-    expect(averageSamples([])).toBeNull();
-  });
-});
-
-
-/** Column-major rigid transform from a position and yaw/pitch (degrees). */
-function pose(x: number, y: number, z: number, yaw: number, pitch: number): number[] {
-  const r = rotation(yaw, pitch, 0); // row-major
-  return [r[0], r[3], r[6], 0, r[1], r[4], r[7], 0, r[2], r[5], r[8], 0, x, y, z, 1];
-}
-
-const DEFAULT: CamParams = {
-  hfovDeg: 80, yawDeg: 0, pitchDeg: 0, rollDeg: 0, offX: 0, offY: 0, offZ: 0, flipX: false,
-};
-
-describe("faceInViewer / projectFace", () => {
-  it("round-trip through a rotated, offset camera", () => {
-    const p: CamParams = { ...DEFAULT, hfovDeg: 70, yawDeg: 6, pitchDeg: -4, rollDeg: 2, offX: 0.03, offY: -0.02 };
-    const viewer = pose(0.1, 1.6, 0.2, 10, -5);
-    const P = { x: 0.2, y: 1.5, z: -0.8 };
-    const s = projectFace(P, viewer, p, 0.095, 4 / 3);
-    const back = applyMat4(viewer, faceInViewer(s, p, 0.095, 4 / 3)!);
-    expect(back.x).toBeCloseTo(P.x, 6);
-    expect(back.y).toBeCloseTo(P.y, 6);
-    expect(back.z).toBeCloseTo(P.z, 6);
-  });
-});
-
-describe("landmarkInViewer", () => {
-  it("an eye-line landmark sits at the face depth; the nose tip sits in front", () => {
-    const s = { center: { x: 0.5, y: 0.5 }, eyeSpan: 0.05, faceHeight: 0.2 };
-    const cam90 = { ...DEFAULT, hfovDeg: 90 };
-    const eye = landmarkInViewer({ x: 0.5, y: 0.5, z: -0.02 }, -0.02, s, cam90, 0.1, 4 / 3)!;
-    expect(eye.z).toBeCloseTo(-1);
-    const nose = landmarkInViewer({ x: 0.5, y: 0.5, z: -0.05 }, -0.02, s, cam90, 0.1, 4 / 3)!;
-    expect(nose.z).toBeCloseTo(-0.94); // 0.03 units × 2 m/unit nearer
-  });
-});
-
-describe("calibrate", () => {
-  // A plausible headset error: narrower FOV, camera turned and offset, 66 ms of latency.
-  const truth: CamParams = { ...DEFAULT, hfovDeg: 68, yawDeg: -7, pitchDeg: 5, rollDeg: 1.5, offX: 0.032, offY: -0.015 };
-  const P = { x: 0.05, y: 1.45, z: -1.0 };
-  const aspect = 4 / 3;
-
-  function session(t: CamParams, lagSteps: number): CalSample[] {
-    // Head sways side to side and nods while looking roughly at the face, 30 Hz for 6 s.
-    const poses: number[][] = [];
-    for (let i = 0; i < 180 + 10; i++) {
-      const tt = i / 30;
-      poses.push(pose(0.15 * Math.sin(tt * 1.3), 1.6 + 0.05 * Math.sin(tt * 2.1), 0.05 * Math.cos(tt * 0.9),
-        8 * Math.sin(tt * 1.3), -6 + 8 * Math.sin(tt * 1.7)));
-    }
-    const out: CalSample[] = [];
-    for (let i = 10; i < poses.length; i += 2) {
-      // The frame was captured lagSteps frames before the pose it is paired with.
-      const sample = projectFace(P, poses[i - lagSteps], t, 0.095, aspect);
-      const viewers: Mat4[] = LATENCIES_MS.map((ms) => poses[i - Math.round(ms / 33.3)]);
-      out.push({ sample, viewers });
-    }
-    return out;
-  }
-
-  it("recovers a mis-modelled camera: the spread collapses", () => {
-    const samples = session(truth, 2);
-    const r = calibrate(samples, DEFAULT, 0.095, aspect)!;
-    expect(r.spreadBeforeCm).toBeGreaterThan(3);
-    expect(r.spreadAfterCm).toBeLessThan(0.5);
-    expect(r.latencyMs).toBe(66);
-    expect(r.params.flipX).toBe(false);
-    // And the calibrated model puts the face where it really is.
-    const v = faceInViewer(samples[0].sample, r.params, 0.095, aspect)!;
-    const w = applyMat4(samples[0].viewers[2], v);
-    expect(Math.hypot(w.x - P.x, w.y - P.y, w.z - P.z)).toBeLessThan(0.02);
-  });
-
-  it("also fits the face size when the assumed eye span is wrong", () => {
-    // Real face (e.g. on a monitor) has a 12 cm span; the page starts from 9.5 cm.
-    const poses: number[][] = [];
-    for (let i = 0; i < 190; i++) {
-      const tt = i / 30;
-      poses.push(pose(0.15 * Math.sin(tt * 1.3), 1.6 + 0.05 * Math.sin(tt * 2.1), 0.08 * Math.cos(tt * 0.9),
-        8 * Math.sin(tt * 1.3), -6 + 8 * Math.sin(tt * 1.7)));
-    }
-    const samples: CalSample[] = [];
-    for (let i = 10; i < poses.length; i += 2) {
-      samples.push({
-        sample: projectFace(P, poses[i], truth, 0.12, aspect),
-        viewers: LATENCIES_MS.map((ms) => poses[i - Math.round(ms / 33.3)]),
-      });
-    }
-    const r = calibrate(samples, DEFAULT, 0.095, aspect)!;
-    expect(r.eyeSpanM).toBeGreaterThan(0.11);
-    expect(r.eyeSpanM).toBeLessThan(0.13);
-    expect(r.spreadAfterCm).toBeLessThan(0.5);
-    const v = faceInViewer(samples[0].sample, r.params, r.eyeSpanM, aspect)!;
-    const w = applyMat4(samples[0].viewers[0], v);
-    expect(Math.hypot(w.x - P.x, w.y - P.y, w.z - P.z)).toBeLessThan(0.03);
-  });
-
-  it("detects a mirrored image", () => {
-    const samples = session({ ...truth, flipX: true }, 0);
-    const r = calibrate(samples, DEFAULT, 0.095, aspect)!;
-    expect(r.params.flipX).toBe(true);
-    expect(r.spreadAfterCm).toBeLessThan(0.5);
-  });
-
-  it("refuses too few samples", () => {
-    expect(calibrate([], DEFAULT, 0.095, aspect)).toBeNull();
-    expect(spreadM([], DEFAULT, 0.095, aspect)).toBe(Infinity);
   });
 });
