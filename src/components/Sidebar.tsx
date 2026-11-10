@@ -19,6 +19,7 @@ import {
   QueueMusic,
   Settings,
   VideoLibrary,
+  ViewInAr,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router";
 import type { ReactNode } from "react";
@@ -36,6 +37,8 @@ const NAV_ITEMS: { label: string; icon: ReactNode; path: string; sub?: boolean }
   // training and its history, so Datasets is no longer a nav item of its own (/datasets
   // redirects here). It sits where Datasets did -- the top-level place training starts.
   { label: "Characters", icon: <Face />, path: "/characters" },
+  // Wear a character's face loop in AR (console#749); loops are made on the character page.
+  { label: "Face Loops", icon: <ViewInAr />, path: "/face-loops" },
   // LoRA Recipes was indented under Storyboard. That page is gone (recipe renders go through
   // the New Job dialog and the queue like anything else), so this is top level rather than
   // orphaned: with `sub` still set it would have indented under Workers, which means nothing.

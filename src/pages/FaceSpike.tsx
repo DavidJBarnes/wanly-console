@@ -12,9 +12,7 @@ import {
 } from "@mui/material";
 import * as THREE from "three";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
-import { getFileUrl, listFaceLoops, uploadFile } from "../api/client";
-import type { FaceLoop } from "../api/types";
-import { loopPickerLabel } from "../lib/faceLoops";
+import { uploadFile } from "../api/client";
 import {
   buildTriangles,
   featherAlpha,
@@ -31,12 +29,24 @@ import {
   landmarkInHead,
   LM,
   MARKERS,
-  QUEST_3S_CAMERAS,
   sampleFromLandmarks,
   streamIntrinsics,
-  triangulate,
 } from "../lib/faceSpike";
 import type { FaceSample, Pt3, Vec3 } from "../lib/faceSpike";
+import {
+  ANCHOR_MIN_COUNT,
+  ANCHOR_MIN_SAMPLES,
+  FALLBACK_LATENCY_MS,
+  LOCK_MAX_RAY_GAP_M,
+  LOCK_MAX_TURN_DEG_PER_S,
+  LOCK_MIN_SAMPLES,
+  LOCK_SECONDS,
+  PLACE_ANCHORS,
+  RIGHT,
+  STEREO_PAIR_MS,
+  stereoAnchors,
+  stereoPoints,
+} from "../lib/faceStereo";
 
 // AR face-replacement feasibility spike (console#730).
 //
@@ -54,6 +64,10 @@ import type { FaceSample, Pt3, Vec3 } from "../lib/faceSpike";
 // `dumpsys media.camera` ("Device 1 maps to 50", "Device 2 maps to 51", and the browser's
 // connect log). If the second camera can't be opened, it falls back to the eye-span distance.
 //
+// console#749: wearing a face loop moved to its own player (pages/FaceLoops + lib/faceAr), so
+// this page is the placement diagnostic again: dots, HUD, camera view, traces, reports. The
+// face-mask code below stays for reference but is never given a face.
+//
 // console#739: once locked, a generated face loop (Kelly-2026, cut and pre-stabilised offline by
 // make_face_loop.py) replaces the dots. The mesh SHAPE comes from the clip frame by frame so the
 // mouth really opens; one similarity transform, fitted at lock from stereo-measured
@@ -68,50 +82,19 @@ const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
 const PARAMS_KEY = "wanly.faceSpike.v2";
-const LOCK_SECONDS = 1.0;
-const LOCK_MIN_SAMPLES = 8;
 const NUDGE_M_PER_S = 0.05;
 const POSE_HISTORY_MS = 500;
-// Left/right detections are paired only if they ran this close together (ms). The two cameras
-// are not frame-synchronised; with the head still, a few tens of ms is harmless.
-const STEREO_PAIR_MS = 80;
-// Run 6 trace (mannequin, 79 stereo samples): placement error was 1.4 cm median with the head
-// still and up to ~8 cm (p90) when turning faster than 40°/s; a few pairs had 2-3 cm ray gaps
-// (mismatched frames). The fitted head↔camera correction was noise, so the model stays as is and
-// the lock just refuses bad evidence: only steady-head samples, only well-matched pairs, median.
-const LOCK_MAX_TURN_DEG_PER_S = 15;
-const LOCK_MAX_RAY_GAP_M = 0.005;
-// Close range (David: "it drops when you get too close"): no lock ever succeeded nearer than
-// ~0.5 m — the reports show "bad camera match". With a 6.4 cm baseline the two cameras see the
-// face from visibly different angles up close, and SILHOUETTE landmarks (cheek edges, temples)
-// land on different skin in each view. So: placement uses only landmarks both cameras see
-// face-on, a sample is judged by its MEDIAN point gap (one bad point no longer rejects it), and
-// individual bad anchors are dropped instead of the whole sample.
-const PLACE_ANCHORS = [33, 133, 362, 263, 168, 6, 197, 195, 5, 4, 1, 10, 151, 9, 8];
-const ANCHOR_MAX_GAP_M = 0.01;
-const ANCHOR_MIN_SAMPLES = 3;
-const ANCHOR_MIN_COUNT = 8;
-// Used only when the browser gives no frame capture time. Runs 2 and 3 independently measured
-// ~100 ms between capture and display on this headset.
-const FALLBACK_LATENCY_MS = 100;
-
 interface Params {
   eyeSpanCm: number; // fallback distance only (single camera): adult outer-eye-corner span
-  faceLoop: string; // face loop id ("" = the first one available)
 }
 
-const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5, faceLoop: "" };
+const DEFAULT_PARAMS: Params = { eyeSpanCm: 9.5 };
 
 function loadParams(): Params {
   try {
     const raw = localStorage.getItem(PARAMS_KEY);
     if (raw) {
-      const p = { ...DEFAULT_PARAMS, ...(JSON.parse(raw) as Partial<Params>) };
-      // Pre-api saves held a hard-coded id ("ltx-calm"); a real id is a UUID.
-      if (!/^[0-9a-f-]{36}$/.test(p.faceLoop)) p.faceLoop = "";
-      const wanted = new URLSearchParams(window.location.search).get("loop");
-      if (wanted) p.faceLoop = wanted;
-      return p;
+      return { eyeSpanCm: (JSON.parse(raw) as Partial<Params>).eyeSpanCm ?? DEFAULT_PARAMS.eyeSpanCm };
     }
   } catch {
     /* private mode / blocked storage — defaults are fine */
@@ -224,66 +207,12 @@ interface Detection {
   at: number;
 }
 
-// Face loops come from the api (console#742): every character's ready loops, made on the
-// character page's Face loops tab. ?loop=<id> preselects one (the tab's "AR" button).
-
-
 interface FaceAsset {
   fps: number;
   frames: number;
   positions: Float32Array; // frames × 468 × 3, px, pre-stabilised
   uvs: Float32Array; // frames × 468 × 2
   video: HTMLVideoElement;
-}
-
-const RIGHT = QUEST_3S_CAMERAS.right;
-const LEFT = QUEST_3S_CAMERAS.left;
-
-/** Landmarks used in stereo: the three dots plus the outer eye corners (for the span check). */
-const STEREO_IDS = [MARKERS.rightIris, MARKERS.leftIris, MARKERS.noseTip, LM.rightEyeOuter, LM.leftEyeOuter];
-
-/**
- * Head-frame positions of STEREO_IDS by triangulating the right and left detections. Null if
- * any landmark fails (a mismatched pair). Also reports match quality and the measured eye span.
- */
-function stereoPoints(
-  right: Pt3[],
-  left: Pt3[],
-  w: number,
-  h: number,
-): { pts: Vec3[]; gapM: number; eyeSpanM: number } | null {
-  const kR = streamIntrinsics(RIGHT, w, h);
-  const kL = streamIntrinsics(LEFT, w, h);
-  const pts: Vec3[] = [];
-  const gaps: number[] = [];
-  for (const id of STEREO_IDS) {
-    const r = right[id];
-    const l = left[id];
-    if (!r || !l) return null;
-    const t = triangulate(l, LEFT, kL, r, RIGHT, kR);
-    if (!t) return null;
-    pts.push(t.point);
-    gaps.push(t.gapM);
-  }
-  const [, , , a, b] = pts;
-  // Median, not max: one point seen at a different angle by each camera (close range) should not
-  // condemn the whole sample.
-  const sorted = [...gaps].sort((x, y) => x - y);
-  const gap = sorted[sorted.length >> 1];
-  return { pts: pts.slice(0, 3), gapM: gap, eyeSpanM: Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) };
-}
-
-/** Placement anchors (PLACE_ANCHORS) triangulated from a right/left pair, head frame; null where a point fails. */
-function stereoAnchors(right: Pt3[], left: Pt3[], w: number, h: number): (Vec3 | null)[] {
-  const kR = streamIntrinsics(RIGHT, w, h);
-  const kL = streamIntrinsics(LEFT, w, h);
-  return PLACE_ANCHORS.map((id) => {
-    const r = right[id];
-    const l = left[id];
-    if (!r || !l) return null;
-    const t = triangulate(l, LEFT, kL, r, RIGHT, kR);
-    return t && t.gapM <= ANCHOR_MAX_GAP_M ? t.point : null;
-  });
 }
 
 export default function FaceSpike() {
@@ -322,56 +251,6 @@ export default function FaceSpike() {
   const [arError, setArError] = useState<string | null>(null);
   const [reportStatus, setReportStatus] = useState<string | null>(null);
   const [isLoggedIn] = useState(loggedIn);
-  const faceRef = useRef<FaceAsset | null>(null);
-  const [loops, setLoops] = useState<FaceLoop[]>([]);
-  useEffect(() => {
-    if (!loggedIn()) return;
-    listFaceLoops("ready").then(setLoops, () => setLoops([]));
-  }, []);
-  const [faceStatus, setFaceStatus] = useState("loading…");
-
-  // Load the face loop: header, shape/UV binary, and the video (texture). crossOrigin before
-  // src so the S3 fetch is CORS-mode and WebGL may sample it (same as HologramPlayer).
-  useEffect(() => {
-    if (!loggedIn()) {
-      setFaceStatus("needs login");
-      return;
-    }
-    let cancelled = false;
-    const loop = loops.find((l) => l.id === params.faceLoop) ?? loops[0];
-    if (!loop?.asset_prefix) return;
-    const asset = { label: loopPickerLabel(loop), base: loop.asset_prefix.replace(/\/+$/, "") };
-    (async () => {
-      try {
-        faceRef.current = null;
-        const meta = await (await fetch(getFileUrl(`${asset.base}/face.json`))).json();
-        const buf = await (await fetch(getFileUrl(`${asset.base}/face.bin`))).arrayBuffer();
-        const n = meta.frames * meta.vertices;
-        const video = document.createElement("video");
-        video.crossOrigin = "anonymous";
-        video.loop = true;
-        video.muted = true;
-        video.playsInline = true;
-        video.preload = "auto";
-        video.src = getFileUrl(`${asset.base}/loop.mp4`);
-        if (cancelled) return;
-        faceRef.current = {
-          fps: meta.fps,
-          frames: meta.frames,
-          positions: new Float32Array(buf, 0, n * 3),
-          uvs: new Float32Array(buf, n * 3 * 4, n * 2),
-          video,
-        };
-        setFaceStatus(`${asset.label} ready (${meta.frames} frames, ${(meta.frames / meta.fps).toFixed(1)} s loop)`);
-      } catch (e) {
-        if (!cancelled) setFaceStatus(`failed: ${String(e)}`);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [params.faceLoop, loops]);
-
   useEffect(() => {
     if (!xr) return;
     xr.isSessionSupported("immersive-ar").then(setArSupported, () => setArSupported(false));
@@ -628,11 +507,9 @@ export default function FaceSpike() {
   const enterAr = useCallback(async () => {
     if (!xr) return;
     setArError(null);
-    // Start the face loop inside the click gesture; autoplay rules would block it later.
-    faceRef.current?.video.play().catch(() => {});
     try {
       const session = await runArSession(xr, {
-        face: faceRef.current,
+        face: null,
         detectOnce,
         detectLeft,
         pairStereo,
@@ -671,7 +548,6 @@ export default function FaceSpike() {
         <Typography component="ol" variant="body2" sx={{ pl: 2.5, m: 0, "& li": { mb: 0.5 } }}>
           <li>Press <b>Start camera</b>. Check that it says <b>face yes</b>.</li>
           <li>Press <b>Enter AR</b>. Stand about a metre from the face and look at it.</li>
-          <li>Hold still for a second: the chosen face loop appears on it and starts playing.</li>
           <li>
             After a second, three dots appear: green on each eye, yellow on the tip of the nose.
             Are they on the eyes and nose? If not, which way are they off?
@@ -717,21 +593,6 @@ export default function FaceSpike() {
           >
             2. Enter AR
           </Button>
-          <TextField
-            select
-            size="small"
-            label="Face loop"
-            value={loops.some((l) => l.id === params.faceLoop) ? params.faceLoop : (loops[0]?.id ?? "")}
-            disabled={inAr}
-            onChange={(e) => setParams((p) => ({ ...p, faceLoop: e.target.value }))}
-            sx={{ minWidth: 300 }}
-          >
-            {loops.map((l) => (
-              <MenuItem key={l.id} value={l.id}>
-                {loopPickerLabel(l)}
-              </MenuItem>
-            ))}
-          </TextField>
           <Button onClick={() => sendReport("manual")}>Save report</Button>
         </Box>
         {!isLoggedIn && (
@@ -764,7 +625,6 @@ export default function FaceSpike() {
             `face      ${stats.faceFound ? `yes (${stats.landmarks} landmarks)` : "no"}`,
             `xr        ${inAr ? `in session, ${stats.state}` : stats.xrStarted ? `ended — ${stats.xrFrames} frames, ${stats.xrDetections} detections, ${stats.locks} locks` : "—"}`,
             `latency   ${stats.latencyMs != null ? `${stats.latencyMs.toFixed(0)} ms (${stats.latencySource})` : "—"}`,
-            `face loop ${loops.length ? faceStatus : "none ready — make one on a character's Face loops tab"}`,
             `report    ${reportStatus ?? "—"}`,
           ].join("\n")}
         </Typography>

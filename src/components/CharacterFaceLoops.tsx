@@ -11,6 +11,8 @@ import {
 } from "../api/client";
 import type { FaceLoop, FaceLoopPhoto, FaceLoopPreset } from "../api/types";
 import { loopFile, loopStatsLabel, loopStatusLabel, needsPolling, photoHint } from "../lib/faceLoops";
+import { useFaceAr } from "../lib/useFaceAr";
+import type { FaceAr } from "../lib/useFaceAr";
 
 const POLL_MS = 15_000;
 
@@ -19,7 +21,8 @@ const POLL_MS = 15_000;
  *
  * Create = pick a close-up photo + an expression preset. That queues an ordinary LTX render
  * (Prompt recipe, the character's own LoRA); when it lands, the api prepares the loop (calmest
- * 3 s, steadied, smoothed) and it appears here as Ready, and in the AR page's picker.
+ * 3 s, steadied, smoothed) and it appears here as Ready. AR wears it straight away (on the
+ * Quest); every ready loop is also on the top-level Face Loops page (console#749).
  */
 export default function CharacterFaceLoops({ character }: { character: string }) {
   const [loops, setLoops] = useState<FaceLoop[] | null>(null);
@@ -29,6 +32,7 @@ export default function CharacterFaceLoops({ character }: { character: string })
   const [doomed, setDoomed] = useState<FaceLoop | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const ar = useFaceAr();
 
   const load = useCallback(async () => {
     try {
@@ -70,11 +74,12 @@ export default function CharacterFaceLoops({ character }: { character: string })
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
         <Button variant="contained" startIcon={<Add />} onClick={() => setCreating(true)}>New face loop</Button>
         <Typography variant="body2" color="text.secondary">
-          Short, calm loops of {character}'s face for the AR face page. Rendering takes a few minutes in the queue;
+          Short, calm loops of {character}'s face to wear in AR. Rendering takes a few minutes in the queue;
           the loop is prepared automatically when it lands.
         </Typography>
       </Stack>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {ar.supported && ar.error && <Alert severity="warning" sx={{ mb: 2 }}>AR: {ar.error}</Alert>}
       {loops === null ? (
         <CircularProgress size={24} />
       ) : loops.length === 0 ? (
@@ -86,6 +91,7 @@ export default function CharacterFaceLoops({ character }: { character: string })
               key={l.id}
               loop={l}
               busy={busy}
+              ar={ar}
               onRename={() => setRenaming({ id: l.id, label: l.label })}
               onDelete={() => setDoomed(l)}
               onRetry={() => void run(() => reprocessFaceLoop(l.id), "Could not restart the preparation.")}
@@ -133,8 +139,8 @@ export default function CharacterFaceLoops({ character }: { character: string })
   );
 }
 
-function LoopCard({ loop, busy, onRename, onDelete, onRetry }: {
-  loop: FaceLoop; busy: boolean; onRename: () => void; onDelete: () => void; onRetry: () => void;
+function LoopCard({ loop, busy, ar, onRename, onDelete, onRetry }: {
+  loop: FaceLoop; busy: boolean; ar: FaceAr; onRename: () => void; onDelete: () => void; onRetry: () => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const poster = loopFile(loop, "poster.jpg");
@@ -177,14 +183,17 @@ function LoopCard({ loop, busy, onRename, onDelete, onRetry }: {
       </CardContent>
       <CardActions disableSpacing sx={{ gap: 0.5 }}>
         {ready && (
-          <Tooltip title="Open the AR face page with this loop">
-            <Button size="small" startIcon={<ViewInAr />} component={RouterLink} to={`/holo/face-spike?loop=${loop.id}`}>AR</Button>
+          <Tooltip title={ar.supported ? (ar.error ?? "Wear this face on the face in front of you") : "Open this page on the Quest to wear it"}>
+            <span>
+              <Button size="small" startIcon={<ViewInAr />} disabled={!ar.supported || ar.state !== "ready" || ar.inSession}
+                onClick={() => ar.launch(loop)}>AR</Button>
+            </span>
           </Tooltip>
         )}
         {loop.job_id && <Button size="small" component={RouterLink} to={`/jobs/${loop.job_id}`}>Job</Button>}
         <Box sx={{ flexGrow: 1 }} />
-        {loop.status === "failed" && (
-          <Tooltip title="Prepare the loop again from the finished render">
+        {failed && (
+          <Tooltip title={loop.render_status === "failed" ? "Render it again" : "Prepare the loop again from the finished render"}>
             <span><IconButton size="small" disabled={busy} onClick={onRetry}><Refresh fontSize="small" /></IconButton></span>
           </Tooltip>
         )}
