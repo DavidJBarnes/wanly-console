@@ -6,14 +6,18 @@
 // image (u right, v down, 0..1). A head shell built in that same space therefore picks up the
 // hair exactly where the clip shows it, following the clip's own small head motion.
 
-export type HairMode = "face" | "facehair" | "hair";
+// "head" (console#753): a complete virtual head — face, hair, ears, neck to the collar — drawn
+// over the mannequin's head, which is then only the tracking target. It turns a little toward
+// the viewer (lib/faceTrack).
+export type HairMode = "face" | "facehair" | "hair" | "head";
 
-export const HAIR_MODES: readonly HairMode[] = ["face", "facehair", "hair"];
+export const HAIR_MODES: readonly HairMode[] = ["face", "facehair", "hair", "head"];
 
 export const HAIR_MODE_LABEL: Record<HairMode, string> = {
   face: "Face",
   facehair: "Face + hair",
   hair: "Hair",
+  head: "Full head",
 };
 
 export function nextHairMode(m: HairMode): HairMode {
@@ -38,7 +42,7 @@ const DEPTH_RATIO = 1.2; // front-to-back radius / side radius
 const FRONT_GAP = 0.04; // × depth radius: the shell's front sits just behind the forehead
 
 /** An ellipsoid head shell fitted to one frame of the clip's face mesh (468×3, px). */
-export function headShell(pos: ArrayLike<number>): HeadShell {
+export function headShell(pos: ArrayLike<number>, inflate = 1): HeadShell {
   const p = (i: number) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]] as const;
   const [, fy, fz] = p(10);
   const [, cy152] = p(152);
@@ -53,7 +57,31 @@ export function headShell(pos: ArrayLike<number>): HeadShell {
   const rx = HALF_WIDTH * width;
   const ry = top - cy;
   const rz = DEPTH_RATIO * rx;
-  return { center: [(rx0 + lx0) / 2, cy, fz - (1 + FRONT_GAP) * rz], radii: [rx, ry, rz] };
+  const c: [number, number, number] = [(rx0 + lx0) / 2, cy, fz - (1 + FRONT_GAP) * rz];
+  return { center: c, radii: [rx * inflate, ry * inflate, rz * inflate] };
+}
+
+// Full head: the shell is a little bigger so it surely covers the mannequin's bare skull, and the
+// card bends forward in the middle to sit near the neck (a flat card at the shell's centre is
+// ~10 cm behind the chin, so her neck slid off the real one as soon as you moved sideways).
+export const HEAD_INFLATE = 1.06;
+const NECK_BEHIND_CHIN = 0.25; // × face height: the front of the neck, behind the chin
+const BEND_HALF_WIDTH = 1.3; // × the shell's side radius: where the bend has flattened out
+
+/** z of the backing card at head-space x: the shell's centre depth, bent forward to the neck. */
+export function cardDepth(x: number, shell: HeadShell, pos: ArrayLike<number>): number {
+  const fh = Math.abs(pos[10 * 3 + 1] - pos[152 * 3 + 1]);
+  const neckZ = pos[152 * 3 + 2] - NECK_BEHIND_CHIN * fh;
+  const [cx, , cz] = shell.center;
+  const bend = Math.max(0, neckZ - cz);
+  const u = (x - cx) / (BEND_HALF_WIDTH * shell.radii[0]);
+  return cz + bend * Math.max(0, 1 - u * u);
+}
+
+/** Where the head turns: the top of the neck — centred, at mouth height, at the shell's centre depth. */
+export function headPivot(pos: ArrayLike<number>, shell: HeadShell): [number, number, number] {
+  const mouthY = (pos[13 * 3 + 1] + pos[14 * 3 + 1]) / 2;
+  return [shell.center[0], mouthY, shell.center[2]];
 }
 
 /** Frame `i`'s two affine rows from hair.bin (frames × 2 × 4). */
