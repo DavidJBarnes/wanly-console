@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loopFile, loopPickerLabel, loopStatsLabel, loopStatusLabel, needsPolling, photoHint } from "./faceLoops";
+import { loopFile, loopPickerLabel, loopStatsLabel, loopStatusLabel, loopVersion, needsPolling, photoHint } from "./faceLoops";
 
 describe("face loops", () => {
   it("builds file paths only once a loop is prepared", () => {
@@ -31,5 +31,12 @@ describe("face loops", () => {
     const base = { suitable: true, face_px: 691, mouth_closed: true, eyes_open: true, yaw: 0.3, pitch: 13 };
     expect(photoHint(base)).toBe("face 691 px");
     expect(photoHint({ ...base, suitable: false, mouth_closed: false, yaw: 20 })).toBe("face 691 px · mouth open, head turned");
+  });
+});
+
+describe("loopVersion", () => {
+  it("changes the URL whenever the loop is re-prepared", () => {
+    expect(loopVersion({ updated_at: "2026-11-10T17:01:01Z" })).toBe("2026-11-10T17:01:01Z");
+    expect(loopVersion({ updated_at: null })).toBeUndefined();
   });
 });
