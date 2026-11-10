@@ -2,7 +2,7 @@
 // test without a browser.
 import type { FaceLoop } from "../api/types";
 
-export type LoopFile = "loop.mp4" | "poster.jpg" | "face.json" | "face.bin";
+export type LoopFile = "loop.mp4" | "poster.jpg" | "face.json" | "face.bin" | "hair.mp4" | "hair.bin";
 
 /** s3:// path of one of a ready loop's files, or null if it is not prepared yet. */
 export function loopFile(loop: Pick<FaceLoop, "asset_prefix">, file: LoopFile): string | null {
