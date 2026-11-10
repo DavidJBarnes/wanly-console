@@ -9,6 +9,16 @@ export function loopFile(loop: Pick<FaceLoop, "asset_prefix">, file: LoopFile): 
   return loop.asset_prefix ? `${loop.asset_prefix.replace(/\/+$/, "")}/${file}` : null;
 }
 
+/**
+ * Cache-busting version for a loop's file URLs. The files are served "immutable" for a day, and
+ * re-preparing a loop rewrites them at the SAME paths — so without this the headset kept the old
+ * face.json/hair.mp4 and Full head silently fell back to Face + hair (console#755). updated_at
+ * moves on every preparation.
+ */
+export function loopVersion(loop: Pick<FaceLoop, "updated_at">): string | undefined {
+  return loop.updated_at ?? undefined;
+}
+
 /** What the card says, in plain words. */
 export function loopStatusLabel(loop: Pick<FaceLoop, "status" | "render_status">): string {
   switch (loop.status) {

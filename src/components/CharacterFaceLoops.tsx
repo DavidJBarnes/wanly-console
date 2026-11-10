@@ -10,7 +10,7 @@ import {
   renameFaceLoop, reprocessFaceLoop, uploadFile,
 } from "../api/client";
 import type { FaceLoop, FaceLoopPhoto, FaceLoopPreset } from "../api/types";
-import { loopFile, loopStatsLabel, loopStatusLabel, needsPolling, photoHint } from "../lib/faceLoops";
+import { loopFile, loopStatsLabel, loopStatusLabel, loopVersion, needsPolling, photoHint } from "../lib/faceLoops";
 import { useFaceAr } from "../lib/useFaceAr";
 import type { FaceAr } from "../lib/useFaceAr";
 
@@ -155,7 +155,7 @@ function LoopCard({ loop, busy, ar, onRename, onDelete, onRetry }: {
         onMouseLeave={() => video.current?.pause()}
       >
         {ready && clip ? (
-          <video ref={video} src={getFileUrl(clip)} poster={poster ? getFileUrl(poster) : undefined}
+          <video ref={video} src={getFileUrl(clip, loopVersion(loop))} poster={poster ? getFileUrl(poster, loopVersion(loop)) : undefined}
             muted loop playsInline preload="none" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : failed ? (
           <Typography variant="body2" color="error" sx={{ p: 2 }}>{loopStatusLabel(loop)}</Typography>

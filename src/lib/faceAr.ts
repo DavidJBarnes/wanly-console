@@ -22,7 +22,7 @@ import * as THREE from "three";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { getFileUrl } from "../api/client";
 import type { FaceLoop } from "../api/types";
-import { loopFile } from "./faceLoops";
+import { loopFile, loopVersion } from "./faceLoops";
 import { buildTriangles, featherAlpha, fitSimilarity, frameAttributes, ovalLoop, TOTAL_VERTICES } from "./faceMask";
 import type { Similarity } from "./faceMask";
 import { applyMat4 } from "./faceSpike";
@@ -81,12 +81,12 @@ function hiddenVideo(): HTMLVideoElement {
 }
 
 async function loadFace(loop: FaceLoop): Promise<FaceData> {
-  const meta = await (await fetch(getFileUrl(loopFile(loop, "face.json")!))).json();
-  const buf = await (await fetch(getFileUrl(loopFile(loop, "face.bin")!))).arrayBuffer();
+  const meta = await (await fetch(getFileUrl(loopFile(loop, "face.json")!, loopVersion(loop)))).json();
+  const buf = await (await fetch(getFileUrl(loopFile(loop, "face.bin")!, loopVersion(loop)))).arrayBuffer();
   const n = meta.frames * meta.vertices;
   let hair: FaceData["hair"] = null;
   if (meta.hair?.faceToHair) {
-    const rows = new Float32Array(await (await fetch(getFileUrl(loopFile(loop, "hair.bin")!))).arrayBuffer());
+    const rows = new Float32Array(await (await fetch(getFileUrl(loopFile(loop, "hair.bin")!, loopVersion(loop)))).arrayBuffer());
     if (rows.length === meta.frames * 8) {
       hair = { rows, faceToHair: meta.hair.faceToHair, headMask: meta.hair.masks?.g === "head" };
     }
@@ -223,7 +223,7 @@ export class FaceArEngine {
       v.loop = true;
       v.muted = true;
       v.playsInline = true;
-      v.src = getFileUrl(loopFile(loop, file)!);
+      v.src = getFileUrl(loopFile(loop, file)!, loopVersion(loop));
       v.play().catch(() => {}); // inside the tap, so autoplay rules allow it
       return v;
     };
@@ -715,7 +715,9 @@ async function runSession(
           break;
         case "locked":
           // A short reminder, then nothing in the way.
-          if (t - modeShownAt < 2000) setHud(HAIR_MODE_LABEL[mode], modeNote);
+          // A mode that cannot show what it says (an old loop) says so after the lock too,
+          // not only when cycled to — it used to fall back silently (console#755).
+          if (t - modeShownAt < 2000 || (modeNote && t - lockedAt < 6000)) setHud(HAIR_MODE_LABEL[mode], modeNote);
           else if (t - lockedAt < 3000) setHud("Trigger to re-anchor", "A/X: mode   B/Y: leave");
           else setHud("", "");
           break;

@@ -6,7 +6,7 @@ import {
 import { ViewInAr } from "@mui/icons-material";
 import { getFileUrl, listFaceLoops } from "../api/client";
 import type { FaceLoop } from "../api/types";
-import { loopFile } from "../lib/faceLoops";
+import { loopFile, loopVersion } from "../lib/faceLoops";
 import { useFaceAr } from "../lib/useFaceAr";
 import type { FaceAr } from "../lib/useFaceAr";
 import { HAIR_MODE_LABEL, HAIR_MODES } from "../lib/faceHair";
@@ -80,7 +80,7 @@ function LoopTile({ loop, ar }: { loop: FaceLoop; ar: FaceAr }) {
       <CardActionArea onClick={tap} disabled={ar.inSession}>
         <Box sx={{ aspectRatio: "1 / 1", bgcolor: "action.hover" }}>
           {clip && (
-            <video ref={video} src={getFileUrl(clip)} poster={poster ? getFileUrl(poster) : undefined}
+            <video ref={video} src={getFileUrl(clip, loopVersion(loop))} poster={poster ? getFileUrl(poster, loopVersion(loop)) : undefined}
               muted loop playsInline preload="none" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
           )}
         </Box>
