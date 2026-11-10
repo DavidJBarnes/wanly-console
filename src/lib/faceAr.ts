@@ -11,7 +11,11 @@
 //   launch() — inside the tap: starts the loop video and requests the session synchronously,
 //              fetches the loop's shape data alongside. The lock waits for it.
 // In AR: trigger/grip = re-anchor (look at the face, hold still); A/X = Face / Face + hair /
-// Hair (console#751); B/Y = leave.
+// Hair (console#751) / Full head (console#753); B/Y = leave.
+//
+// Once placed, the head is held in the room by the headset's own tracking, and a low-rate check
+// keeps measuring the mannequin's face: a real move (a bump) glides her to the new spot, noise
+// never moves her (lib/faceTrack). In Full head mode she also turns a little toward the viewer.
 //
 // Loaded with import() so pages that never go to AR don't pull in three/MediaPipe.
 import * as THREE from "three";
@@ -20,8 +24,10 @@ import { getFileUrl } from "../api/client";
 import type { FaceLoop } from "../api/types";
 import { loopFile } from "./faceLoops";
 import { buildTriangles, featherAlpha, fitSimilarity, frameAttributes, ovalLoop, TOTAL_VERTICES } from "./faceMask";
+import type { Similarity } from "./faceMask";
 import { applyMat4 } from "./faceSpike";
-import { HAIR_MODE_LABEL, hairRows, headShell, nextHairMode } from "./faceHair";
+import { cardDepth, HAIR_MODE_LABEL, hairRows, HEAD_INFLATE, headPivot, headShell, nextHairMode } from "./faceHair";
+import { approach, DriftJudge, GLIDE_MS, lookAngles, TRACK_INTERVAL_MS, TRACK_WINDOW, unplace } from "./faceTrack";
 import type { HairMode } from "./faceHair";
 import type { Pt3, Vec3 } from "./faceSpike";
 import {
@@ -59,8 +65,9 @@ interface FaceData {
   frames: number;
   positions: Float32Array;
   uvs: Float32Array;
-  /** Loops prepared since console#751: see lib/faceHair. */
-  hair: { rows: Float32Array; faceToHair: [number, number, number] } | null;
+  /** Loops prepared since console#751: see lib/faceHair. headMask: since console#753, the mask's
+   * green channel is the whole head (hair + face + neck); before, every channel is the hair. */
+  hair: { rows: Float32Array; faceToHair: [number, number, number]; headMask: boolean } | null;
 }
 
 /** A hidden, playing video element (1px, not display:none, so the browser keeps decoding it). */
@@ -80,7 +87,9 @@ async function loadFace(loop: FaceLoop): Promise<FaceData> {
   let hair: FaceData["hair"] = null;
   if (meta.hair?.faceToHair) {
     const rows = new Float32Array(await (await fetch(getFileUrl(loopFile(loop, "hair.bin")!))).arrayBuffer());
-    if (rows.length === meta.frames * 8) hair = { rows, faceToHair: meta.hair.faceToHair };
+    if (rows.length === meta.frames * 8) {
+      hair = { rows, faceToHair: meta.hair.faceToHair, headMask: meta.hair.masks?.g === "head" };
+    }
   }
   return {
     fps: meta.fps,
@@ -363,11 +372,18 @@ async function runSession(
   // Hair: an ellipsoid head shell + a backing card, in the clip's stabilised head space (same
   // as the face mesh, so the same fit matrix places them). Each vertex looks its hair up in
   // hair.mp4 through the current frame's affine; the mask (bottom half) is the alpha.
+  // maskChannel: 0 = the hair mask (red), 1 = the whole head (green, Full head). edgeFill (the
+  // Full head shell only): outside the square, repeat its edge instead of dropping — the render
+  // cuts her crown off at the frame's top, and the shell must still cover the bare skull there.
   const rowU = new THREE.Vector4();
   const rowV = new THREE.Vector4();
-  const hairMaterial = (writeDepth: boolean) =>
+  const maskChannel = { value: 0 };
+  const hairMaterial = (writeDepth: boolean, edgeFill: boolean) =>
     new THREE.ShaderMaterial({
-      uniforms: { map: { value: hairTex }, rowU: { value: rowU }, rowV: { value: rowV } },
+      uniforms: {
+        map: { value: hairTex }, rowU: { value: rowU }, rowV: { value: rowV }, maskChannel,
+        edgeFill: { value: edgeFill ? 1 : 0 },
+      },
       vertexShader: /* glsl */ `
         uniform vec4 rowU;
         uniform vec4 rowV;
@@ -379,11 +395,18 @@ async function runSession(
         }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D map;
+        uniform float maskChannel;
+        uniform float edgeFill;
         varying vec2 hUv;
         void main() {
-          if (hUv.x < 0.0 || hUv.x > 1.0 || hUv.y < 0.0 || hUv.y > 1.0) discard;
-          vec3 c = texture2D(map, vec2(hUv.x, 1.0 - 0.5 * hUv.y)).rgb;
-          float m = texture2D(map, vec2(hUv.x, 0.5 - 0.5 * hUv.y)).r;
+          vec2 h = hUv;
+          if (h.x < 0.0 || h.x > 1.0 || h.y < 0.0 || h.y > 1.0) {
+            if (edgeFill < 0.5) discard;
+            h = clamp(h, vec2(0.002), vec2(0.998)); // stay off the colour/mask seam
+          }
+          vec3 c = texture2D(map, vec2(h.x, 1.0 - 0.5 * h.y)).rgb;
+          vec3 mm = texture2D(map, vec2(h.x, 0.5 - 0.5 * h.y)).rgb;
+          float m = maskChannel > 0.5 ? mm.g : mm.r;
           float a = clamp((m - 0.25) / 0.5, 0.0, 1.0);
           gl_FragColor = vec4(c * a, a); // premultiplied
         }`,
@@ -396,25 +419,40 @@ async function runSession(
   hairGroup.visible = false;
   scene.add(hairGroup);
   let hairBuilt = false;
+  let hairShell: THREE.Mesh | null = null;
+  let headShellMesh: THREE.Mesh | null = null;
+  let pivot = new THREE.Vector3();
   const buildHair = (f: FaceData) => {
     hairBuilt = true;
-    const sh = headShell(f.positions.subarray(0, 468 * 3));
-    const [cx, cy, cz] = sh.center;
-    const [rx, ry, rz] = sh.radii;
+    const frame0 = f.positions.subarray(0, 468 * 3);
     // Shell: front faces only, writes depth so the card behind it only shows OUTSIDE the head.
-    const shellGeo = new THREE.SphereGeometry(1, 48, 32);
-    shellGeo.scale(rx, ry, rz);
-    shellGeo.translate(cx, cy, cz);
-    const shell = new THREE.Mesh(shellGeo, hairMaterial(true));
-    shell.renderOrder = 1;
-    shell.frustumCulled = false;
-    // Card: catches hair outside the skull outline (hanging down, volume at the sides).
-    const cardGeo = new THREE.PlaneGeometry(rx * 6, ry * 6);
-    cardGeo.translate(cx, cy - ry, cz);
-    const card = new THREE.Mesh(cardGeo, hairMaterial(false));
+    // Full head uses a slightly bigger one (lib/faceHair HEAD_INFLATE) that fills to its edge.
+    const shellMesh = (inflate: number, edgeFill: boolean) => {
+      const sh = headShell(frame0, inflate);
+      const g = new THREE.SphereGeometry(1, 48, 32);
+      g.scale(...sh.radii);
+      g.translate(...sh.center);
+      const m = new THREE.Mesh(g, hairMaterial(true, edgeFill));
+      m.renderOrder = 1;
+      m.frustumCulled = false;
+      return m;
+    };
+    hairShell = shellMesh(1, false);
+    headShellMesh = shellMesh(HEAD_INFLATE, true);
+    const sh = headShell(frame0);
+    const [cx, cy] = sh.center;
+    const [rx, ry] = sh.radii;
+    // Card: catches what is outside the skull outline (hair hanging down, volume at the sides,
+    // and in Full head the ears and neck). Bent forward in the middle to sit near the neck.
+    const cardGeo = new THREE.PlaneGeometry(rx * 6, ry * 6, 48, 1);
+    cardGeo.translate(cx, cy - ry, 0);
+    const cp = cardGeo.attributes.position;
+    for (let i = 0; i < cp.count; i++) cp.setZ(i, cardDepth(cp.getX(i), sh, frame0));
+    const card = new THREE.Mesh(cardGeo, hairMaterial(false, false));
     card.renderOrder = 2;
     card.frustumCulled = false;
-    hairGroup.add(shell, card);
+    hairGroup.add(hairShell, headShellMesh, card);
+    pivot = new THREE.Vector3(...headPivot(frame0, sh));
   };
   let mode: HairMode = startMode;
   let modeShownAt = -1e9;
@@ -462,10 +500,50 @@ async function runSession(
   let lastFaceAt = 0;
   let waiting = "";
 
+  // Placement. `placement` is where the face is believed to be (head space → room); `shown` is
+  // where it is drawn, which glides to a corrected placement instead of jumping.
+  let placement: Similarity | null = null;
+  const shown = { p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1 };
+  let glide: { from: typeof shown; to: typeof shown; start: number } | null = null;
+  const toTrs = (sim: Similarity) => {
+    const r = sim.rotation;
+    const m = new THREE.Matrix4().set(
+      r[0], r[1], r[2], 0, r[3], r[4], r[5], 0, r[6], r[7], r[8], 0, 0, 0, 0, 1,
+    );
+    return {
+      p: new THREE.Vector3(sim.translation.x, sim.translation.y, sim.translation.z),
+      q: new THREE.Quaternion().setFromRotationMatrix(m),
+      s: sim.scale,
+    };
+  };
+  const setPlacement = (sim: Similarity, t: number, smooth: boolean) => {
+    placement = sim;
+    const to = toTrs(sim);
+    if (smooth) {
+      glide = { from: { p: shown.p.clone(), q: shown.q.clone(), s: shown.s }, to, start: t };
+    } else {
+      glide = null;
+      Object.assign(shown, to);
+    }
+  };
+  let judge: DriftJudge | null = null;
+  // Background tracking once locked: one stereo pair every TRACK_INTERVAL_MS, left camera on one
+  // frame and right on the next, so no frame runs two detections.
+  let trackStage: "idle" | "left" | "right" = "idle";
+  let trackDue = 0;
+  let trackSamples: (Vec3 | null)[][] = [];
+  // Turning toward the viewer (Full head only), radians.
+  let yaw = 0;
+  let pitch = 0;
+  let lastT = 0;
+
   const reanchor = () => {
     if (phase === "error" || phase === "loading") return;
     phase = "searching";
     samples = [];
+    trackSamples = [];
+    trackStage = "idle";
+    judge?.reset();
   };
   session.addEventListener("select", reanchor);
   session.addEventListener("squeeze", reanchor);
@@ -473,11 +551,50 @@ async function runSession(
   const viewer = new THREE.Matrix4();
   const viewerPos = new THREE.Vector3();
   const v = new THREE.Vector3();
+  const base = new THREE.Matrix4();
+  const turn = new THREE.Matrix4();
+  const tmp = new THREE.Matrix4();
+  const scaleV = new THREE.Vector3(1, 1, 1);
   let lastExit = false;
   let lastCycle = false;
 
+  /**
+   * One stereo sample from a fresh right-camera detection `r` paired with the last left one:
+   * the placement anchors in the room, or a reason it was refused (moving head, bad match).
+   */
+  const pairSample = (r: Pt3[], at: number, t: number, now: number[]): { sample: (Vec3 | null)[] | null; why: string } => {
+    const w = right.video.videoWidth;
+    const h = right.video.videoHeight;
+    const st = lastLeft && Math.abs(lastLeft.at - at) <= STEREO_PAIR_MS ? stereoPoints(r, lastLeft.lm, w, h) : null;
+    const meta = frameMeta();
+    const cap = meta && meta.t != null && Math.abs(meta.mediaTime - right.video.currentTime) < 0.05 ? meta.t : null;
+    const poseTime = cap != null && t - cap >= 0 && t - cap < POSE_HISTORY_MS ? cap : t - FALLBACK_LATENCY_MS;
+    const steady = history.turnRate(poseTime) <= LOCK_MAX_TURN_DEG_PER_S;
+    const matched = !!st && st.gapM <= LOCK_MAX_RAY_GAP_M;
+    if (!steady) return { sample: null, why: "Hold your head still" };
+    if (!st || !matched) return { sample: null, why: "Face it straight on" };
+    const headPose = history.at(poseTime) ?? now;
+    return {
+      sample: stereoAnchors(r, lastLeft!.lm, w, h).map((a) => (a ? applyMat4(headPose, a) : null)),
+      why: "",
+    };
+  };
+
+  /** A placement from pooled samples, or null if too few anchors survived. */
+  const fitSamples = (pool: (Vec3 | null)[][], f: FaceData): Similarity | null => {
+    const got = medianAnchors(pool);
+    if (got.length < ANCHOR_MIN_COUNT) return null;
+    const src = got.map(({ index }) => {
+      const id = PLACE_ANCHORS[index];
+      return { x: f.positions[id * 3], y: f.positions[id * 3 + 1], z: f.positions[id * 3 + 2] };
+    });
+    return fitSimilarity(src, got.map((g) => g.point));
+  };
+
   await renderer.xr.setSession(session);
   renderer.setAnimationLoop((t: number, frame?: XRFrame) => {
+    const dt = lastT ? (t - lastT) / 1000 : 0;
+    lastT = t;
     const ref = renderer.xr.getReferenceSpace();
     const pose = frame && ref ? frame.getViewerPose(ref) : null;
     if (pose) {
@@ -492,7 +609,7 @@ async function runSession(
       if (exit && !lastExit) session.end().catch(() => {});
       lastExit = exit;
 
-      // A/X (button 4) cycles Face → Face + hair → Hair.
+      // A/X (button 4) cycles Face → Face + hair → Hair → Full head.
       let cycle = false;
       for (const src of session.inputSources) if (src.gamepad?.buttons[4]?.pressed) cycle = true;
       if (cycle && !lastCycle) {
@@ -502,8 +619,7 @@ async function runSession(
       }
       lastCycle = cycle;
 
-      // Detect only while placing: once locked, two MediaPipe runs per frame would hold the
-      // render loop to ~25 fps (the POC's judder). The trigger resumes it.
+      // Placing: detect on every new camera frame until locked.
       if (phase === "searching" || phase === "locking") {
         const l = detect(left);
         if (l !== undefined) lastLeft = l ? { lm: l, at: performance.now() } : null;
@@ -520,43 +636,29 @@ async function runSession(
             phaseStart = t;
             samples = [];
           }
-          const w = right.video.videoWidth;
-          const h = right.video.videoHeight;
-          const st = lastLeft && Math.abs(lastLeft.at - at) <= STEREO_PAIR_MS ? stereoPoints(r, lastLeft.lm, w, h) : null;
-          const meta = frameMeta();
-          const cap =
-            meta && meta.t != null && Math.abs(meta.mediaTime - right.video.currentTime) < 0.05 ? meta.t : null;
-          const poseTime = cap != null && t - cap >= 0 && t - cap < POSE_HISTORY_MS ? cap : t - FALLBACK_LATENCY_MS;
-          const steady = history.turnRate(poseTime) <= LOCK_MAX_TURN_DEG_PER_S;
-          const matched = !!st && st.gapM <= LOCK_MAX_RAY_GAP_M;
-          waiting = !steady ? "Hold your head still" : !matched ? "Face it straight on" : "";
-          if (st && steady && matched) {
-            const headPose = history.at(poseTime) ?? now;
-            samples.push(stereoAnchors(r, lastLeft!.lm, w, h).map((a) => (a ? applyMat4(headPose, a) : null)));
-          }
+          const got = pairSample(r, at, t, now);
+          waiting = got.why;
+          if (got.sample) samples.push(got.sample);
         }
       }
 
       if (phase === "locking" && face && (t - phaseStart) / 1000 >= LOCK_SECONDS && samples.length >= LOCK_MIN_SAMPLES) {
-        const f0 = face as FaceData;
-        const got = medianAnchors(samples);
-        if (got.length >= ANCHOR_MIN_COUNT) {
-          const src = got.map(({ index }) => {
-            const id = PLACE_ANCHORS[index];
-            return { x: f0.positions[id * 3], y: f0.positions[id * 3 + 1], z: f0.positions[id * 3 + 2] };
-          });
-          const fit = fitSimilarity(src, got.map((g) => g.point));
-          const r = fit.rotation;
-          const s = fit.scale;
-          mesh.matrix.set(
-            s * r[0], s * r[1], s * r[2], fit.translation.x,
-            s * r[3], s * r[4], s * r[5], fit.translation.y,
-            s * r[6], s * r[7], s * r[8], fit.translation.z,
-            0, 0, 0, 1,
+        const fit = fitSamples(samples, face as FaceData);
+        if (fit) {
+          setPlacement(fit, t, false);
+          const f0 = face as FaceData;
+          const c = PLACE_ANCHORS.reduce(
+            (a, id) => ({
+              x: a.x + f0.positions[id * 3] / PLACE_ANCHORS.length,
+              y: a.y + f0.positions[id * 3 + 1] / PLACE_ANCHORS.length,
+              z: a.z + f0.positions[id * 3 + 2] / PLACE_ANCHORS.length,
+            }),
+            { x: 0, y: 0, z: 0 },
           );
-          mesh.matrixWorldNeedsUpdate = true;
-          hairGroup.matrix.copy(mesh.matrix);
-          hairGroup.matrixWorldNeedsUpdate = true;
+          judge = new DriftJudge(c);
+          trackSamples = [];
+          trackStage = "idle";
+          trackDue = t + TRACK_INTERVAL_MS;
           phase = "locked";
           lockedAt = t;
         } else {
@@ -564,6 +666,37 @@ async function runSession(
           phaseStart = t;
           samples = [];
           waiting = "Face it straight on";
+        }
+      }
+
+      // Locked: dead reckoning, with a background check for a moved mannequin.
+      if (phase === "locked" && face && placement && judge) {
+        if (trackStage === "idle" && t >= trackDue) trackStage = "left";
+        if (trackStage === "left") {
+          const l = detect(left);
+          if (l !== undefined) {
+            lastLeft = l ? { lm: l, at: performance.now() } : null;
+            trackStage = l ? "right" : "idle";
+            if (!l) trackDue = t + TRACK_INTERVAL_MS;
+          }
+        } else if (trackStage === "right") {
+          const r = detect(right);
+          if (r !== undefined) {
+            if (r) {
+              const got = pairSample(r, performance.now(), t, now);
+              if (got.sample) trackSamples.push(got.sample);
+            }
+            trackStage = "idle";
+            trackDue = t + TRACK_INTERVAL_MS;
+          }
+        }
+        if (trackSamples.length >= TRACK_WINDOW) {
+          const est = fitSamples(trackSamples, face as FaceData);
+          trackSamples = [];
+          if (est) {
+            const verdict = judge.judge(placement, est);
+            if (verdict.kind === "move") setPlacement(verdict.to, t, true);
+          }
         }
       }
 
@@ -583,7 +716,7 @@ async function runSession(
         case "locked":
           // A short reminder, then nothing in the way.
           if (t - modeShownAt < 2000) setHud(HAIR_MODE_LABEL[mode], modeNote);
-          else if (t - lockedAt < 3000) setHud("Trigger to re-anchor", "A/X: face / hair   B/Y: leave");
+          else if (t - lockedAt < 3000) setHud("Trigger to re-anchor", "A/X: mode   B/Y: leave");
           else setHud("", "");
           break;
       }
@@ -598,10 +731,21 @@ async function runSession(
       // Hair modes draw everything from hair.mp4, so face and hair are always the same frame.
       const wantsHair = mode !== "face";
       const useHair = wantsHair && !!f.hair && hairClip.readyState >= 2;
-      modeNote = wantsHair && !f.hair ? "this loop has no hair yet — re-prepare it" : "";
-      const placed = phase === "locked";
+      const fullHead = mode === "head" && useHair && !!f.hair?.headMask;
+      modeNote =
+        wantsHair && !f.hair
+          ? "this loop has no hair yet — re-prepare it"
+          : mode === "head" && f.hair && !f.hair.headMask
+            ? "re-prepare this loop for the full head"
+            : "";
+      const placed = phase === "locked" && !!placement;
       mesh.visible = placed && (mode !== "hair" || !useHair);
       hairGroup.visible = placed && useHair;
+      if (hairShell && headShellMesh) {
+        hairShell.visible = !fullHead;
+        headShellMesh.visible = fullHead;
+      }
+      maskChannel.value = fullHead ? 1 : 0;
       faceUniforms.map.value = useHair ? hairTex : tex;
       faceUniforms.fromHair.value = useHair ? 1 : 0;
       if (f.hair) faceUniforms.faceToHair.value.fromArray(f.hair.faceToHair);
@@ -618,6 +762,37 @@ async function runSession(
           rowU.fromArray(u);
           rowV.fromArray(v);
         }
+      }
+
+      if (placed && placement) {
+        // Where to draw: the placement, mid-glide if it was just corrected.
+        if (glide) {
+          const k = Math.min(1, (t - glide.start) / GLIDE_MS);
+          const e = k * k * (3 - 2 * k);
+          shown.p.lerpVectors(glide.from.p, glide.to.p, e);
+          shown.q.slerpQuaternions(glide.from.q, glide.to.q, e);
+          shown.s = glide.from.s + (glide.to.s - glide.from.s) * e;
+          if (k >= 1) glide = null;
+        }
+        base.compose(shown.p, shown.q, scaleV.setScalar(shown.s));
+        // Full head: turn toward the viewer about the top of the neck. Other modes sit on the
+        // real face, so they must not turn: snap back.
+        if (fullHead && pose) {
+          const vh = unplace(placement, { x: viewerPos.x, y: viewerPos.y, z: viewerPos.z });
+          const want = lookAngles(vh, { x: pivot.x, y: pivot.y, z: pivot.z });
+          yaw = approach(yaw, want.yaw, dt);
+          pitch = approach(pitch, want.pitch, dt);
+        } else if (!fullHead) {
+          yaw = pitch = 0;
+        }
+        turn.makeTranslation(pivot.x, pivot.y, pivot.z);
+        turn.multiply(tmp.makeRotationY(yaw));
+        turn.multiply(tmp.makeRotationX(-pitch));
+        turn.multiply(tmp.makeTranslation(-pivot.x, -pivot.y, -pivot.z));
+        mesh.matrix.multiplyMatrices(base, turn);
+        mesh.matrixWorldNeedsUpdate = true;
+        hairGroup.matrix.copy(mesh.matrix);
+        hairGroup.matrixWorldNeedsUpdate = true;
       }
     }
     renderer.render(scene, camera);

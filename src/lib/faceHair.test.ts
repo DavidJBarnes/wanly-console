@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { hairUv, headShell, isHairMode, nextHairMode } from "./faceHair";
+import { cardDepth, hairUv, HEAD_INFLATE, headPivot, headShell, isHairMode, nextHairMode } from "./faceHair";
 
 describe("hair modes", () => {
   it("cycles face → face + hair → hair → face", () => {
     expect(nextHairMode("face")).toBe("facehair");
     expect(nextHairMode("facehair")).toBe("hair");
-    expect(nextHairMode("hair")).toBe("face");
+    expect(nextHairMode("hair")).toBe("head");
+    expect(nextHairMode("head")).toBe("face");
   });
   it("recognises only real modes (saved settings)", () => {
     expect(isHairMode("hair")).toBe(true);
@@ -41,5 +42,34 @@ describe("hairUv", () => {
     const rows = new Float32Array(16);
     rows.set([0.001, 0, 0, 0.5, 0, -0.001, 0, 0.5], 8); // frame 1
     expect(hairUv(rows, 1, 100, 200, 7)).toEqual([expect.closeTo(0.6, 6), expect.closeTo(0.3, 6)]);
+  });
+});
+
+describe("full head geometry", () => {
+  const pos = new Float32Array(468 * 3);
+  const set = (i: number, x: number, y: number, z: number) => pos.set([x, y, z], i * 3);
+  set(10, 0, 100, 50);
+  set(152, 0, -100, 40);
+  set(234, -80, 0, -20);
+  set(454, 80, 0, -20);
+  set(33, -45, 20, 20);
+  set(263, 45, 20, 20);
+  set(13, 0, -55, 45);
+  set(14, 0, -65, 45);
+  const s = headShell(pos, HEAD_INFLATE);
+  it("inflates the shell about the same centre", () => {
+    const base = headShell(pos);
+    expect(s.center).toEqual(base.center);
+    s.radii.forEach((r, i) => expect(r).toBeCloseTo(base.radii[i] * HEAD_INFLATE));
+  });
+  it("bends the card forward to the neck in the middle, flat at the sides", () => {
+    const cz = s.center[2];
+    const mid = cardDepth(s.center[0], s, pos);
+    expect(mid).toBeCloseTo(40 - 0.25 * 200); // chin z − a quarter face height
+    expect(mid).toBeGreaterThan(cz);
+    expect(cardDepth(s.center[0] + 2 * s.radii[0], s, pos)).toBe(cz);
+  });
+  it("pivots at the top of the neck, behind the mouth", () => {
+    expect(headPivot(pos, s)).toEqual([s.center[0], -60, s.center[2]]);
   });
 });
