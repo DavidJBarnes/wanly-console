@@ -26,6 +26,7 @@ import { loopFile, loopVersion } from "./faceLoops";
 import { buildTriangles, featherAlpha, fitSimilarity, frameAttributes, ovalLoop, TOTAL_VERTICES } from "./faceMask";
 import type { Similarity } from "./faceMask";
 import { applyMat4 } from "./faceSpike";
+import { blendRgb, type Rgb, sampleSkin, SKIN_POINTS, toneGain } from "./faceSkin";
 import { cardDepth, HAIR_MODE_LABEL, hairRows, HEAD_INFLATE, headEyes, headPivot, headShell, nextHairMode } from "./faceHair";
 import { approach, DriftJudge, frameIndex, GLIDE_MS, lookAngles, TRACK_INTERVAL_MS, TRACK_WINDOW, unplace } from "./faceTrack";
 import type { HairMode } from "./faceHair";
@@ -68,6 +69,8 @@ interface FaceData {
   /** Loops prepared since console#751: see lib/faceHair. headMask: since console#753, the mask's
    * green channel is the whole head (hair + face + neck); before, every channel is the hair. */
   hair: { rows: Float32Array; faceToHair: [number, number, number]; headMask: boolean } | null;
+  /** Her skin colour (linear), from the poster at the loop's first-frame landmarks (console#759). */
+  skin: Rgb | null;
 }
 
 /** A hidden, playing video element (1px, not display:none, so the browser keeps decoding it). */
@@ -111,13 +114,40 @@ async function loadFace(loop: FaceLoop): Promise<FaceData> {
       hair = { rows, faceToHair: meta.hair.faceToHair, headMask: meta.hair.masks?.g === "head" };
     }
   }
+  const uvs = new Float32Array(buf, n * 3 * 4, n * 2);
   return {
     fps: meta.fps,
     frames: meta.frames,
     positions: new Float32Array(buf, 0, n * 3),
-    uvs: new Float32Array(buf, n * 3 * 4, n * 2),
+    uvs,
     hair,
+    skin: await posterSkin(loop, uvs).catch(() => null),
   };
+}
+
+/** Her skin colour: the poster is the loop's first frame, and uvs' first frame are its landmarks. */
+async function posterSkin(loop: FaceLoop, uvs: Float32Array): Promise<Rgb | null> {
+  const blob = await (await fetch(getFileUrl(loopFile(loop, "poster.jpg")!, loopVersion(loop)))).blob();
+  const bmp = await createImageBitmap(blob);
+  const c = new OffscreenCanvas(bmp.width, bmp.height);
+  const g = c.getContext("2d")!;
+  g.drawImage(bmp, 0, 0);
+  const img = g.getImageData(0, 0, bmp.width, bmp.height);
+  return sampleSkin(img, SKIN_POINTS.map((i) => [uvs[i * 2], uvs[i * 2 + 1]] as [number, number]));
+}
+
+/** The mannequin's skin colour in a camera frame, at its detected landmarks (0..1, y down). */
+const camCanvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(320, 240) : null;
+function camSkin(cam: Cam, lm: Pt3[]): Rgb | null {
+  const v = cam.video;
+  if (!camCanvas || !v.videoWidth) return null;
+  const w = 320;
+  const h = Math.round((w * v.videoHeight) / v.videoWidth);
+  if (camCanvas.height !== h) camCanvas.height = h;
+  const g = camCanvas.getContext("2d", { willReadFrequently: true });
+  if (!g) return null;
+  g.drawImage(v, 0, 0, w, h);
+  return sampleSkin(g.getImageData(0, 0, w, h), SKIN_POINTS.map((i) => [lm[i].x, lm[i].y] as [number, number]));
 }
 
 export class FaceArEngine {
@@ -342,7 +372,10 @@ async function runSession(
   const hairTex = new THREE.VideoTexture(hairClip);
   hairTex.colorSpace = THREE.SRGBColorSpace;
   // fromHair: draw the face from hair.mp4's colour square instead (faceToHair maps it there).
+  // Skin tone match (console#759): her colour times this, eased toward the measured gain.
+  const tone = { value: new THREE.Vector3(1, 1, 1) };
   const faceUniforms = {
+    tone,
     map: { value: tex as THREE.Texture },
     fromHair: { value: 0 },
     faceToHair: { value: new THREE.Vector3(0, 0, 1) },
@@ -362,6 +395,7 @@ async function runSession(
         }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D map;
+        uniform vec3 tone;
         uniform float fromHair;
         uniform vec3 faceToHair;
         varying vec2 vUv;
@@ -373,7 +407,7 @@ async function runSession(
             vec2 h = faceToHair.xy + faceToHair.z * vec2(vUv.x, 1.0 - vUv.y);
             t = vec2(h.x, 1.0 - 0.5 * h.y);
           }
-          vec3 c = texture2D(map, t).rgb;
+          vec3 c = texture2D(map, t).rgb * tone;
           gl_FragColor = vec4(c * vAlpha, vAlpha); // premultiplied
         }`,
       transparent: true,
@@ -402,7 +436,7 @@ async function runSession(
   const hairMaterial = (writeDepth: boolean, edgeFill: boolean) =>
     new THREE.ShaderMaterial({
       uniforms: {
-        map: { value: hairTex }, rowU: { value: rowU }, rowV: { value: rowV }, maskChannel,
+        map: { value: hairTex }, rowU: { value: rowU }, rowV: { value: rowV }, maskChannel, tone,
         edgeFill: { value: edgeFill ? 1 : 0 },
       },
       vertexShader: /* glsl */ `
@@ -416,6 +450,7 @@ async function runSession(
         }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D map;
+        uniform vec3 tone;
         uniform float maskChannel;
         uniform float edgeFill;
         varying vec2 hUv;
@@ -429,6 +464,8 @@ async function runSession(
           vec3 mm = texture2D(map, vec2(h.x, 0.5 - 0.5 * h.y)).rgb;
           float m = maskChannel > 0.5 ? mm.g : mm.r;
           float a = clamp((m - 0.25) / 0.5, 0.0, 1.0);
+          // the tone applies to skin (head minus hair: neck, ears, face), not to the hair
+          c *= mix(vec3(1.0), tone, clamp(mm.g - mm.r, 0.0, 1.0));
           gl_FragColor = vec4(c * a, a); // premultiplied
         }`,
       transparent: true,
@@ -580,6 +617,18 @@ async function runSession(
   const scaleV = new THREE.Vector3(1, 1, 1);
   let lastExit = false;
   let lastCycle = false;
+  // Skin tone: the mannequin's skin, measured whenever its landmarks are fresh (lock + tracking).
+  let mannequinSkin: Rgb | null = null;
+  let skinAt = -1e9;
+  let toneOn = true;
+  let toneShownAt = -1e9;
+  let lastToneBtn = false;
+  const measureSkin = (lm: Pt3[], t: number) => {
+    if (t - skinAt < 250) return;
+    skinAt = t;
+    const s = camSkin(right, lm);
+    if (s) mannequinSkin = blendRgb(mannequinSkin, s);
+  };
 
   /**
    * One stereo sample from a fresh right-camera detection `r` paired with the last left one:
@@ -642,13 +691,25 @@ async function runSession(
       }
       lastCycle = cycle;
 
+      // Thumbstick press (button 3) turns the skin tone match on and off, to compare.
+      let toneBtn = false;
+      for (const src of session.inputSources) if (src.gamepad?.buttons[3]?.pressed) toneBtn = true;
+      if (toneBtn && !lastToneBtn) {
+        toneOn = !toneOn;
+        toneShownAt = t;
+      }
+      lastToneBtn = toneBtn;
+
       // Placing: detect on every new camera frame until locked.
       if (phase === "searching" || phase === "locking") {
         const l = detect(left);
         if (l !== undefined) lastLeft = l ? { lm: l, at: performance.now() } : null;
         const r = detect(right);
         const at = performance.now();
-        if (r) lastFaceAt = t;
+        if (r) {
+          lastFaceAt = t;
+          measureSkin(r, t);
+        }
         if (r === null && t - lastFaceAt > 500) {
           // Lost the face (not one missed frame): start over when it is back.
           phase = "searching";
@@ -706,6 +767,7 @@ async function runSession(
           const r = detect(right);
           if (r !== undefined) {
             if (r) {
+              measureSkin(r, t);
               const got = pairSample(r, performance.now(), t, now);
               if (got.sample) trackSamples.push(got.sample);
             }
@@ -740,8 +802,9 @@ async function runSession(
           // A short reminder, then nothing in the way.
           // A mode that cannot show what it says (an old loop) says so after the lock too,
           // not only when cycled to — it used to fall back silently (console#755).
-          if (t - modeShownAt < 2000 || (modeNote && t - lockedAt < 6000)) setHud(HAIR_MODE_LABEL[mode], modeNote);
-          else if (t - lockedAt < 3000) setHud("Trigger to re-anchor", "A/X: mode   B/Y: leave");
+          if (t - toneShownAt < 2000) setHud(toneOn ? "Skin tone: matched" : "Skin tone: original", "");
+          else if (t - modeShownAt < 2000 || (modeNote && t - lockedAt < 6000)) setHud(HAIR_MODE_LABEL[mode], modeNote);
+          else if (t - lockedAt < 3000) setHud("Trigger to re-anchor", "A/X: mode   B/Y: leave   stick: tone");
           else setHud("", "");
           break;
       }
@@ -774,6 +837,9 @@ async function runSession(
       faceUniforms.map.value = useHair ? hairTex : tex;
       faceUniforms.fromHair.value = useHair ? 1 : 0;
       if (f.hair) faceUniforms.faceToHair.value.fromArray(f.hair.faceToHair);
+      // Ease the tone toward the measured gain (or back to 1), so it never pops.
+      const g = toneOn && mannequinSkin && f.skin ? toneGain(mannequinSkin, f.skin) : ([1, 1, 1] as Rgb);
+      tone.value.set(approach(tone.value.x, g[0], dt), approach(tone.value.y, g[1], dt), approach(tone.value.z, g[2], dt));
       const src = useHair ? hairClip : clip;
       const fi = frameIndex(shownTime(src), f.fps, f.frames);
       if (placed && (fi !== faceFrame || useHair !== lastUseHair)) {
