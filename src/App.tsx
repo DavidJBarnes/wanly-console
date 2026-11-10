@@ -22,6 +22,8 @@ import Wildcards from "./pages/Wildcards";
 import LoraRecipes from "./pages/LoraRecipes";
 import Characters from "./pages/Characters";
 import CharacterPage from "./pages/CharacterPage";
+// Lazy for the same reason as FaceSpike (three + MediaPipe load only when AR starts, but keep the page out of the main bundle too).
+const FaceLoops = lazy(() => import("./pages/FaceLoops"));
 
 export default function App() {
   return (
@@ -58,6 +60,14 @@ export default function App() {
             <Route path="/lora-recipes" element={<LoraRecipes />} />
             <Route path="/characters" element={<Characters />} />
             <Route path="/characters/:name" element={<CharacterPage />} />
+            <Route
+              path="/face-loops"
+              element={
+                <Suspense fallback={null}>
+                  <FaceLoops />
+                </Suspense>
+              }
+            />
             <Route path="/images" element={<ImageRepo />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
