@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Link as RouterLink } from "react-router";
-import { Alert, Box, Card, CardActionArea, CardContent, Chip, CircularProgress, Stack, Typography } from "@mui/material";
+import {
+  Alert, Box, Card, CardActionArea, CardContent, Chip, CircularProgress, Stack, ToggleButton, ToggleButtonGroup, Typography,
+} from "@mui/material";
 import { ViewInAr } from "@mui/icons-material";
 import { getFileUrl, listFaceLoops } from "../api/client";
 import type { FaceLoop } from "../api/types";
 import { loopFile } from "../lib/faceLoops";
 import { useFaceAr } from "../lib/useFaceAr";
 import type { FaceAr } from "../lib/useFaceAr";
+import { HAIR_MODE_LABEL, HAIR_MODES } from "../lib/faceHair";
 
 /**
  * Face Loops (console#749): every character's ready loops. On the Quest, one tap wears the
@@ -26,6 +29,11 @@ export default function FaceLoops() {
     <Box>
       <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>Face Loops</Typography>
+        <ToggleButtonGroup size="small" exclusive value={ar.mode} onChange={(_, m) => m && ar.setMode(m)}>
+          {HAIR_MODES.map((m) => (
+            <ToggleButton key={m} value={m}>{HAIR_MODE_LABEL[m]}</ToggleButton>
+          ))}
+        </ToggleButtonGroup>
         <ArStatus ar={ar} />
       </Stack>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

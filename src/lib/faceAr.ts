@@ -10,7 +10,8 @@
 //              landmarkers. Same order as the POC (cameras open on the flat page, then AR).
 //   launch() — inside the tap: starts the loop video and requests the session synchronously,
 //              fetches the loop's shape data alongside. The lock waits for it.
-// In AR: trigger/grip = re-anchor (look at the face, hold still); B/Y = leave.
+// In AR: trigger/grip = re-anchor (look at the face, hold still); A/X = Face / Face + hair /
+// Hair (console#751); B/Y = leave.
 //
 // Loaded with import() so pages that never go to AR don't pull in three/MediaPipe.
 import * as THREE from "three";
@@ -20,6 +21,8 @@ import type { FaceLoop } from "../api/types";
 import { loopFile } from "./faceLoops";
 import { buildTriangles, featherAlpha, fitSimilarity, frameAttributes, ovalLoop, TOTAL_VERTICES } from "./faceMask";
 import { applyMat4 } from "./faceSpike";
+import { HAIR_MODE_LABEL, hairRows, headShell, nextHairMode } from "./faceHair";
+import type { HairMode } from "./faceHair";
 import type { Pt3, Vec3 } from "./faceSpike";
 import {
   ANCHOR_MIN_COUNT,
@@ -56,6 +59,8 @@ interface FaceData {
   frames: number;
   positions: Float32Array;
   uvs: Float32Array;
+  /** Loops prepared since console#751: see lib/faceHair. */
+  hair: { rows: Float32Array; faceToHair: [number, number, number] } | null;
 }
 
 /** A hidden, playing video element (1px, not display:none, so the browser keeps decoding it). */
@@ -72,11 +77,17 @@ async function loadFace(loop: FaceLoop): Promise<FaceData> {
   const meta = await (await fetch(getFileUrl(loopFile(loop, "face.json")!))).json();
   const buf = await (await fetch(getFileUrl(loopFile(loop, "face.bin")!))).arrayBuffer();
   const n = meta.frames * meta.vertices;
+  let hair: FaceData["hair"] = null;
+  if (meta.hair?.faceToHair) {
+    const rows = new Float32Array(await (await fetch(getFileUrl(loopFile(loop, "hair.bin")!))).arrayBuffer());
+    if (rows.length === meta.frames * 8) hair = { rows, faceToHair: meta.hair.faceToHair };
+  }
   return {
     fps: meta.fps,
     frames: meta.frames,
     positions: new Float32Array(buf, 0, n * 3),
     uvs: new Float32Array(buf, n * 3 * 4, n * 2),
+    hair,
   };
 }
 
@@ -191,19 +202,26 @@ export class FaceArEngine {
    * Wear `loop`. Call straight from the tap handler: the session request must happen inside
    * the user gesture, so nothing is awaited before it.
    */
-  launch(loop: FaceLoop): Promise<XRSession> {
+  launch(loop: FaceLoop, mode: HairMode = "face", onMode?: (m: HairMode) => void): Promise<XRSession> {
     const xr = (navigator as unknown as { xr?: XRSystem }).xr;
     if (!xr) return Promise.reject(new Error("WebXR is not available in this browser"));
     if (this.state !== "ready" || !this.right || !this.left) {
       return Promise.reject(new Error(this.error ?? "the cameras are still starting — try again in a moment"));
     }
-    const clip = document.createElement("video");
-    clip.crossOrigin = "anonymous"; // before src: CORS-mode fetch so WebGL may sample it
-    clip.loop = true;
-    clip.muted = true;
-    clip.playsInline = true;
-    clip.src = getFileUrl(loopFile(loop, "loop.mp4")!);
-    clip.play().catch(() => {});
+    const video = (file: "loop.mp4" | "hair.mp4") => {
+      const v = document.createElement("video");
+      v.crossOrigin = "anonymous"; // before src: CORS-mode fetch so WebGL may sample it
+      v.loop = true;
+      v.muted = true;
+      v.playsInline = true;
+      v.src = getFileUrl(loopFile(loop, file)!);
+      v.play().catch(() => {}); // inside the tap, so autoplay rules allow it
+      return v;
+    };
+    // Both start now; each mode draws from ONE of them, so they never need syncing. A loop made
+    // before console#751 has no hair.mp4: that element just errors and is never used.
+    const clip = video("loop.mp4");
+    const hairClip = video("hair.mp4");
     const requested = xr.requestSession("immersive-ar", { requiredFeatures: ["local-floor"] });
     const face = loadFace(loop);
     face.catch(() => {}); // surfaced in the HUD
@@ -211,12 +229,14 @@ export class FaceArEngine {
       this.session = session;
       session.addEventListener("end", () => {
         this.session = null;
-        clip.pause();
-        clip.removeAttribute("src");
+        for (const v of [clip, hairClip]) {
+          v.pause();
+          v.removeAttribute("src");
+        }
         this.onChange();
       });
       this.onChange();
-      return runSession(session, this.right!, this.left!, () => this.captureTime, clip, face).then(
+      return runSession(session, this.right!, this.left!, () => this.captureTime, clip, hairClip, face, mode, onMode).then(
         () => session,
         (e) => {
           session.end().catch(() => {});
@@ -244,7 +264,10 @@ async function runSession(
   left: Cam,
   frameMeta: () => { mediaTime: number; t: number | null } | null,
   clip: HTMLVideoElement,
+  hairClip: HTMLVideoElement,
   facePromise: Promise<FaceData>,
+  startMode: HairMode,
+  onMode?: (m: HairMode) => void,
 ) {
   const scene = new THREE.Scene();
   // near 2 cm (default 10 cm): three passes it to the session's depthNear, so the face is not
@@ -286,10 +309,18 @@ async function runSession(
   geo.setIndex(tris);
   const tex = new THREE.VideoTexture(clip);
   tex.colorSpace = THREE.SRGBColorSpace;
+  const hairTex = new THREE.VideoTexture(hairClip);
+  hairTex.colorSpace = THREE.SRGBColorSpace;
+  // fromHair: draw the face from hair.mp4's colour square instead (faceToHair maps it there).
+  const faceUniforms = {
+    map: { value: tex as THREE.Texture },
+    fromHair: { value: 0 },
+    faceToHair: { value: new THREE.Vector3(0, 0, 1) },
+  };
   const mesh = new THREE.Mesh(
     geo,
     new THREE.ShaderMaterial({
-      uniforms: { map: { value: tex } },
+      uniforms: faceUniforms,
       vertexShader: /* glsl */ `
         attribute float alpha;
         varying vec2 vUv;
@@ -301,22 +332,93 @@ async function runSession(
         }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D map;
+        uniform float fromHair;
+        uniform vec3 faceToHair;
         varying vec2 vUv;
         varying float vAlpha;
         void main() {
-          vec3 c = texture2D(map, vUv).rgb;
+          vec2 t = vUv;
+          if (fromHair > 0.5) {
+            // face-crop (u, v down) -> hair square -> its colour tile (top half, flipY)
+            vec2 h = faceToHair.xy + faceToHair.z * vec2(vUv.x, 1.0 - vUv.y);
+            t = vec2(h.x, 1.0 - 0.5 * h.y);
+          }
+          vec3 c = texture2D(map, t).rgb;
           gl_FragColor = vec4(c * vAlpha, vAlpha); // premultiplied
         }`,
       transparent: true,
       premultipliedAlpha: true,
+      depthTest: false, // over the hair shell, which sits partly in front of the cheeks
       side: THREE.DoubleSide,
     }),
   );
+  mesh.renderOrder = 3;
   mesh.matrixAutoUpdate = false;
   mesh.frustumCulled = false; // positions change every frame
   mesh.visible = false;
   scene.add(mesh);
   let faceFrame = -1;
+  let lastUseHair = false;
+
+  // Hair: an ellipsoid head shell + a backing card, in the clip's stabilised head space (same
+  // as the face mesh, so the same fit matrix places them). Each vertex looks its hair up in
+  // hair.mp4 through the current frame's affine; the mask (bottom half) is the alpha.
+  const rowU = new THREE.Vector4();
+  const rowV = new THREE.Vector4();
+  const hairMaterial = (writeDepth: boolean) =>
+    new THREE.ShaderMaterial({
+      uniforms: { map: { value: hairTex }, rowU: { value: rowU }, rowV: { value: rowV } },
+      vertexShader: /* glsl */ `
+        uniform vec4 rowU;
+        uniform vec4 rowV;
+        varying vec2 hUv;
+        void main() {
+          vec4 q = vec4(position, 1.0);
+          hUv = vec2(dot(rowU, q), dot(rowV, q));
+          gl_Position = projectionMatrix * modelViewMatrix * q;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D map;
+        varying vec2 hUv;
+        void main() {
+          if (hUv.x < 0.0 || hUv.x > 1.0 || hUv.y < 0.0 || hUv.y > 1.0) discard;
+          vec3 c = texture2D(map, vec2(hUv.x, 1.0 - 0.5 * hUv.y)).rgb;
+          float m = texture2D(map, vec2(hUv.x, 0.5 - 0.5 * hUv.y)).r;
+          float a = clamp((m - 0.25) / 0.5, 0.0, 1.0);
+          gl_FragColor = vec4(c * a, a); // premultiplied
+        }`,
+      transparent: true,
+      premultipliedAlpha: true,
+      depthWrite: writeDepth,
+    });
+  const hairGroup = new THREE.Group();
+  hairGroup.matrixAutoUpdate = false;
+  hairGroup.visible = false;
+  scene.add(hairGroup);
+  let hairBuilt = false;
+  const buildHair = (f: FaceData) => {
+    hairBuilt = true;
+    const sh = headShell(f.positions.subarray(0, 468 * 3));
+    const [cx, cy, cz] = sh.center;
+    const [rx, ry, rz] = sh.radii;
+    // Shell: front faces only, writes depth so the card behind it only shows OUTSIDE the head.
+    const shellGeo = new THREE.SphereGeometry(1, 48, 32);
+    shellGeo.scale(rx, ry, rz);
+    shellGeo.translate(cx, cy, cz);
+    const shell = new THREE.Mesh(shellGeo, hairMaterial(true));
+    shell.renderOrder = 1;
+    shell.frustumCulled = false;
+    // Card: catches hair outside the skull outline (hanging down, volume at the sides).
+    const cardGeo = new THREE.PlaneGeometry(rx * 6, ry * 6);
+    cardGeo.translate(cx, cy - ry, cz);
+    const card = new THREE.Mesh(cardGeo, hairMaterial(false));
+    card.renderOrder = 2;
+    card.frustumCulled = false;
+    hairGroup.add(shell, card);
+  };
+  let mode: HairMode = startMode;
+  let modeShownAt = -1e9;
+  let modeNote = "";
 
   // A small prompt under the gaze while placing; gone once the face is on.
   const hudCanvas = document.createElement("canvas");
@@ -364,7 +466,6 @@ async function runSession(
     if (phase === "error" || phase === "loading") return;
     phase = "searching";
     samples = [];
-    mesh.visible = false;
   };
   session.addEventListener("select", reanchor);
   session.addEventListener("squeeze", reanchor);
@@ -373,6 +474,7 @@ async function runSession(
   const viewerPos = new THREE.Vector3();
   const v = new THREE.Vector3();
   let lastExit = false;
+  let lastCycle = false;
 
   await renderer.xr.setSession(session);
   renderer.setAnimationLoop((t: number, frame?: XRFrame) => {
@@ -389,6 +491,16 @@ async function runSession(
       for (const src of session.inputSources) if (src.gamepad?.buttons[5]?.pressed) exit = true;
       if (exit && !lastExit) session.end().catch(() => {});
       lastExit = exit;
+
+      // A/X (button 4) cycles Face → Face + hair → Hair.
+      let cycle = false;
+      for (const src of session.inputSources) if (src.gamepad?.buttons[4]?.pressed) cycle = true;
+      if (cycle && !lastCycle) {
+        mode = nextHairMode(mode);
+        modeShownAt = t;
+        onMode?.(mode);
+      }
+      lastCycle = cycle;
 
       // Detect only while placing: once locked, two MediaPipe runs per frame would hold the
       // render loop to ~25 fps (the POC's judder). The trigger resumes it.
@@ -443,7 +555,8 @@ async function runSession(
             0, 0, 0, 1,
           );
           mesh.matrixWorldNeedsUpdate = true;
-          mesh.visible = true;
+          hairGroup.matrix.copy(mesh.matrix);
+          hairGroup.matrixWorldNeedsUpdate = true;
           phase = "locked";
           lockedAt = t;
         } else {
@@ -469,7 +582,9 @@ async function runSession(
           break;
         case "locked":
           // A short reminder, then nothing in the way.
-          setHud(t - lockedAt < 3000 ? "Trigger to re-anchor" : "", t - lockedAt < 3000 ? "B/Y to leave" : "");
+          if (t - modeShownAt < 2000) setHud(HAIR_MODE_LABEL[mode], modeNote);
+          else if (t - lockedAt < 3000) setHud("Trigger to re-anchor", "A/X: face / hair   B/Y: leave");
+          else setHud("", "");
           break;
       }
       hud.visible = !!hudText.split("|")[0];
@@ -477,14 +592,32 @@ async function runSession(
       hud.position.copy(v);
       hud.lookAt(viewerPos);
     }
-    if (face && mesh.visible) {
+    if (face) {
       const f = face as FaceData;
-      const fi = Math.floor(clip.currentTime * f.fps) % f.frames;
-      if (fi !== faceFrame) {
+      if (f.hair && !hairBuilt) buildHair(f);
+      // Hair modes draw everything from hair.mp4, so face and hair are always the same frame.
+      const wantsHair = mode !== "face";
+      const useHair = wantsHair && !!f.hair && hairClip.readyState >= 2;
+      modeNote = wantsHair && !f.hair ? "this loop has no hair yet — re-prepare it" : "";
+      const placed = phase === "locked";
+      mesh.visible = placed && (mode !== "hair" || !useHair);
+      hairGroup.visible = placed && useHair;
+      faceUniforms.map.value = useHair ? hairTex : tex;
+      faceUniforms.fromHair.value = useHair ? 1 : 0;
+      if (f.hair) faceUniforms.faceToHair.value.fromArray(f.hair.faceToHair);
+      const src = useHair ? hairClip : clip;
+      const fi = Math.floor(src.currentTime * f.fps) % f.frames;
+      if (placed && (fi !== faceFrame || useHair !== lastUseHair)) {
         faceFrame = fi;
+        lastUseHair = useHair;
         frameAttributes(f.positions, f.uvs, fi, pos, uv, oval);
         geo.attributes.position.needsUpdate = true;
         geo.attributes.uv.needsUpdate = true;
+        if (f.hair) {
+          const [u, v] = hairRows(f.hair.rows, fi);
+          rowU.fromArray(u);
+          rowV.fromArray(v);
+        }
       }
     }
     renderer.render(scene, camera);
@@ -494,6 +627,7 @@ async function runSession(
     renderer.setAnimationLoop(null);
     renderer.dispose();
     tex.dispose();
+    hairTex.dispose();
     hudTex.dispose();
     host.remove();
   });

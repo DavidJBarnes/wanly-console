@@ -4,6 +4,27 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FaceLoop } from "../api/types";
 import type { FaceArEngine, WarmState } from "./faceAr";
+import { isHairMode } from "./faceHair";
+import type { HairMode } from "./faceHair";
+
+const MODE_KEY = "wanly.faceLoops.mode";
+
+function savedMode(): HairMode {
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    return isHairMode(m) ? m : "face";
+  } catch {
+    return "face";
+  }
+}
+
+function saveMode(m: HairMode) {
+  try {
+    localStorage.setItem(MODE_KEY, m);
+  } catch {
+    /* private mode — the default is fine */
+  }
+}
 
 export interface FaceAr {
   /** null while checking; false = not a headset (desktop): offer a preview instead. */
@@ -12,6 +33,9 @@ export interface FaceAr {
   error: string | null;
   inSession: boolean;
   launch: (loop: FaceLoop) => void;
+  /** What a launch starts in (Face / Face + hair / Hair); A/X changes it in AR, remembered. */
+  mode: HairMode;
+  setMode: (m: HairMode) => void;
 }
 
 export function useFaceAr(): FaceAr {
@@ -20,6 +44,11 @@ export function useFaceAr(): FaceAr {
   const [, bump] = useState(0);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [engine, setEngine] = useState<FaceArEngine | null>(null);
+  const [mode, setModeState] = useState<HairMode>(savedMode);
+  const setMode = useCallback((m: HairMode) => {
+    setModeState(m);
+    saveMode(m);
+  }, []);
 
   useEffect(() => {
     if (!xr) return;
@@ -58,8 +87,8 @@ export function useFaceAr(): FaceAr {
       return;
     }
     if (e.state === "failed") void e.warm(); // e.g. camera permission granted since
-    e.launch(loop).catch((err) => setLaunchError(err instanceof Error ? err.message : String(err)));
-  }, [engine]);
+    e.launch(loop, mode, setMode).catch((err) => setLaunchError(err instanceof Error ? err.message : String(err)));
+  }, [engine, mode, setMode]);
 
   const e = engine;
   return {
@@ -68,5 +97,7 @@ export function useFaceAr(): FaceAr {
     error: launchError ?? e?.error ?? null,
     inSession: e?.inSession ?? false,
     launch,
+    mode,
+    setMode,
   };
 }
