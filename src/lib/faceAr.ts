@@ -26,8 +26,8 @@ import { loopFile, loopVersion } from "./faceLoops";
 import { buildTriangles, featherAlpha, fitSimilarity, frameAttributes, ovalLoop, TOTAL_VERTICES } from "./faceMask";
 import type { Similarity } from "./faceMask";
 import { applyMat4 } from "./faceSpike";
-import { cardDepth, HAIR_MODE_LABEL, hairRows, HEAD_INFLATE, headPivot, headShell, nextHairMode } from "./faceHair";
-import { approach, DriftJudge, GLIDE_MS, lookAngles, TRACK_INTERVAL_MS, TRACK_WINDOW, unplace } from "./faceTrack";
+import { cardDepth, HAIR_MODE_LABEL, hairRows, HEAD_INFLATE, headEyes, headPivot, headShell, nextHairMode } from "./faceHair";
+import { approach, DriftJudge, frameIndex, GLIDE_MS, lookAngles, TRACK_INTERVAL_MS, TRACK_WINDOW, unplace } from "./faceTrack";
 import type { HairMode } from "./faceHair";
 import type { Pt3, Vec3 } from "./faceSpike";
 import {
@@ -71,6 +71,26 @@ interface FaceData {
 }
 
 /** A hidden, playing video element (1px, not display:none, so the browser keeps decoding it). */
+type FrameVideo = HTMLVideoElement & {
+  requestVideoFrameCallback?: (cb: (now: number, m: { mediaTime: number }) => void) => number;
+  shownMediaTime?: number;
+};
+
+/** Record the media time of each frame the video actually presents (console#757). */
+function trackShownFrames(v: FrameVideo): void {
+  if (!v.requestVideoFrameCallback) return;
+  const onFrame = (_: number, m: { mediaTime: number }) => {
+    v.shownMediaTime = m.mediaTime;
+    v.requestVideoFrameCallback!(onFrame);
+  };
+  v.requestVideoFrameCallback(onFrame);
+}
+
+/** The time of the frame on screen; currentTime where the browser can't say. */
+function shownTime(v: FrameVideo): number {
+  return v.shownMediaTime ?? v.currentTime;
+}
+
 function hiddenVideo(): HTMLVideoElement {
   const v = document.createElement("video");
   v.muted = true;
@@ -224,6 +244,7 @@ export class FaceArEngine {
       v.muted = true;
       v.playsInline = true;
       v.src = getFileUrl(loopFile(loop, file)!, loopVersion(loop));
+      trackShownFrames(v);
       v.play().catch(() => {}); // inside the tap, so autoplay rules allow it
       return v;
     };
@@ -422,6 +443,7 @@ async function runSession(
   let hairShell: THREE.Mesh | null = null;
   let headShellMesh: THREE.Mesh | null = null;
   let pivot = new THREE.Vector3();
+  let eyes = new THREE.Vector3();
   const buildHair = (f: FaceData) => {
     hairBuilt = true;
     const frame0 = f.positions.subarray(0, 468 * 3);
@@ -453,6 +475,7 @@ async function runSession(
     card.frustumCulled = false;
     hairGroup.add(hairShell, headShellMesh, card);
     pivot = new THREE.Vector3(...headPivot(frame0, sh));
+    eyes = new THREE.Vector3(...headEyes(frame0));
   };
   let mode: HairMode = startMode;
   let modeShownAt = -1e9;
@@ -752,7 +775,7 @@ async function runSession(
       faceUniforms.fromHair.value = useHair ? 1 : 0;
       if (f.hair) faceUniforms.faceToHair.value.fromArray(f.hair.faceToHair);
       const src = useHair ? hairClip : clip;
-      const fi = Math.floor(src.currentTime * f.fps) % f.frames;
+      const fi = frameIndex(shownTime(src), f.fps, f.frames);
       if (placed && (fi !== faceFrame || useHair !== lastUseHair)) {
         faceFrame = fi;
         lastUseHair = useHair;
@@ -781,7 +804,7 @@ async function runSession(
         // real face, so they must not turn: snap back.
         if (fullHead && pose) {
           const vh = unplace(placement, { x: viewerPos.x, y: viewerPos.y, z: viewerPos.z });
-          const want = lookAngles(vh, { x: pivot.x, y: pivot.y, z: pivot.z });
+          const want = lookAngles(vh, { x: eyes.x, y: eyes.y, z: eyes.z });
           yaw = approach(yaw, want.yaw, dt);
           pitch = approach(pitch, want.pitch, dt);
         } else if (!fullHead) {

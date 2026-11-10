@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardDepth, hairUv, HEAD_INFLATE, headPivot, headShell, isHairMode, nextHairMode } from "./faceHair";
+import { cardDepth, hairUv, HEAD_INFLATE, headEyes, headPivot, headShell, isHairMode, nextHairMode } from "./faceHair";
 
 describe("hair modes", () => {
   it("cycles face → face + hair → hair → face", () => {
@@ -69,7 +69,10 @@ describe("full head geometry", () => {
     expect(mid).toBeGreaterThan(cz);
     expect(cardDepth(s.center[0] + 2 * s.radii[0], s, pos)).toBe(cz);
   });
-  it("pivots at the top of the neck, behind the mouth", () => {
-    expect(headPivot(pos, s)).toEqual([s.center[0], -60, s.center[2]]);
+  it("looks from between the eyes", () => {
+    expect(headEyes(pos)).toEqual([0, 20, 20]);
+  });
+  it("pivots in the neck just under the chin", () => {
+    expect(headPivot(pos, s)).toEqual([s.center[0], -100 - 0.2 * 200, s.center[2]]);
   });
 });

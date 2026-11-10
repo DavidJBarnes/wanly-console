@@ -24,7 +24,11 @@ export const GLIDE_MS = 600;
 // Turning toward the viewer. Limited by the real head underneath: past ~20° its face would show
 // past her cheek.
 export const TURN_MAX_YAW_DEG = 18;
-export const TURN_MAX_PITCH_DEG = 8;
+// console#757: seated across from her, your eyes sit within ~5-10 cm of her mouth height, a
+// 3-6 deg look at 1 m; at 8 deg and 1:1 the nod was invisible. Pitch is exaggerated and allowed
+// further so it reads (yaw already did at 1:1).
+export const TURN_MAX_PITCH_DEG = 15;
+export const TURN_PITCH_GAIN = 1.6;
 export const TURN_TAU_S = 0.5;
 
 const DEG = Math.PI / 180;
@@ -115,8 +119,18 @@ export function lookAngles(target: Vec3, pivot: Vec3): { yaw: number; pitch: num
   const clamp = (v: number, m: number) => Math.max(-m * DEG, Math.min(m * DEG, v));
   return {
     yaw: clamp(Math.atan2(dx, dz), TURN_MAX_YAW_DEG),
-    pitch: clamp(Math.atan2(dy, Math.hypot(dx, dz)), TURN_MAX_PITCH_DEG),
+    pitch: clamp(TURN_PITCH_GAIN * Math.atan2(dy, Math.hypot(dx, dz)), TURN_MAX_PITCH_DEG),
   };
+}
+
+/**
+ * The loop frame on screen: from the displayed frame's media time (requestVideoFrameCallback),
+ * not currentTime, which runs on while the player stalls at a file wrap and split the face
+ * shape from the picture (console#757). Files hold several cycles; the data holds one.
+ */
+export function frameIndex(mediaTimeS: number, fps: number, frames: number): number {
+  const i = Math.round(mediaTimeS * fps) % frames;
+  return i < 0 ? i + frames : i;
 }
 
 /** Exponential approach of `cur` to `target` over dtS seconds with time constant tauS. */

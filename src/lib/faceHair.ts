@@ -78,10 +78,21 @@ export function cardDepth(x: number, shell: HeadShell, pos: ArrayLike<number>): 
   return cz + bend * Math.max(0, 1 - u * u);
 }
 
-/** Where the head turns: the top of the neck — centred, at mouth height, at the shell's centre depth. */
+/** Between her eyes: where she looks FROM. The turn's angle aims from here, though it rotates
+ * about headPivot (aiming from the pivot would tilt her up at a viewer level with her eyes). */
+export function headEyes(pos: ArrayLike<number>): [number, number, number] {
+  return [0, 1, 2].map((k) => (pos[33 * 3 + k] + pos[263 * 3 + k]) / 2) as [number, number, number];
+}
+
+/** How far below the chin the head turns, in face heights (console#757). */
+export const PIVOT_BELOW_CHIN = 0.2;
+
+/** Where the head turns: in the neck just under the chin, centred, at the shell's centre depth.
+ * Lower than the skull's own nod point (about mouth height) so a nod reads at small angles,
+ * high enough that the collar line barely moves. */
 export function headPivot(pos: ArrayLike<number>, shell: HeadShell): [number, number, number] {
-  const mouthY = (pos[13 * 3 + 1] + pos[14 * 3 + 1]) / 2;
-  return [shell.center[0], mouthY, shell.center[2]];
+  const fh = Math.abs(pos[10 * 3 + 1] - pos[152 * 3 + 1]);
+  return [shell.center[0], pos[152 * 3 + 1] - PIVOT_BELOW_CHIN * fh, shell.center[2]];
 }
 
 /** Frame `i`'s two affine rows from hair.bin (frames × 2 × 4). */

@@ -24,6 +24,8 @@ describe("face loops", () => {
   it("labels stats and picker entries", () => {
     expect(loopStatsLabel({ stats: { expression_travel_mm: 3.2, face_px: 650 } })).toBe("3.2 mm movement · face 650 px");
     expect(loopStatsLabel({ stats: null })).toBe("");
+    expect(loopStatsLabel({ stats: { face_px: 650, crown_clip_pct: 40 } })).toBe("face 650 px · crown cut off");
+    expect(loopStatsLabel({ stats: { face_px: 650, crown_clip_pct: 3 } })).toBe("face 650 px");
     expect(loopPickerLabel({ character: "Kelly-2026", label: "Calm smile + blinks" })).toBe("Kelly-2026 — Calm smile + blinks");
   });
 

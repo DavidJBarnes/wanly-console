@@ -1487,6 +1487,11 @@ export interface FaceLoop {
     frames?: number;
     fps?: number;
     hand_prepared?: boolean;
+    hair_pct?: number;
+    head_pct?: number;
+    /** % of the hair square's top rows that is head: hair running off the top (api#505). */
+    crown_clip_pct?: number;
+    end_speed_mm_s?: number;
   } | null;
   error: string | null;
   created_at: string;
