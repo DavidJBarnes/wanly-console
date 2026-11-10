@@ -42,13 +42,18 @@ export function needsPolling(loops: readonly Pick<FaceLoop, "status" | "render_s
   return loops.some((l) => l.status === "processing" || (l.status === "rendering" && l.render_status !== "failed"));
 }
 
-/** "3.2 mm movement · face 650 px" — the numbers that predicted how still a loop sits. */
+/** Above this, so much hair runs off the top that Full head has to stretch the edge (console#757). */
+export const CROWN_CLIP_PCT = 15;
+
+/** "3.2 mm movement · face 650 px" — the numbers that predicted how still a loop sits — plus
+ * "crown cut off" when the source shot has no room above the hair. */
 export function loopStatsLabel(loop: Pick<FaceLoop, "stats">): string {
   const s = loop.stats;
   if (!s) return "";
   return [
     s.expression_travel_mm != null ? `${s.expression_travel_mm} mm movement` : null,
     s.face_px != null ? `face ${s.face_px} px` : null,
+    (s.crown_clip_pct ?? 0) > CROWN_CLIP_PCT ? "crown cut off" : null,
   ].filter(Boolean).join(" · ");
 }
 

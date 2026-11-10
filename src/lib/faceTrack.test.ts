@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Similarity } from "./faceMask";
 import {
-  approach, DriftJudge, lookAngles, place, placementDiff, TURN_MAX_PITCH_DEG, TURN_MAX_YAW_DEG, unplace,
+  approach, DriftJudge, frameIndex, lookAngles, place, placementDiff, TURN_MAX_PITCH_DEG, TURN_PITCH_GAIN, TURN_MAX_YAW_DEG, unplace,
 } from "./faceTrack";
 
 const DEG = Math.PI / 180;
@@ -80,5 +80,20 @@ describe("turning toward the viewer", () => {
   it("approaches smoothly", () => {
     expect(approach(0, 1, 0.5, 0.5)).toBeCloseTo(1 - Math.exp(-1));
     expect(approach(0.3, 1, 0)).toBeCloseTo(0.3, 12);
+  });
+});
+
+describe("frameIndex", () => {
+  it("takes the displayed frame's time, modulo one cycle of the data", () => {
+    expect(frameIndex(0, 24, 142)).toBe(0);
+    expect(frameIndex(10 / 24 + 0.001, 24, 142)).toBe(10);
+    expect(frameIndex(150 / 24, 24, 142)).toBe(8); // second copy in the file
+  });
+});
+
+describe("pitch gain", () => {
+  it("exaggerates a small look up so the nod reads", () => {
+    const a = lookAngles({ x: 0, y: 50, z: 1000 }, { x: 0, y: 0, z: 0 });
+    expect(a.pitch).toBeCloseTo(TURN_PITCH_GAIN * Math.atan2(50, 1000));
   });
 });
