@@ -42,6 +42,7 @@ import {
 /** A caption ticket that finished as failed; its message is the API's reason. */
 class CaptionTicketFailed extends Error {}
 import { seedRecipePrefill } from "../lib/recipePrefill";
+import { useEnhanceQueue } from "../stores/enhanceStore";
 import { preselectCharacter, preselectPose } from "../lib/defaultSelection";
 import { guessPoseFromTags, type PoseGuess } from "../lib/poseFromTags";
 import { guessCharacterFromTags, type CharacterGuess } from "../lib/characterFromTags";
@@ -197,7 +198,6 @@ export default function RecipeForm({
   const [savedEnhanced, setSavedEnhanced] = useState<string | null>(null);
   // Read by the pose effect for the same reason as savedSceneRef (wanly-api#484).
   const savedEnhancedRef = useRef<string | null>(null);
-  savedEnhancedRef.current = savedEnhanced;
   const savedSceneRef = useRef<string | null>(null);
   savedSceneRef.current = savedScene;
 
@@ -407,6 +407,30 @@ export default function RecipeForm({
         ? initialFrom.last_frame_path
         : null;
 
+  // This frame in the enhancer's queue (wanly-api#507). While it is, the saved script is about
+  // to be replaced -- a Re-enhance -- so it is NOT filled in: <PROMPT> goes to the API bare,
+  // and the claim waits for the new one. Continuations read the job's start image at the claim,
+  // so this is segment 0's concern only.
+  const enhanceQ = useEnhanceQueue();
+  const enhancing = !continuing && !!describePath && !!enhanceQ?.waiting.includes(describePath);
+  const enhanceFailure = !continuing && describePath
+    ? enhanceQ?.failed.find((f) => f.path === describePath)
+    : undefined;
+  const usableEnhanced = enhancing ? null : savedEnhanced;
+  savedEnhancedRef.current = usableEnhanced;
+  // When it leaves the queue, read the new script; the effect below fills it in.
+  const wasEnhancing = useRef(false);
+  useEffect(() => {
+    const finished = wasEnhancing.current && !enhancing;
+    wasEnhancing.current = enhancing;
+    if (!finished || !describePath) return;
+    let live = true;
+    getImageScene(describePath)
+      .then((s) => { if (live) setSavedEnhanced(s.enhanced_prompt ?? null); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [enhancing, describePath]);
+
   // Where this frame's scene caption has got to, from the shared caption store (console#564).
   const frameScene = useCaptionStatus(describePath, "scene");
 
@@ -502,10 +526,10 @@ export default function RecipeForm({
   useEffect(() => {
     setPrompt((p) => {
       if (!wantsEnhanced(p)) return p;
-      if (savedEnhanced) return fillEnhanced(p, savedEnhanced);
+      if (usableEnhanced) return fillEnhanced(p, usableEnhanced);
       return hasEnhancedRegion(p) ? unfillEnhanced(p) : p;
     });
-  }, [savedEnhanced]);
+  }, [usableEnhanced]);
 
   // An image passed in from the Image Repo. Referenced, never re-uploaded.
   useEffect(() => {
@@ -862,26 +886,30 @@ export default function RecipeForm({
           {/* The start frame's enhanced prompt (wanly-api#480), made in the Image Repo modal.
               A button, not an auto-fill: it REPLACES the pose's prompt, so it is a choice --
               and it keeps the characters' trigger phrases in front (lib/enhancedPrompt). */}
-          {savedEnhanced && !wantsEnhanced(prompt) && (
+          {usableEnhanced && !wantsEnhanced(prompt) && (
             <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => setPrompt(withTriggers(triggersOf(filledSlots), savedEnhanced))}
+                onClick={() => setPrompt(withTriggers(triggersOf(filledSlots), usableEnhanced))}
               >
                 Use enhanced prompt
               </Button>
               <Typography variant="caption" color="text.secondary">
-                This frame has an enhanced prompt ({savedEnhanced.trim().split(/\s+/).length} words).
+                This frame has an enhanced prompt ({usableEnhanced.trim().split(/\s+/).length} words).
                 Using it replaces the pose&apos;s prompt; the character trigger stays in front.
               </Typography>
             </Stack>
           )}
           {/* <PROMPT> (wanly-api#484): what the placeholder became, or will become. */}
           {wantsEnhanced(prompt) && (
-            <Alert severity={!continuing && describePath && !hasEnhancedRegion(prompt) ? "warning" : "info"}>
-              {hasEnhancedRegion(prompt)
-                ? `${PROMPT_TOKEN} is filled with this frame's enhanced prompt (${(savedEnhanced ?? "").trim().split(/\s+/).length} words).`
+            <Alert severity={!continuing && describePath && !hasEnhancedRegion(prompt) && !enhancing ? "warning" : "info"}>
+              {enhancing
+                ? `Enhance prompt is running for this frame. The job waits for it, then fills ${PROMPT_TOKEN} with the new text.`
+                : enhanceFailure && !usableEnhanced
+                ? `Enhance prompt failed for this frame (${enhanceFailure.error}). The job waits until you Retry it, or Dismiss it from the enhance chip to render without.`
+                : hasEnhancedRegion(prompt)
+                ? `${PROMPT_TOKEN} is filled with this frame's enhanced prompt (${(usableEnhanced ?? "").trim().split(/\s+/).length} words).`
                 : continuing
                   ? `${PROMPT_TOKEN} is filled with the job's start image's enhanced prompt when this segment runs, and dropped if it has none.`
                   : describePath

@@ -201,6 +201,8 @@ export interface SegmentResponse {
    *  the moment a worker holding the file comes online. Null means nothing to say — either
    *  somebody can run it, or no worker has reported an inventory to judge against. */
   blocked_reason: string | null;
+  /** Held on its <PROMPT> image's enhance (wanly-api#507); blocked_reason has the words. */
+  enhance_wait?: "queued" | "failed" | null;
   /** A caption-held segment (console#562): the image its <SCENE> comes from, and --
    *  while awaiting_caption -- what the hold is doing and where the image sits in the caption
    *  queue. Filled by the job detail endpoint only. */

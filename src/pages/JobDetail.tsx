@@ -1386,10 +1386,10 @@ export default function JobDetail() {
                           <Tooltip title={seg.blocked_reason}>
                             <Chip
                               size="small"
-                              color="warning"
+                              color={seg.enhance_wait === "queued" ? "info" : "warning"}
                               variant="outlined"
                               icon={<WarningAmber sx={{ fontSize: 14 }} />}
-                              label="Blocked"
+                              label={seg.enhance_wait === "queued" ? "Waiting for prompt" : seg.enhance_wait === "failed" ? "Enhance failed" : "Blocked"}
                             />
                           </Tooltip>
                         )}
@@ -1629,10 +1629,10 @@ export default function JobDetail() {
                         <Tooltip title={seg.blocked_reason}>
                           <Chip
                             size="small"
-                            color="warning"
+                            color={seg.enhance_wait === "queued" ? "info" : "warning"}
                             variant="outlined"
                             icon={<WarningAmber sx={{ fontSize: 14 }} />}
-                            label="Blocked"
+                            label={seg.enhance_wait === "queued" ? "Waiting for prompt" : seg.enhance_wait === "failed" ? "Enhance failed" : "Blocked"}
                           />
                         </Tooltip>
                       )}
