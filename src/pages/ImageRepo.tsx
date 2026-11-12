@@ -50,9 +50,7 @@ import {
   Favorite,
   LabelOff,
   VideocamOff,
-  LocalOffer,
   NavigateNext,
-  PhotoLibrary,
   PlayArrow,
   Refresh,
   Search,
@@ -114,6 +112,7 @@ import FavoriteHeart from "../components/FavoriteHeart";
 import { useTagStore } from "../stores/tagStore";
 import AddToDatasetDialog from "../components/AddToDatasetDialog";
 import BulkTagDialog from "../components/BulkTagDialog";
+import BulkActionsMenu from "../components/BulkActionsMenu";
 import TagChip from "../components/TagChip";
 import TagGroupRule from "../components/TagGroupRule";
 import TagFilterBar from "../components/TagFilterBar";
@@ -735,8 +734,8 @@ export default function ImageRepo() {
       .catch((err) => setEnhanceError({ path, message: apiError(err, "Could not queue it") }));
   };
 
-  const handleBulkEnhance = () => {
-    queueEnhance(selectedUris())
+  const handleBulkEnhance = (redo = false) => {
+    queueEnhance(selectedUris(), redo)
       .then((r) => {
         useEnhanceStore.getState().apply(r.status);
         setEnhanceNotice(describeQueued(r));
@@ -2356,51 +2355,14 @@ export default function ImageRepo() {
           {((untaggedView && untaggedImages.length > 0) || (filterActive && searchResults.length > 0)) && (
             <>
               {selectMode && selectedKeys.size > 0 && (
-                <>
-                  {filterActive && (
-                    <Button
-                      variant="contained"
-                      color="secondary"
-                      startIcon={isMobile ? undefined : <PhotoLibrary />}
-                      size={isMobile ? "small" : "medium"}
-                      onClick={() => setAddToDatasetOpen(true)}
-                    >
-                      {isMobile
-                        ? `Dataset (${selectedKeys.size})`
-                        : `Add ${selectedKeys.size} to a dataset`}
-                    </Button>
-                  )}
-                  <Button
-                    variant="contained"
-                    color="error"
-                    startIcon={isMobile ? undefined : <Delete />}
-                    size={isMobile ? "small" : "medium"}
-                    onClick={() => handleOpenBulkDelete(Array.from(selectedKeys))}
-                  >
-                    {isMobile
-                      ? `Del (${selectedKeys.size})`
-                      : `Delete ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={isMobile ? undefined : <LocalOffer />}
-                    size={isMobile ? "small" : "medium"}
-                    onClick={handleOpenBulkTag}
-                  >
-                    {isMobile
-                      ? `Tag (${selectedKeys.size})`
-                      : `Tag ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size={isMobile ? "small" : "medium"}
-                    onClick={handleBulkEnhance}
-                  >
-                    {isMobile
-                      ? `Enhance (${selectedKeys.size})`
-                      : `Enhance prompt for ${selectedKeys.size}`}
-                  </Button>
-                </>
+                <BulkActionsMenu
+                  count={selectedKeys.size}
+                  compact={isMobile}
+                  onEnhance={handleBulkEnhance}
+                  onTag={handleOpenBulkTag}
+                  onDataset={filterActive ? () => setAddToDatasetOpen(true) : undefined}
+                  onDelete={() => handleOpenBulkDelete(Array.from(selectedKeys))}
+                />
               )}
               <Button
                 variant={selectMode ? "contained" : "outlined"}
@@ -2864,50 +2826,17 @@ export default function ImageRepo() {
           sx={{ minWidth: 220 }}
         />
         {selectMode && selectedKeys.size > 0 && (
-          <>
-          {/* The one link from the repo to training, and it goes one way: images become
-              part of a dataset, and training happens from the dataset (#464). */}
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={isMobile ? undefined : <PhotoLibrary />}
-            size={isMobile ? "small" : "medium"}
-            onClick={() => setAddToDatasetOpen(true)}
-          >
-            {isMobile
-              ? `Dataset (${selectedKeys.size})`
-              : `Add ${selectedKeys.size} to a dataset`}
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={isMobile ? undefined : <DriveFileMove />}
-            size={isMobile ? "small" : "medium"}
-            onClick={() => handleOpenMoveDialog(Array.from(selectedKeys))}
-          >
-            {isMobile
-              ? `Move (${selectedKeys.size})`
-              : `Move ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            startIcon={isMobile ? undefined : <Delete />}
-            size={isMobile ? "small" : "medium"}
-            onClick={() => handleOpenBulkDelete(Array.from(selectedKeys))}
-          >
-            {isMobile
-              ? `Del (${selectedKeys.size})`
-              : `Delete ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={isMobile ? undefined : <LocalOffer />}
-            size={isMobile ? "small" : "medium"}
-            onClick={handleOpenBulkTag}
-          >
-            {isMobile ? `Tag (${selectedKeys.size})` : `Tag ${selectedKeys.size} image${selectedKeys.size > 1 ? "s" : ""}`}
-          </Button>
-          </>
+          // Add to a dataset is the one link from the repo to training, and it goes one way:
+          // images become part of a dataset, and training happens from the dataset (#464).
+          <BulkActionsMenu
+            count={selectedKeys.size}
+            compact={isMobile}
+            onEnhance={handleBulkEnhance}
+            onTag={handleOpenBulkTag}
+            onDataset={() => setAddToDatasetOpen(true)}
+            onMove={() => handleOpenMoveDialog(Array.from(selectedKeys))}
+            onDelete={() => handleOpenBulkDelete(Array.from(selectedKeys))}
+          />
         )}
         <Button
           variant="outlined"
