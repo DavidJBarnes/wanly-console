@@ -18,7 +18,9 @@ import {
   TextField,
 } from "@mui/material";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { Close, Error as ErrorIcon, Favorite, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary, ViewInAr } from "@mui/icons-material";
+import { useFullscreen } from "../hooks/useFullscreen";
+import { playerAction } from "../lib/playerKeys";
+import { Close, Error as ErrorIcon, Favorite, Fullscreen, FullscreenExit, NavigateBefore, NavigateNext, PlayCircleOutline, Repeat, Search, Shuffle, VideoLibrary, ViewInAr } from "@mui/icons-material";
 import { useNavigate } from "react-router";
 import { shuffleUrl } from "../lib/hologramPlaylist";
 import { getJobs, getJob, getFileUrl, getFavorites, toggleFavorite, getJobTagCounts } from "../api/client";
@@ -279,6 +281,28 @@ export default function Videos() {
 
   const isPlaylistMode = playlist.length > 0;
   const currentPlaylistItem = isPlaylistMode ? playlist[playlistIndex] : null;
+
+  // console#765: fullscreen is the player's CONTAINER, and the playlist keeps ONE <video> whose
+  // src changes, so neither our fullscreen nor the native one ends when the next clip starts.
+  const singleFs = useFullscreen<HTMLDivElement>();
+  const playlistFs = useFullscreen<HTMLDivElement>();
+  const playerOpen = isPlaylistMode || !!videoModal;
+  const toggleSingleFs = singleFs.toggle;
+  const togglePlaylistFs = playlistFs.toggle;
+  useEffect(() => {
+    if (!playerOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      const action = playerAction(e);
+      if (!action) return;
+      e.preventDefault();
+      if (action === "fullscreen") (isPlaylistMode ? togglePlaylistFs : toggleSingleFs)();
+      else if (isPlaylistMode && action === "next") {
+        setPlaylistIndex((i) => Math.min(i + 1, playlist.length - 1));
+      } else if (isPlaylistMode && action === "prev") setPlaylistIndex((i) => Math.max(i - 1, 0));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [playerOpen, isPlaylistMode, playlist.length, togglePlaylistFs, toggleSingleFs]);
 
   const modalDetail = videoModal ? jobDetails[videoModal.jobId] : null;
   const modalVideo = modalDetail?.videos?.[0] ?? null;
@@ -555,7 +579,8 @@ export default function Videos() {
         fullWidth
         fullScreen={isMobile}
       >
-        <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
+        <DialogContent ref={singleFs.ref} sx={{ p: 0, position: "relative", bgcolor: "#000",
+            "&:fullscreen": { display: "flex", flexDirection: "column", height: "100vh" } }}>
           <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
             <IconButton
               onClick={() => setVideoModal(null)}
@@ -573,7 +598,10 @@ export default function Videos() {
               muted
               loop={loopVideo}
               src={getFileUrl(modalVideo.output_path)}
-              sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
+              controlsList="nofullscreen"
+              sx={singleFs.active
+                ? { width: "100%", flex: 1, minHeight: 0, objectFit: "contain", display: "block" }
+                : { width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
             />
           ) : modalVideo?.status === "failed" ? (
             <Box sx={{ p: 4 }}>
@@ -598,7 +626,7 @@ export default function Videos() {
             </Box>
           ) : null}
           {videoModal && (
-            <Box sx={{ p: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", bgcolor: "rgba(0,0,0,0.8)" }}>
+            <Box sx={{ p: 1.5, display: "flex", alignItems: "center", gap: 1, bgcolor: "rgba(0,0,0,0.8)" }}>
               <IconButton
                 size="small"
                 onClick={() => setLoopVideo((v) => !v)}
@@ -607,6 +635,18 @@ export default function Videos() {
               >
                 <Repeat fontSize="small" />
               </IconButton>
+              {singleFs.supported && (
+                <IconButton
+                  size="small"
+                  onClick={singleFs.toggle}
+                  sx={{ color: "white" }}
+                  title={singleFs.active ? "Exit fullscreen (F)" : "Fullscreen (F)"}
+                  aria-label={singleFs.active ? "Exit fullscreen" : "Fullscreen"}
+                >
+                  {singleFs.active ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
+                </IconButton>
+              )}
+              <Box sx={{ flex: 1 }} />
               <Button
                 size="small"
                 variant="contained"
@@ -631,7 +671,8 @@ export default function Videos() {
         fullWidth
         fullScreen={isMobile}
       >
-        <DialogContent sx={{ p: 0, position: "relative", bgcolor: "#000" }}>
+        <DialogContent ref={playlistFs.ref} sx={{ p: 0, position: "relative", bgcolor: "#000",
+            "&:fullscreen": { display: "flex", flexDirection: "column", height: "100vh" } }}>
           <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
             <IconButton
               onClick={() => setPlaylist([])}
@@ -644,8 +685,8 @@ export default function Videos() {
           {currentPlaylistItem && (
             <Box
               component="video"
-              key={playlistIndex}
               controls
+              controlsList="nofullscreen"
               autoPlay
               muted={playlistMuted}
               onVolumeChange={(e: SyntheticEvent<HTMLVideoElement>) => setPlaylistMuted(e.currentTarget.muted)}
@@ -656,7 +697,9 @@ export default function Videos() {
                   setPlaylistIndex((i) => i + 1);
                 }
               }}
-              sx={{ width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
+              sx={playlistFs.active
+                ? { width: "100%", flex: 1, minHeight: 0, objectFit: "contain", display: "block" }
+                : { width: "100%", maxHeight: "80vh", objectFit: "contain", display: "block" }}
             />
           )}
           {currentPlaylistItem && (
@@ -666,6 +709,7 @@ export default function Videos() {
                 disabled={playlistIndex === 0}
                 onClick={() => setPlaylistIndex((i) => i - 1)}
                 sx={{ color: "white" }}
+                title="Previous (P)"
               >
                 <NavigateBefore />
               </IconButton>
@@ -677,6 +721,7 @@ export default function Videos() {
                 disabled={playlistIndex === playlist.length - 1}
                 onClick={() => setPlaylistIndex((i) => i + 1)}
                 sx={{ color: "white" }}
+                title="Next (N)"
               >
                 <NavigateNext />
               </IconButton>
@@ -688,6 +733,17 @@ export default function Videos() {
               >
                 <Repeat fontSize="small" />
               </IconButton>
+              {playlistFs.supported && (
+                <IconButton
+                  size="small"
+                  onClick={playlistFs.toggle}
+                  sx={{ color: "white" }}
+                  title={playlistFs.active ? "Exit fullscreen (F)" : "Fullscreen (F)"}
+                  aria-label={playlistFs.active ? "Exit fullscreen" : "Fullscreen"}
+                >
+                  {playlistFs.active ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
+                </IconButton>
+              )}
               <Typography variant="body2" noWrap sx={{ color: "rgba(255,255,255,0.7)", flex: 1, ml: 1 }}>
                 {currentPlaylistItem.jobName}
               </Typography>
